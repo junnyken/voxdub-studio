@@ -44,6 +44,7 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V14 | Dịch phụ đề rời (`.srt`/`.vtt`, ngoài luồng dub) | ✅ Xong, live-verify SaaS thật | Core+SaaS endpoint+GUI (verify headless offscreen)+CLI đủ theo Scope A-G; 46 test mới; live-verify thật qua `/translate-subtitle` (key Gemini thật, 2 chiều vi/en, idempotency xác nhận qua Mongo) — vi/en đã kiểm chứng cả 2 đường (local NLLB + SaaS); ~190/204 mã FLORES-200 còn lại chưa kiểm chứng (có chủ đích) — xem TEST_LOG |
 | V15 | Sửa bug hardcode tiếng Việt ở prompt dịch server-side | ✅ Xong, live-verify thật | Tìm ra khi audit V14 — `/translate`,`/analyze`,`/review` giờ nhận `targetLang`, field response đổi `text_<targetLang>`; 170 test unit/mock pass + live-verify HTTP thật (key Gemini thật, targetLang=en trả đúng `text_en`, Vox trừ đúng trong Mongo) — xem TEST_LOG |
 | V16 | Retry/backoff cho SaaS call một-lần (Phase E — đóng gap ổn định so với thị trường) | ✅ Xong | Audit phát hiện `translate_saas.py` đã có bounded-retry sẵn; đóng nốt 2 điểm thiếu (poll+tải cloud-render, dịch phụ đề SaaS) qua module `saas_retry.py` dùng chung; 18 test mới, 0 regression (742/746 pass) — xem TEST_LOG |
+| V17 | Mở rộng ngôn ngữ đích theo catalog CapCut thật (Phase E — đóng gap cạnh tranh lớn nhất so với thị trường) | ✅ Xong, 1/8 live-verify thật | +8 TARGETS (ja/zh/es/th/id/pt/fr/de, đều có giọng CapCut thật ≥3); tìm+sửa bug thật: `normalize_vi_text()` bị áp nhầm cho MỌI giọng CapCut kể cả tiếng Anh đã live (V11); live-verify thật tiếng Nhật: NLLB vi→ja + CapCut TTS ja-JP thật (audio non-silent, RMS 3345); 7/8 ngôn ngữ còn lại đánh dấu "thử nghiệm" — xem TEST_LOG |
 
 ## Tổng quan phase
 
@@ -1336,6 +1337,93 @@ Success Criteria:
 - 742/746 test pass (0 fail so với trước, 18 test mới) — xem TEST_LOG.
 - `grep -rn "job_status\|download_job_result\|translate_subtitle(" autodub/cloud_render.py autodub/text/subtitle_translate.py`
   không còn lời gọi trần nào ngoài qua saas_retry (poll) hoặc call_with_retry.
+```
+
+### V17 — Mở rộng ngôn ngữ đích theo catalog CapCut thật
+
+```
+V17 — Mở rộng TARGETS theo catalog giọng CapCut thật (đóng gap cạnh tranh Phase E)
+
+Context:
+- Tài liệu bắt buộc: autodub/languages.py (TARGETS — chỉ vi/en trước V17),
+  autodub/speech/tts/capcut_api/Voice.json (catalog giọng CapCut thật, 127
+  giọng), autodub/speech/tts/voices.py::catalog() (đã target-aware từ V11),
+  autodub/text/translate_local.py::LANG_TO_FLORES (đường dịch local NLLB).
+- Trạng thái hiện tại: so sánh thị trường (Phase E, xem đầu mục "Phase E")
+  cho thấy đây là gap cạnh tranh LỚN NHẤT — 90-175+ ngôn ngữ đích ở đối thủ
+  vs chỉ vi+en (thử nghiệm) ở VoxDub, dù hạ tầng target-aware đã tổng quát
+  hoá đầy đủ từ V11 (voices.catalog/GUI/editor/timing/align — không cần sửa
+  thêm để thêm 1 target mới, CHỈ cần đăng ký registry).
+- Quyết định kiến trúc phải giữ nguyên: KHÔNG thêm ngôn ngữ nào chưa có
+  giọng CapCut thật backing nó (không hứa hẹn TTS không tồn tại) — audit
+  Voice.json thật cho ra đúng 10 ngôn ngữ có giọng (>=3 giọng mỗi ngôn ngữ):
+  vi(22)/en(40)/ja(19)/zh(16)/es(9)/th(6)/id(5)/pt(4)/fr(3)/de(3).
+
+Goal:
+- Người dùng chọn được 1 trong 10 ngôn ngữ đích (thay vì 2) mà không cần
+  sửa gì ngoài đăng ký registry — verify hạ tầng target-aware của V11 thực
+  sự tổng quát như thiết kế.
+
+Constraints (Guardrails):
+1. Chỉ thêm ngôn ngữ có giọng CapCut thật (đã audit Voice.json, không suy
+   đoán) — đúng nguyên tắc V4 "mở rộng có kiểm chứng".
+2. Đánh dấu "thử nghiệm" cho MỌI ngôn ngữ trừ vi (kể cả en đã có từ V11) —
+   chỉ ngôn ngữ đã live-verify thật mới được bỏ nhãn.
+3. KHÔNG đổi hành vi target=vi/en hiện có (regression test khoá lại).
+4. Nếu audit phát hiện bug ảnh hưởng ngôn ngữ ĐANG CHẠY (không chỉ ngôn ngữ
+   mới) — sửa luôn, không trì hoãn sang mini-spec khác (đúng tinh thần V11
+   tìm+sửa bug align.py).
+
+Scope:
+A. Domain model: `autodub/languages.py::TARGETS` +8 entry (ja/zh/es/th/id/
+   pt/fr/de), field suy ra máy móc từ key (text_field/transcript_name/
+   srt_name/audio_name/folder_suffix) — không có logic đặc biệt nào khác vi.
+B. Services/engine: `translate_local.py::LANG_TO_FLORES` +4 mã (es/pt/fr/de
+   — ja/zh/th/id đã có sẵn từ V4). KHÔNG đổi voices.py/capcut_catalog.py
+   (đã target-aware từ V11, chỉ cần TargetLang.code khớp catalog).
+D. UI surfaces: `autodub_gui/dub_constants.py::DUB_TARGETS` +8 dòng, nhãn
+   "thử nghiệm" cho tất cả trừ vi.
+E. Tests: registry đủ 10 target + có giọng CapCut thật (test_multilang_
+   target.py), mọi TargetLang.code resolve được FLORES (không rơi ngầm về
+   vi như bug align.py cũ).
+
+Audit Before Build:
+- Voice.json: 127 giọng thật, `lang` field (BCP-47) cho 10 giá trị phân
+  biệt (không phải 12 như ghi nhận sai ở V8 — đó là đếm nhầm field `lan`
+  ngắn có 2 giá trị trùng lặp `jp`/`ja` và `br`/`pt` cho cùng 1 ngôn ngữ).
+- **Bug thật phát hiện ngoài phạm vi trực tiếp** (Constraint 4): CapCut
+  `synthesize()` áp `normalize_vi_text()` (đọc số kiểu tiếng Việt, "90%" ->
+  "chín mươi phần trăm") cho MỌI giọng bất kể ngôn ngữ — kể cả tiếng Anh đã
+  live từ V11. Không crash, chỉ đọc sai số trong câu có số. Đã sửa: lưu
+  `self._lang` ở `__init__`, chỉ áp `normalize_vi_text` khi
+  `self._lang == capcut_catalog.LANG` ("vi-VN"). Test khoá cả 2 chiều (vi
+  vẫn đọc kiểu Việt, non-vi giữ nguyên số).
+
+Design Choice:
+- Đăng ký registry bằng vòng lặp dữ liệu (không viết tay 8 lần) — mọi field
+  suy ra máy móc từ key, giữ đúng pattern additive-first (không đổi cách
+  TargetLang được dùng ở nơi khác).
+
+Test Plan:
+- Unit: registry đủ 10 target, catalog CapCut thật có giọng cho từng target,
+  FLORES mapping đủ cho mọi target.
+- Regression: 0 thay đổi hành vi vi/en.
+- Live verification: 1 ngôn ngữ mới (tiếng Nhật, chọn vì có 19 giọng — nhiều
+  thứ 2 sau vi/en) qua 2 lượt gọi THẬT: (1) NLLB local dịch vi->ja (model
+  622MB tải thật từ HuggingFace, không mock) — "Xin chào, hôm nay trời đẹp
+  quá." -> "こんにちは 今日はとても素敵です" (đúng nghĩa, tự nhiên); (2)
+  CapCut API thật, giọng "Hatunemiku" (ja-JP) — audio thật 2.352s, RMS biên
+  độ 3345 (khác 0 = có tiếng nói thật, không phải file rỗng/lỗi).
+- 7 ngôn ngữ còn lại (zh/es/th/id/pt/fr/de) CHƯA live-verify — đúng nguyên
+  tắc "mở rộng có kiểm chứng", giữ nhãn "thử nghiệm", không giả vờ đã kiểm
+  chứng chỉ vì code đúng.
+
+Success Criteria:
+- `set(TARGETS) == {vi, en, ja, zh, es, th, id, pt, fr, de}`, mỗi target có
+  giọng CapCut thật + FLORES mapping (test khoá lại).
+- 746/750 test pass, 0 regression.
+- Bug đọc số sai ngôn ngữ đã sửa + có test khoá cho cả giọng Việt và giọng
+  khác (không phải chỉ ghi nhận rồi để đó).
 ```
 
 ---

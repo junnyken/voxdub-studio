@@ -126,11 +126,13 @@ class CapCutSynthesizer:
         # nguyên hành vi trước V11. Bắt buộc truyền đúng khi target khác
         # tiếng Việt, không thì lookup() tìm nhầm catalog vi-VN và báo
         # "không có giọng" cho tên giọng CapCut ngôn ngữ khác hoàn toàn hợp lệ.
-        entry = capcut_catalog.lookup(voice_name, lang or capcut_catalog.LANG)
+        resolved_lang = lang or capcut_catalog.LANG
+        entry = capcut_catalog.lookup(voice_name, resolved_lang)
         if entry is None:
             raise ValueError(f"Không có giọng CapCut tên «{voice_name}»")
         self.settings = settings
         self.voice_name = voice_name
+        self._lang = resolved_lang
         self._voice_type = entry["voice_type"]
         self._resource_id = entry["resource_id"]
         self._device = _current_profile()
@@ -228,12 +230,21 @@ class CapCutSynthesizer:
         đồng loạt sau bước TTS.
         """
         from autodub.media.audio import wav_duration_s
+        from autodub.speech.tts import capcut_catalog
         from autodub.text.vi_numbers import normalize_vi_text
 
         output_path = os.path.abspath(output_path)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        text = normalize_vi_text(text.strip())
+        # Bug thật phát hiện lúc audit V17 (docs/PLAN.md, Phase E):
+        # normalize_vi_text() đọc số theo QUY TẮC TIẾNG VIỆT ("90%" -> "chín
+        # mươi phần trăm") — trước đây áp cho MỌI giọng CapCut bất kể ngôn
+        # ngữ, kể cả tiếng Anh (V11) lẫn 8 đích mới V17. CapCut là TTS
+        # thương mại, tự đọc số đúng theo ngôn ngữ giọng đang dùng — chỉ cần
+        # (và chỉ nên) chuẩn hoá kiểu Việt khi giọng THẬT SỰ là tiếng Việt.
+        text = text.strip()
+        if self._lang == capcut_catalog.LANG:
+            text = normalize_vi_text(text)
         if not text.strip(".,!?;: "):
             # Dòng trống (transcript sửa tay) — clip im lặng, cùng lý do như
             # VieNeu: một dòng rỗng không được làm đổ cả video.

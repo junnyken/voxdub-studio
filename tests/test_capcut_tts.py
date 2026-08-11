@@ -161,6 +161,46 @@ def test_blank_line_never_calls_the_network(settings, tmp_path, monkeypatch):
     assert os.path.isfile(out)
 
 
+def test_vietnamese_voice_still_spells_numbers_vietnamese_style(settings, tmp_path, monkeypatch):
+    """0 regression — giọng tiếng Việt (mặc định) vẫn đọc số kiểu Việt."""
+    from autodub.speech.tts.capcut_vi import CapCutSynthesizer
+
+    synth = CapCutSynthesizer(settings, voice_name="Thanh Lan")
+    seen = {}
+
+    def _fake_fetch(text):
+        seen["text"] = text
+        return b""
+
+    monkeypatch.setattr(synth, "_fetch_mp3", _fake_fetch)
+    monkeypatch.setattr(synth, "_to_wav", lambda mp3, path: open(path, "wb").close())
+    monkeypatch.setattr("autodub.media.audio.wav_duration_s", lambda p: 1.0)
+    synth.synthesize("Còn 90% pin.", str(tmp_path / "seg_vi.wav"))
+    assert "chín mươi phần trăm" in seen["text"]
+
+
+def test_non_vietnamese_voice_does_not_spell_numbers_vietnamese_style(
+        settings, tmp_path, monkeypatch):
+    """Bug thật phát hiện lúc audit V17 (docs/PLAN.md, Phase E): giọng KHÔNG
+    phải tiếng Việt (vd tiếng Anh, hoặc 8 đích mới V17) không được áp quy tắc
+    đọc số tiếng Việt — CapCut tự đọc số đúng ngôn ngữ giọng đang dùng."""
+    from autodub.speech.tts.capcut_vi import CapCutSynthesizer
+
+    synth = CapCutSynthesizer(settings, voice_name="EN US 2", lang="en-US")
+    seen = {}
+
+    def _fake_fetch(text):
+        seen["text"] = text
+        return b""
+
+    monkeypatch.setattr(synth, "_fetch_mp3", _fake_fetch)
+    monkeypatch.setattr(synth, "_to_wav", lambda mp3, path: open(path, "wb").close())
+    monkeypatch.setattr("autodub.media.audio.wav_duration_s", lambda p: 1.0)
+    synth.synthesize("Still 90% battery.", str(tmp_path / "seg_en.wav"))
+    assert seen["text"] == "Still 90% battery."
+    assert "chín mươi phần trăm" not in seen["text"]
+
+
 def test_network_failure_retries_then_raises_with_a_way_out(settings,
                                                             monkeypatch):
     """Hết lượt thử phải ném lỗi có hướng xử lý, không nuốt lỗi im lặng."""

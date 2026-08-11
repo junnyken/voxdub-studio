@@ -27,7 +27,9 @@ def test_target_vietnamese_has_a_flores_code():
 
 
 def test_unmapped_language_returns_none():
-    assert flores_code("fr-FR") is None
+    # "fr-FR" từng dùng làm ví dụ mã chưa map, nhưng V17 (Phase E) đã thêm nó
+    # làm đích dubbing — đổi sang mã giả không thể có thật.
+    assert flores_code("xx-XX") is None
 
 
 def test_is_available_false_when_not_configured(monkeypatch):
@@ -39,7 +41,7 @@ def test_is_available_false_when_not_configured(monkeypatch):
 def test_is_available_false_for_unsupported_language(monkeypatch):
     settings = Settings()
     monkeypatch.setattr(settings, "translate_local_configured", lambda: True)
-    assert is_available(settings, "fr-FR") is False
+    assert is_available(settings, "xx-XX") is False
 
 
 def test_is_available_true_when_configured_and_supported(monkeypatch):

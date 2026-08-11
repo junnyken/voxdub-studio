@@ -1671,3 +1671,96 @@ tải kết quả — MỘT LẦN, không retry — **gap thật**), `subtitle_t
   theo dõi tập trung) — nếu muốn giám sát tỉ lệ lỗi thật ở quy mô, cần
   mini-spec riêng cho observability/alerting (ngoài phạm vi V16, xem thêm
   nhận xét "Remaining Limits" của báo cáo research thị trường Phase E).
+
+## V17 — Mở rộng ngôn ngữ đích theo catalog CapCut thật (Phase E, 2026-08-11)
+
+Theo `docs/PLAN.md` mục V17. Guardrail: chỉ thêm ngôn ngữ có giọng CapCut
+thật, đánh dấu "thử nghiệm" cho mọi ngôn ngữ trừ vi, không đổi hành vi
+vi/en hiện có, sửa ngay nếu audit lộ bug ảnh hưởng ngôn ngữ đang chạy.
+
+### Audit Before Build
+
+`python3` đọc trực tiếp `Voice.json` (127 giọng thật): field `lang`
+(BCP-47) cho đúng **10** giá trị phân biệt — `en-US`(40) `vi-VN`(22)
+`ja-JP`(19) `zh-CN`(16) `es-ES`(9) `th-TH`(6) `id-ID`(5) `pt-BR`(4)
+`fr-FR`(3) `de-DE`(3). Con số "12 ngôn ngữ" ghi ở V8 TEST_LOG là đếm nhầm
+field `lan` ngắn (có `jp`/`ja` và `br`/`pt` trùng cùng 1 ngôn ngữ) — đã
+sửa lại đúng ở đây.
+
+**Bug thật phát hiện ngoài phạm vi trực tiếp** (không phải lỗi của V17,
+lỗi có sẵn từ V11): `autodub/speech/tts/capcut_vi.py::CapCutSynthesizer.
+synthesize()` gọi `normalize_vi_text()` (đọc số kiểu tiếng Việt) cho MỌI
+giọng CapCut bất kể ngôn ngữ — kể cả giọng tiếng Anh đã live-verify từ
+V11. Không crash, chỉ đọc sai số khi câu có số ("90%" đọc thành "chín mươi
+phần trăm" dù giọng đang dùng là tiếng Anh/Nhật/...). Phát hiện lúc đọc kỹ
+`synthesize()` để hiểu luồng trước khi thêm target mới (đúng tinh thần
+audit-before-build, không phải cố tình đi tìm bug).
+
+### Sửa
+
+- `capcut_vi.py::CapCutSynthesizer.__init__`: lưu `self._lang` (trước đây
+  `lang` chỉ dùng để lookup catalog rồi bỏ, không giữ lại).
+- `capcut_vi.py::synthesize()`: chỉ gọi `normalize_vi_text()` khi
+  `self._lang == capcut_catalog.LANG` ("vi-VN") — giọng khác giữ nguyên
+  số, để CapCut (TTS thương mại) tự đọc đúng ngôn ngữ của chính nó.
+- `autodub/languages.py`: `TARGETS` +8 entry (ja/zh/es/th/id/pt/fr/de),
+  field suy máy móc từ key qua vòng lặp dữ liệu.
+- `autodub/text/translate_local.py`: `LANG_TO_FLORES` +4 mã (es-ES→
+  spa_Latn, pt-BR→por_Latn, fr-FR→fra_Latn, de-DE→deu_Latn — lấy đúng từ
+  bảng `flores200.py` đã fetch thật ở V14, không suy đoán). ja-JP/th-TH/
+  id-ID/zh-CN đã có sẵn từ V4.
+- `autodub_gui/dub_constants.py`: `DUB_TARGETS` +8 dòng, nhãn "thử
+  nghiệm" cho mọi ngôn ngữ trừ vi.
+
+### Verify
+
+- `tests/test_multilang_target.py` (+2 test): registry đủ 10 target, mỗi
+  target có giọng CapCut thật (`capcut_catalog.entries(lang=code)` khác
+  rỗng) VÀ resolve được FLORES-200 (không rơi ngầm về vi).
+- `tests/test_capcut_tts.py` (+2 test): giọng tiếng Việt vẫn đọc số kiểu
+  Việt (0 regression) — giọng khác (test bằng en-US) giữ nguyên số, không
+  bị chèn chữ Việt.
+- `tests/test_translate_local.py`: sửa 2 test dùng "fr-FR" làm ví dụ mã
+  CHƯA map (nay đã map thật) — đổi sang mã giả "xx-XX".
+- `pytest tests/ -q` toàn bộ: **746 passed, 4 skipped, 0 failed** (742 +
+  4 test mới, đã trừ đi 2 test sửa lại không phải test mới thật).
+
+### Live verification — THẬT, 1/8 ngôn ngữ mới (tiếng Nhật)
+
+Chọn tiếng Nhật (19 giọng, nhiều thứ 2 sau vi/en) — 2 lượt gọi THẬT, không
+mock:
+
+1. **NLLB local thật**: tải model `nllb-200-distilled-600M-ct2-int8`
+   (622MB) thật từ HuggingFace, gọi `run_local_worker()` thật (ctranslate2
+   inference thật, không stub) dịch `vie_Latn`→`jpn_Jpan`:
+   - "Xin chào, hôm nay trời đẹp quá." → "こんにちは 今日はとても素敵です"
+     (Xin chào, hôm nay rất đẹp/tuyệt — đúng nghĩa, tự nhiên).
+   - "Tôi rất vui được gặp bạn." → "初めまして." (lối chào chuẩn khi gặp
+     lần đầu trong tiếng Nhật — tự nhiên hơn cả dịch sát nghĩa).
+2. **CapCut TTS thật**: `CapCutSynthesizer(settings, "Hatunemiku",
+   lang="ja-JP")`, gọi API CapCut thật (mạng thật, không mock) với câu
+   tiếng Nhật vừa dịch — nhận về WAV thật: `duration=2.352s`,
+   `RMS amplitude=3345` (khác 0 xác nhận có tiếng nói thật, không phải
+   file rỗng/lỗi im lặng), `ffprobe` xác nhận PCM 16-bit/44.1kHz hợp lệ.
+
+### Remaining Limits (V17)
+
+- **7/8 ngôn ngữ mới CHƯA live-verify** (zh/es/th/id/pt/fr/de) — chỉ ja đã
+  xác nhận thật qua dịch+TTS. Đúng nguyên tắc "mở rộng có kiểm chứng,
+  không làm tất cả cùng lúc" (V4) — GUI đánh dấu "thử nghiệm" rõ ràng cho
+  cả 7 ngôn ngữ này, không giả vờ đã kiểm chứng.
+- Chưa chạy `DubPipeline.run()` đầy đủ (ASR nguồn + dịch + TTS + mux video)
+  cho target=ja — chỉ verify riêng 2 mắt xích MỚI (dịch+TTS), không phải
+  toàn bộ pipeline. Rủi ro thấp vì phần còn lại (ASR, mux, subtitle,
+  timing) đã chứng minh KHÔNG phụ thuộc target ở V11 (live-verify target=en
+  full pipeline, xem TEST_LOG mục V11) — nhưng chưa tự xác nhận riêng cho
+  target=ja bằng 1 lượt full pipeline thật.
+- Chất lượng dịch NLLB cho 7 ngôn ngữ còn lại chưa đánh giá — 2 câu tiếng
+  Nhật ở trên "đọc được, tự nhiên" theo đánh giá của người không phải bản
+  ngữ Nhật (giới hạn tương tự đã ghi ở V11 cho tiếng Anh) — cần người bản
+  ngữ hoặc bên thứ ba đánh giá trước khi quảng bá rộng.
+- `control_server` (`resolveTargetLang()`, xem `prompts/translate.js`)
+  KHÔNG có bộ quy tắc bản ngữ riêng cho 8 ngôn ngữ mới (chỉ vi/en có
+  `LANGUAGE_RULES` — 8 ngôn ngữ mới rơi về `_GENERIC_RULES` chung khi dịch
+  qua đường SaaS) — đường SaaS cho các ngôn ngữ này chưa được đánh giá
+  chất lượng, chỉ đường local (NLLB) đã live-verify ở trên cho tiếng Nhật.

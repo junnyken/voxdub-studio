@@ -64,9 +64,22 @@ SUBTITLE_MODES: list[tuple[str, str]] = [
 # autodub.languages.TARGETS (nguồn thật cho lõi xử lý). Tiếng Anh đánh dấu
 # thử nghiệm: engine giọng đọc chỉ có CapCut (qua mạng), chưa có giọng
 # offline như VieNeu cho tiếng Việt.
+#: Mini-spec V17 (docs/PLAN.md, Phase E) — mở rộng đích theo catalog giọng
+#: CapCut thật (autodub/speech/tts/capcut_api/Voice.json). Tất cả (trừ vi)
+#: đánh dấu "thử nghiệm" — chỉ tiếng Nhật đã live-verify (xem TEST_LOG mục
+#: V17); 7 ngôn ngữ còn lại code đúng/giọng có thật nhưng CHƯA chạy pipeline
+#: thật (đúng nguyên tắc V4/V11: mở rộng có kiểm chứng, không giả vờ).
 DUB_TARGETS: list[tuple[str, str]] = [
     ("Tiếng Việt", "vi"),
     ("Tiếng Anh (thử nghiệm, cần mạng cho giọng đọc)", "en"),
+    ("Tiếng Nhật (thử nghiệm, cần mạng cho giọng đọc)", "ja"),
+    ("Tiếng Trung (thử nghiệm, cần mạng cho giọng đọc)", "zh"),
+    ("Tiếng Tây Ban Nha (thử nghiệm, cần mạng, chưa kiểm chứng ASR/dịch thật)", "es"),
+    ("Tiếng Thái (thử nghiệm, cần mạng, chưa kiểm chứng ASR/dịch thật)", "th"),
+    ("Tiếng Indonesia (thử nghiệm, cần mạng, chưa kiểm chứng ASR/dịch thật)", "id"),
+    ("Tiếng Bồ Đào Nha (thử nghiệm, cần mạng, chưa kiểm chứng ASR/dịch thật)", "pt"),
+    ("Tiếng Pháp (thử nghiệm, cần mạng, chưa kiểm chứng ASR/dịch thật)", "fr"),
+    ("Tiếng Đức (thử nghiệm, cần mạng, chưa kiểm chứng ASR/dịch thật)", "de"),
 ]
 
 # Sáu phong cách dịch. Chuỗi ghi chú được nối thêm vào phần hướng dẫn dịch

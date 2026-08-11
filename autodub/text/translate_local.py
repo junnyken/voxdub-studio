@@ -27,8 +27,10 @@ from autodub.utils import bundled_file, setup_logging
 
 logger = setup_logging("autodub.translate_local")
 
-# BCP-47 (dùng trong app) -> FLORES-200 (dùng bởi NLLB). Chỉ gồm đúng các
-# ngôn ngữ nguồn đã có trong autodub_gui/dub_constants.py (V4) + đích "vi".
+# BCP-47 (dùng trong app) -> FLORES-200 (dùng bởi NLLB). Gồm các ngôn ngữ
+# nguồn đã có trong autodub_gui/dub_constants.py (V4) + mọi TargetLang.code
+# đã đăng ký trong autodub/languages.py (V8/V11, mở rộng V17 — mã FLORES lấy
+# từ đúng bảng 204 mã đã fetch thật trong flores200.py, không suy đoán).
 LANG_TO_FLORES = {
     "zh-CN": "zho_Hans",
     "zh-TW": "zho_Hant",
@@ -39,6 +41,12 @@ LANG_TO_FLORES = {
     "th-TH": "tha_Thai",
     "id-ID": "ind_Latn",
     "vi-VN": "vie_Latn",
+    # Mini-spec V17 — thêm đích mới có giọng CapCut thật nhưng chưa có mã
+    # nguồn ASR tương ứng (không phải nguồn V4, chỉ dùng làm ĐÍCH ở đây).
+    "es-ES": "spa_Latn",
+    "pt-BR": "por_Latn",
+    "fr-FR": "fra_Latn",
+    "de-DE": "deu_Latn",
 }
 
 

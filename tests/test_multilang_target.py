@@ -34,8 +34,38 @@ def test_english_target_registered():
     assert en.folder_suffix == "_en"
 
 
-def test_targets_registry_has_exactly_vi_and_en():
-    assert set(TARGETS) == {"vi", "en"}
+def test_targets_registry_has_vi_and_en_plus_v17_expansion():
+    """V8/V11 chốt {vi, en} — V17 (Phase E) thêm 8 đích mới có giọng CapCut
+    thật. Test này khoá đúng bộ 10 hiện tại, không phải mở tuỳ tiện thêm."""
+    assert set(TARGETS) == {"vi", "en", "ja", "zh", "es", "th", "id", "pt", "fr", "de"}
+
+
+# ------------------------------------------- mini-spec V17 (Phase E) --------
+
+def test_v17_targets_registered_with_capcut_voices():
+    """8 đích mới (V17) đều có giọng CapCut thật trong Voice.json — không
+    thêm 1 ngôn ngữ nào chưa có giọng nào backing nó."""
+    expected = {
+        "ja": "ja-JP", "zh": "zh-CN", "es": "es-ES", "th": "th-TH",
+        "id": "id-ID", "pt": "pt-BR", "fr": "fr-FR", "de": "de-DE",
+    }
+    for key, code in expected.items():
+        t = get_target(key)
+        assert t.code == code
+        assert t.text_field == f"text_{key}"
+        assert t.folder_suffix == f"_{key}"
+        entries = capcut_catalog.entries(lang=code)
+        assert entries, f"{code} phải có ít nhất 1 giọng CapCut thật"
+
+
+def test_v17_targets_have_local_flores_mapping():
+    """Mọi TargetLang.code (kể cả V17) phải resolve được sang FLORES-200 cho
+    đường dịch local NLLB (translate_local.py::flores_code) — nếu thiếu, GUI
+    sẽ âm thầm rơi về tiếng Việt (đúng như bug align.py đã sửa ở V11)."""
+    from autodub.text.translate_local import flores_code
+    for key, target in TARGETS.items():
+        assert flores_code(target.code) is not None, (
+            f"target={key} (code={target.code}) thiếu FLORES mapping")
 
 
 # ------------------------------------------------- capcut_catalog theo lang --

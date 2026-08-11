@@ -53,6 +53,36 @@ TARGETS: dict[str, TargetLang] = {
     ),
 }
 
+# Mini-spec V17 (docs/PLAN.md, Phase E) — mở rộng đích theo đúng catalog
+# giọng CapCut THẬT đã có sẵn trong autodub/speech/tts/capcut_api/Voice.json
+# (không suy đoán — 8 ngôn ngữ dưới đây đều có >=3 giọng thật, xem TEST_LOG
+# mục V17 cho số liệu audit). Toàn bộ hạ tầng (voices.catalog/GUI target-
+# aware, resolveTargetLang generic phía control_server) đã tổng quát hoá từ
+# V11 — thêm entry registry là đủ, KHÔNG cần sửa code khác. Tất cả đánh dấu
+# "thử nghiệm" cho tới khi có live-verify riêng (đúng nguyên tắc V4/V11: mở
+# rộng có kiểm chứng) — xem docs/dub_constants.py cho nhãn hiển thị GUI.
+_V17_TARGETS = [
+    # (key, code, iso639_2, name, capcut_voice_count_thật)
+    ("ja", "ja-JP", "jpn", "Japanese"),      # 19 giọng
+    ("zh", "zh-CN", "zho", "Chinese"),       # 16 giọng
+    ("es", "es-ES", "spa", "Spanish"),       # 9 giọng
+    ("th", "th-TH", "tha", "Thai"),          # 6 giọng
+    ("id", "id-ID", "ind", "Indonesian"),    # 5 giọng
+    ("pt", "pt-BR", "por", "Portuguese"),    # 4 giọng
+    ("fr", "fr-FR", "fra", "French"),        # 3 giọng
+    ("de", "de-DE", "deu", "German"),        # 3 giọng
+]
+for _key, _code, _iso, _name in _V17_TARGETS:
+    TARGETS[_key] = TargetLang(
+        key=_key, code=_code, iso639_2=_iso, name=_name,
+        text_field=f"text_{_key}",
+        transcript_name=f"transcript_{_key}.json",
+        srt_name=f"transcript_{_key}.srt",
+        audio_name=f"audio_{_key}_full.wav",
+        folder_suffix=f"_{_key}",
+    )
+del _key, _code, _iso, _name
+
 
 def get_target(key: str) -> TargetLang:
     """Resolve a target language from a short key or BCP-47 code."""
