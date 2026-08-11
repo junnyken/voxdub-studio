@@ -458,6 +458,9 @@ lập):**
   nhưng đây là quyết định pháp lý cần chủ dự án xác nhận, không phải quyết
   định kỹ thuật thuần túy — đã ghi rõ trong code + script cài đặt, KHÔNG
   tự ý quyết thay.
+  **[XÁC NHẬN 2026-08-11]** Chủ dự án đã xác nhận: giữ nguyên hiện trạng
+  (miễn phí, không thương mại hoá riêng bản dịch từ engine này) — không
+  cần đổi model. Coi như đã đóng, không phải rủi ro mở nữa.
 - Chất lượng dịch câu ngắn/cụt kém hơn rõ rệt so với câu dài có ngữ cảnh —
   đúng như dự đoán (dịch 1-pass, không có ngữ cảnh video như path B).
 - Chưa test với 6/8 ngôn ngữ nguồn (chỉ live-verify zh-CN qua 2 câu) — độ

@@ -1448,7 +1448,11 @@ Success Criteria:
 - **Xử lý bản quyền/đạo đức kỹ thuật** (rate-limit tải video, watermark output, consent
   check cho voice cloning) — đã nêu ở docs/PRD.md §9 như rủi ro mở, chưa có mini-spec vì
   cần chủ dự án quyết định mức độ can thiệp trước (đây là quyết định chính sách, không
-  phải kỹ thuật thuần tuý).
+  phải kỹ thuật thuần tuý). **[XÁC NHẬN 2026-08-11]** Chủ dự án đã xác nhận: chưa cần
+  can thiệp gì ở đợt này — giữ nguyên hiện trạng, không mở mini-spec mới cho mục này.
+- **Phễu hoàn thành/bỏ dở đầy đủ (V10 phần 1, telemetry client mở rộng)** — cần thêm thu
+  thập dữ liệu người dùng, đã hỏi chủ dự án. **[XÁC NHẬN 2026-08-11]** Giữ nguyên phạm vi
+  hiện tại (chỉ retention cohort của V10 phần 2) — không mở rộng thu thập.
 
 ## Cách dùng tài liệu này
 
