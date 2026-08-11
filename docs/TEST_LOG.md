@@ -290,10 +290,13 @@ Windows) — nên toàn bộ việc chạy `pytest tests/` xuyên suốt V0-V4 �
 **đã chính là bằng chứng Linux thật**, không cần dựng thêm container Python
 riêng (sẽ trùng lặp). Số liệu thật, không suy đoán:
 
-- **614/617 test pass trên Linux thuần** (3 skip — cần xác nhận lý do skip
-  cụ thể, chưa audit chi tiết trong đợt này) — với đầy đủ PySide6 (Qt,
+- **614/617 test pass trên Linux thuần** — với đầy đủ PySide6 (Qt,
   offscreen), ffmpeg, faster-whisper, yt-dlp cài qua `pip`/`apt` bình
-  thường, KHÔNG cần patch code nào.
+  thường, KHÔNG cần patch code nào. 3 skip đã xác nhận cụ thể (2026-08-11,
+  `pytest -rs`): cả 3 đều trong `test_no_console_flash.py`, lý do skip ghi
+  rõ trong code "chỉ có ý nghĩa trên Windows" (kiểm tra không loé cửa sổ
+  console — khái niệm không tồn tại trên Linux) — KHÔNG phải gap thật, là
+  hành vi đúng theo thiết kế.
 - KHÔNG kiểm chứng được trong sandbox này: Demucs GPU-venv
   (`.venv-gpu`, cần CUDA), VieNeu (`.venv-vieneu`, cần tải model ONNX
   ~300MB), Paraformer (`.venv-asr`, cần tải model ~500MB+VAD+punctuation)
@@ -699,3 +702,59 @@ audit này).
   `computeWeeklyRetention()` hiện chạy hoàn toàn trong Node process (không
   phải MongoDB aggregation), có thể cần chuyển sang aggregation pipeline
   nếu số Device thật lớn hơn nhiều so với vài nghìn.
+
+## Re-audit 2026-08-11 — dọn các gap đã ghi nhận từ đầu nhưng chưa quay lại
+
+Theo yêu cầu chủ dự án ("kiểm tra 1 lần nữa, thấy hình như còn thiếu") —
+rà lại `docs/ARCH.md` §4 (điểm cần lưu ý, ghi từ audit ban đầu 2026-08-10)
+đối chiếu với những gì đã thực sự đóng, tìm ra 3 việc có thật, đã ghi
+nhận nhưng CHƯA từng có mini-spec nào quay lại xử lý:
+
+**1. Dependency thừa `google-genai`** — đã xoá khỏi `pyproject.toml`
+(0 reference trong code, xác nhận lại bằng grep trước khi xoá). `pytest`
+vẫn 637/637 sau khi xoá.
+
+**2. Lỗ hổng bảo mật chưa xử lý** (`npm audit`, cả 2 sub-project):
+- `website`: `react-router-dom` dính CVE-2025-68470 (open redirect) +
+  arbitrary constructor injection (moderate) — bump `^6.28.0 → ^7.18.2`
+  (major, nhưng app chỉ dùng API "library mode" ổn định qua các bản: 
+  `BrowserRouter/Routes/Route/Link/NavLink/useNavigate/useParams/
+  useSearchParams/useLocation/Outlet/Navigate` — không dùng loader/action
+  của v7). Verify: `npm run build` sạch, `npm audit` hết báo react-router.
+- `website`: còn 1 lỗ hổng `esbuild`/`vite` (moderate) — advisory ghi rõ
+  CHỈ khai thác được khi chạy `vite dev` server và để lộ ra mạng ngoài
+  (không phải rủi ro production build). Fix cần `vite@8` (breaking) — để
+  lại có chủ đích, ghi rõ lý do thay vì im lặng bỏ qua.
+- `control_server`: `npm audit` → 0 vulnerabilities (đã xử lý xong ở V0/V1,
+  xác nhận lại lần này vẫn sạch sau khi thêm `@fastify/multipart` ở V9).
+
+**3. `website/` có 0 test — gap có thật từ audit đầu tiên, chưa mini-spec
+nào xử lý (V1/V9/V10 chỉ thêm test cho `control_server`).** Thêm:
+- `vitest` + `jsdom` (Vite-native, không cần cấu hình phức tạp).
+- `src/api/format.test.js` (14 test) — 6 hàm định dạng dùng khắp UI
+  (tiền VNĐ, Vox, ngày, tương đối "X phút trước", đếm ngược, rút gọn mã
+  máy) — biên rỗng/null/giá trị hỏng đều được test, không throw.
+- `src/store/orders.test.js` (9 test) — **bảo vệ đúng luồng lưu
+  `accessToken`** (localStorage, xem comment gốc trong `orders.js`: mất
+  token = mất đường lấy mã kích hoạt): ghi/đọc, ghi đè khi trùng mã đơn
+  (không nhân đôi), giới hạn 20 đơn gần nhất (đơn cũ bị loại đúng, không
+  loại nhầm đơn mới), `markOrderPaid` không đụng đơn khác, localStorage
+  hỏng/rác không crash.
+- `src/data/packages.test.js` (4 test) — công thức ước tính năng lực từ
+  Vox, đủ 5 gói công khai đều có mô tả. Bắt được 1 lỗi tính tay của chính
+  mình khi viết test (120000 Vox → 100 video, không phải 10) — sửa ngay,
+  đúng tinh thần verify-thật xuyên suốt đợt audit này.
+- `npm run build` (website) vẫn sạch sau toàn bộ thay đổi.
+
+**Kết quả cuối cùng — cả 3 test suite của monorepo cùng xanh:**
+`pytest` (autodub) **637/637 pass** + `npm test` (control_server)
+**98/98 pass** + `vitest` (website) **31/31 pass** = **766 test, 0 fail**.
+
+**Vẫn còn để ngỏ có chủ đích** (không phải bỏ sót — đã cân nhắc và quyết
+định KHÔNG làm trong đợt này, lý do ghi rõ):
+- `esbuild`/`vite` dev-only vulnerability (website) — rủi ro thấp, fix
+  cần major bump rủi ro cao hơn lợi ích ở giai đoạn này.
+- Test cho các trang React thật (component/E2E, vd Playwright) — mini-spec
+  này chỉ đóng gap "0 test" bằng unit test cho logic thuần (utils/store),
+  chưa test render/tương tác UI — cần 1 mini-spec riêng nếu muốn coverage
+  sâu hơn (thêm `@testing-library/react`, nặng hơn đáng kể).

@@ -13,7 +13,31 @@ Trạng thái AI Factory: `request_project_promote` #54 và `request_tech_except
 đang chờ Manager/Head duyệt tại `/factory/mcp`. Milestone thật trên Factory sẽ được tạo
 ngay sau khi promote #54 được approve (cần `project_slug`).
 
----
+**Trạng thái thực thi (cập nhật 2026-08-11):** Phase A/B/C (V0-V10, 11 mini-spec) đã
+**THỰC HIỆN XONG với verify thật** — không phải chỉ lên kế hoạch. Chi tiết đầy đủ từng
+mini-spec (audit, quyết định kỹ thuật, bằng chứng verify, giới hạn còn lại) nằm trong
+`docs/TEST_LOG.md`, KHÔNG lặp lại ở đây. Bảng dưới chỉ tóm tắt trạng thái + độ hoàn
+thiện thật (nhiều mini-spec là PROOF-OF-CONCEPT có chủ đích, không phải "xong 100%" —
+xem cột "Độ hoàn thiện"). **Phase D** (cuối tài liệu) là các mini-spec MỚI mở ra từ
+chính giới hạn mà Phase A/B/C để lại — repo KHÔNG "hoàn thiện tuyệt đối", đây là quá
+trình lặp có chủ đích, không phải bỏ sót.
+
+Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
+
+| # | Tên | Trạng thái | Độ hoàn thiện |
+|---|---|---|---|
+| V0 | Dựng lại model Mongoose bị thiếu | ✅ Xong | Đầy đủ, live-verify full luồng tiền |
+| V1 | Test + API docs control_server | ✅ Xong | Đầy đủ, 84 test |
+| V2 | Tách billing khỏi pipeline.py | ⚠️ Thu hẹp | Chỉ di chuyển code, KHÔNG tách global HOLD state (xem V2 trong TEST_LOG) |
+| V3 | Minh bạch Local-vs-SaaS | ✅ Xong | Đầy đủ, tìm+sửa 1 bug thật |
+| V4 | +4 ngôn ngữ nguồn ASR | ⚠️ Chưa live-verify chất lượng | Code đúng, CHƯA test video thật cho 4 ngôn ngữ mới |
+| V5 | OCR thay boxblur | ⚠️ Chưa test video thật | Verify qua GUI+ảnh tổng hợp, CHƯA video nén thật |
+| V6 | Dịch local (NLLB-200) | ✅ Xong, mặc định bật | Verify thật, chất lượng câu ngắn còn kém |
+| V7 | Docker hoá control_server | ⚠️ Một phần | Chỉ Node, CHƯA có Python cho pipeline thật |
+| V8 | TTS đa ngôn ngữ đích | 🔶 PoC tầng engine | Registry + verify CapCut API thật — CHƯA GUI, CHƯA voices.catalog target-aware |
+| V9 | Cloud rendering (Demucs) | 🔶 PoC hẹp | Verify end-to-end thật — xử lý ĐỒNG BỘ (không queue), CHƯA UI |
+| V10 | Analytics/retention | ⚠️ Một phần | Retention cohort xong; phễu hoàn thành/bỏ dở CHƯA làm (cần quyết định telemetry) |
+| — | Re-audit 08-11: dọn dependency thừa + 2 CVE + website 0 test | ✅ Xong | google-genai xoá, react-router vá, 31 test mới cho website |
 
 ## Tổng quan phase
 
@@ -22,6 +46,7 @@ ngay sau khi promote #54 được approve (cần `project_slug`).
 | **A — Ngắn hạn** (Foundation & Trust) | V1, V2, V3, V4 | Vận hành an toàn trước khi đổi gì khác + 1 quick win chất lượng | ~2-3 ngày AI/spec |
 | **B — Trung hạn** (Core Capability) | V5, V6, V7 | Nâng năng lực lõi + mở nền tảng phân phối | ~4-7 ngày AI/spec |
 | **C — Dài hạn** (Platform & Scale) | V8, V9, V10 | Mở rộng thị trường/nền tảng + hoàn thiện thương mại hoá | ~7-12 ngày AI/spec |
+| **D — Hoàn thiện** (Close the gaps) | V11, V12, V13 | Đóng nốt giới hạn PoC của V8/V9/V10 — mỗi cái cần 1 quyết định/input từ chủ dự án trước khi làm | ~3-6 ngày AI/spec |
 
 **Thứ tự bắt buộc**: V2 (tách billing khỏi core) phải làm **trước** V5/V6/V8 vì các spec
 đó đều chạm `pipeline.py` — làm sau V2 sẽ an toàn hơn, tránh conflict với logic hold/credit
@@ -864,6 +889,237 @@ Success Criteria:
 
 ---
 
+## Phase D — Hoàn thiện (đóng nốt giới hạn PoC của Phase C)
+
+Phát sinh từ chính "Remaining Limits" mà V8/V9/V10 để lại sau khi thực thi (không phải
+lên kế hoạch từ đầu — đây là vòng lặp thật của quy trình mini-spec: làm → phát hiện gap
+mới → mở mini-spec mới, đúng tinh thần Playbook §3). Cả 3 đều cần **1 quyết định/input
+cụ thể từ chủ dự án** trước khi bắt tay code — không tự quyết thay, đúng nguyên tắc đã
+áp dụng xuyên suốt V6/V9.
+
+### V11 — Hoàn thiện đa ngôn ngữ đích (đưa V8 từ PoC thành tính năng dùng được)
+
+```
+V11 — voices.catalog() target-aware + GUI chọn ngôn ngữ đích + audit timing/ass_karaoke
+
+Context:
+- Tài liệu bắt buộc: docs/PLAN.md mục V8 (đã làm), docs/TEST_LOG.md mục V8 "Remaining
+  Limits" (nguồn gốc chính xác của mini-spec này).
+- Trạng thái hiện tại: `TARGETS["en"]` đã có trong registry, `capcut_catalog.py` đã nhận
+  tham số `lang` — nhưng `voices.catalog(settings)` (autodub/speech/tts/voices.py) VẪN
+  gọi `capcut_catalog.entries()` KHÔNG tham số (mặc định vi-VN) và trộn chung với VieNeu
+  (chỉ tiếng Việt). Không có nơi nào trong GUI (autodub_gui) cho chọn ngôn ngữ đích —
+  mọi nơi đều hardcode `get_target("vi")`.
+- Quyết định kiến trúc phải giữ nguyên: `Synthesizer` Protocol (base.py) đã đúng, không
+  đổi. `TARGETS` registry đã đúng, không đổi cấu trúc. Không đổi trải nghiệm tiếng Việt
+  mặc định — mọi dự án cũ/mới không chọn ngôn ngữ đích vẫn ra đúng tiếng Việt như trước.
+
+Goal:
+- Người dùng chọn được ngôn ngữ đích ngay trong GUI (Tạo dự án), thấy đúng giọng CapCut
+  của ngôn ngữ đó, và chạy được ít nhất 1 video thật lồng tiếng sang tiếng Anh end-to-end
+  (không chỉ 1 câu như V8 đã verify).
+
+Constraints (Guardrails):
+1. KHÔNG đổi mặc định — không chọn gì thì luôn ra tiếng Việt, y hệt hành vi trước V11.
+2. `voices.catalog(settings, target=None)` — thêm tham số TUỲ CHỌN, không phá chữ ký cũ
+   (mọi lời gọi hiện có không truyền `target` phải chạy y hệt trước, verify bằng test).
+3. VieNeu CHỈ hiện khi target là tiếng Việt (model chuyên biệt, không giả vờ hỗ trợ ngôn
+   ngữ khác) — không được hiện VieNeu trong danh sách giọng khi target=en rồi lỗi lúc chạy.
+4. Audit ĐẦY ĐỦ (không chỉ đếm số điểm như V8 đã làm) từng điểm trong timing.py/
+   ass_karaoke.py/editor.py giả định tiếng Việt — với MỖI điểm, kết luận rõ: có breaking
+   với tiếng Anh hay không, sửa thế nào nếu có. Ghi vào TEST_LOG.md trước khi sửa code.
+5. Nếu 1 điểm audit không chắc chắn (cần biết tiếng Anh thật để đánh giá, vd CPS budget
+   đọc tiếng Anh khác tiếng Việt bao nhiêu) → để `unconfirmed`, không đoán.
+
+Scope:
+A. Domain model: không đổi (TARGETS đã đủ từ V8).
+B. Services/engine: `voices.py` — `catalog(settings, target=None)`,
+   `_capcut_voices(lang)`, `is_capcut_voice(name, target=None)`; `CapCutSynthesizer`
+   nhận `target` để lookup đúng catalog theo ngôn ngữ.
+C. API contract: không đổi (không đụng control_server).
+D. UI surfaces: `new_project_steps.py` (bước chọn ngôn ngữ đích, ẩn nếu chỉ có 1 target
+   — hiện khi >= 2, đúng nguyên tắc "không thêm UI cho tính năng chưa tồn tại").
+E. Tests: unit (voices.catalog target-aware, không phá lời gọi cũ), integration (chạy
+   full pipeline với target=en trên 1 video thật ngắn, không chỉ 1 câu).
+
+Audit Before Build:
+- Cần audit: liệt kê CHÍNH XÁC từng dòng trong timing.py/ass_karaoke.py/editor.py có
+  `"vi"`/CPS tiếng Việt/dấu thanh — V8 mới đếm số lượng (~16), CHƯA đọc từng điểm.
+- Gap cụ thể: kế thừa nguyên vẹn từ V8 — đây là phần V8 cố ý để lại.
+
+Design Choice:
+- Audit trước, sửa sau — KHÔNG sửa timing/ass_karaoke/editor tới khi audit xong và có
+  danh sách cụ thể (đúng Playbook §3, không mở rộng phạm vi ngoài gap đã xác nhận).
+
+Test Plan:
+- Unit: voices.catalog() các trường hợp target=None/vi/en.
+- Integration: 1 video thật (vài chục giây) chạy full pipeline target=en, xuất video
+  hoàn chỉnh, không crash ở bất kỳ stage nào.
+- Regression: toàn bộ 637 test hiện có phải pass y hệt (verify target=vi không đổi).
+- Live verification: người bản ngữ tiếng Anh nghe thử video xuất ra, đánh giá chất lượng
+  giọng đọc + timing — KHÔNG tự đánh giá bằng tai không rành tiếng Anh.
+
+Success Criteria:
+- Chạy được 1 video thật, đầu-cuối, target=en, không crash, không cần sửa tay giữa chừng.
+- 0 regression cho target=vi (test + ít nhất 1 lần live-verify so sánh).
+- Danh sách đầy đủ các điểm Vietnamese-assumption đã audit, ghi rõ điểm nào sửa/điểm nào
+  an toàn không cần sửa — không còn "chưa audit" nào bị bỏ sót.
+```
+
+### V12 — Cloud rendering production-ready (đưa V9 từ PoC thành hạ tầng thật)
+
+```
+V12 — Docker cho pipeline Python + queue thật (thay xử lý đồng bộ) + GUI toggle
+
+Context:
+- Tài liệu bắt buộc: docs/PLAN.md mục V9 (đã làm), docs/TEST_LOG.md mục V9 "Remaining
+  Limits", docker-compose.yml hiện tại (chỉ Node, không Python).
+- Trạng thái hiện tại: `POST /v1/jobs/demucs` xử lý ĐỒNG BỘ trong request (giữ kết nối
+  HTTP mở suốt lúc chạy Demucs) — chấp nhận được cho audio ngắn (giây), KHÔNG chấp nhận
+  được cho video dài thật (phút) vì timeout HTTP + không có cách nào theo dõi tiến độ.
+  `DEMUCS_PYTHON`/`DEMUCS_WORKER_SCRIPT` phải trỏ tới môi trường Python có torch+demucs
+  cài sẵn NGOÀI Docker — image `control_server` hiện tại không có Python.
+- Quyết định kiến trúc phải giữ nguyên: KHÔNG rebuild lại logic Demucs (vẫn gọi
+  `demucs_worker.py` nguyên văn qua subprocess, đúng guardrail V9 gốc). Chính sách xoá
+  dữ liệu ngay sau khi trả kết quả (đã chủ dự án duyệt ở V9) giữ nguyên.
+
+Goal:
+- `docker compose up` chạy được TOÀN BỘ (kể cả xử lý Demucs) mà không cần cài gì thêm
+  ngoài Docker, và job xử lý bất đồng bộ thật (submit → poll status → tải khi xong),
+  không giữ HTTP connection mở trong lúc xử lý.
+
+Constraints (Guardrails):
+1. Image Python (torch+demucs, ~1.5-2GB) tách RIÊNG khỏi image `control_server` (Node) —
+   không nhét chung, để `control_server` build/deploy nhanh không phụ thuộc thay đổi bên
+   Python. Compose 2 service riêng, giao tiếp qua volume dùng chung hoặc HTTP nội bộ.
+2. Queue phải PERSIST qua restart (không mất job đang chạy khi container restart) — dùng
+   lại chính `RenderJob` (Mongo) làm nguồn sự thật, không thêm Redis/broker mới nếu Mongo
+   polling đủ dùng ở quy mô hiện tại (đừng over-engineer cho tải chưa tồn tại).
+3. KHÔNG bypass billing_adapter/credit.service đã có — luồng trừ Vox giữ nguyên từ V9.
+4. GUI toggle (Cài đặt/Tạo dự án) phải hiện rõ ước tính phí TRƯỚC khi người dùng bấm
+   chạy — không được trừ Vox rồi mới báo giá.
+5. Nếu worker Python crash/timeout → job phải chuyển `failed` rõ ràng, KHÔNG treo mãi ở
+   `running` (thêm timeout + heartbeat, giống nguyên tắc hold TTL đã có).
+
+Scope:
+A. Domain model: `RenderJob` thêm field `workerId`/`heartbeatAt` (phát hiện worker chết).
+B. Services/engine: tách job xử lý ra 1 worker process riêng (poll `RenderJob` status
+   `queued`, nhận job, xử lý, cập nhật) thay vì xử lý inline trong route handler.
+C. API contract: `POST /v1/jobs/demucs` đổi thành TRẢ NGAY `status:"queued"` (không đợi
+   xử lý xong) — đây là BREAKING CHANGE so với V9 (client cũ đợi response=kết quả sẽ vỡ),
+   cần version endpoint hoặc field mới `async:true` để không phá client hiện có.
+D. UI surfaces: toggle "Xử lý trên cloud" (Cài đặt/Tạo dự án) + hiện tiến độ job.
+E. Tests: integration (job queue thật qua nhiều lần poll), load test (N job đồng thời
+   không crash worker), regression (V9 test suite vẫn pass với API cũ nếu giữ tương thích
+   ngược, hoặc cập nhật có chủ đích nếu đổi hẳn).
+
+Audit Before Build:
+- Cần audit: có bao nhiêu client (autodub_gui) hiện đang gọi `/v1/jobs/demucs` — CHƯA CÓ
+  (V9 không có GUI wiring) nên đây là lần đầu tiên có client thật, ĐỔI API contract ngay
+  bây giờ AN TOÀN hơn nhiều so với đổi sau khi đã có người dùng thật phụ thuộc API đồng bộ.
+- Gap cụ thể: kế thừa nguyên vẹn từ V9 — production-readiness, không phải tính năng mới.
+
+Design Choice:
+- Worker Python riêng, poll MongoDB (không cần Redis/BullMQ ở quy mô POC→production sớm
+  — thêm broker là over-engineering khi chưa có số liệu tải thật). Image Docker 2 tầng
+  (control_server nhẹ, worker nặng) build riêng, compose lên cùng lúc.
+
+Test Plan:
+- Unit: state machine job (queued→running→done/failed, heartbeat timeout→failed).
+- Integration: `docker compose up` từ repo sạch → submit job thật → poll tới `done` →
+  tải kết quả — TOÀN BỘ qua Docker, không cần cài Python ngoài container.
+- Regression: billing/credit không đổi hành vi (test lại các case đã có ở V9).
+- Live verification: đo thời gian thật xử lý 1 video vài phút qua queue mới, so với luồng
+  đồng bộ cũ (V9) — xác nhận không tệ hơn, tốt hơn ở chỗ không bị timeout HTTP.
+
+Success Criteria:
+- `docker compose up` (không cần bước cài đặt thủ công nào khác) chạy được Demucs thật.
+- Job dài (vài phút) không bị timeout HTTP — verify bằng 1 video thật đủ dài để vượt
+  ngưỡng timeout HTTP mặc định (thường 30-60s) của luồng đồng bộ V9 cũ.
+- GUI hiện đúng giá trước khi trừ Vox, không có trường hợp trừ tiền rồi mới báo.
+```
+
+### V13 — Phễu hoàn thành/bỏ dở pipeline (đưa V10 từ "một phần" thành đầy đủ)
+
+```
+V13 — Telemetry hoàn thành/bỏ dở pipeline từ client + dashboard phễu theo stage
+
+Context:
+- Tài liệu bắt buộc: docs/PLAN.md mục V10 (đã làm phần retention), docs/TEST_LOG.md mục
+  V10 "Remaining Limits", docs/PRD.md §9 (rủi ro minh bạch), banner V3
+  (autodub_gui/first_run.py — nội dung hiện tại KHÔNG nhắc gì tới việc gửi telemetry
+  hoàn thành/bỏ dở, chỉ nói về chế độ local/SaaS và Vox).
+- Trạng thái hiện tại: `autodub/saas_client.py` KHÔNG có bất kỳ hàm nào gửi event dạng
+  "pipeline started/completed/failed/abandoned" — đã grep xác nhận ở V10. Đây LÀ MỘT
+  TÍNH NĂNG THU THẬP DỮ LIỆU MỚI, không phải mở rộng cái đã có.
+- Quyết định kiến trúc phải giữ nguyên: `is_configured()` vẫn là cổng — telemetry này
+  CHỈ gửi khi có máy chủ cấu hình (SaaS mode), không bao giờ gọi mạng ở chế độ local-only
+  (đúng triết lý offline-first cốt lõi của toàn sản phẩm).
+
+Goal:
+- Chủ dự án trả lời được "tuần này bao nhiêu % lượt chạy hoàn thành, bỏ dở ở stage nào
+  nhiều nhất" bằng dashboard thật — dữ liệu tới từ chính app, không suy luận gián tiếp.
+
+Constraints (Guardrails):
+1. **BẮT BUỘC cập nhật minh bạch cho người dùng TRƯỚC KHI gửi bất kỳ event nào** — mở
+   rộng banner/FAQ đã có ở V3 (autodub_gui/first_run.py, help_page.py) nói rõ: khi ở chế
+   độ SaaS, app gửi về máy chủ trạng thái tiến độ (bắt đầu/xong/lỗi/dừng ở stage nào),
+   KHÔNG gửi nội dung video/transcript/audio. Đây là gate KHÔNG được bỏ qua.
+2. Event KHÔNG chứa nội dung nhạy cảm — chỉ (fingerprint, run_id, stage, status,
+   timestamp), không bao giờ có text/audio/video/đường dẫn file người dùng.
+3. Gửi event KHÔNG được làm chậm/chặn pipeline — best-effort, lỗi mạng lúc gửi event
+   không được làm hỏng lượt dubbing (giống triết lý `audit.service.js` phía server: mất
+   1 dòng log không đáng đánh đổi cả lượt chạy).
+4. "Bỏ dở" (abandoned) là suy luận GIÁN TIẾP (không có event "abandoned" tường minh —
+   không ai bấm nút "tôi bỏ cuộc") — định nghĩa rõ: 1 run có event "started" nhưng không
+   có "completed"/"failed" trong N giờ thì coi là bỏ dở. Ghi rõ định nghĩa này trong docs,
+   đây là ước lượng chứ không phải sự thật tuyệt đối.
+5. Không thu thập qua chế độ local-only dù người dùng có bật gì trong Cài đặt — cổng
+   `is_configured()` là điều kiện CẦN VÀ ĐỦ, không thêm cờ bật/tắt riêng gây rối logic.
+
+Scope:
+A. Domain model: `PipelineEvent` (control_server, Mongo) — fingerprint, runId, stage,
+   status (started/completed/failed), timestamp, errorStage (nếu failed).
+B. Services/engine: `saas_client.py` thêm `_note_pipeline_event()` (best-effort, non-
+   blocking) gọi ở các điểm chuyển stage trong `pipeline.py` (đã có sẵn `rep.emit(...)`
+   cho progress UI — TÁI DÙNG đúng các điểm đó, không thêm hook mới song song).
+C. API contract: `POST /v1/telemetry/pipeline-event` (control_server) — endpoint mới,
+   cập nhật docs/API.md.
+D. UI surfaces: mở rộng banner V3 (first_run.py) + FAQ (help_page.py) nói rõ việc gửi
+   event; Dashboard.jsx thêm phễu theo stage (download→demucs→asr→translate→tts→mux).
+E. Tests: unit (định nghĩa "abandoned" theo N giờ), integration (event ghi đúng khi
+   pipeline chạy thật qua các stage), privacy test (assert KHÔNG có field nội dung nào
+   trong payload event — test kiểm tra ngược, cố ý thử gửi field cấm phải bị chặn).
+
+Audit Before Build:
+- Cần audit: rà lại `rep.emit(...)` trong pipeline.py — đã có sẵn đủ điểm chuyển stage
+  chưa, hay cần thêm điểm mới. Đọc `autodub/progress.py` (ProgressReporter) trước khi
+  quyết định điểm gắn hook.
+- Gap cụ thể: kế thừa nguyên vẹn từ V10 — capability hoàn toàn mới (thu thập dữ liệu),
+  KHÔNG phải mở rộng cái đã có, cần quyết định minh bạch mới (guardrail 1).
+
+Design Choice:
+- Tái dùng `rep.emit()` đã có (không thêm cơ chế event riêng trong pipeline.py) — chỉ
+  thêm 1 listener gửi về server khi `is_configured()`, độc lập với UI progress hiện có.
+
+Test Plan:
+- Unit: logic phễu (started không completed/failed trong N giờ = abandoned).
+- Integration: chạy 1 lượt dubbing thật (chế độ SaaS giả lập), xác nhận đúng chuỗi event
+  ghi vào MongoDB, đúng thứ tự stage.
+- Regression: chế độ local-only (is_configured()=False) — xác nhận 0 network call nào
+  phát sinh (test bằng mock/monitor network, giống cách README/ARCH.md đã cam kết).
+- Live verification: banner minh bạch mới đã hiện đúng, xác nhận bằng cách tự đọc lại
+  UI như người dùng thật trước khi coi là "đã thông báo đầy đủ".
+
+Success Criteria:
+- Dashboard hiện đúng % hoàn thành/bỏ dở theo stage, dữ liệu thật không phải ước lượng.
+- 0 event nào được gửi ở chế độ local-only — verify bằng test, không chỉ đọc code.
+- Banner/FAQ minh bạch đã cập nhật VÀ TRIỂN KHAI trước khi tính năng này gửi bất kỳ dữ
+  liệu thật nào của người dùng thật — không đảo ngược thứ tự.
+```
+
+---
+
 ## Remaining Limits / Follow-ups (ngoài phạm vi 10 mini-spec trên)
 
 - **Inpainting AI thật** (xoá chữ bằng AI thay vì blur) — V5 chỉ tự động hoá việc PHÁT
@@ -888,8 +1144,9 @@ Success Criteria:
 
 ## Cách dùng tài liệu này
 
-1. Làm theo đúng thứ tự phase A → B → C, và thứ tự bắt buộc V1 → V2 trước khi chạm
-   pipeline core (V5/V6/V8/V9).
+1. Làm theo đúng thứ tự phase A → B → C → D, và thứ tự bắt buộc V1 → V2 trước khi chạm
+   pipeline core (V5/V6/V8/V9); V11/V12/V13 (Phase D) đều đòi 1 quyết định/input từ chủ
+   dự án trước khi bắt tay — đọc mục "Constraints" đầu mỗi cái để biết cần hỏi gì.
 2. Trước khi bắt tay 1 mini-spec, đọc lại đúng section "Audit Before Build" của nó và
    audit thật (đừng tin audit sơ bộ trong Context — Context chỉ là điểm khởi đầu).
 3. Sau khi hoàn thành 1 mini-spec, báo cáo theo đúng format Playbook §7 (Summary, Audit
@@ -897,5 +1154,13 @@ Success Criteria:
    Remaining Limits/Follow-ups) và cập nhật `docs/ARCH.md`/`docs/API.md`/`docs/TEST_LOG.md`
    tương ứng.
 4. Khi promote request #54 được duyệt trên AI Factory, tạo milestone cho từng phase
-   (A/B/C) và task cho từng mini-spec (V1-V10) qua MCP để track thật, thay vì chỉ theo
+   (A/B/C/D) và task cho từng mini-spec (V0-V13) qua MCP để track thật, thay vì chỉ theo
    dõi trong file này.
+5. **Vòng lặp lặp lại** (đã xảy ra thật 1 lần, 2026-08-11): thực thi xong 1 phase KHÔNG
+   có nghĩa hết việc — mỗi mini-spec khi làm THẬT sẽ để lại giới hạn mới (ghi trong
+   "Remaining Limits" của chính nó trong `docs/TEST_LOG.md`). Định kỳ (hoặc khi chủ dự
+   án yêu cầu "kiểm tra lại") rà lại toàn bộ Remaining Limits của các mini-spec đã xong,
+   phân loại: (a) sửa được ngay, ít rủi ro → sửa luôn, ghi vào TEST_LOG dưới mục
+   "Re-audit"; (b) cần quyết định/input mới → mở mini-spec Phase mới (như Phase D ở
+   trên), không tự quyết thay chủ dự án; (c) chấp nhận có chủ đích, ghi rõ lý do → giữ
+   nguyên trong "Remaining Limits", không lặp lại vô ích.

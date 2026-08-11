@@ -23,7 +23,6 @@ dependencies = [
 
 [project.optional-dependencies]
 demucs = ["demucs>=4.0.0", "soundfile>=0.13.0"]
-content = ["google-genai>=1.0.0"]
 dev = ["pytest>=8.0.0"]
 
 [project.gui-scripts]
