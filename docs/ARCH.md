@@ -1,0 +1,125 @@
+# ARCH.md — VoxDub Studio (voidmix)
+
+Status: Draft (sinh từ audit code 2026-08-10, cần chủ dự án review)
+
+## 1. Tổng quan hệ thống
+
+VoxDub Studio là ứng dụng desktop Windows lồng tiếng Việt tự động cho video nước ngoài
+(YouTube/TikTok/Douyin/Bilibili hoặc file local), chạy pipeline AI hoàn toàn trên máy
+người dùng (offline-first), có thêm một lớp SaaS tuỳ chọn (`control_server` + `website`)
+cho dịch tự động qua AI và hệ thống tín dụng "Vox".
+
+```
+                      ┌─────────────────────────────┐
+                      │        autodub_gui           │  PySide6 desktop app (14 trang)
+                      │  (entrypoint: autodub-gui)    │  duy nhất — không có CLI
+                      └──────────────┬────────────────┘
+                                     │ import
+                      ┌──────────────▼────────────────┐
+                      │           autodub/             │  core pipeline, thuần Python
+                      │  (importable as a library)      │  ~16k LOC
+                      │  DubPipeline.run() — pipeline.py │
+                      └──────────────┬────────────────┘
+     Download │ Audio split │ Demucs │ ASR │ Translate │ TTS │ Timing │ Subtitle │ Mux
+                                     │
+                                     │ optional (VOXDUB_API_URL set)
+                      ┌──────────────▼────────────────┐
+                      │        control_server           │  Node 20 + Fastify 5 + Mongoose 8
+                      │  licensing / Vox credit / AI     │  ~4.7k LOC
+                      │  gateway / billing (PayOS)        │  serves website/dist cùng process
+                      └──────────────┬────────────────┘
+                                     │
+                      ┌──────────────▼────────────────┐
+                      │            website               │  React 18 + Vite + Tailwind + Zustand
+                      │  storefront + /admin panel        │  ~5.2k LOC
+                      └─────────────────────────────────┘
+```
+
+## 2. Thành phần
+
+### 2.1 `autodub/` — Core pipeline (thư viện Python, không phụ thuộc GUI)
+
+Orchestrator: `pipeline.py` (`DubPipeline.run()`, ~1946 dòng).
+
+| Giai đoạn | Module chính | Kỹ thuật |
+|---|---|---|
+| Download | `media/downloader.py`, `media/douyin.py` | yt-dlp; Douyin qua Playwright/Chromium custom (yt-dlp extractor gãy) |
+| Audio extraction | `media/audio.py` | ffmpeg dual-extract (16kHz mono ASR + 44.1kHz stereo HQ mix), 1 lần decode |
+| Tách nhạc nền | `media/vocal_separator.py`, `media/demucs_worker.py` | Demucs (`htdemucs`) qua subprocess `.venv-gpu` (CUDA) hoặc fallback CPU (Demucs Python API + `soundfile`) |
+| ASR (nghe-chép) | `speech/transcriber.py`, `asr_whisper_worker.py`, `paraformer_transcriber.py` | faster-whisper (GPU fp16→int8→CPU int8 fallback chain, subprocess `.venv-whisper`); Paraformer (sherpa-onnx, CPU-only, tiếng Trung) làm engine thay thế, tự fallback về Whisper khi lỗi |
+| Dịch | `text/translate_saas.py`, `translate_hint.py`, `translate_review.py` | (A) thủ công: ghi `TRANSLATE_PENDING.txt`, người dùng tự dịch bằng ChatGPT/Gemini; (B) tự động: gọi `control_server` `/v1/ai/*` (3-pass analyze→translate→review), gate bởi `saas_client.is_configured()`. **Không có MT engine local** — auto-translate chỉ chạy khi có server. |
+| TTS | `speech/tts/vieneu_vi.py`, `vieneu_worker.py`, `capcut_vi.py` | VieNeu (ONNX, CPU, subprocess `.venv-vieneu`, hỗ trợ voice-cloning từ WAV 5-10s); CapCut (API không chính thức, network-based) — 2 engine độc lập, không fallback lẫn nhau |
+| Timing/khớp thời gian | `speech/align.py`, `media/timing.py`, `media/retime.py` | Render 1:1 theo segment; "soft timing fit" đẩy đoạn tràn vào khoảng lặng trước, nén `atempo` là phương án cuối (có trần); karaoke chạy lại Whisper `base` trên chính audio TTS để lấy word-level timestamp |
+| Phụ đề | `text/srt.py`, `text/ass_karaoke.py`, `media/subtitle.py` | SRT + ASS karaoke (word-pop/fade/highlight), 6 preset style |
+| Mux video | `media/video.py` | ffmpeg, auto-detect hardware encoder (NVENC→QSV→AMF→libx264, test bằng encode thật 1 frame) |
+| "Che chữ gốc" | `media/subtitle.py` (`blur_filter`) | **Chỉ là `boxblur` ffmpeg trên rectangle người dùng tự vẽ tay trong GUI (`style_dialog.py`) — không phải OCR/inpainting tự động.** |
+| Editor | `editor.py` (~1200 dòng) | Sửa từng câu: split/merge/add/delete, re-synth từng đoạn, đổi giọng riêng đoạn, lịch sử export |
+| Batch | `batch.py` | Xử lý nhiều URL, prefetch pipelining, resume an toàn (`batch_state.json`) |
+| Content/metadata | `content/generator.py` | Sinh title/description/hashtag — **chỉ chạy khi có server** (server-side) |
+| Licensing/credit (Vox) | `billing.py` (`HoldBillingAdapter`, tách khỏi `pipeline.py` ở mini-spec V2), `securestore.py`, `device_id.py`, `keystore.py` | Hold credit sau ASR, mã hoá AES-256-GCM artifact trung gian đến khi export/commit hold. `pipeline.py` chỉ còn gọi delegate sang `billing.py`. **Global `HOLD`/`USAGE` (`text/translate_common.py`) vẫn được đọc trực tiếp ở nhiều module khác (`translate_saas.py`, `translate_review.py`, `translate_hint.py`, `content/generator.py`, và ngay trong `DubPipeline.run()`) — chưa tách hoàn toàn khỏi core, xem `docs/TEST_LOG.md` mục V2 cho lý do và giới hạn.** |
+
+Ngôn ngữ đích **chỉ tiếng Việt** (`languages.py`), nguồn giới hạn 4 lựa chọn trong GUI
+(`zh-CN`/`en-US`/`zh-HK`/`zh-TW`) dù Whisper hỗ trợ ~100 ngôn ngữ.
+
+### 2.2 `autodub_gui/` — Desktop GUI
+
+PySide6, dark theme (`theme.py` QSS + `tokens.py` là nguồn màu duy nhất). Entry:
+`app.py:main()`. 14 trang, tất cả wire đầy đủ tới `autodub/` (không có mock/orphan feature).
+Có prewarm trang, preflight machine check, crash handler + file log, smoke-test mode
+(`AUTODUB_SMOKE=1`), setup wizard lần đầu, update checker (GitHub releases).
+
+### 2.3 `control_server/` — SaaS backend (tuỳ chọn)
+
+Node 20 + Fastify 5 + MongoDB/Mongoose 8. Giữ toàn bộ API key nhà cung cấp AI (desktop
+app không bao giờ thấy provider/key). Định danh thiết bị = SHA-256 machine fingerprint
+(không có tài khoản người dùng). Luồng: device tự đăng ký → nhận Vox trial → mua gói qua
+PayOS → webhook cấp activation key → dán key vào app → cộng Vox → mỗi lần dub trừ Vox
+theo segment (+ phụ phí auto-translate + phí metadata). Debit dùng `findOneAndUpdate`
+atomic (không có Mongo transaction — single-node). API key nhà cung cấp AI mã hoá
+AES-256-GCM tại rest.
+
+**Cloud rendering (mini-spec V9, POC hẹp, 2026-08-11):** `routes/jobs.js` +
+`services/render-job.service.js` cho phép server chạy stage Demucs thay máy người dùng
+— spawn nguyên văn `autodub/media/demucs_worker.py` qua subprocess (Python cần cài sẵn
+trên server host, KHÔNG có trong `docker-compose.yml` hiện tại — xem `docs/TEST_LOG.md`
+mục V9). File input/output xoá ngay sau khi trả kết quả (chính sách dữ liệu đã chủ dự
+án duyệt). Tuỳ chọn thêm, không thay thế luồng local — xử lý đồng bộ trong request
+(chưa có queue/worker pool thật), chưa có UI.
+
+### 2.4 `website/` — Storefront + Admin
+
+React 18 + Vite + Tailwind + Zustand + react-router. Build ra static asset, được
+`control_server` serve trực tiếp cùng origin (không cần CORS). Trang: Landing, Pricing,
+Buy, Checkout, MyOrders (localStorage, không có tài khoản server-side), Download, Docs,
+Faq, Contact + `/admin` SPA (Dashboard, Devices, Orders, Keys, Providers, Config, AuditLog).
+
+## 3. Data model chính
+
+**Không có SQL/Postgres.** MongoDB (control_server, qua Mongoose) là kho dữ liệu duy nhất
+phía server: Device, ActivationKey, Order/Billing, AuditLog, ProviderConfig (đọc code
+`control_server/src/models/` để lấy schema chi tiết — chưa liệt kê đủ trong audit này,
+cần bổ sung khi làm mini-spec S1 "Docs & Foundation").
+
+Phía client: không có DB — toàn bộ state là file trên đĩa dưới `output/VN/<timestamp>_vi/`
+(bao gồm `data/` chứa mọi artifact trung gian để resume/cache), `.env` cho settings,
+`securestore` (AES-256-GCM) cho artifact bị "hold" bởi credit system.
+
+## 4. Điểm cần lưu ý khi maintain/nâng cấp
+
+- Đóng gói GUI (`autodub_gui`, PyInstaller onedir) **vẫn chỉ Windows**. `control_server`
+  đã Docker hoá (mini-spec V7, `docker-compose.yml` ở root) — `docker compose up` chạy
+  control_server+website+mongo, verify live 2026-08-10.
+- Audit Linux cho `autodub/` core (V7): **614/617 test pass trên Ubuntu Linux thuần**,
+  không cần patch code. Chỉ 2 điểm khoá Windows thật sự (`ctypes.windll`/`nvidia-smi` cho
+  GPU trong `speech/transcriber.py`) — không phải rào cản kiến trúc lớn để chạy Linux, chỉ
+  chưa ai live-verify 3 venv con nặng (Demucs GPU/VieNeu/Paraformer, cần tải model lớn).
+  Xem `docs/TEST_LOG.md` mục V7 cho chi tiết.
+- README định vị sản phẩm là "free/offline" nhưng bản `.exe` chính thức (build qua
+  `scripts/build_exe.py`, bake sẵn `VOXDUB_API_URL`) mặc định chạy trên hệ Vox trả phí —
+  chưa được README làm rõ.
+- Logic thương mại (hold/credit) nằm xen trong `pipeline.py` chứ chưa tách lớp rõ ràng
+  khỏi core OSS.
+- Test: 46 file/~546 test cho `autodub/` (pytest), rất đầy đủ. `control_server` chỉ có
+  3 file test thuần utility (không có test tích hợp DB). `website/` không có test nào.
+- Dependency thừa: `content = ["google-genai"]` trong `pyproject.toml` không còn được
+  reference ở đâu trong code (content generation đã chuyển hẳn sang server-side).

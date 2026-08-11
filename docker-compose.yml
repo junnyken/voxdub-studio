@@ -1,0 +1,43 @@
+# Mini-spec V7 (docs/PLAN.md) — control_server + website + mongo qua 1 lệnh
+# `docker compose up`. KHÔNG đụng gì tới autodub/autodub_gui (pipeline
+# desktop Windows) — compose này chỉ đóng gói phần server-side vốn dĩ đã
+# cross-platform (Node/Fastify/Mongo), xem docs/ARCH.md.
+#
+# Chạy: cp control_server/.env.example control_server/.env  (rồi điền secret)
+#       docker compose up --build
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - voxdub-mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  control_server:
+    build:
+      context: .
+      dockerfile: control_server/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    env_file:
+      - control_server/.env
+    environment:
+      # Ghi đè bất kể .env đang để gì (dev ngoài Docker thường trỏ
+      # localhost/port khác) — trong container LUÔN nghe đúng 3001 và LUÔN
+      # nối mongo qua tên service "mongo" của mạng compose, không phải
+      # localhost.
+      MONGODB_URI: mongodb://mongo:27017/voxdub
+      HOST: 0.0.0.0
+      PORT: "3001"
+    ports:
+      - "${HOST_PORT:-3001}:3001"
+
+volumes:
+  voxdub-mongo-data:

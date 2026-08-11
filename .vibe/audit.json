@@ -1,0 +1,23 @@
+{
+  "auditedAt": "2026-08-10T00:00:00+07:00",
+  "by": "trieunt",
+  "checklist": {
+    "ARCH": "pass",
+    "PRD": "pass",
+    "README": "pass",
+    "CLAUDE": "pass",
+    "git": "fail",
+    "stack": "exception:pending"
+  },
+  "techExceptions": [
+    {
+      "requestId": 53,
+      "tech": "Python 3.10+/PySide6 desktop (PyInstaller) + Node 20/Fastify 5/Mongoose 8 (MongoDB) + React 18/Vite",
+      "replaces": "Next.js 15 / FastAPI 0.115 / PostgreSQL 16 / Docker Compose",
+      "status": "pending",
+      "expiresAt": "2026-08-24T13:42:58.872Z"
+    }
+  ],
+  "projectPromoteRequestId": 54,
+  "notes": "Chưa phải git repo riêng (không .git, không remote git.matbao.support) — chưa xử lý trong đợt audit này, cần chủ dự án cung cấp GitLab URL hoặc xác nhận giữ nguyên hiện trạng."
+}

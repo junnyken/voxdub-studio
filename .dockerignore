@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+.git
+.venv-dev
+__pycache__
+**/__pycache__
+*.pyc
+control_server/.env
+website/dist
+website/node_modules
+autodub_gui/__pycache__
+output
+voices/preset_voices_vn
