@@ -147,6 +147,83 @@ def test_timeout_raises_after_max_wait(tmp_path, monkeypatch):
         cloud_render.separate_vocals_cloud("/tmp/in.wav", str(tmp_path))
 
 
+# ------------------------------------------- mini-spec V16 (retry/backoff) - #
+
+def test_poll_transient_error_retries_next_round(tmp_path, monkeypatch):
+    """1 poll lỗi tạm thời (mất mạng) KHÔNG được huỷ job đang chạy khoẻ mạnh
+    — vòng poll kế tiếp phải thử lại, không ném lỗi ngay."""
+    from autodub.saas_client import OfflineError
+    fake_client = MagicMock()
+    fake_client.submit_demucs_job.return_value = {"jobId": "job5", "status": "queued"}
+    fake_client.job_status.side_effect = [
+        OfflineError("chớp mạng"),
+        {"status": "done"},
+    ]
+
+    def fake_download(job_id, stem, dest_path):
+        write_wav(dest_path)
+    fake_client.download_job_result.side_effect = fake_download
+    monkeypatch.setattr("autodub.saas_client.get_client", lambda: fake_client)
+    monkeypatch.setattr(cloud_render, "POLL_INTERVAL_S", 0.0)
+
+    result = cloud_render.separate_vocals_cloud("/tmp/in.wav", str(tmp_path))
+    assert os.path.isfile(result["vocals"])
+    assert fake_client.job_status.call_count == 2
+
+
+def test_poll_gives_up_after_consecutive_transient_errors(tmp_path, monkeypatch):
+    from autodub.saas_client import OfflineError
+    fake_client = MagicMock()
+    fake_client.submit_demucs_job.return_value = {"jobId": "job6", "status": "queued"}
+    fake_client.job_status.side_effect = OfflineError("mất mạng liên tục")
+    monkeypatch.setattr("autodub.saas_client.get_client", lambda: fake_client)
+    monkeypatch.setattr(cloud_render, "POLL_INTERVAL_S", 0.0)
+
+    with pytest.raises(OfflineError):
+        cloud_render.separate_vocals_cloud("/tmp/in.wav", str(tmp_path))
+    assert fake_client.job_status.call_count == cloud_render.MAX_CONSECUTIVE_POLL_ERRORS + 1
+
+
+def test_poll_non_retryable_error_raises_immediately(tmp_path, monkeypatch):
+    """Hết Vox giữa lúc poll (máy chủ chốt phí trễ) là lỗi CỐ ĐỊNH — không
+    thử lại, ném ngay lần đầu."""
+    from autodub.saas_client import InsufficientCreditError
+    fake_client = MagicMock()
+    fake_client.submit_demucs_job.return_value = {"jobId": "job7", "status": "queued"}
+    fake_client.job_status.side_effect = InsufficientCreditError("hết Vox")
+    monkeypatch.setattr("autodub.saas_client.get_client", lambda: fake_client)
+    monkeypatch.setattr(cloud_render, "POLL_INTERVAL_S", 0.0)
+
+    with pytest.raises(InsufficientCreditError):
+        cloud_render.separate_vocals_cloud("/tmp/in.wav", str(tmp_path))
+    assert fake_client.job_status.call_count == 1
+
+
+def test_download_retries_transient_error_then_succeeds(tmp_path, monkeypatch):
+    from autodub.saas_client import OfflineError
+    from autodub import saas_retry
+    monkeypatch.setattr(saas_retry, "sleep_cancellable", lambda *a, **k: None)
+
+    fake_client = MagicMock()
+    fake_client.submit_demucs_job.return_value = {"jobId": "job8", "status": "queued"}
+    fake_client.job_status.return_value = {"status": "done"}
+    calls = {"n": 0}
+
+    def fake_download(job_id, stem, dest_path):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OfflineError("chớp mạng lúc tải")
+        write_wav(dest_path)
+    fake_client.download_job_result.side_effect = fake_download
+    monkeypatch.setattr("autodub.saas_client.get_client", lambda: fake_client)
+    monkeypatch.setattr(cloud_render, "POLL_INTERVAL_S", 0.0)
+
+    result = cloud_render.separate_vocals_cloud("/tmp/in.wav", str(tmp_path))
+    assert os.path.isfile(result["vocals"])
+    # 2 stem, stem đầu lỗi 1 lần rồi thành công -> 3 lượt gọi tổng
+    assert fake_client.download_job_result.call_count == 3
+
+
 def test_cancellation_propagates_not_swallowed(tmp_path, monkeypatch):
     """Người dùng hủy giữa lúc chờ job cloud — PipelineCancelled phải bay
     thẳng lên caller, KHÔNG bị nuốt như một lỗi cloud thường."""

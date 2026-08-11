@@ -1189,6 +1189,18 @@ thật — pass, 18.4s**). `autodub` (pytest) **672/672 pass** (657 cũ + 11
   hợp Demucs thật) ĐÃ live-verify đầy đủ bằng cách khác (xem trên), chỉ
   riêng bước "build đúng qua Docker" chưa tự xác nhận được trong sandbox
   này.
+
+**Re-audit 2026-08-11 (sandbox `trieunt`, lần build thứ 2):** tái lập được
+đúng hiện tượng — `docker compose build render_worker` dừng ở đúng bước
+`pip install demucs` >50 phút không tiến triển, không lỗi ngay. Chẩn đoán
+thêm 1 bước (không đoán): `docker run --rm python:3.12-slim` gọi thẳng
+`https://pypi.org` từ TRONG container mới — kết nối được, nhưng mất 5.2s
+cho 1 request HTTPS nhỏ (bình thường phải <1s) — xác nhận đây không phải
+mạng container bị chặn hoàn toàn, mà là băng thông/độ trễ egress của
+network namespace Docker trong sandbox này bị giới hạn nặng so với network
+namespace host (nơi cùng lệnh `pip install torch` chạy nhanh bình thường).
+Kết luận không đổi: cần build trên máy/CI có mạng Docker bình thường.
+
 - Chưa live-verify job DÀI thật (vài phút) để chứng minh "không bị timeout
   HTTP" so với ngưỡng cụ thể — verify hiện tại dùng clip 2 giây (đủ chứng
   minh state machine bất đồng bộ hoạt động đúng, chưa chứng minh bằng số
@@ -1594,3 +1606,68 @@ như trước.
 - `docs/ARCH.md` cập nhật số trang GUI 14→15 và số test cộng dồn theo diff
   (không tự đếm lại toàn repo do thiếu dependency trong sandbox) — xem ghi
   chú trong chính ARCH.md.
+
+## V16 — Retry/backoff cho các lượt gọi SaaS một-lần (Phase E, 2026-08-11)
+
+Theo `docs/PLAN.md` mục V16 (Phase E — mở sau khi so sánh với thị trường
+auto-dub thương mại). Guardrail: không sửa `translate_saas.py` (đã đúng,
+gắn luồng tiền), không retry `submit_demucs_job()`/hold (không idempotent-
+safe hoặc đã có fallback cố ý), lỗi cố định không bao giờ retry.
+
+### Audit Before Build
+
+Grep toàn bộ 6 file gọi `get_client()` trong `autodub/`:
+`translate_saas.py` (đã có bounded-retry+backoff+jitter+rate-limit đầy đủ —
+không đụng), `billing.py` (setup_hold/settle_hold_inline — fallback cố ý,
+không retry, giữ nguyên), `content/generator.py`/`telemetry.py` (tính năng
+phụ, fail-soft chấp nhận được, không retry), `cloud_render.py` (poll +
+tải kết quả — MỘT LẦN, không retry — **gap thật**), `subtitle_translate.py`
+(dịch phụ đề SaaS — MỘT LẦN cho cả file, không retry — **gap thật**).
+
+### Thêm
+
+- `autodub/saas_retry.py` (mới) — `is_retryable_error()`, `sleep_cancellable()`,
+  `call_with_retry()`, rút đúng pattern đã chứng minh đúng của
+  `translate_saas.py` nhưng KHÔNG import/sửa file đó (duplicate có chủ đích
+  — tách rủi ro khỏi code tiền đang chạy đúng).
+- `cloud_render.py::separate_vocals_cloud()`: poll loop giờ phân biệt lỗi
+  tạm thời (log cảnh báo, thử lại vòng kế — không lùi `MAX_WAIT_S`, bỏ cuộc
+  sau `MAX_CONSECUTIVE_POLL_ERRORS=5` lần liên tiếp ~15s) vs lỗi cố định
+  (raise ngay). `download_job_result()` × 2 (vocals/no_vocals) bọc
+  `call_with_retry` — an toàn vì mở file `"wb"` mỗi lần, tự ghi đè.
+- `text/subtitle_translate.py::translate_subtitle_file_saas()`: lượt gọi
+  `translate_subtitle()` bọc `call_with_retry` — an toàn vì `job_id` ổn
+  định theo nội dung (idempotent, không tính phí 2 lần).
+- `autodub.spec`: thêm `autodub.saas_retry` vào `hiddenimports` (import lười
+  trong thân hàm, đúng convention đã có cho `saas_client`).
+
+### Verify (unit/mock — không cần mạng thật, đổi hành vi lỗi-mạng không đổi contract API)
+
+- `tests/test_saas_retry.py` (12 test, mới): phân loại đúng lỗi tạm thời/cố
+  định, retry-rồi-thành-công, hết lượt thì raise, lỗi cố định raise ngay
+  không tốn lượt thử, tôn trọng `retry_after` làm mức chờ tối thiểu.
+- `tests/test_cloud_render.py` (+4 test): 1 poll lỗi tạm thời không huỷ job
+  đang chạy khoẻ (thử lại vòng kế); bỏ cuộc đúng sau
+  `MAX_CONSECUTIVE_POLL_ERRORS+1` lần gọi; lỗi cố định (hết Vox) raise ngay
+  lần đầu, không thử lại; tải kết quả lỗi 1 lần rồi thành công ở lần 2.
+- `tests/test_subtitle_translate.py` (+2 test): dịch SaaS lỗi tạm thời 1
+  lần rồi thành công (đúng nội dung, đúng `credit_charged`); lỗi cố định
+  (hết Vox) raise ngay, không thử lại.
+- `pytest tests/ -q` toàn bộ: **742 passed, 4 skipped, 0 failed** (724 + 18
+  test mới), 0 regression.
+
+### Remaining Limits (V16)
+
+- Không live-verify HTTP thật lượt này — thay đổi chỉ ở hành vi khi lỗi
+  mạng xảy ra (retry có kiểm soát thay vì raise ngay), không đổi request/
+  response contract với `control_server` thật, nên unit/mock đủ để tự tin;
+  cơ hội quan sát thật chỉ đến khi có 1 lượt cloud-render/dịch phụ đề SaaS
+  thật gặp đúng lúc mạng chập chờn — chưa có dịp đó trong phiên này.
+- `submit_demucs_job()` VẪN single-attempt có chủ đích (xem Constraint 2,
+  V16) — nếu muốn retry an toàn cho bước này, cần thêm idempotency key do
+  client sinh ở tầng `control_server` (thay đổi API, ngoài phạm vi V16).
+- Chưa có dead-letter queue thật (job/lượt dịch thất bại hẳn sau khi hết
+  lượt retry chỉ raise lỗi cho caller xử lý như cũ, không ghi vào đâu để
+  theo dõi tập trung) — nếu muốn giám sát tỉ lệ lỗi thật ở quy mô, cần
+  mini-spec riêng cho observability/alerting (ngoài phạm vi V16, xem thêm
+  nhận xét "Remaining Limits" của báo cáo research thị trường Phase E).

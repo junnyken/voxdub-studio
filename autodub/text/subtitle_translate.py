@@ -123,12 +123,20 @@ def translate_subtitle_file_saas(
     cues, skipped = _read_and_parse(input_path, fmt)
 
     from autodub.saas_client import get_client
+    from autodub.saas_retry import call_with_retry
 
     items = [{"id": c.index, "text": c.text} for c in cues]
-    data = get_client().translate_subtitle(
-        items, job_id=job_id, source_flores=source_flores,
-        target_flores=target_flores, source_name=display_name(source_flores),
-        target_name=display_name(target_flores), hold_id=hold_id)
+    client = get_client()
+    # mini-spec V16 (docs/PLAN.md, Phase E) — 1 lượt gọi DUY NHẤT cho cả
+    # file trước đây (không retry): 1 chớp mạng làm hỏng cả file dù job_id
+    # ổn định theo nội dung (idempotent, máy chủ không tính phí 2 lần) —
+    # an toàn để thử lại nguyên văn.
+    data = call_with_retry(
+        lambda: client.translate_subtitle(
+            items, job_id=job_id, source_flores=source_flores,
+            target_flores=target_flores, source_name=display_name(source_flores),
+            target_name=display_name(target_flores), hold_id=hold_id),
+        label="Dịch phụ đề qua SaaS")
     by_id = {seg.get("id"): seg.get("text", "") for seg in data.get("segments", [])}
     out_path = _write_translated(input_path, target_flores, fmt, cues, by_id)
 

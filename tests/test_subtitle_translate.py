@@ -107,3 +107,45 @@ def test_missing_translation_falls_back_to_original_text(tmp_path, monkeypatch):
         path, "eng_Latn", "vie_Latn", job_id="j1")
     out_text = open(result.output_path, encoding="utf-8").read()
     assert "World" in out_text  # rơi về câu gốc
+
+
+def test_saas_translate_retries_transient_error_then_succeeds(tmp_path, monkeypatch):
+    """Mini-spec V16 (docs/PLAN.md, Phase E) — 1 chớp mạng không được làm
+    hỏng cả file (job_id ổn định theo nội dung, thử lại an toàn về tiền)."""
+    from autodub.saas_client import OfflineError
+    from autodub import saas_retry
+    monkeypatch.setattr(saas_retry, "sleep_cancellable", lambda *a, **k: None)
+
+    path = _write_srt(tmp_path)
+    fake_client = MagicMock()
+    calls = {"n": 0}
+
+    def fake_translate(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OfflineError("chớp mạng")
+        return {
+            "segments": [{"id": 1, "text": "Xin chao"}, {"id": 2, "text": "The gioi"}],
+            "creditCharged": 4, "balanceAfter": 96,
+        }
+    fake_client.translate_subtitle.side_effect = fake_translate
+    import autodub.saas_client as saas_client
+    monkeypatch.setattr(saas_client, "get_client", lambda: fake_client)
+
+    result = st.translate_subtitle_file_saas(
+        path, "eng_Latn", "vie_Latn", job_id="j1")
+    assert calls["n"] == 2
+    assert result.credit_charged == 4
+
+
+def test_saas_translate_non_retryable_error_raises_immediately(tmp_path, monkeypatch):
+    from autodub.saas_client import InsufficientCreditError
+    path = _write_srt(tmp_path)
+    fake_client = MagicMock()
+    fake_client.translate_subtitle.side_effect = InsufficientCreditError("hết Vox")
+    import autodub.saas_client as saas_client
+    monkeypatch.setattr(saas_client, "get_client", lambda: fake_client)
+
+    with pytest.raises(InsufficientCreditError):
+        st.translate_subtitle_file_saas(path, "eng_Latn", "vie_Latn", job_id="j1")
+    assert fake_client.translate_subtitle.call_count == 1

@@ -51,6 +51,7 @@ hiddenimports = [
     "autodub.media.text_regions",      # style_dialog: quét chữ tự động (V5)
     "autodub.text.subtitles",          # pipeline/editor: làm mới phụ đề
     "autodub.saas_client",             # mọi lượt gọi máy chủ
+    "autodub.saas_retry",              # retry/backoff cho cloud-render + dịch phụ đề SaaS (V16)
     "autodub.device_id",               # mã máy gắn với ví Vox
     "autodub.speech.tts.voice_library",  # Cài đặt: nạp thư viện giọng mẫu
     "autodub.speech.tts.voice_downloader",  # tải + enroll giọng lần đầu chạy

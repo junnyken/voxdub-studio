@@ -43,6 +43,7 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V13 | Phễu hoàn thành/bỏ dở pipeline (đóng gap V10) | ✅ Xong | Telemetry PipelineEvent + client gửi event thật + banner minh bạch (guardrail 1 — cập nhật TRƯỚC khi bật) + dashboard phễu; live-verify thật qua HTTP thật (2 run, kể cả privacy-test chặn field cấm thật) — xem TEST_LOG |
 | V14 | Dịch phụ đề rời (`.srt`/`.vtt`, ngoài luồng dub) | ✅ Xong, live-verify SaaS thật | Core+SaaS endpoint+GUI (verify headless offscreen)+CLI đủ theo Scope A-G; 46 test mới; live-verify thật qua `/translate-subtitle` (key Gemini thật, 2 chiều vi/en, idempotency xác nhận qua Mongo) — vi/en đã kiểm chứng cả 2 đường (local NLLB + SaaS); ~190/204 mã FLORES-200 còn lại chưa kiểm chứng (có chủ đích) — xem TEST_LOG |
 | V15 | Sửa bug hardcode tiếng Việt ở prompt dịch server-side | ✅ Xong, live-verify thật | Tìm ra khi audit V14 — `/translate`,`/analyze`,`/review` giờ nhận `targetLang`, field response đổi `text_<targetLang>`; 170 test unit/mock pass + live-verify HTTP thật (key Gemini thật, targetLang=en trả đúng `text_en`, Vox trừ đúng trong Mongo) — xem TEST_LOG |
+| V16 | Retry/backoff cho SaaS call một-lần (Phase E — đóng gap ổn định so với thị trường) | ✅ Xong | Audit phát hiện `translate_saas.py` đã có bounded-retry sẵn; đóng nốt 2 điểm thiếu (poll+tải cloud-render, dịch phụ đề SaaS) qua module `saas_retry.py` dùng chung; 18 test mới, 0 regression (742/746 pass) — xem TEST_LOG |
 
 ## Tổng quan phase
 
@@ -1250,6 +1251,91 @@ Success Criteria:
   giữ nguyên timestamp.
 - Billing SaaS đúng số Vox trừ = số dòng × giá autotranslate, verify bằng test (chưa
   live HTTP thật — cùng giới hạn đã ghi ở V15).
+```
+
+---
+
+## Phase E — Đóng gap so với thị trường + ổn định vận hành (2026-08-11+)
+
+Mở ra sau khi so sánh trực tiếp với các tool auto-dub thương mại (HeyGen,
+ElevenLabs Dubbing Studio, Rask AI, Papercup, Deepdub, Sync Labs, CapCut,
+Descript...) — xem báo cáo research trong lịch sử phiên làm việc 2026-08-11.
+Kết luận chính: VoxDub là công cụ DUY NHẤT offline-first thật trong nhóm so
+sánh (khác biệt cạnh tranh có chủ đích, giữ nguyên), nhưng thiếu 2 pattern
+"production-stable" chuẩn công nghiệp — retry/backoff+idempotency cho MỌI
+lời gọi mạng bên ngoài (không chỉ 1 phần) và phạm vi ngôn ngữ đích hẹp
+(vi/en-thử nghiệm so với 90-175+ của đối thủ). Chủ dự án đã chọn ưu tiên
+V16 (retry) + V17 (video dài) + mở rộng ngôn ngữ đích (mini-spec riêng, sau
+V16/V17) trong đợt này; live-verify GPU thật (Whisper/VieNeu/Paraformer/
+Demucs GPU) hoãn lại — sandbox không có phần cứng GPU.
+
+### V16 — Retry/backoff cho các lượt gọi SaaS một-lần
+
+```
+V16 — Retry/backoff cho SaaS call một-lần (đóng gap ổn định Phase E)
+
+Context:
+- Tài liệu bắt buộc: autodub/text/translate_saas.py (đã có bounded-retry +
+  backoff + jitter + rate-limit cho luồng dịch LÔ của pipeline dub — KHÔNG
+  đụng file này, xem lý do trong Constraints), autodub/cloud_render.py
+  (mini-spec V12 — poll/tải kết quả job cloud MỘT LẦN, không retry),
+  autodub/text/subtitle_translate.py (mini-spec V14 — dịch phụ đề SaaS MỘT
+  LẦN cho cả file, không retry).
+- Trạng thái hiện tại (audit thật 2026-08-11): translate_saas.py ĐÃ đúng
+  chuẩn (idempotency qua job_id băm nội dung + bounded retry 4 lượt + backoff
+  2/6/15s có jitter, tôn trọng Retry-After, phân loại đúng lỗi tạm thời vs cố
+  định). 2 nơi còn lại gọi saas_client MỘT LẦN duy nhất — một chớp mạng tạm
+  thời (timeout, 429, 5xx) làm hỏng NGUYÊN job/file dù server không có gì
+  sai, dù cả 2 đều idempotent-safe để gọi lại (poll là GET thuần đọc; tải
+  kết quả mở file "wb" tự ghi đè; dịch phụ đề SaaS dùng job_id ổn định theo
+  nội dung, máy chủ không tính phí 2 lần).
+
+Goal:
+- Không lượt gọi SaaS MỘT-LẦN nào trong sản phẩm còn "1 chớp mạng = hỏng
+  nguyên tác vụ" khi bản thân tác vụ đó an toàn để gọi lại.
+
+Constraints (Guardrails):
+1. KHÔNG sửa translate_saas.py — logic đó đã đúng, có test, gắn trực tiếp
+   luồng tiền (hold); nguyên tắc giống V2 (không ép refactor code tiền đang
+   chạy đúng khi không có bằng chứng nó sai).
+2. KHÔNG retry submit_demucs_job() — không có job_id do client sinh (server
+   tự cấp), gọi lại khi request đã tới server nhưng response bị rớt có thể
+   tạo 2 job + trừ Vox 2 lần — giữ single-attempt + fallback Demucs máy như
+   cũ (đúng, không phải gap).
+3. KHÔNG retry billing.py (setup_hold/settle_hold_inline) — đã có fallback
+   design cố ý (rơi về trừ Vox từng lượt) thay vì retry, giữ nguyên.
+4. Lỗi CỐ ĐỊNH (hết Vox, thiết bị khoá, bảo trì) không bao giờ retry — cùng
+   luật is_retryable_error() như translate_saas.py.
+5. Poll loop (cloud_render) không được lùi deadline tổng (MAX_WAIT_S) vì lỗi
+   tạm thời — chỉ bỏ cuộc sớm hơn khi lỗi liên tiếp vượt ngưỡng riêng.
+
+Scope:
+B. Services/engine: module mới `autodub/saas_retry.py` (is_retryable_error,
+   sleep_cancellable, call_with_retry) — rút từ đúng pattern translate_saas.py
+   nhưng KHÔNG import/sửa file đó (duplicate có chủ đích, xem Constraint 1).
+   Áp dụng: cloud_render.py (poll trong vòng lặp có sẵn — swallow lỗi tạm
+   thời, đếm lỗi liên tiếp, KHÔNG dùng call_with_retry vì đã có vòng lặp
+   riêng; download_job_result — bọc call_with_retry, 2 lượt độc lập);
+   subtitle_translate.py (translate_subtitle_file_saas — bọc call_with_retry).
+E. Tests: 18 test mới (test_saas_retry.py thuần cho module dùng chung + test
+   riêng cho từng call site: retry-rồi-thành-công, hết-lượt-thì-raise,
+   lỗi-cố-định-raise-ngay-không-retry).
+
+Audit Before Build: xem "Trạng thái hiện tại" ở Context — đã audit đủ 6 file
+gọi get_client() trong autodub/ (telemetry.py, cloud_render.py, billing.py,
+subtitle_translate.py, content/generator.py, pipeline.py/translate_saas.py)
+trước khi quyết định phạm vi. telemetry.py và content/generator.py KHÔNG
+retry (đúng, cả 2 đều là tính năng phụ — gửi event/tạo caption mạng xã hội —
+fail-soft chấp nhận được, retry không đáng giá trị tăng thêm).
+
+Test Plan: unit đầy đủ (không cần mạng thật — mock SaasError/OfflineError ở
+đúng biên get_client()), KHÔNG live-verify HTTP thật lượt này (đổi hành vi
+lỗi-mạng, không đổi contract API — không cần key thật để xác nhận).
+
+Success Criteria:
+- 742/746 test pass (0 fail so với trước, 18 test mới) — xem TEST_LOG.
+- `grep -rn "job_status\|download_job_result\|translate_subtitle(" autodub/cloud_render.py autodub/text/subtitle_translate.py`
+  không còn lời gọi trần nào ngoài qua saas_retry (poll) hoặc call_with_retry.
 ```
 
 ---

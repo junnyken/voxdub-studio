@@ -30,6 +30,10 @@ POLL_INTERVAL_S = 3.0
 #: Video dài thật (hàng chục phút) vẫn phải xong trong ngưỡng này — quá hạn
 #: thì coi là treo, rơi về Demucs máy thay vì chờ vô thời hạn.
 MAX_WAIT_S = 30 * 60
+#: mini-spec V16 — số lần poll lỗi TẠM THỜI liên tiếp tối đa trước khi bỏ
+#: cuộc (không phải tổng số lần thử trong cả job — reset về 0 mỗi lần poll
+#: thành công). 5 lần × 3s poll interval = ~15s mất mạng liên tục mới bỏ.
+MAX_CONSECUTIVE_POLL_ERRORS = 5
 
 
 def is_available(settings) -> bool:
@@ -77,6 +81,7 @@ def separate_vocals_cloud(
         return {"vocals": vocals_out, "no_vocals": no_vocals_out}
 
     from autodub.saas_client import SaasError, get_client
+    from autodub.saas_retry import call_with_retry, is_retryable_error
 
     client = get_client()
     submitted = client.submit_demucs_job(input_wav)
@@ -90,6 +95,14 @@ def separate_vocals_cloud(
     status = submitted.get("status", "queued")
     last_status = None
     info = submitted
+    # mini-spec V16 (docs/PLAN.md, Phase E) — 1 poll lỗi tạm thời (chớp mạng)
+    # KHÔNG được huỷ nguyên job đang chạy khoẻ mạnh phía máy chủ: coi lỗi
+    # tạm thời là "vòng poll này trống", thử lại ở vòng kế tiếp thay vì ném
+    # lỗi ngay — chỉ bỏ cuộc khi lỗi liên tiếp quá ngưỡng (mất mạng thật, kéo
+    # dài) hoặc gặp lỗi CỐ ĐỊNH (hết Vox/khoá thiết bị/bảo trì, không thử lại
+    # theo is_retryable_error). Không lùi deadline tổng — job dài thật vẫn bị
+    # chặn đúng ngưỡng cũ, chỉ khác là chớp mạng ngắn không giết job.
+    consecutive_poll_errors = 0
     while status not in ("done", "failed"):
         if time.monotonic() > deadline:
             raise SaasError(
@@ -97,7 +110,17 @@ def separate_vocals_cloud(
         if reporter is not None:
             reporter.check_cancelled()
         time.sleep(POLL_INTERVAL_S)
-        info = client.job_status(job_id)
+        try:
+            info = client.job_status(job_id)
+        except SaasError as e:
+            if not is_retryable_error(e) or consecutive_poll_errors >= MAX_CONSECUTIVE_POLL_ERRORS:
+                raise
+            consecutive_poll_errors += 1
+            logger.warning(
+                f"Poll job tách nhạc cloud lỗi tạm thời ({e}) — thử lại vòng "
+                f"kế tiếp ({consecutive_poll_errors}/{MAX_CONSECUTIVE_POLL_ERRORS})")
+            continue
+        consecutive_poll_errors = 0
         status = info.get("status", status)
         if status != last_status:
             logger.info(f"Job tách nhạc cloud: {status}")
@@ -109,8 +132,12 @@ def separate_vocals_cloud(
     raw_vocals = os.path.join(output_dir, "_vocals_cloud_raw.wav")
     raw_no_vocals = os.path.join(output_dir, "_no_vocals_cloud_raw.wav")
     try:
-        client.download_job_result(job_id, "vocals", raw_vocals)
-        client.download_job_result(job_id, "no_vocals", raw_no_vocals)
+        # download_job_result mở file "wb" mỗi lần (tự ghi đè, không nối
+        # chồng) — an toàn để gọi lại nguyên vẹn khi lỗi tạm thời.
+        call_with_retry(lambda: client.download_job_result(job_id, "vocals", raw_vocals),
+                        label="Tải kết quả tách nhạc (vocals)", reporter=reporter)
+        call_with_retry(lambda: client.download_job_result(job_id, "no_vocals", raw_no_vocals),
+                        label="Tải kết quả tách nhạc (no_vocals)", reporter=reporter)
 
         from autodub.media.vocal_separator import _normalize
         _normalize(raw_vocals, vocals_out, str(sample_rate), channels)
