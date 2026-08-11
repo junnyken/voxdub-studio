@@ -23,8 +23,12 @@ logs/
 # Du lieu ca nhan
 linkdouyin.txt
 
-# Models (nhieu GB; tai ve bang cac script trong scripts/)
-models/
+# Models (nhieu GB; tai ve bang cac script trong scripts/) — CHI thu muc
+# models/ o GOC repo (autodub tai ve: models/whisper, models/vieneu,...).
+# Khong duoc de "models/" khong neo (khop moi thu muc ten "models" o BAT KY
+# do sau nao) — tung lam control_server/src/models/ (schema Mongoose that,
+# can commit) bi bo lot khoi git hoan toan, xem docs/TEST_LOG.md.
+/models/
 
 # Giong nguoi dung tu them (voices/preset_voices_vn/ VAN duoc commit)
 voices/custom/
