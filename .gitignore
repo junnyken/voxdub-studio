@@ -52,6 +52,10 @@ control_server/node_modules/
 control_server/.env
 control_server/logs/
 
+# Satellite deploy override (server B, workspace ca nhan) — tu file tuyen bo
+# khong commit, xem comment trong chinh file do.
+docker-compose.b-satellite.yml
+
 # Website
 website/node_modules/
 website/dist/
