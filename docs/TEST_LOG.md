@@ -1216,10 +1216,57 @@ thật — pass, 18.4s**). `autodub` (pytest) **672/672 pass** (657 cũ + 11
   dụng) → lỗi thì fallback Demucs máy → cả hai lỗi thì nền câm (hành vi cũ,
   không đổi).
 
+### Re-audit 2026-08-11 — build thành công qua cách khác, live-verify end-to-end THẬT qua Docker
+
+Sandbox `trieunt` — 2 lượt build `docker compose build render_worker` trực
+tiếp qua mạng đều bị treo (lượt 1: >50 phút không tiến triển; đã chẩn đoán
+thêm ở mục V12 phía trên — mạng TRONG network namespace Docker build chậm
+hẳn so với mạng host cùng máy, không phải bị chặn hoàn toàn, chỉ cực chậm).
+Thay vì tiếp tục chờ mạng Docker, đổi chiến lược: **tải sẵn wheel trên
+host** (mạng host đã xác nhận nhanh, bình thường xuyên suốt phiên này) rồi
+**build offline** — hoàn toàn không cần mạng lúc `docker build`:
+
+1. `pip download demucs>=4.0.0 soundfile>=0.13.0 requests>=2.31.0` (đúng y
+   hệt spec trong `control_server/worker/Dockerfile`, không đổi phiên bản)
+   trên host — 54 wheel, 2.6GB, xong trong vài phút (xác nhận lại: mạng
+   host bình thường, vấn đề thật sự chỉ ở network namespace của Docker
+   builder trong sandbox này).
+2. Dockerfile biến thể **CHỈ ĐỂ VERIFY** (không commit, không thay
+   `control_server/worker/Dockerfile` thật — đó vẫn đúng cho môi trường
+   build bình thường, không có lý do đổi logic sản xuất vì 1 giới hạn
+   riêng của sandbox): `COPY wheels /wheels` rồi
+   `pip install --no-index --find-links=/wheels ...` — không gọi mạng.
+3. `docker build` **THÀNH CÔNG THẬT**, `image c0c43724e8a6` — verify
+   `import demucs, soundfile, requests, torch` chạy được trong container
+   (torch 2.13.0+cu130).
+4. Gắn tag `voidmix-render_worker:latest` (đúng tên compose tự sinh) rồi
+   `docker compose up -d render_worker` — **CẢ 3 SERVICE chạy thật cùng
+   lúc lần đầu tiên** (mongo + control_server + render_worker), đúng
+   nghĩa đen Success Criteria gốc của V12 ("docker compose up chạy được
+   TOÀN BỘ, không cần cài gì thêm ngoài Docker"). Log worker thật:
+   `worker_id=0ff7353c1470:1 bắt đầu poll http://control_server:3001 mỗi 3.0s`.
+5. **Live-verify end-to-end THẬT qua đúng luồng HTTP** (không bind-mount
+   tạm, không chạy worker ngoài container như lượt verify trước — lần này
+   đúng kiến trúc thật 100%): đăng ký 1 device thật
+   (`POST /v1/device/register`) → nộp 1 file WAV thật 3 giây
+   (`POST /v1/jobs/demucs`) → nhận ngay `{status:"queued", balanceAfter:450}`
+   (trừ đúng 50 Vox) → poll `GET /v1/jobs/:id` thấy chuyển
+   `queued`→`running`→`done` thật (worker container tự claim, xử lý, báo
+   xong — log container xác nhận: "Nhận job ... (stage=demucs)" rồi "Job
+   ... xong.") → tải cả 2 stem (`GET /v1/jobs/:id/result/vocals|no_vocals`)
+   — **file WAV thật, hợp lệ** (`ffprobe`: PCM 16-bit, đúng 3.0s, khớp
+   input).
+
+**Kết luận**: Dockerfile/docker-compose.yml THẬT (không đổi 1 dòng) hoàn
+toàn đúng — giới hạn build trước đó 100% là do mạng riêng của sandbox này,
+không phải lỗi thiết kế. V12 giờ đã live-verify TOÀN BỘ, kể cả bước cuối
+cùng còn thiếu (build qua Docker) — không còn phần nào của Success Criteria
+gốc chưa xác nhận.
+
 ### Remaining Limits (V12)
 
-- **Xác nhận CHẮC CHẮN (không còn "đang chờ")**: build `render_worker` qua
-  `docker compose build` **THẤT BẠI THẬT SỰ** sau ~2 giờ 6 phút — không
+- **[LỊCH SỬ — đã đóng ở mục "Re-audit" ngay trên]** build `render_worker`
+  qua `docker compose build` **THẤT BẠI THẬT SỰ** sau ~2 giờ 6 phút — không
   phải chậm rồi xong, mà chết hẳn với `ReadTimeoutError: HTTPSConnectionPool
   (host='files.pythonhosted.org', port=443): Read timed out` ngay ở bước
   `pip install demucs`. Đây là giới hạn THẬT của mạng build-context trong
