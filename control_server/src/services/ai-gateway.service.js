@@ -279,10 +279,11 @@ async function callWithFallback(role, args) {
  * Hết hạn mức (RATE_LIMITED) thì KHÔNG chia đôi: chia đôi làm số request tăng
  * gấp đôi, đúng thứ đang bị chặn.
  */
-async function translateBatch({ segments, sourceLang, targetField, context,
+async function translateBatch({ segments, sourceLang, targetKey = 'vi', context,
   cpsBudget, prevContext = [], maxRetries = 2, depth = 0 }) {
+  const { field: targetField } = prompts.resolveTargetLang(targetKey)
   const system = prompts.buildTranslateSystemPrompt({
-    sourceLang, targetField, context, cpsBudget,
+    sourceLang, targetKey, context, cpsBudget,
   })
   const user = prompts.buildTranslateUserPrompt({ segments, targetField, prevContext })
   const schema = prompts.translateSchema(targetField)
@@ -307,7 +308,7 @@ async function translateBatch({ segments, sourceLang, targetField, context,
   const halves = [rest.slice(0, mid), rest.slice(mid)].filter((h) => h.length)
 
   const results = await Promise.all(halves.map((half) => translateBatch({
-    segments: half, sourceLang, targetField, context, cpsBudget,
+    segments: half, sourceLang, targetKey, context, cpsBudget,
     prevContext, maxRetries, depth: depth + 1,
   }).catch(() => null)))
 
@@ -335,11 +336,12 @@ async function translateBatch({ segments, sourceLang, targetField, context,
 }
 
 /** Dịch lại các câu còn sót chữ Hán (lưới cuối trước khi trả về app). */
-async function fixCjkLeftovers({ merged, sourceLang, targetField, context, cpsBudget }) {
+async function fixCjkLeftovers({ merged, sourceLang, targetKey = 'vi', context, cpsBudget }) {
+  const { field: targetField, name: targetName } = prompts.resolveTargetLang(targetKey)
   const bad = merged.filter((s) => containsCjk(s[targetField]))
   if (!bad.length) return { segments: merged, usage: { promptTokens: 0, completionTokens: 0 } }
 
-  const system = prompts.buildTranslateSystemPrompt({ sourceLang, targetField, context, cpsBudget })
+  const system = prompts.buildTranslateSystemPrompt({ sourceLang, targetKey, context, cpsBudget })
   const schema = prompts.translateSchema(targetField)
   let promptTokens = 0
   let completionTokens = 0
@@ -347,7 +349,7 @@ async function fixCjkLeftovers({ merged, sourceLang, targetField, context, cpsBu
   const fixes = await Promise.all(bad.map(async (seg) => {
     const user = 'Your previous translation still contained Chinese characters: '
       + `${JSON.stringify(seg[targetField])}\n`
-      + `Translate this ONE segment again. "${targetField}" must be pure Vietnamese `
+      + `Translate this ONE segment again. "${targetField}" must be pure ${targetName} `
       + '(Latin script only). Return ONLY JSON: '
       + `{"segments": [{"id": ..., "${targetField}": "..."}]}\n\n`
       + JSON.stringify({ id: seg.id })
@@ -373,8 +375,8 @@ async function fixCjkLeftovers({ merged, sourceLang, targetField, context, cpsBu
 }
 
 /** Phân tích ngữ cảnh video (lượt 0). Trả về dict hoặc null. */
-async function analyze({ lines, sourceLang, videoTitle }) {
-  const user = prompts.buildAnalysisPrompt({ lines, sourceLang, videoTitle })
+async function analyze({ lines, sourceLang, videoTitle, targetKey = 'vi' }) {
+  const user = prompts.buildAnalysisPrompt({ lines, sourceLang, videoTitle, targetKey })
   const { content, usage, provider } = await callWithFallback('translate', {
     system: prompts.ANALYSIS_SYSTEM,
     user,
@@ -386,10 +388,11 @@ async function analyze({ lines, sourceLang, videoTitle }) {
 }
 
 /** Rà soát và dịch lại một câu nghi vấn. */
-async function reviewOne({ segment, reason, neighbors, sourceLang, targetField,
+async function reviewOne({ segment, reason, neighbors, sourceLang, targetKey = 'vi',
   context, cpsBudget }) {
-  const system = prompts.buildTranslateSystemPrompt({ sourceLang, targetField, context, cpsBudget })
-  const user = prompts.buildReviewUserPrompt({ segment, reason, targetField, neighbors })
+  const { field: targetField } = prompts.resolveTargetLang(targetKey)
+  const system = prompts.buildTranslateSystemPrompt({ sourceLang, targetKey, context, cpsBudget })
+  const user = prompts.buildReviewUserPrompt({ segment, reason, targetField, targetKey, neighbors })
   const { content, usage } = await callWithFallback('translate', {
     system, user, schema: prompts.translateSchema(targetField), maxRetries: 2,
   })

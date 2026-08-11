@@ -1238,3 +1238,76 @@ V12, build lại `control_server` để lấy code V13 mới — nhanh, ~8s, kh�
 - `website` chưa có test cho `PipelineFunnel`/`Dashboard.jsx` (component
   React) — cùng giới hạn đã ghi nhận từ đợt re-audit 08-11 (chưa có
   `@testing-library/react`, `npm run build` là mức verify hiện tại).
+
+## V15 — Sửa bug hardcode tiếng Việt ở prompt dịch server-side (phát sinh khi audit V14)
+
+Bug thật tìm ra trong lúc audit trước khi bắt tay V14 (dịch phụ đề rời,
+docs/PLAN.md — chưa có mini-spec chính thức, xem Remaining Limits cuối
+mục này): `POST /v1/ai/translate|analyze|review` (control_server) KHÔNG
+nhận `targetLang` từ client — `routes/ai.js` hardcode `TARGET_FIELD =
+'text_vi'` và `prompts/translate.js` hardcode "Vietnamese" trong system
+prompt. Ảnh hưởng THẬT: lồng tiếng tiếng Anh qua SaaS (mini-spec V8/V11)
+vẫn nhận `text_vi` từ máy chủ — client tìm `text_en` không thấy, coi câu
+đó là "không dịch được" (không crash, nhưng dịch sai ngôn ngữ hoàn toàn,
+âm thầm).
+
+### Thay đổi
+
+- `control_server/src/prompts/translate.js`: thêm `resolveTargetLang(key)`
+  (bảng field/tên ngôn ngữ theo `targetKey`, mặc định `"vi"` khi thiếu —
+  0 regression cho client cũ không gửi field) — `buildTranslateSystemPrompt`/
+  `buildAnalysisPrompt`/`buildReviewUserPrompt`/`translateSchema` đổi sang
+  nhận `targetKey` thay vì `targetField` hardcode.
+- `control_server/src/routes/ai.js`, `ai-gateway.service.js`: đọc
+  `targetLang` từ body request (`/translate`, `/analyze`, `/review`),
+  truyền xuống `resolveTargetLang()` — field response đổi động
+  `text_<targetLang>` thay vì cố định `text_vi`.
+- `autodub/saas_client.py`: `translate()`/`analyze()`/`review()` thêm tham
+  số `target_lang: str = "vi"`, gửi trong payload — mặc định giữ hành vi
+  cũ khi không truyền.
+- `autodub/text/translate_saas.py`, `translate_review.py`: truyền đúng
+  `target.key` (không còn ngầm định "vi") ở mọi điểm gọi client thật.
+- `docs/API.md`: cập nhật contract 3 endpoint (`targetLang` request field,
+  `text_<targetLang>` response field).
+
+### Design Choice
+
+Field mặc định `"vi"` ở CẢ hai đầu (client `SaasClient.translate(...,
+target_lang="vi")` và server `resolveTargetLang()` khi thiếu key) — double
+default có chủ đích, không phải thừa: client cũ (đã build, chưa cập nhật)
+gọi server mới vẫn ra đúng hành vi cũ; server cũ (chưa deploy) nhận request
+có `targetLang` cũng không vỡ vì field bị bỏ qua như request thừa field.
+
+### Tests (thật, chạy tại 2026-08-11)
+
+- `control_server`: `node --test tests/*.test.js` — **146 pass / 1 skip**
+  (bao gồm 14 test mới `tests/translate-prompts.test.js` cho
+  `resolveTargetLang`/prompt builder target=vi và target=en).
+- `autodub`: `pytest tests/test_translate_target_lang.py` — **24 pass**
+  (khoá `translate_saas.py`/`translate_review.py` gọi client với đúng
+  `target_lang=target.key`, kể cả regression target=vi).
+- Suite `autodub` đầy đủ (`pytest -q`, môi trường sandbox hiện tại, không
+  phải `.venv` đóng gói đầy đủ của project): **586 pass, 16 fail** — toàn
+  bộ 16 fail là giới hạn môi trường CÓ TỪ TRƯỚC, không liên quan thay đổi
+  V15 (thiếu `PySide6`/`numpy`/`ctranslate2` — vd
+  `test_translate_local.py::test_translate_segments_local_end_to_end_real_model`
+  cần `.venv-mt` thật có `ctranslate2`, không có trong sandbox; 6 test còn
+  lại của cùng file, bao gồm test phủ `run_local_worker()` mới tách ra,
+  đều pass). Đã xác nhận không file nào trong 16 fail chạm tới code V15.
+
+### Remaining Limits (V15)
+
+- **CHƯA live-verify qua HTTP thật** (khác với chuẩn V11-V13 của project —
+  luôn có 1 lượt gọi thật qua server đang chạy): sandbox hiện tại không có
+  `MONGODB_URI` trỏ tới Mongo đang chạy và không có API key nhà cung cấp
+  AI thật (`OPENAI_API_KEY`/tương đương) trong `control_server/.env` — không
+  thể dựng `docker compose up -d mongo control_server` rồi gọi `/translate`
+  thật với `targetLang=en` để xác nhận response thật trả `text_en`. Mức
+  verify hiện tại dừng ở unit/mock (assert đúng tham số truyền xuống, đúng
+  nội dung prompt build ra) — CHƯA phải bằng chứng end-to-end như các
+  mini-spec Phase D khác. Cần chủ dự án xác nhận có muốn chờ live-verify
+  thật trước khi coi V15 "Xong", hay chấp nhận mức unit-test hiện tại.
+- Ngôn ngữ đích ngoài danh sách đã biết của `resolveTargetLang()` rơi về
+  quy tắc chung (tên ngôn ngữ lấy nguyên `targetKey` làm nhãn) — chưa có
+  bảng tên đầy đủ cho mọi `TargetLang` hiện có trong `autodub/languages.py`,
+  chỉ mới phủ các ngôn ngữ đã dùng thật (vi, en).

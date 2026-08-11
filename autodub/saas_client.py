@@ -473,17 +473,23 @@ class SaasClient:
     # -------------------------------------------------------------- AI ---
 
     def translate(self, segments: list[dict], *, job_id: str, source_lang: str,
+                  target_lang: str = "vi",
                   context: dict | None = None, cps_budget: float = 12.5,
                   prev_context: list[dict] | None = None,
                   hold_id: str | None = None) -> dict:
         """Dịch một lô câu.
 
         ``segments``: ``[{"id", "text", "duration", "max_chars"}]``.
-        Trả về ``{"segments": [{"id", "text_vi"}], "creditCharged", "balanceAfter"}``.
+        ``target_lang``: khoá ngắn ngôn ngữ đích (``autodub.languages.TargetLang.key``,
+        vd "vi"/"en") — mini-spec V15 (docs/PLAN.md): TRƯỚC ĐÂY thiếu tham số
+        này, máy chủ luôn dịch sang tiếng Việt bất kể đang lồng tiếng ngôn
+        ngữ nào (bug thật, xem docs/TEST_LOG.md).
+        Trả về ``{"segments": [{"id", "text_<target_lang>"}], "creditCharged", "balanceAfter"}``.
         """
         payload = {
             "jobId": job_id,
             "sourceLang": source_lang,
+            "targetLang": target_lang,
             "cpsBudget": float(cps_budget),
             "segments": segments,
         }
@@ -498,11 +504,13 @@ class SaasClient:
         return data
 
     def analyze(self, lines: list[str], *, job_id: str, source_lang: str,
+                target_lang: str = "vi",
                 video_title: str = "", hold_id: str | None = None) -> dict | None:
         """Phân tích ngữ cảnh video (lượt 0). Trả về dict hoặc None."""
         payload = {
             "jobId": job_id,
             "sourceLang": source_lang,
+            "targetLang": target_lang,
             "videoTitle": video_title[:300],
             "lines": lines,
         }
@@ -514,12 +522,14 @@ class SaasClient:
         return data.get("analysis")
 
     def review(self, items: list[dict], *, job_id: str, source_lang: str,
+               target_lang: str = "vi",
                context: dict | None = None, cps_budget: float = 12.5,
                hold_id: str | None = None) -> list[dict]:
         """Rà soát các câu nghi vấn. Trả về danh sách câu ĐÃ SỬA (có thể rỗng)."""
         payload = {
             "jobId": job_id,
             "sourceLang": source_lang,
+            "targetLang": target_lang,
             "cpsBudget": float(cps_budget),
             "items": items,
         }

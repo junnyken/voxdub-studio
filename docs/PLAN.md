@@ -41,6 +41,8 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V11 | Hoàn thiện đa ngôn ngữ đích (đóng gap V8) | ✅ Xong | Audit hết Vietnamese-assumption + fix bug align.py + voices.catalog/GUI target-aware + live-verify 2 lượt pipeline thật target=en, 0 crash — xem TEST_LOG |
 | V12 | Cloud rendering production-ready (đóng gap V9) | ⚠️ Backend+GUI xong, image Docker chưa build được trong sandbox | State machine bất đồng bộ + worker Python + GUI toggle live-verify thật (worker chạy trực tiếp + control_server thật trong Docker); `docker compose build render_worker` THẤT BẠI THẬT (pip timeout tải torch) sau ~2h — giới hạn mạng build của sandbox, không phải lỗi Dockerfile — xem TEST_LOG |
 | V13 | Phễu hoàn thành/bỏ dở pipeline (đóng gap V10) | ✅ Xong | Telemetry PipelineEvent + client gửi event thật + banner minh bạch (guardrail 1 — cập nhật TRƯỚC khi bật) + dashboard phễu; live-verify thật qua HTTP thật (2 run, kể cả privacy-test chặn field cấm thật) — xem TEST_LOG |
+| V14 | Dịch phụ đề rời (`.srt`/`.vtt`, ngoài luồng dub) | 🔴 Dở dang, CHƯA có mini-spec chính thức | Parser (`subtitle_parse.py`) + hạ tầng dùng lại (`run_local_worker()`) đã xong, có test; module nối `subtitle_translate.py` + wiring (GUI/CLI, local-only hay cả SaaS) CHƯA làm — thiếu quyết định của chủ dự án, xem mục dưới |
+| V15 | Sửa bug hardcode tiếng Việt ở prompt dịch server-side | ⚠️ Code xong, CHƯA live-verify | Tìm ra khi audit V14 — `/translate`,`/analyze`,`/review` giờ nhận `targetLang`, field response đổi `text_<targetLang>`; 146+24 test unit/mock pass, CHƯA gọi HTTP thật (sandbox thiếu Mongo + API key AI) — xem TEST_LOG |
 
 ## Tổng quan phase
 
@@ -1120,6 +1122,47 @@ Success Criteria:
 - Banner/FAQ minh bạch đã cập nhật VÀ TRIỂN KHAI trước khi tính năng này gửi bất kỳ dữ
   liệu thật nào của người dùng thật — không đảo ngược thứ tự.
 ```
+
+### V15 — Sửa bug hardcode tiếng Việt ở prompt dịch server-side (bug thật, tìm ra khi audit V14)
+
+Không phải mini-spec lên kế hoạch từ đầu — phát sinh khi audit trước khi bắt tay V14
+(bên dưới), thấy `/translate`,`/analyze`,`/review` (control_server) hardcode dịch sang
+tiếng Việt bất kể client đang lồng tiếng ngôn ngữ nào, ảnh hưởng thật tới tính năng đa
+ngôn ngữ đích đã đóng ở V11 khi dùng qua SaaS. Coi đây là bug-fix ưu tiên trước khi tiếp
+tục V14 (không hợp lý viết thêm tính năng dịch mới trên nền server đang dịch sai ngôn
+ngữ). Đã code xong + test unit/mock đầy đủ, **CHƯA live-verify qua HTTP thật** (sandbox
+hiện tại thiếu Mongo chạy + API key nhà cung cấp AI thật) — xem chi tiết đầy đủ ở
+`docs/TEST_LOG.md` mục V15, bao gồm Remaining Limits cần chủ dự án xác nhận có chờ
+live-verify trước khi đóng hẳn V15 hay không.
+
+### V14 — Dịch phụ đề rời (`.srt`/`.vtt`, NGOÀI luồng dub video) — CHƯA có mini-spec chính thức
+
+**Trạng thái**: bắt đầu code trực tiếp KHÔNG qua đúng quy trình Playbook (không có
+Context/Goal/Constraints/Scope như V11-13 ở trên) — vi phạm chính nguyên tắc đầu mục
+"Cách dùng tài liệu này" bên dưới. Dừng lại ở đây để chủ dự án quyết định trước khi viết
+tiếp, thay vì tự đoán.
+
+Đã có:
+- `autodub/text/subtitle_parse.py` — đọc/ghi `.srt`/`.vtt` rời (không đọc được qua
+  `srt.py` hiện có, vốn chỉ SINH file từ segment nội bộ của pipeline dub), thuần regex,
+  bỏ qua khối hỏng thay vì hỏng cả file. 24 test, `tests/test_subtitle_parse.py`.
+- `autodub/text/translate_local.py`: tách `run_local_worker()` (lõi gọi subprocess dịch
+  local dùng chung) ra khỏi `translate_segments_local()` — hạ tầng dùng lại cho module
+  dịch phụ đề rời, không phá chữ ký/hành vi cũ (7 test cũ vẫn pass nguyên).
+
+**Chưa có, cần quyết định trước khi làm**:
+1. **Wiring ở đâu**: thêm màn hình/nút trong `autodub_gui/` (desktop, PySide6), hay
+   script CLI riêng (`scripts/`), hay cả hai?
+2. **Nguồn dịch**: chỉ dịch local (NLLB qua `run_local_worker()`, offline, không cần
+   `is_configured()`), hay cũng cho dịch qua SaaS (cần endpoint control_server riêng
+   — khác `/translate` hiện có, vốn được thiết kế cho segment ASR có `duration`/
+   `max_chars`, không khớp cue phụ đề)?
+3. **Ngôn ngữ nguồn/đích**: có giới hạn theo `TargetLang`/`flores_code()` đã có, hay mở
+   rộng hơn (phụ đề rời không nhất thiết đi kèm video đang lồng tiếng)?
+4. **Đầu ra**: ghi đè file gốc, hay luôn sinh file mới (`<tên>_<lang>.srt`)? Giữ style
+   gốc (`.srt` giữ `.srt`, `.vtt` giữ `.vtt`) hay cho chọn định dạng khác đầu ra?
+
+Không tự quyết các mục trên — đúng nguyên tắc Phase D đã áp dụng cho V11-V13.
 
 ---
 

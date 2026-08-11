@@ -144,7 +144,8 @@ def review_translations(
             result = client.review(
                 chunk,
                 job_id=_chunk_job_id(run_id, chunk),
-                source_lang=source_lang, context=context, cps_budget=cps,
+                source_lang=source_lang, target_lang=target.key,
+                context=context, cps_budget=cps,
                 hold_id=HOLD.hold_id)
         except InsufficientCreditError:
             # Hết Vox giữa chừng: bản dịch lượt đầu vẫn dùng được, không nên

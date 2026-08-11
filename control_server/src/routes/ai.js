@@ -30,8 +30,6 @@ const gateway = require('../services/ai-gateway.service')
 const prompts = require('../prompts/translate')
 const { containsCjk } = require('../utils/json-repair')
 
-const TARGET_FIELD = 'text_vi'
-
 /** Kết quả đã lưu của jobId này, hoặc null. */
 async function replay(jobId, fingerprint) {
   if (!jobId) return null
@@ -170,6 +168,11 @@ module.exports = async function aiRoutes(fastify) {
           jobId: { type: 'string', minLength: 8, maxLength: 100 },
           holdId: { type: 'string', minLength: 8, maxLength: 100 },
           sourceLang: { type: 'string', maxLength: 16, default: 'zh-CN' },
+          // Mini-spec V15 (docs/PLAN.md) — bug thật đã sửa: trước đây
+          // KHÔNG có field này, server luôn dịch sang tiếng Việt bất kể
+          // client đang lồng tiếng ngôn ngữ nào (xem docs/TEST_LOG.md).
+          // Mặc định "vi" — 0 regression cho client cũ không gửi field này.
+          targetLang: { type: 'string', pattern: '^[a-z]{2,3}$', default: 'vi' },
           cpsBudget: { type: 'number', minimum: 4, maximum: 40, default: 12.5 },
           segments: {
             type: 'array',
@@ -206,7 +209,8 @@ module.exports = async function aiRoutes(fastify) {
     },
   }, async (request, reply) => {
     const { device } = request
-    const { jobId, holdId, segments, sourceLang = 'zh-CN', cpsBudget = 12.5 } = request.body
+    const { jobId, holdId, segments, sourceLang = 'zh-CN', targetLang = 'vi',
+      cpsBudget = 12.5 } = request.body
 
     const cached = await replay(jobId, device.fingerprint)
     if (cached) return cached
@@ -268,7 +272,7 @@ module.exports = async function aiRoutes(fastify) {
       result = await gateway.translateBatch({
         segments,
         sourceLang,
-        targetField: TARGET_FIELD,
+        targetKey: targetLang,
         context,
         cpsBudget,
         prevContext: request.body.prevContext || [],
@@ -277,7 +281,7 @@ module.exports = async function aiRoutes(fastify) {
       // Lưới cuối: câu nào còn chữ Hán thì dịch lại ngay, app không phải
       // biết chuyện này tồn tại.
       const fix = await gateway.fixCjkLeftovers({
-        merged: result.segments, sourceLang, targetField: TARGET_FIELD,
+        merged: result.segments, sourceLang, targetKey: targetLang,
         context, cpsBudget,
       })
       result.segments = fix.segments
@@ -347,6 +351,7 @@ module.exports = async function aiRoutes(fastify) {
           jobId: { type: 'string', minLength: 8, maxLength: 100 },
           holdId: { type: 'string', minLength: 8, maxLength: 100 },
           sourceLang: { type: 'string', maxLength: 16, default: 'zh-CN' },
+          targetLang: { type: 'string', pattern: '^[a-z]{2,3}$', default: 'vi' },
           videoTitle: { type: 'string', maxLength: 300 },
           // App đã lấy mẫu đầu–giữa–cuối trước khi gửi; đây là trần cứng.
           lines: { type: 'array', maxItems: 400, items: { type: 'string', maxLength: 800 } },
@@ -355,7 +360,8 @@ module.exports = async function aiRoutes(fastify) {
     },
   }, async (request, reply) => {
     const { device } = request
-    const { jobId, lines, sourceLang = 'zh-CN', videoTitle = '', holdId } = request.body
+    const { jobId, lines, sourceLang = 'zh-CN', targetLang = 'vi',
+      videoTitle = '', holdId } = request.body
 
     const cached = await replay(jobId, device.fingerprint)
     if (cached) return cached
@@ -379,6 +385,7 @@ module.exports = async function aiRoutes(fastify) {
       result = await gateway.analyze({
         lines: lines.join('\n'),
         sourceLang,
+        targetKey: targetLang,
         videoTitle: String(videoTitle).slice(0, 300),
       })
     } catch (err) {
@@ -439,6 +446,7 @@ module.exports = async function aiRoutes(fastify) {
           jobId: { type: 'string', minLength: 8, maxLength: 100 },
           holdId: { type: 'string', minLength: 8, maxLength: 100 },
           sourceLang: { type: 'string', maxLength: 16, default: 'zh-CN' },
+          targetLang: { type: 'string', pattern: '^[a-z]{2,3}$', default: 'vi' },
           cpsBudget: { type: 'number', minimum: 4, maximum: 40, default: 12.5 },
           context: { type: 'object', additionalProperties: true },
           items: {
@@ -464,7 +472,9 @@ module.exports = async function aiRoutes(fastify) {
     },
   }, async (request, reply) => {
     const { device } = request
-    const { jobId, items, sourceLang = 'zh-CN', cpsBudget = 12.5, holdId } = request.body
+    const { jobId, items, sourceLang = 'zh-CN', targetLang = 'vi',
+      cpsBudget = 12.5, holdId } = request.body
+    const { field: targetField } = prompts.resolveTargetLang(targetLang)
 
     const cached = await replay(jobId, device.fingerprint)
     if (cached) return cached
@@ -492,19 +502,19 @@ module.exports = async function aiRoutes(fastify) {
         const { text, usage } = await gateway.reviewOne({
           segment: {
             id: item.id, text: item.text, duration: item.duration,
-            max_chars: item.max_chars, [TARGET_FIELD]: item.current,
+            max_chars: item.max_chars, [targetField]: item.current,
           },
           reason: item.reason,
           neighbors: item.neighbors || '',
           sourceLang,
-          targetField: TARGET_FIELD,
+          targetKey: targetLang,
           context,
           cpsBudget,
         })
         promptTokens += usage.promptTokens
         completionTokens += usage.completionTokens
         if (!accept(item, text)) return null
-        return { id: item.id, [TARGET_FIELD]: text }
+        return { id: item.id, [targetField]: text }
       } catch {
         // Một câu rà soát hỏng không được phép làm hỏng cả lượt — giữ bản cũ.
         return null

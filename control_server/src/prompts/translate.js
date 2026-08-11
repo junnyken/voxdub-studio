@@ -46,8 +46,21 @@ function sanitizeContext(raw) {
   return out
 }
 
-function styleRules(targetField, domain) {
-  return `### ROLE & TONE
+/**
+ * Quy tắc dịch riêng theo NGÔN NGỮ ĐÍCH (mini-spec V15, xem docs/PLAN.md —
+ * bug thật tìm ra: trước đây prompt hardcode "Vietnamese" khắp nơi, dịch
+ * sang tiếng Anh (target=en, mini-spec V8/V11) qua máy chủ SaaS thực chất
+ * VẪN RA TIẾNG VIỆT). Mỗi ngôn ngữ có bộ quy tắc RIÊNG (không phải máy dịch
+ * chữ "Vietnamese"→"English" trong 1 bộ quy tắc chung — các quy tắc như
+ * "từ Hán Việt"/cách xưng hô "mình-bạn" chỉ có nghĩa cho tiếng Việt).
+ * Ngôn ngữ chưa có bộ quy tắc riêng rơi về ``_GENERIC_RULES`` (không giả vờ
+ * biết quy tắc bản ngữ của ngôn ngữ đó, chỉ áp yêu cầu chung: tự nhiên,
+ * đúng nghĩa, không lẫn ngôn ngữ khác).
+ */
+const LANGUAGE_RULES = {
+  vi: {
+    name: 'Vietnamese',
+    rules: (targetField, domain) => `### ROLE & TONE
 - **Target Audience & Tone**: Casual, direct, engaging YouTube/TikTok creator style. Clear and concise, skip unnecessary filler.
 - **Pronouns**: Use friendly, natural Vietnamese pronouns (Bạn / mình / các bạn). Avoid over-formal or excessively vulgar/slangy pronouns (never mày/tao, never ông/bà unless explicitly instructed).
 - **Domain Context**: ${domain} — adapt wording, jargon and idioms to what THIS video is actually about (phim ngắn, vlog, nấu ăn, game, công nghệ, làm đẹp...). NEVER import terminology or examples from an unrelated domain.
@@ -73,7 +86,62 @@ Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN 
 - **Sino-Vietnamese Words**: Use only extremely common everyday Sino-Vietnamese words (e.g., "kiểm sát viên" is fine, but prefer natural spoken terms over archaic ones).
 - **Chinese Particles**: Completely remove Chinese discourse/modal particles (啊, 呢, 嘛, 吧).
 - **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps (e.g., "**", "..."): Translate it into a short Vietnamese spoken exclamation like "Hả.", "Ôi.", or "Chờ chút."
-  * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`
+  * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
+    emphasisExamples: '"really", "definitely", "so", "actually"',
+  },
+  en: {
+    name: 'English',
+    rules: (targetField, domain) => `### ROLE & TONE
+- **Target Audience & Tone**: Casual, direct, engaging YouTube/TikTok creator style. Clear and concise, skip unnecessary filler.
+- **Domain Context**: ${domain} — adapt wording, jargon and idioms to what THIS video is actually about. NEVER import terminology or examples from an unrelated domain.
+
+### NATURAL SPOKEN ENGLISH (CRITICAL RULE)
+- **Native Phrasing**: "${targetField}" MUST sound like a native English speaker talking naturally on camera — NOT a stiff, literal, machine-translated rendering.
+- **Translate Meaning, NOT Words**: ALWAYS translate the underlying intent/meaning, never word-for-word. Render slang/internet idioms as the EQUIVALENT English idiom for the same register, not a literal gloss — a literal rendering that sounds foreign or awkward is strictly WRONG.
+- NEVER leave non-English script (Chinese characters, Korean Hangul, etc.) in the output — everything must be fully rendered in English.
+
+### NAMES & BRAND NAMES
+- **Brands / Products**: Keep the standard Latin names already used internationally (e.g., Samsung, iPhone, Nike).
+- **Chinese Person Names**: Convert to Pinyin (e.g., 王伟 → Wang Wei).
+- **Korean Person Names**: Convert to standard Revised Romanization.
+- **Model/Version Codes**: Keep Latin letters and digits intact in the text.
+
+### NUMBERS & UNITS (TEXT-TO-SPEECH OPTIMIZED)
+Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN ENGLISH WORDS:
+- **Quantities & Currency**: 90% → "ninety percent", 25元 → "twenty-five yuan", 50ml → "fifty milliliters".
+- **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way an English speaker would say them aloud.
+
+### MISCELLANEOUS & FORMATTING
+- Drop discourse/modal particles from the source that have no English equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally.
+- **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps (e.g., "**", "..."): translate it into a short spoken English exclamation like "Huh.", "Oh.", or "Hold on."
+  * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
+    emphasisExamples: '"really", "definitely", "so", "actually"',
+  },
+}
+
+/** Ngôn ngữ chưa có bộ quy tắc riêng (chưa nghiên cứu kỹ) — yêu cầu CHUNG,
+ * không giả vờ biết quy ước bản ngữ cụ thể. */
+function _genericRules(targetField, targetName, domain) {
+  return `### ROLE & TONE
+- **Target Audience & Tone**: Casual, direct, engaging YouTube/TikTok creator style. Clear and concise, skip unnecessary filler.
+- **Domain Context**: ${domain} — adapt wording, jargon and idioms to what THIS video is actually about. NEVER import terminology or examples from an unrelated domain.
+
+### NATURAL SPOKEN ${targetName.toUpperCase()} (CRITICAL RULE)
+- **Native Phrasing**: "${targetField}" MUST sound like a native ${targetName} speaker talking naturally — NOT a literal, word-for-word rendering. NEVER leave text from the source language's script in the output.
+- **Translate Meaning, NOT Words**: ALWAYS translate the underlying intent/meaning of idioms and slang as the natural ${targetName} equivalent for that register.
+
+### NAMES & NUMBERS
+- Keep standard Latin brand/product names as commonly used internationally.
+- Format all numbers/units as words a ${targetName} speaker would actually SAY out loud (this text is read by a TTS voice) — spell out codes/phone numbers digit by digit where a native speaker would.
+
+### FORMATTING
+- **Bleeped/Censored Segments**: never output an empty string or pure punctuation — use a short natural spoken exclamation in ${targetName} instead (TTS engines reject/crash on empty or pure-punctuation text).`
+}
+
+function styleRules(targetKey, targetField, targetName, domain) {
+  const lang = LANGUAGE_RULES[targetKey]
+  return lang ? lang.rules(targetField, domain)
+    : _genericRules(targetField, targetName, domain)
 }
 
 /** Khối ngữ cảnh do người dùng cung cấp — ưu tiên cao nhất trong prompt. */
@@ -112,10 +180,24 @@ function outputFormatBlock(targetField, targetName) {
 - Output strictly valid JSON ONLY — DO NOT use markdown code blocks, fences, or introductory/ending commentary.`
 }
 
-/** System prompt đầy đủ cho một lô dịch. */
-function buildTranslateSystemPrompt({ sourceLang, targetField = 'text_vi',
-  targetName = 'Vietnamese', context = {}, cpsBudget = DEFAULT_CPS }) {
+/** Suy ra {field, name} từ targetKey — nguồn sự thật DUY NHẤT, tránh lệch
+ * field/name như bug đã tìm thấy (V15). ``targetKey`` lạ vẫn ra field hợp
+ * lệ dạng ``text_<key>`` (khớp quy ước ``TargetLang.text_field`` phía
+ * client, xem autodub/languages.py) — không rơi ngầm về tiếng Việt nữa. */
+function resolveTargetLang(targetKey) {
+  const key = (targetKey || 'vi').trim().toLowerCase()
+  const known = LANGUAGE_RULES[key]
+  return { key, field: `text_${key}`, name: known ? known.name : key }
+}
+
+/** System prompt đầy đủ cho một lô dịch. ``targetKey`` (vd "vi"/"en") là
+ * NGUỒN SỰ THẬT DUY NHẤT cho ngôn ngữ đích — field/tên suy ra từ đây, không
+ * còn nhận field/tên rời rạc có thể lệch nhau (bug thật đã sửa, mini-spec
+ * V15, xem docs/PLAN.md và docs/TEST_LOG.md). */
+function buildTranslateSystemPrompt({ sourceLang, targetKey = 'vi',
+  context = {}, cpsBudget = DEFAULT_CPS }) {
   const domain = context.domain || 'general'
+  const { field: targetField, name: targetName } = resolveTargetLang(targetKey)
   return `You are an expert translator specializing in ASR (Automatic Speech Recognition) transcripts for video dubbing.
 Your task is to translate an ASR transcript from ${sourceLang} to ${targetName}.
 
@@ -124,7 +206,7 @@ You will receive a JSON array of segments. Each segment contains: \`id\`, \`text
 ${userContextBlock(context)}${outputFormatBlock(targetField, targetName)}
 
 ### STYLE & TRANSLATION RULES
-${styleRules(targetField, domain)}
+${styleRules(targetKey, targetField, targetName, domain)}
 
 ### FIDELITY TO THE ORIGINAL (CRITICAL)
 - **Faithful, not free**: translate the FULL meaning of every segment — do NOT add ideas, do NOT drop ideas, do NOT invent content that is not in the source. Conciseness comes from tighter phrasing, never from cutting meaning.
@@ -134,14 +216,14 @@ ${styleRules(targetField, domain)}
 ### PROSODY & EMPHASIS (MATCH THE ORIGINAL DELIVERY)
 Each segment is ONE spoken utterance, dubbed as its own audio clip at its own timestamp. The voice actor can only reproduce the original delivery if your text carries it:
 - **Sentence type**: keep the original's intent — a question stays a question (\`?\`), an exclamation/shout stays one (\`!\`), a trailing/unfinished thought uses \`…\`.
-- **Emphasis**: if the original stresses a word or idea, carry that stress with natural Vietnamese emphasis words (e.g. "chính", "đúng là", "cực kỳ", "thật sự") — never with CAPS or symbols.
+- **Emphasis**: if the original stresses a word or idea, carry that stress with natural ${targetName} emphasis words (e.g. ${(LANGUAGE_RULES[targetKey] && LANGUAGE_RULES[targetKey].emphasisExamples) || '"really", "definitely", "so"'}) — never with CAPS or symbols.
 - **Pauses**: place commas exactly where the speaker would take a breath or pause for effect. The TTS voice pauses at commas — a missing comma flattens the delivery, a wrong one breaks the flow.
 - **One segment = one utterance**: NEVER merge content across segments and NEVER split one segment into multiple sentences unless the original clearly contains multiple sentences. Each translation must stand alone when read out loud, exactly like the original line does.
 
 ### DURATION-AWARE LENGTH & PACING (CRITICAL FOR TTS)
 - Each segment includes a \`duration\` (in seconds) and usually a \`max_chars\` character budget. \`max_chars\` is computed from the REAL time window this clip has before the next line starts — the generated translation is read aloud by a Text-to-Speech engine inside exactly that window.
 - **HARD LIMIT**: when a segment provides \`max_chars\`, \`"${targetField}"\` MUST NOT exceed that many characters (spaces included). Exceeding the budget forces the voice to be sped up or CUT OFF mid-sentence in the final video — rephrase more concisely until it fits: cut filler words first, then use shorter synonyms.
-- Spoken pace guideline for ${targetName}: ${targetName}: ~${cpsBudget} chars/sec natural spoken pace.
+- Spoken pace guideline: ~${cpsBudget} chars/sec natural ${targetName} spoken pace.
 - **Short segments (< 4s)**: Use the shortest possible natural phrasing. Omit unnecessary words or filler.
 - **Medium segments (4-8s)**: Use natural casual speech, favoring concise synonyms.
 - **Long segments (> 8s)**: Express ideas clearly without artificial bloating. Keep it tight.
@@ -152,12 +234,12 @@ Each segment is ONE spoken utterance, dubbed as its own audio clip at its own ti
 
 ### FINAL QUALITY CHECK (PER SEGMENT)
 Before outputting, verify every single segment against these four rules:
-1. Does this sound like how a native Vietnamese content creator would ACTUALLY say it out loud in spoken speech?
-2. Are all numbers/units converted into spoken Vietnamese text, with ZERO raw foreign characters or literal word-for-word transliterations?
+1. Does this sound like how a native ${targetName} content creator would ACTUALLY say it out loud in spoken speech?
+2. Are all numbers/units converted into spoken ${targetName} text, with ZERO raw foreign characters or literal word-for-word transliterations?
 3. Does it end with \`.\`, \`!\`, \`?\` or \`…\`, fit within \`max_chars\`, and carry the same emphasis and pauses as the original line?
 4. Is it FAITHFUL to the original meaning — nothing added, nothing dropped, ambiguities resolved by context — and does it follow the user-provided pronouns/terminology if any were given?
 
-If a segment fails any check, rewrite it into natural spoken Vietnamese before returning the final JSON.`
+If a segment fails any check, rewrite it into natural spoken ${targetName} before returning the final JSON.`
 }
 
 /** User message của một lô dịch (kèm ngữ cảnh chỉ-đọc là các câu liền trước). */
@@ -214,18 +296,26 @@ const ANALYSIS_SCHEMA = {
   additionalProperties: false,
 }
 
-function buildAnalysisPrompt({ lines, sourceLang, videoTitle = '' }) {
+function buildAnalysisPrompt({ lines, sourceLang, videoTitle = '', targetKey = 'vi' }) {
   const titleBlock = videoTitle
     ? `\nORIGINAL VIDEO TITLE (strong topic hint): ${videoTitle}\n` : ''
-  return `You are preparing CONTEXT for translating a ${sourceLang} video transcript to Vietnamese (video dubbing).
+  const { name: targetName } = resolveTargetLang(targetKey)
+  const isVi = targetKey === 'vi'
+  const pronounsHint = isVi
+    ? "<the most natural Vietnamese pronoun convention for THIS video, e.g. 'mình – các bạn' for a creator addressing viewers, 'tôi – bạn' for formal>"
+    : `<the most natural ${targetName} addressing/register convention for THIS video — e.g. casual direct-address vs formal>`
+  const domainHint = isVi
+    ? "<topic/domain in Vietnamese, e.g. 'review công nghệ', 'vlog nấu ăn', 'phim ngắn'>"
+    : `<topic/domain in ${targetName}, e.g. 'tech review', 'cooking vlog', 'short film'>`
+  return `You are preparing CONTEXT for translating a ${sourceLang} video transcript to ${targetName} (video dubbing).
 Read the transcript lines below and produce a compact analysis as STRICT JSON (no markdown fences, no commentary):
 
 {
-  "summary": "<2-4 sentences in Vietnamese: what the video is about, who is speaking, to whom>",
-  "domain": "<topic/domain in Vietnamese, e.g. 'review công nghệ', 'vlog nấu ăn', 'phim ngắn'>",
-  "pronouns": "<the most natural Vietnamese pronoun convention for THIS video, e.g. 'mình – các bạn' for a creator addressing viewers, 'tôi – bạn' for formal>",
-  "glossary": ["<source term> = <fixed Vietnamese translation>", ...],
-  "style_notes": "<1-2 sentences in Vietnamese about tone/register to keep>"
+  "summary": "<2-4 sentences in ${targetName}: what the video is about, who is speaking, to whom>",
+  "domain": "${domainHint}",
+  "pronouns": "${pronounsHint}",
+  "glossary": ["<source term> = <fixed ${targetName} translation>", ...],
+  "style_notes": "<1-2 sentences in ${targetName} about tone/register to keep>"
 }
 
 Glossary rules: include ONLY terms that actually recur (person/brand/product names, domain jargon) and would otherwise be translated inconsistently. Keep Latin brand names as-is. Pinyin for Chinese person names. Max 15 entries.
@@ -236,15 +326,19 @@ ${lines}`
 
 // --------------------------------------------------------- rà soát từng câu --
 
-const REVIEW_REASONS = {
-  cjk: 'it still contains Chinese characters — the result must be pure Vietnamese (Latin script only)',
-  over_budget: 'it is TOO LONG for its time slot — rephrase more concisely (cut filler, '
-    + 'shorter synonyms) while keeping the full meaning; stay within max_chars',
-  too_short: 'it looks like part of the meaning was DROPPED — translate the FULL content of the source line',
+function reviewReason(reason, targetName) {
+  const reasons = {
+    cjk: `it still contains Chinese characters — the result must be pure ${targetName} (Latin script only)`,
+    over_budget: 'it is TOO LONG for its time slot — rephrase more concisely (cut filler, '
+      + 'shorter synonyms) while keeping the full meaning; stay within max_chars',
+    too_short: 'it looks like part of the meaning was DROPPED — translate the FULL content of the source line',
+  }
+  return reasons[reason]
 }
 
-function buildReviewUserPrompt({ segment, reason, targetField, neighbors }) {
-  return `One translated segment needs fixing because ${REVIEW_REASONS[reason]}.\n`
+function buildReviewUserPrompt({ segment, reason, targetField, targetKey = 'vi', neighbors }) {
+  const { name: targetName } = resolveTargetLang(targetKey)
+  return `One translated segment needs fixing because ${reviewReason(reason, targetName)}.\n`
     + `Surrounding lines for context (do NOT translate them):\n${neighbors}\n\n`
     + `Current (bad) translation: ${JSON.stringify(String(segment[targetField] || ''))}\n`
     + 'Translate this ONE segment again. Return ONLY JSON: '
@@ -328,6 +422,8 @@ const CONTENT_SCHEMA = {
 
 module.exports = {
   DEFAULT_CPS,
+  LANGUAGE_RULES,
+  resolveTargetLang,
   sanitizeContext,
   buildTranslateSystemPrompt,
   buildTranslateUserPrompt,

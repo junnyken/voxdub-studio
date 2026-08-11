@@ -57,24 +57,21 @@ def is_available(settings, source_lang: str) -> bool:
             and flores_code(source_lang) is not None)
 
 
-def translate_segments_local(
-    segments: list[dict], target: TargetLang, source_lang: str, settings,
-    reporter: ProgressReporter | None = None,
-) -> list[dict]:
-    """Dịch toàn bộ câu bằng model local (NLLB, subprocess trong .venv-mt).
+def run_local_worker(
+    items: list[tuple[int, str]], src: str, tgt: str, settings,
+    reporter: ProgressReporter | None = None, progress_step: str = "translate",
+) -> dict[int, str]:
+    """Chạy ``translate_local_worker.py`` MỘT LẦN, trả về ``{id: bản dịch}``.
 
-    Trả về bản sao ``segments`` kèm ``target.text_field``, cùng dạng dữ liệu
-    với translate_saas.translate_segments() để pipeline.py không cần biết
-    bản dịch đến từ đâu (xem điểm gọi trong DubPipeline._auto_translate()).
+    Lõi dùng chung — mini-spec V14 (docs/PLAN.md) tách ra từ
+    :func:`translate_segments_local` để dùng lại cho
+    :mod:`autodub.text.subtitle_translate` (dịch 1 file phụ đề rời, không
+    gắn với video nào đang lồng tiếng) mà không phải nhét dữ liệu vào hình
+    dạng ``TargetLang``/segment của pipeline dub. ``src``/``tgt`` PHẢI đã là
+    mã FLORES-200 (gọi :func:`flores_code` trước).
     """
-    if not segments:
+    if not items:
         raise LocalTranslateError("Không có câu nào để dịch")
-
-    src = flores_code(source_lang)
-    tgt = flores_code(target.code) or flores_code("vi-VN")
-    if not src:
-        raise LocalTranslateError(
-            f"Dịch local chưa hỗ trợ ngôn ngữ nguồn '{source_lang}'")
 
     worker_script = bundled_file("autodub", "text", "translate_local_worker.py")
     cmd = [
@@ -84,7 +81,7 @@ def translate_segments_local(
         "--src-lang", src,
         "--tgt-lang", tgt,
     ]
-    logger.info(f"Đang dịch {len(segments)} câu bằng model local (offline)...")
+    logger.info(f"Đang dịch {len(items)} câu bằng model local (offline)...")
     proc = subprocess.Popen(
         cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
@@ -117,8 +114,8 @@ def translate_segments_local(
         raise LocalTranslateError(
             f"Worker dịch local báo lỗi: {ready}\n" + "\n".join(stderr_tail))
 
-    payload = {"segments": [{"id": s.get("id"), "text": s.get("text", "")}
-                            for s in segments]}
+    payload = {"segments": [{"id": item_id, "text": text}
+                            for item_id, text in items]}
     proc.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
     proc.stdin.flush()
     proc.stdin.close()
@@ -139,8 +136,8 @@ def translate_segments_local(
         if msg.get("seg"):
             by_id[msg.get("id")] = str(msg.get("text", ""))
             if reporter is not None:
-                reporter.emit("translate", "progress",
-                              current=len(by_id), total=len(segments))
+                reporter.emit(progress_step, "progress",
+                              current=len(by_id), total=len(items))
         elif msg.get("done"):
             done = True
             break
@@ -150,9 +147,34 @@ def translate_segments_local(
         raise LocalTranslateError(
             "Worker dịch local kết thúc bất thường\n" + "\n".join(stderr_tail))
 
+    logger.info(f"Dịch local xong: {len(by_id)} câu")
+    return by_id
+
+
+def translate_segments_local(
+    segments: list[dict], target: TargetLang, source_lang: str, settings,
+    reporter: ProgressReporter | None = None,
+) -> list[dict]:
+    """Dịch toàn bộ câu bằng model local (NLLB, subprocess trong .venv-mt).
+
+    Trả về bản sao ``segments`` kèm ``target.text_field``, cùng dạng dữ liệu
+    với translate_saas.translate_segments() để pipeline.py không cần biết
+    bản dịch đến từ đâu (xem điểm gọi trong DubPipeline._auto_translate()).
+    """
+    if not segments:
+        raise LocalTranslateError("Không có câu nào để dịch")
+
+    src = flores_code(source_lang)
+    tgt = flores_code(target.code) or flores_code("vi-VN")
+    if not src:
+        raise LocalTranslateError(
+            f"Dịch local chưa hỗ trợ ngôn ngữ nguồn '{source_lang}'")
+
+    items = [(s.get("id"), s.get("text", "")) for s in segments]
+    by_id = run_local_worker(items, src, tgt, settings, reporter)
+
     merged = []
     for seg in segments:
         text = by_id.get(seg.get("id"), "")
         merged.append({**seg, target.text_field: ensure_terminal_punct(text)})
-    logger.info(f"Dịch local xong: {len(merged)} câu")
     return merged

@@ -81,21 +81,30 @@ tính phí lại) → kiểm trần cứng → kiểm số dư/hold → gọi mo
 (chỉ khi model trả về thành công) → lưu `JobResult` + ghi `UsageLog`. Response
 KHÔNG BAO GIỜ chứa tên provider/model/token/chi phí nội bộ.
 
+**`targetLang` (mini-spec V15, thêm 2026-08-11)** — `/translate`, `/analyze`,
+`/review` giờ nhận `targetLang` (2-3 ký tự thường, vd `"vi"`/`"en"`, mặc định
+`"vi"` — **0 regression** cho client cũ không gửi field này). BUG THẬT đã
+sửa: trước đây KHÔNG có field này, prompt hardcode dịch sang tiếng Việt bất
+kể client đang lồng tiếng ngôn ngữ nào — lồng tiếng tiếng Anh (mini-spec
+V8/V11) qua SaaS thực chất vẫn nhận về tiếng Việt (field `text_vi` thay vì
+`text_en` client đang tìm). Field response đổi theo: `text_<targetLang>`,
+không còn cố định `text_vi`. Xem `docs/TEST_LOG.md` mục V15.
+
 ### `POST /translate`
-Body: `{ jobId, holdId?, sourceLang? (default zh-CN), cpsBudget? (4-40, default 12.5), segments: [{id,text,duration?,max_chars?}], prevContext?, context?: {videoTitle,domain,context,pronouns,glossary,styleNotes} }`
-Response: `{ jobId, segments: [{id,text_vi}], creditCharged, balanceAfter }`
+Body: `{ jobId, holdId?, sourceLang? (default zh-CN), targetLang? (default vi), cpsBudget? (4-40, default 12.5), segments: [{id,text,duration?,max_chars?}], prevContext?, context?: {videoTitle,domain,context,pronouns,glossary,styleNotes} }`
+Response: `{ jobId, segments: [{id,text_<targetLang>}], creditCharged, balanceAfter }`
 Lỗi: `400 BATCH_TOO_LARGE`, `400 SEGMENT_TOO_LONG`, `402 INSUFFICIENT_CREDIT`,
 `503 AI_UNAVAILABLE`/khác (kèm `retryAfter`).
 
 ### `POST /analyze`
-Body: `{ jobId, holdId?, sourceLang?, videoTitle?, lines: string[] (max 400) }`
+Body: `{ jobId, holdId?, sourceLang?, targetLang?, videoTitle?, lines: string[] (max 400) }`
 Response: `{ jobId, analysis: object|null, creditCharged, balanceAfter }` — lỗi
 model KHÔNG throw ra ngoài, trả `analysis: null, creditCharged: 0` (bước phụ
 trợ, không được chặn luồng dịch chính).
 
 ### `POST /review`
-Body: `{ jobId, holdId?, sourceLang?, cpsBudget?, context?, items: [{id,reason(enum cjk|over_budget|too_short),text,current,duration?,max_chars?,neighbors?}] (max 60) }`
-Response: `{ jobId, segments: [{id,text_vi}] (chỉ câu sửa được), creditCharged, balanceAfter }`
+Body: `{ jobId, holdId?, sourceLang?, targetLang?, cpsBudget?, context?, items: [{id,reason(enum cjk|over_budget|too_short),text,current,duration?,max_chars?,neighbors?}] (max 60) }`
+Response: `{ jobId, segments: [{id,text_<targetLang>}] (chỉ câu sửa được), creditCharged, balanceAfter }`
 
 ### `POST /generate-post`
 Body: `{ jobId, holdId?, scriptOriginal (max 20000), scriptVi (max 20000), videoTitle? }`

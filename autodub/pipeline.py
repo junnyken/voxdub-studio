@@ -1003,7 +1003,7 @@ class DubPipeline:
             effective = settings
             if settings.translate_analysis:
                 cache = data_path(work_dir, "video_context.json") if work_dir else None
-                analysis = analyze_transcript(segments, source_lang,
+                analysis = analyze_transcript(segments, source_lang, target,
                                               video_title=title,
                                               cache_path=cache)
                 effective = apply_analysis(settings, analysis)

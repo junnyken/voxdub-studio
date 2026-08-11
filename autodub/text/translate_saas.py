@@ -258,6 +258,7 @@ def translate_segments(
                     payload,
                     job_id=job_id,
                     source_lang=source_lang,
+                    target_lang=target.key,
                     context=context,
                     cps_budget=cps,
                     prev_context=_prev_context(segments, index * batch_size, target),
@@ -357,6 +358,7 @@ def _merge(batch: list[dict], returned: list[dict], text_field: str) -> list[dic
 # --------------------------------------------------- phân tích và rà soát --
 
 def analyze_transcript(segments: list[dict], source_lang: str,
+                       target: TargetLang | None = None,
                        video_title: str = "", cache_path: str | None = None,
                        max_lines: int = 240) -> dict | None:
     """Lượt 0 "hiểu video" — tóm tắt, xưng hô, thuật ngữ.
@@ -393,8 +395,9 @@ def analyze_transcript(segments: list[dict], source_lang: str,
         RATE_LIMITER.acquire()
         analysis = get_client().analyze(
             texts, job_id=f"an-{run_id_for(segments, _DUMMY_TARGET)}",
-            source_lang=source_lang, video_title=video_title,
-            hold_id=HOLD.hold_id)
+            source_lang=source_lang,
+            target_lang=(target.key if target is not None else "vi"),
+            video_title=video_title, hold_id=HOLD.hold_id)
     except InsufficientCreditError:
         raise
     except SaasError as e:
