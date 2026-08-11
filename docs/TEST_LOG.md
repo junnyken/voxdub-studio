@@ -1904,3 +1904,107 @@ trực tiếp, không qua lớp auto-detect single-app như VAYS.
 dashboard VAYS nếu muốn giải phóng hạn mức (đang dùng 3/10 dịch vụ). Repo
 mirror GitHub (`github.com/junnyken/voxdub-studio`, public) vẫn còn tồn tại —
 cân nhắc xoá hoặc chuyển private nếu không cần dùng tiếp cho VAYS.
+
+## V18 — Bộ quy tắc dịch riêng cho 8 ngôn ngữ đích mới + nâng cấp tiếng Việt (Phase E, 2026-08-12)
+
+Theo `docs/PLAN.md` mục V18. Chủ dự án yêu cầu trực tiếp: xây bộ khung ngữ
+cảnh/giọng điệu/ngữ điệu/thái độ "chuẩn chỉnh theo đúng từng quy tắc ngôn
+ngữ riêng", ưu tiên đặc biệt tiếng Việt, và "học hỏi mỗi lần ngữ cảnh".
+
+### Đọc hiểu yêu cầu trước khi code
+
+"Học hỏi mỗi lần ngữ cảnh" ánh xạ vào cơ chế ĐÃ CÓ SẴN trong kiến trúc:
+`buildAnalysisPrompt()` (pass 0 của luồng dịch 3-pass) đọc lại transcript
+MỖI VIDEO và tự sinh domain/xưng hô/thuật ngữ/style_notes riêng cho video
+đó — không phải học từ dữ liệu lịch sử (không có kho lưu trữ liên phiên,
+đúng nguyên tắc "không mở rộng thu thập dữ liệu" đã chốt trước đó trong
+phiên này). Gap thật: cơ chế này TRƯỚC ĐÂY chỉ có gợi ý đúng ngôn ngữ
+(pronounsHint/domainHint bằng tiếng Việt) cho `targetKey==='vi'` — mọi
+ngôn ngữ khác (kể cả tiếng Anh) rơi về gợi ý CHUNG bằng tiếng Anh, nghĩa
+là bước "học" ngữ cảnh không thực sự học đúng NGÔN NGỮ đích ngoài tiếng
+Việt. Đây là gap thật cần đóng, không phải suy diễn.
+
+### Sửa
+
+- `LANGUAGE_RULES` (`control_server/src/prompts/translate.js`) mở rộng từ
+  {vi, en} → 10 ngôn ngữ, thêm `ja`/`zh`/`es`/`th`/`id`/`pt`/`fr`/`de` —
+  khớp đúng 10 `TargetLang` đã đăng ký ở `autodub/languages.py` (V8/V11/V17).
+  Mỗi ngôn ngữ có ROLE & TONE, quy tắc PHÁT ÂM TỰ NHIÊN, NAMES & BRAND
+  NAMES, NUMBERS & UNITS (đọc số kiểu TTS), MISC & FORMATTING RIÊNG — có
+  căn cứ ngôn ngữ học thật, không phải bản dịch máy móc của bộ tiếng Anh:
+  - **Tiếng Nhật**: đăng ký です/ます (lịch sự-thân mật, chuẩn creator) thay
+    vì kính ngữ 敬語 hay だ/である suồng sã; trợ từ cuối câu ね/よ/な/か mang
+    đúng thái độ; tên người Trung GIỮ Kanji (không chuyển Pinyin — khác
+    hẳn quy ước vi/en); số đếm dùng đúng lượng từ tiếng Nhật (個/人/回),
+    không đọc số trần.
+  - **Tiếng Trung**: CHỦ ĐỘNG GIỮ trợ từ 啊/呢/吧/嘛 — ngược lại hoàn toàn
+    với MỌI ngôn ngữ khác (đều chủ động loại bỏ trợ từ Trung) vì trợ từ là
+    một phần tự nhiên của khẩu ngữ Quan Thoại; phân biệt 两 vs 二 trước
+    lượng từ.
+  - **Tiếng Thái**: nêu rõ ràng buộc ครับ/ค่ะ phải NHẤT QUÁN theo ngữ cảnh
+    người dùng cung cấp (giới tính người nói) — không tự đoán, không trộn
+    lẫn giữa các segment của cùng 1 người nói (rủi ro thật nếu đoán sai:
+    nghe như nhiều người nói khác nhau).
+  - **Tây Ban Nha/Pháp/Đức**: đăng ký đúng ngôi xưng hô mặc định cho nội
+    dung creator thân mật (tú/tu/du) thay vì usted/vous/Sie trang trọng,
+    có thể ghi đè qua ngữ cảnh người dùng.
+  - **Bồ Đào Nha**: chốt biến thể Brazil (você) — đúng thực tế phân bố
+    giọng CapCut (pt-BR, không phải pt-PT).
+  - **Indonesia**: kamu/Anda, tránh slang Jakarta suồng sã (gue/lo) trừ khi
+    ngữ cảnh yêu cầu rõ.
+- **Nâng cấp tiếng Việt** (ưu tiên theo yêu cầu): thêm mục mới "ATTITUDE &
+  INTONATION" — trợ từ cuối câu (nhé/nha/đấy/mà/cơ/chứ) đúng thái độ, từ
+  nối khẩu ngữ (thì/mà/là) thay vì trang trọng khi không cần, cách chọn từ
+  theo cảm xúc (phấn khích/mỉa mai/bực bội), phân biệt câu hỏi thật vs câu
+  hỏi tu từ qua ngữ điệu; thêm mục trung lập vùng miền (mặc định chuẩn phổ
+  thông, không tự ý thêm giọng địa phương).
+- **Bug thật tìm ra khi audit trước khi mở rộng** (không phải bug mới tạo
+  ra): `LANGUAGE_RULES.vi.emphasisExamples` bị gán y hệt chuỗi tiếng Anh
+  của block `en` (`'"really", "definitely", "so", "actually"'`) — nghĩa là
+  suốt từ trước tới giờ, phần "PROSODY & EMPHASIS" của prompt dịch tiếng
+  Việt đưa VÍ DỤ TIẾNG ANH cho model tham khảo cách nhấn nhá câu tiếng
+  Việt. Không rõ mức ảnh hưởng thực tế (model đủ mạnh có thể tự suy ra từ
+  nhấn tiếng Việt đúng bất kể ví dụ), nhưng là lỗi thật, đã sửa thành
+  '"thật sự", "cực kỳ", "quá trời", "đúng là"'.
+- `buildAnalysisPrompt()`: bỏ nhánh `isVi` đặc cách, đọc trực tiếp
+  `LANGUAGE_RULES[key].pronounsHint`/`.domainHint` — mọi ngôn ngữ ĐÃ
+  NGHIÊN CỨU giờ "học" đúng gợi ý ngôn ngữ đó mỗi lượt phân tích (đúng yêu
+  cầu "học hỏi mỗi lần ngữ cảnh"); ngôn ngữ THẬT SỰ chưa có block (vd `ko`)
+  vẫn rơi về gợi ý chung, không giả vờ.
+
+### Verify
+
+- `control_server/tests/translate-prompts.test.js`: sửa 1 test cũ (dùng
+  `ja` làm ví dụ "chưa có quy tắc riêng" — nay đổi sang `ko` vì `ja` đã có
+  quy tắc riêng thật); +10 test mới: registry đủ 10 ngôn ngữ, bug
+  emphasisExamples đã sửa, tiếng Nhật có counter+Kanji, tiếng Trung GIỮ
+  trợ từ (ngược mọi ngôn ngữ khác), 3 ngôn ngữ Âu dùng đúng ngôi xưng hô
+  thân mật, tiếng Thái buộc nhất quán ครับ/ค่ะ, mọi ngôn ngữ mới có
+  emphasisExamples bằng CHÍNH ngôn ngữ đó (không phải tiếng Anh),
+  buildAnalysisPrompt học đúng gợi ý riêng + vẫn rơi generic đúng chỗ,
+  mọi ngôn ngữ mới có quy tắc đọc số TTS.
+- `npm test` (`control_server` toàn bộ): **167/168 pass, 1 skip (cũ), 0
+  fail** — 0 regression.
+
+### Remaining Limits (V18)
+
+- Đây là NÂNG CẤP PROMPT (hướng dẫn model dịch), không phải bảng tra cứu
+  cứng — chất lượng thật phụ thuộc Gemini có tuân theo đúng các quy tắc
+  ngôn ngữ học đã nêu hay không. Test ở trên khoá ĐÚNG NỘI DUNG PROMPT gửi
+  đi (regression an toàn), KHÔNG live-verify chất lượng dịch thật qua cả 8
+  ngôn ngữ mới (cần gọi Gemini thật + người biết ngôn ngữ đó đánh giá —
+  ngoài phạm vi 1 phiên, và lặp lại đúng giới hạn đã ghi ở V17: chỉ tiếng
+  Nhật đã live-verify qua đường LOCAL NLLB, chưa qua đường SaaS/Gemini).
+- Quy tắc ngữ điệu/thái độ mới cho tiếng Việt (trợ từ cuối câu, từ nối)
+  CHƯA có test live kiểm chứng model có thực sự dùng đúng — chỉ khoá được
+  rằng prompt CÓ chứa hướng dẫn đó.
+- Tiếng Thái: quy tắc ครับ/ค่ะ nhất quán dựa vào ngữ cảnh người dùng cung
+  cấp — nếu người dùng KHÔNG cung cấp giới tính người nói, model phải tự
+  chọn 1 quy ước và giữ nhất quán suốt video; chưa kiểm chứng thật model
+  có giữ nhất quán qua nhiều lô (batch) dịch riêng biệt của cùng 1 video
+  hay không (mỗi batch là 1 lượt gọi API độc lập — rủi ro lý thuyết: batch
+  sau chọn khác batch trước nếu không có cơ chế nhớ giữa các lô ngoài
+  "previous context" 1 vài dòng liền trước).
+- 190/204 ngôn ngữ FLORES-200 còn lại (tính năng dịch phụ đề rời, V14) vẫn
+  chưa có LANGUAGE_RULES riêng — quyết định trước đó (phiên trước) là giữ
+  nguyên phạm vi, không mở rộng thêm ở đợt này.

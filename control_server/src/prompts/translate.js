@@ -71,6 +71,13 @@ const LANGUAGE_RULES = {
   * Slang/Internet Idioms: Express the actual concept in the everyday Vietnamese of the video's own domain.
   * NEVER produce half-translated mixes (half Sino-Vietnamese/Vietnamese, half foreign). Translate what the term MEANS in natural Vietnamese.
 
+### ATTITUDE & INTONATION (VIETNAMESE SPEECH RHYTHM)
+Vietnamese carries tone and attitude through sentence-final particles and discourse words far more than through word choice alone — a translation with the right words but the wrong particle still sounds like a foreigner reading a script:
+- **Sentence-final particles**: match the speaker's real attitude — "nhé"/"nha" (soft, friendly suggestion/reminder), "đấy"/"đó" (mild emphasis, drawing attention), "mà" (justification/mild insistence — "ngon lắm mà"), "cơ" (polite disagreement/preference), "chứ" (rhetorical confidence — "được chứ"). Use them SPARINGLY, only where the original's tone actually calls for it — over-using particles sounds childish, under-using sounds stiff and translated.
+- **Discourse connectors for casual flow**: "thì", "mà", "là", "đấy là" — Vietnamese creators lean on these to link clauses conversationally instead of formal connectors like "tuy nhiên"/"do đó" (reserve those for genuinely formal/serious segments).
+- **Attitude carries in word choice, not just content**: excitement leans on "cực kỳ"/"siêu"/"quá trời"; sarcasm/understatement leans on "cũng hay đấy" said flat; frustration leans on short clipped clauses, not longer explanatory ones. Match the register of the ORIGINAL delivery — a hyped reaction video should not read like a calm tutorial.
+- **Rising/falling delivery**: questions genuinely seeking an answer end differently in tone from rhetorical questions — rhetorical ones often keep a exclamation-adjacent flatness ("Ai mà chẳng biết chuyện đó.") rather than a real question lilt, even though both may end in different punctuation; pick the punctuation that matches which one this actually is.
+
 ### NAMES & BRAND NAMES
 - **Brands / Products**: Retain the standard LATIN names the Vietnamese community already uses (e.g., Samsung, iPhone, Nike).
 - **Chinese Person Names (Dramas/Vlogs)**: Convert to Pinyin (e.g., 王伟 → Wang Wei) unless it's a historical/wuxia context where Sino-Vietnamese (Hán Việt) is standard. Nicknames (e.g., 小白, 老张) are rendered by MEANING as a natural Vietnamese nickname, never half-transliterated.
@@ -84,10 +91,13 @@ Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN 
 
 ### MISCELLANEOUS & FORMATTING
 - **Sino-Vietnamese Words**: Use only extremely common everyday Sino-Vietnamese words (e.g., "kiểm sát viên" is fine, but prefer natural spoken terms over archaic ones).
-- **Chinese Particles**: Completely remove Chinese discourse/modal particles (啊, 呢, 嘛, 吧).
+- **Chinese Particles**: Completely remove Chinese discourse/modal particles (啊, 呢, 嘛, 吧) — do NOT translate them literally; replace with the natural Vietnamese particle called for above (or none at all).
+- **Regional neutrality**: default to standard/neutral Vietnamese (broadly Northern-standard vocabulary understood nationwide) unless the user-provided context explicitly asks for a regional flavor (Southern "hen"/"dữ hen", Central expressions, etc.) — never invent regional flavor unprompted.
 - **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps (e.g., "**", "..."): Translate it into a short Vietnamese spoken exclamation like "Hả.", "Ôi.", or "Chờ chút."
   * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
-    emphasisExamples: '"really", "definitely", "so", "actually"',
+    emphasisExamples: '"thật sự", "cực kỳ", "quá trời", "đúng là"',
+    pronounsHint: "<the most natural Vietnamese pronoun convention for THIS video, e.g. 'mình – các bạn' for a creator addressing viewers, 'tôi – bạn' for formal>",
+    domainHint: "<topic/domain in Vietnamese, e.g. 'review công nghệ', 'vlog nấu ăn', 'phim ngắn'>",
   },
   en: {
     name: 'English',
@@ -116,6 +126,256 @@ Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN 
 - **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps (e.g., "**", "..."): translate it into a short spoken English exclamation like "Huh.", "Oh.", or "Hold on."
   * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
     emphasisExamples: '"really", "definitely", "so", "actually"',
+    pronounsHint: "<the most natural English addressing/register convention for THIS video — e.g. casual direct 'you' vs formal>",
+    domainHint: "<topic/domain in English, e.g. 'tech review', 'cooking vlog', 'short film'>",
+  },
+  ja: {
+    name: 'Japanese',
+    rules: (targetField, domain) => `### ROLE & TONE
+- **Target Audience & Tone**: Casual, friendly YouTube/TikTok creator style — です/ます base register (polite-casual, the default for Japanese creators talking to an audience), NOT stiff formal keigo (敬語) and NOT rough だ/である unless the source is clearly that blunt/masculine in register.
+- **Domain Context**: ${domain} — adapt wording, jargon and idioms to what THIS video is actually about. NEVER import terminology or examples from an unrelated domain.
+
+### NATURAL SPOKEN JAPANESE (CRITICAL RULE)
+- **Native Phrasing**: "${targetField}" MUST sound like a native Japanese creator talking naturally on camera, not a stiff textbook rendering. Prefer common wago/spoken vocabulary over unnecessarily formal kango where a casual creator would use the plain word.
+- **Sentence-final particles carry the attitude**: ね (seeking agreement/softening), よ (asserting new info to the listener), な (casual self-directed emphasis, more masculine/rougher — use sparingly), か (real or rhetorical question) — pick the one that matches the ORIGINAL speaker's actual attitude, don't default to the same particle every line.
+- **Translate Meaning, NOT Words**: render slang/internet idioms as the natural Japanese equivalent for that register, never a literal gloss.
+- NEVER leave non-Japanese script (raw Chinese characters not also valid Japanese kanji, Korean Hangul, etc.) in the output — everything must be fully rendered in natural Japanese (kanji/hiragana/katakana as appropriate).
+
+### NAMES & BRAND NAMES
+- **Brands / Products**: Keep standard Latin/katakana names already used in Japan (e.g., Samsung → サムスン, iPhone stays Latin, Nike → ナイキ).
+- **Chinese Person Names**: Keep in the original Kanji where the characters exist in Japanese (Japanese readers read Chinese names by kanji, not Pinyin) — add furigana only if the reading is genuinely obscure; do NOT romanize to Pinyin.
+- **Korean Person Names**: Transliterate to katakana following standard Japanese media convention (e.g., 김민준 → キム・ミンジュン).
+- **Model/Version Codes**: Keep Latin letters and digits intact.
+
+### NUMBERS & UNITS (TEXT-TO-SPEECH OPTIMIZED)
+Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN JAPANESE WORDS WITH THE CORRECT COUNTER:
+- **Quantities & Currency**: 90% → "きゅうじゅっパーセント", 25元 → "にじゅうごげん" (spell the source currency name if there is no natural Japanese equivalent term), 3個 → "さんこ", 2人 → "ふたり" (use the correct native/irregular counter reading, not a generic digit reading).
+- **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit (いち, に, さん...) the way a Japanese speaker would say them aloud.
+
+### MISCELLANEOUS & FORMATTING
+- Drop discourse/modal particles from the source that have no natural Japanese equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally — replace with the natural Japanese sentence-final particle called for above, or nothing.
+- **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short natural spoken Japanese exclamation like "え。", "あー。", or "ちょっと待って。"
+  * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
+    emphasisExamples: '"本当に", "マジで", "めっちゃ", "実は"',
+    pronounsHint: "<the most natural Japanese register for THIS video, e.g. casual です/ます for a friendly creator, plain だ form for a blunt/masculine tone>",
+    domainHint: "<topic/domain in Japanese, e.g. 'テック レビュー', '料理系ブイログ', 'ショートフィルム'>",
+  },
+  zh: {
+    name: 'Chinese',
+    rules: (targetField, domain) => `### ROLE & TONE
+- **Target Audience & Tone**: Casual, direct, engaging bilibili/抖音/YouTube creator style. Clear and concise, skip unnecessary filler.
+- **Pronouns**: Use friendly, natural Mandarin address (你 / 你们) for a creator talking to viewers. Only use 您 when the source is genuinely formal/respectful in register.
+- **Domain Context**: ${domain} — adapt wording, jargon and idioms to what THIS video is actually about. NEVER import terminology or examples from an unrelated domain.
+
+### NATURAL SPOKEN MANDARIN (CRITICAL RULE)
+- **Native Phrasing**: "${targetField}" MUST sound like a native Mandarin speaker talking naturally on camera — NOT a stiff, literal, machine-translated rendering, and NOT written/literary Chinese (书面语) where colloquial (口语) is called for.
+- **Translate Meaning, NOT Words**: render slang/internet idioms as the natural Mandarin internet-speak equivalent for that register (e.g. current 网络流行语), never a literal gloss.
+- NEVER leave non-Chinese script (raw Korean Hangul, Japanese kana, etc.) in the output — everything must be fully rendered in Chinese, in Simplified characters unless the source/context clearly calls for Traditional.
+
+### NAMES & BRAND NAMES
+- **Brands / Products**: Keep the standard Latin OR official Chinese brand name already used in the Chinese market (e.g., Samsung → 三星, iPhone stays Latin, Nike → 耐克).
+- **Western Person Names**: Use the standard Xinhua News Agency transliteration convention already established for well-known names; for unknown names, transliterate phonetically using common name characters.
+- **Korean Person Names**: Use the standard Hanja-derived Chinese characters for the name where established, otherwise phonetic transliteration.
+- **Model/Version Codes**: Keep Latin letters and digits intact.
+
+### NUMBERS & UNITS (TEXT-TO-SPEECH OPTIMIZED)
+Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN MANDARIN WORDS:
+- **Quantities & Currency**: 90% → "百分之九十", $25 → "二十五美元", 50ml → "五十毫升". Use 两 instead of 二 before a measure word (两个, 两人), use 二 for counting/reading numerals plainly.
+- **Codes read digit-by-digit**: phone numbers, room numbers, product codes — read digit by digit (幺/一, 二, 三...) the way a Chinese speaker would say them aloud, using 幺 for "1" in number strings where that is the natural spoken convention.
+
+### MISCELLANEOUS & FORMATTING
+- **Modal particles are CORRECT here, unlike some other target languages**: 啊, 呢, 吧, 嘛 are natural, expected parts of spoken Mandarin — use them where they match the original speaker's attitude (softening a request, seeking agreement, expressing mild surprise), don't strip them by default.
+- **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short natural spoken Mandarin exclamation like "啊？", "哦。", or "等一下。"
+  * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
+    emphasisExamples: '"真的", "特别", "超级", "确实"',
+    pronounsHint: "<the most natural Mandarin addressing convention for THIS video, e.g. '你 – 你们' for a casual creator, '您' for formal>",
+    domainHint: "<topic/domain in Chinese, e.g. '科技测评', '美食vlog', '短片'>",
+  },
+  es: {
+    name: 'Spanish',
+    rules: (targetField, domain) => `### ROLE & TONE
+- **Target Audience & Tone**: Casual, direct, engaging YouTube/TikTok creator style. Clear and concise, skip unnecessary filler.
+- **Pronouns**: Use "tú" (informal "you") for addressing viewers, the standard register for creator content — only switch to "usted" if the source is genuinely formal.
+- **Domain Context**: ${domain} — adapt wording, jargon and idioms to what THIS video is actually about. NEVER import terminology or examples from an unrelated domain.
+
+### NATURAL SPOKEN SPANISH (CRITICAL RULE)
+- **Native Phrasing**: "${targetField}" MUST sound like a native Spanish speaker talking naturally on camera — NOT a stiff, literal, machine-translated rendering. Default to neutral/international Spanish (avoid strongly regional slang like Mexican-only or Argentine-only expressions) unless the user-provided context specifies a target region.
+- **Translate Meaning, NOT Words**: render slang/internet idioms as the natural Spanish equivalent for that register, never a literal gloss.
+- NEVER leave non-Spanish script (Chinese characters, Korean Hangul, etc.) in the output.
+
+### NAMES & BRAND NAMES
+- **Brands / Products**: Keep the standard Latin names already used internationally (e.g., Samsung, iPhone, Nike).
+- **Chinese Person Names**: Convert to Pinyin (e.g., 王伟 → Wang Wei).
+- **Korean Person Names**: Convert to standard Revised Romanization.
+- **Model/Version Codes**: Keep Latin letters and digits intact.
+
+### NUMBERS & UNITS (TEXT-TO-SPEECH OPTIMIZED)
+Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN SPANISH WORDS:
+- **Quantities & Currency**: 90% → "noventa por ciento", 25元 → "veinticinco yuanes", 50ml → "cincuenta mililitros".
+- **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way a Spanish speaker would say them aloud.
+
+### MISCELLANEOUS & FORMATTING
+- Drop discourse/modal particles from the source that have no Spanish equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally.
+- **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short spoken Spanish exclamation like "¿Eh?", "Ay.", or "Espera."
+  * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
+    emphasisExamples: '"de verdad", "en serio", "súper", "la verdad es que"',
+    pronounsHint: "<the most natural Spanish addressing convention for THIS video, e.g. 'tú' for a casual creator, 'usted' for formal>",
+    domainHint: "<topic/domain in Spanish, e.g. 'reseña de tecnología', 'vlog de cocina', 'cortometraje'>",
+  },
+  th: {
+    name: 'Thai',
+    rules: (targetField, domain) => `### ROLE & TONE
+- **Target Audience & Tone**: Casual, friendly YouTube/TikTok creator style — everyday spoken Thai, not formal/written Thai (ภาษาเขียน).
+- **Domain Context**: ${domain} — adapt wording, jargon and idioms to what THIS video is actually about. NEVER import terminology or examples from an unrelated domain.
+
+### NATURAL SPOKEN THAI (CRITICAL RULE)
+- **Native Phrasing**: "${targetField}" MUST sound like a native Thai creator talking naturally on camera, not a stiff textbook rendering.
+- **Polite particles ครับ/ค่ะ (CONTEXT-DEPENDENT)**: unless the user-provided context specifies the speaker's gender, use the pronoun/particle convention already given in that context; if genuinely unknown, prefer the gender-neutral casual creator style used across a video (pick ONE convention and keep it CONSISTENT for the whole video — never mix ครับ and ค่ะ for the same speaker across segments).
+- **Translate Meaning, NOT Words**: render slang/internet idioms as the natural Thai equivalent for that register, never a literal gloss.
+- NEVER leave non-Thai script (Chinese characters, Korean Hangul, etc.) in the output.
+
+### NAMES & BRAND NAMES
+- **Brands / Products**: Keep the standard Latin names already used in Thailand (e.g., Samsung, iPhone, Nike).
+- **Chinese Person Names**: Convert to Pinyin (e.g., 王伟 → Wang Wei) or, if the context is a Chinese period drama widely known in Thai media by a Thai-transliterated name, use that established convention instead.
+- **Korean Person Names**: Transliterate phonetically following standard Thai media convention.
+- **Model/Version Codes**: Keep Latin letters and digits intact.
+
+### NUMBERS & UNITS (TEXT-TO-SPEECH OPTIMIZED)
+Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN THAI WORDS WITH THE CORRECT CLASSIFIER:
+- **Quantities & Currency**: 90% → "เก้าสิบเปอร์เซ็นต์", 25元 → "ยี่สิบห้าหยวน", 3 คน → "สามคน" (use the correct Thai classifier word for what is being counted, not a generic digit reading).
+- **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way a Thai speaker would say them aloud.
+
+### MISCELLANEOUS & FORMATTING
+- Drop discourse/modal particles from the source that have no Thai equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally — replace with a natural Thai particle if one genuinely fits, or nothing.
+- **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short natural spoken Thai exclamation like "เอ๊ะ", "โอ้", or "เดี๋ยวนะ"
+  * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
+    emphasisExamples: '"จริงๆ", "มากๆ", "สุดๆ", "จริงจัง"',
+    pronounsHint: "<the most natural Thai addressing/politeness convention for THIS video — the speaker's gender/politeness particle (ครับ/ค่ะ) if known, otherwise a consistent casual creator style>",
+    domainHint: "<topic/domain in Thai, e.g. 'รีวิวเทคโนโลยี', 'วล็อกทำอาหาร', 'หนังสั้น'>",
+  },
+  id: {
+    name: 'Indonesian',
+    rules: (targetField, domain) => `### ROLE & TONE
+- **Target Audience & Tone**: Casual, direct, engaging YouTube/TikTok creator style. Clear and concise, skip unnecessary filler.
+- **Pronouns**: Use "kamu" (casual "you") for addressing viewers — the standard for creator content. Use "Anda" only if the source is genuinely formal. Avoid ultra-casual Jakarta slang ("gue"/"lo") unless the user-provided context explicitly calls for that register.
+- **Domain Context**: ${domain} — adapt wording, jargon and idioms to what THIS video is actually about. NEVER import terminology or examples from an unrelated domain.
+
+### NATURAL SPOKEN INDONESIAN (CRITICAL RULE)
+- **Native Phrasing**: "${targetField}" MUST sound like a native Indonesian speaker talking naturally on camera — NOT a stiff, literal, machine-translated rendering, and not overly formal written Indonesian (bahasa baku) where casual speech is called for.
+- **Translate Meaning, NOT Words**: render slang/internet idioms as the natural Indonesian equivalent for that register, never a literal gloss.
+- NEVER leave non-Indonesian script (Chinese characters, Korean Hangul, etc.) in the output.
+
+### NAMES & BRAND NAMES
+- **Brands / Products**: Keep the standard Latin names already used in Indonesia (e.g., Samsung, iPhone, Nike).
+- **Chinese Person Names**: Convert to Pinyin (e.g., 王伟 → Wang Wei).
+- **Korean Person Names**: Convert to standard Revised Romanization.
+- **Model/Version Codes**: Keep Latin letters and digits intact.
+
+### NUMBERS & UNITS (TEXT-TO-SPEECH OPTIMIZED)
+Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN INDONESIAN WORDS:
+- **Quantities & Currency**: 90% → "sembilan puluh persen", 25元 → "dua puluh lima yuan", 50ml → "lima puluh mililiter".
+- **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way an Indonesian speaker would say them aloud.
+
+### MISCELLANEOUS & FORMATTING
+- Drop discourse/modal particles from the source that have no Indonesian equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally — the natural Indonesian equivalents "sih"/"dong"/"deh"/"kok" may be used sparingly where the tone genuinely calls for them.
+- **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short spoken Indonesian exclamation like "Eh?", "Oh.", or "Tunggu dulu."
+  * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
+    emphasisExamples: '"beneran", "banget", "serius", "sungguh"',
+    pronounsHint: "<the most natural Indonesian addressing convention for THIS video, e.g. 'kamu' for a casual creator, 'Anda' for formal>",
+    domainHint: "<topic/domain in Indonesian, e.g. 'review teknologi', 'vlog masak', 'film pendek'>",
+  },
+  pt: {
+    name: 'Portuguese',
+    rules: (targetField, domain) => `### ROLE & TONE
+- **Target Audience & Tone**: Casual, direct, engaging YouTube/TikTok creator style (Brazilian Portuguese, the dominant creator-content variety). Clear and concise, skip unnecessary filler.
+- **Pronouns**: Use "você" for addressing viewers — the standard for Brazilian creator content. Avoid European Portuguese "tu" conjugation patterns unless the context specifies a European Portuguese audience.
+- **Domain Context**: ${domain} — adapt wording, jargon and idioms to what THIS video is actually about. NEVER import terminology or examples from an unrelated domain.
+
+### NATURAL SPOKEN PORTUGUESE (CRITICAL RULE)
+- **Native Phrasing**: "${targetField}" MUST sound like a native Brazilian Portuguese speaker talking naturally on camera — NOT a stiff, literal, machine-translated rendering.
+- **Translate Meaning, NOT Words**: render slang/internet idioms as the natural Portuguese equivalent for that register, never a literal gloss.
+- NEVER leave non-Portuguese script (Chinese characters, Korean Hangul, etc.) in the output.
+
+### NAMES & BRAND NAMES
+- **Brands / Products**: Keep the standard Latin names already used internationally (e.g., Samsung, iPhone, Nike).
+- **Chinese Person Names**: Convert to Pinyin (e.g., 王伟 → Wang Wei).
+- **Korean Person Names**: Convert to standard Revised Romanization.
+- **Model/Version Codes**: Keep Latin letters and digits intact.
+
+### NUMBERS & UNITS (TEXT-TO-SPEECH OPTIMIZED)
+Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN PORTUGUESE WORDS:
+- **Quantities & Currency**: 90% → "noventa por cento", 25元 → "vinte e cinco yuans", 50ml → "cinquenta mililitros".
+- **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way a Portuguese speaker would say them aloud.
+
+### MISCELLANEOUS & FORMATTING
+- Drop discourse/modal particles from the source that have no Portuguese equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally.
+- **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short spoken Portuguese exclamation like "Hã?", "Ah.", or "Espera aí."
+  * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
+    emphasisExamples: '"de verdade", "sério", "muito", "na real"',
+    pronounsHint: "<the most natural Brazilian Portuguese addressing convention for THIS video, e.g. 'você' for a casual creator>",
+    domainHint: "<topic/domain in Portuguese, e.g. 'análise de tecnologia', 'vlog de culinária', 'curta-metragem'>",
+  },
+  fr: {
+    name: 'French',
+    rules: (targetField, domain) => `### ROLE & TONE
+- **Target Audience & Tone**: Casual, direct, engaging YouTube/TikTok creator style. Clear and concise, skip unnecessary filler.
+- **Pronouns**: Use "tu" (informal "you") for addressing viewers — the standard for creator content, unless the user-provided context specifies a formal "vous" register (e.g. an institutional/educational channel).
+- **Domain Context**: ${domain} — adapt wording, jargon and idioms to what THIS video is actually about. NEVER import terminology or examples from an unrelated domain.
+
+### NATURAL SPOKEN FRENCH (CRITICAL RULE)
+- **Native Phrasing**: "${targetField}" MUST sound like a native French speaker talking naturally on camera — NOT a stiff, literal, machine-translated rendering, and not overly literary/written French where casual speech is called for (e.g. prefer "on" over "nous" the way speakers actually talk).
+- **Translate Meaning, NOT Words**: render slang/internet idioms as the natural French equivalent for that register, never a literal gloss.
+- NEVER leave non-French script (Chinese characters, Korean Hangul, etc.) in the output.
+
+### NAMES & BRAND NAMES
+- **Brands / Products**: Keep the standard Latin names already used internationally (e.g., Samsung, iPhone, Nike).
+- **Chinese Person Names**: Convert to Pinyin (e.g., 王伟 → Wang Wei).
+- **Korean Person Names**: Convert to standard Revised Romanization.
+- **Model/Version Codes**: Keep Latin letters and digits intact.
+
+### NUMBERS & UNITS (TEXT-TO-SPEECH OPTIMIZED)
+Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN FRENCH WORDS — write them out fully as words (not digits) so the TTS voice pronounces the correct irregular forms:
+- **Quantities & Currency**: 90% → "quatre-vingt-dix pour cent", 25元 → "vingt-cinq yuans", 50ml → "cinquante millilitres".
+- **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way a French speaker would say them aloud.
+
+### MISCELLANEOUS & FORMATTING
+- Drop discourse/modal particles from the source that have no French equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally — natural French fillers like "bon", "du coup", "en fait" may be used sparingly where the tone calls for them.
+- **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short spoken French exclamation like "Hein ?", "Ah.", or "Attends."
+  * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
+    emphasisExamples: '"vraiment", "carrément", "trop", "en fait"',
+    pronounsHint: "<the most natural French addressing convention for THIS video, e.g. 'tu' for a casual creator, 'vous' for formal>",
+    domainHint: "<topic/domain in French, e.g. 'test technologique', 'vlog cuisine', 'court métrage'>",
+  },
+  de: {
+    name: 'German',
+    rules: (targetField, domain) => `### ROLE & TONE
+- **Target Audience & Tone**: Casual, direct, engaging YouTube/TikTok creator style. Clear and concise, skip unnecessary filler.
+- **Pronouns**: Use "du" (informal "you") for addressing viewers — the standard for creator content, unless the user-provided context specifies a formal "Sie" register.
+- **Domain Context**: ${domain} — adapt wording, jargon and idioms to what THIS video is actually about. NEVER import terminology or examples from an unrelated domain.
+
+### NATURAL SPOKEN GERMAN (CRITICAL RULE)
+- **Native Phrasing**: "${targetField}" MUST sound like a native German speaker talking naturally on camera — NOT a stiff, literal, machine-translated rendering, and not overly formal/bureaucratic German where casual speech is called for.
+- **Translate Meaning, NOT Words**: render slang/internet idioms as the natural German equivalent for that register, never a literal gloss.
+- NEVER leave non-German script (Chinese characters, Korean Hangul, etc.) in the output.
+
+### NAMES & BRAND NAMES
+- **Brands / Products**: Keep the standard Latin names already used internationally (e.g., Samsung, iPhone, Nike).
+- **Chinese Person Names**: Convert to Pinyin (e.g., 王伟 → Wang Wei).
+- **Korean Person Names**: Convert to standard Revised Romanization.
+- **Model/Version Codes**: Keep Latin letters and digits intact.
+
+### NUMBERS & UNITS (TEXT-TO-SPEECH OPTIMIZED)
+Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN GERMAN WORDS — write the correct compound number form (units before tens, e.g. "einundzwanzig") so the TTS voice pronounces it correctly:
+- **Quantities & Currency**: 90% → "neunzig Prozent", 25元 → "fünfundzwanzig Yuan", 50ml → "fünfzig Milliliter".
+- **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way a German speaker would say them aloud.
+
+### MISCELLANEOUS & FORMATTING
+- Drop discourse/modal particles from the source that have no German equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally — natural German modal particles like "halt", "eben", "ja", "mal" may be used sparingly where the tone calls for them.
+- **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short spoken German exclamation like "Ha?", "Ach.", or "Warte mal."
+  * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
+    emphasisExamples: '"wirklich", "echt", "total", "tatsächlich"',
+    pronounsHint: "<the most natural German addressing convention for THIS video, e.g. 'du' for a casual creator, 'Sie' for formal>",
+    domainHint: "<topic/domain in German, e.g. 'Technik-Review', 'Koch-Vlog', 'Kurzfilm'>",
   },
 }
 
@@ -299,13 +559,16 @@ const ANALYSIS_SCHEMA = {
 function buildAnalysisPrompt({ lines, sourceLang, videoTitle = '', targetKey = 'vi' }) {
   const titleBlock = videoTitle
     ? `\nORIGINAL VIDEO TITLE (strong topic hint): ${videoTitle}\n` : ''
-  const { name: targetName } = resolveTargetLang(targetKey)
-  const isVi = targetKey === 'vi'
-  const pronounsHint = isVi
-    ? "<the most natural Vietnamese pronoun convention for THIS video, e.g. 'mình – các bạn' for a creator addressing viewers, 'tôi – bạn' for formal>"
+  const { key, name: targetName } = resolveTargetLang(targetKey)
+  // mini-spec V18 (docs/PLAN.md, Phase E) — trước đây CHỈ tiếng Việt có gợi ý
+  // pronouns/domain đúng ngôn ngữ đích (nhánh isVi riêng), mọi ngôn ngữ khác
+  // (kể cả tiếng Anh) rơi về gợi ý CHUNG bằng tiếng Anh. Giờ đọc trực tiếp từ
+  // LANGUAGE_RULES[key] — "học" đúng quy ước từng ngôn ngữ mỗi lượt phân
+  // tích, không hardcode riêng 1 ngôn ngữ.
+  const rule = LANGUAGE_RULES[key]
+  const pronounsHint = rule ? rule.pronounsHint
     : `<the most natural ${targetName} addressing/register convention for THIS video — e.g. casual direct-address vs formal>`
-  const domainHint = isVi
-    ? "<topic/domain in Vietnamese, e.g. 'review công nghệ', 'vlog nấu ăn', 'phim ngắn'>"
+  const domainHint = rule ? rule.domainHint
     : `<topic/domain in ${targetName}, e.g. 'tech review', 'cooking vlog', 'short film'>`
   return `You are preparing CONTEXT for translating a ${sourceLang} video transcript to ${targetName} (video dubbing).
 Read the transcript lines below and produce a compact analysis as STRICT JSON (no markdown fences, no commentary):

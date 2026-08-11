@@ -83,10 +83,12 @@ test('buildTranslateSystemPrompt target=vi: giữ nguyên các quy tắc riêng 
 });
 
 test('buildTranslateSystemPrompt: ngôn ngữ chưa có bộ quy tắc riêng dùng quy tắc CHUNG, không hardcode Vietnamese', () => {
+  // "ja" giờ đã có bộ quy tắc riêng (mini-spec V18) — dùng "ko" (chưa có
+  // block riêng) để test đúng nhánh generic.
   const system = prompts.buildTranslateSystemPrompt({
-    sourceLang: 'zh-CN', targetKey: 'ja', context: {}, cpsBudget: 12.5,
+    sourceLang: 'zh-CN', targetKey: 'ko', context: {}, cpsBudget: 12.5,
   })
-  assert.match(system, /translate an ASR transcript from zh-CN to ja/)
+  assert.match(system, /translate an ASR transcript from zh-CN to ko/)
   assert.doesNotMatch(system, /Vietnamese/)
   assert.doesNotMatch(system, /Sino-Vietnamese/)
 });
@@ -135,4 +137,101 @@ test('buildReviewUserPrompt: lý do "cjk" nêu đúng tên ngôn ngữ đích, k
   })
   assert.match(enPrompt, /pure English/)
   assert.doesNotMatch(enPrompt, /pure Vietnamese/)
+});
+
+// ----------------------------------------------------- mini-spec V18 (Phase E) --
+// Mở rộng LANGUAGE_RULES từ {vi, en} sang 10 ngôn ngữ (thêm ja/zh/es/th/id/
+// pt/fr/de) — mỗi ngôn ngữ có quy tắc giọng điệu/xưng hô/số đếm RIÊNG, không
+// phải bản dịch chữ của bộ quy tắc tiếng Anh. Test khoá: registry đủ 10 khoá,
+// mỗi ngôn ngữ mới có nội dung ĐẶC TRƯNG riêng (không lẫn quy tắc ngôn ngữ
+// khác), và pass phân tích ngữ cảnh (buildAnalysisPrompt) dùng đúng gợi ý
+// ngôn ngữ đó thay vì gợi ý chung bằng tiếng Anh.
+
+test('V18: LANGUAGE_RULES có đúng 10 ngôn ngữ đã nghiên cứu (vi/en + 8 mới)', () => {
+  assert.deepEqual(
+    Object.keys(prompts.LANGUAGE_RULES).sort(),
+    ['de', 'en', 'es', 'fr', 'id', 'ja', 'pt', 'th', 'vi', 'zh'],
+  )
+});
+
+test('V18: bug thật đã sửa — emphasisExamples của tiếng Việt trước đây là tiếng Anh', () => {
+  // Trước V18: LANGUAGE_RULES.vi.emphasisExamples lỡ copy-paste y hệt bản
+  // tiếng Anh ('"really", "definitely"...') — nghĩa là prompt yêu cầu model
+  // nhấn nhá câu tiếng Việt bằng VÍ DỤ TIẾNG ANH. Khoá lại: giờ phải là từ
+  // nhấn mạnh tiếng Việt thật.
+  assert.equal(prompts.LANGUAGE_RULES.vi.emphasisExamples.includes('really'), false)
+  assert.match(prompts.LANGUAGE_RULES.vi.emphasisExamples, /thật sự|cực kỳ/)
+});
+
+test('V18: tiếng Nhật có quy tắc riêng (đọc số theo lượng từ, giữ Kanji tên Trung)', () => {
+  const system = prompts.buildTranslateSystemPrompt({
+    sourceLang: 'zh-CN', targetKey: 'ja', context: {}, cpsBudget: 12.5,
+  })
+  assert.match(system, /to Japanese/)
+  assert.match(system, /counter/i)
+  assert.match(system, /Kanji/)
+  assert.doesNotMatch(system, /Sino-Vietnamese/)
+  assert.doesNotMatch(system, /tú\/usted/)
+});
+
+test('V18: tiếng Trung GIỮ trợ từ 啊呢吧嘛 (khác mọi ngôn ngữ khác chủ động bỏ)', () => {
+  const system = prompts.buildTranslateSystemPrompt({
+    sourceLang: 'en-US', targetKey: 'zh', context: {}, cpsBudget: 12.5,
+  })
+  assert.match(system, /to Chinese/)
+  assert.match(system, /are natural, expected parts of spoken Mandarin/)
+});
+
+test('V18: tiếng Tây Ban Nha dùng "tú", tiếng Pháp dùng "tu", tiếng Đức dùng "du"', () => {
+  const es = prompts.buildTranslateSystemPrompt({
+    sourceLang: 'en-US', targetKey: 'es', context: {}, cpsBudget: 12.5 })
+  const fr = prompts.buildTranslateSystemPrompt({
+    sourceLang: 'en-US', targetKey: 'fr', context: {}, cpsBudget: 12.5 })
+  const de = prompts.buildTranslateSystemPrompt({
+    sourceLang: 'en-US', targetKey: 'de', context: {}, cpsBudget: 12.5 })
+  assert.match(es, /"tú"/)
+  assert.match(fr, /"tu"/)
+  assert.match(de, /"du"/)
+});
+
+test('V18: tiếng Thái nêu rõ ràng buộc ครับ/ค่ะ phải nhất quán theo ngữ cảnh, không tự đoán giới tính', () => {
+  const system = prompts.buildTranslateSystemPrompt({
+    sourceLang: 'en-US', targetKey: 'th', context: {}, cpsBudget: 12.5,
+  })
+  assert.match(system, /ครับ/)
+  assert.match(system, /CONSISTENT/)
+});
+
+test('V18: 8 ngôn ngữ mới đều có emphasisExamples bằng chính ngôn ngữ đó (không phải tiếng Anh)', () => {
+  const newLangs = ['ja', 'zh', 'es', 'th', 'id', 'pt', 'fr', 'de']
+  for (const key of newLangs) {
+    const ex = prompts.LANGUAGE_RULES[key].emphasisExamples
+    assert.ok(ex && ex.length > 0, `${key} thiếu emphasisExamples`)
+    assert.equal(ex.includes('"really"'), false, `${key} vẫn dùng ví dụ tiếng Anh`)
+  }
+});
+
+test('V18: buildAnalysisPrompt "học" đúng gợi ý pronouns/domain theo từng ngôn ngữ mới (không rơi về gợi ý chung tiếng Anh)', () => {
+  const ja = prompts.buildAnalysisPrompt({ lines: 'x', sourceLang: 'zh-CN', targetKey: 'ja' })
+  assert.match(ja, /です\/ます/)
+  const zh = prompts.buildAnalysisPrompt({ lines: 'x', sourceLang: 'en-US', targetKey: 'zh' })
+  assert.match(zh, /科技测评/)
+  const th = prompts.buildAnalysisPrompt({ lines: 'x', sourceLang: 'en-US', targetKey: 'th' })
+  assert.match(th, /ครับ\/ค่ะ/)
+});
+
+test('V18: buildAnalysisPrompt vẫn rơi về gợi ý CHUNG cho ngôn ngữ thật sự chưa nghiên cứu', () => {
+  const p = prompts.buildAnalysisPrompt({ lines: 'x', sourceLang: 'en-US', targetKey: 'ko' })
+  assert.match(p, /casual direct-address vs formal/)
+});
+
+test('V18: mọi ngôn ngữ mới đều có quy tắc TTS đọc số bằng chữ (không để nguyên chữ số)', () => {
+  const newLangs = ['ja', 'zh', 'es', 'th', 'id', 'pt', 'fr', 'de']
+  for (const key of newLangs) {
+    const system = prompts.buildTranslateSystemPrompt({
+      sourceLang: 'en-US', targetKey: key, context: {}, cpsBudget: 12.5,
+    })
+    assert.match(system, /90%/, `${key} thiếu ví dụ đọc số 90%`)
+    assert.match(system, /NUMBERS & UNITS/, `${key} thiếu mục NUMBERS & UNITS`)
+  }
 });
