@@ -1014,10 +1014,8 @@ ngôn ngữ). Test mới `tests/test_output_dir_target_language.py` (4 test).
 
 - NLLB local-translate (V6) có thể bỏ sót câu khi ASR nguồn nhiễu — phát
   hiện thật ở trên, chưa fix, cần mini-spec riêng cho V6 (không phải V8/V11).
-- Chưa live-verify với video DÀI (vài phút, hàng chục câu) target=en — 2
-  lượt test đều là clip ngắn (dưới 6 giây, 1 câu ASR) để tiết kiệm thời
-  gian/tài nguyên máy dev; chưa chứng minh timing/karaoke alignment ổn
-  định trên transcript nhiều câu thật cho tiếng Anh.
+- ~~Chưa live-verify với video DÀI...~~ — **đã đóng, xem "Re-audit 2026-08-11
+  — video dài thật" ngay dưới đây (Phase E, mục E5).**
 - `.venv-whisper`/`.venv-mt` chưa cài đặt thật trong bản đóng gói (PyInstaller)
   — live-verify này dùng venv dev sẵn có (đường fallback in-process của
   Whisper, override thủ công cho NLLB), CHƯA verify qua đúng quy trình cài
@@ -1025,6 +1023,53 @@ ngôn ngữ). Test mới `tests/test_output_dir_target_language.py` (4 test).
   người dùng cuối sẽ chạy.
 - Đánh giá chất lượng giọng đọc tiếng Anh bởi người bản ngữ — chưa làm,
   cần chủ dự án hoặc bên thứ ba (xem trên).
+
+### Re-audit 2026-08-11 — video dài thật (Phase E, đóng gap "chưa test video dài")
+
+Sandbox `trieunt` — đóng đúng gap "chưa live-verify video DÀI, hàng chục
+câu" ghi ở trên. Phương pháp giống V11 gốc (TTS thật + ffmpeg mux, vì
+sandbox không có video mẫu dài thật) nhưng mở rộng từ 1 câu/<6s lên **20
+câu/81 giây**:
+
+1. 20 câu tiếng Việt đa dạng chủ đề (kể cả câu có số — "90%", "năm 2026",
+   "hàng tỷ đô la" — để cùng lúc kiểm tra luôn đường ASR/dịch số, KHÔNG
+   phải đường TTS-CapCut đã sửa bug ở V17) đọc thật qua **CapCut TTS thật**
+   (giọng "Thanh Lan"), nối bằng `ffmpeg concat` (0.6s lặng giữa câu), mux
+   vào video H.264/AAC thật 81 giây.
+2. Chạy **`DubPipeline.run()` đầy đủ, không mock bất kỳ bước nào**:
+   target=en, nguồn dịch local NLLB thật (model 622MB đã tải ở mục V17),
+   TTS đích qua CapCut thật (giọng "EN US 2"), `bg_mode="duck"` (bỏ qua
+   Demucs — không phải thứ đang kiểm chứng ở đây, đã có bài test riêng).
+
+**Kết quả thật:**
+- `status: "completed"`, **20/20 segment** qua hết ASR → dịch → TTS → ghép
+  → mux, KHÔNG crash, KHÔNG segment nào bị rớt. Tổng thời gian xử lý 86
+  giây cho video 81 giây nguồn (gần bằng thời lượng thật — chấp nhận được
+  cho CPU không GPU).
+- **Timing engine xử lý đúng thiết kế trên quy mô 20 segment thật** (đúng
+  điều cần kiểm chứng): 19/20 câu bị lùi nhẹ vào khoảng lặng (tối đa 1.5s),
+  6/20 câu được tăng tốc nhẹ (`atempo` tới 1.1x), chỉ **2/20 câu còn chồng
+  tiếng nhẹ** (tổng 0.697s trên cả 81s — không phải lỗi, là giới hạn vật
+  lý khi tiếng Anh dịch ra dài hơn tiếng Việt gốc ở 1 vài câu, timing guide
+  ghi rõ để người dùng biết câu nào nghe kỹ). `quality_report.json` ghi
+  đúng, đầy đủ per-segment (`shift_s`, `atempo`, `overlap_prev_s`,
+  `over_budget_chars`) cho cả 20 câu — không phải chỉ tổng hợp mơ hồ.
+- Bản dịch thật, tự nhiên, đúng số ("Có khoảng 90% doanh nghiệp..." → "Approximately
+  90 percent of large enterprises have started using this technology.").
+- Output thật: `dubbed_video.mp4` 81.58s, track thật H.264/AAC/mov_text
+  (subtitle mềm), `transcript_en.srt` 20 dòng khớp đúng nội dung.
+- ASR (Whisper `small`, CPU) nghe đúng gần như tuyệt đối cả 20 câu (vài lỗi
+  nhỏ dự kiến ở mức ASR: "Trí tệ" thay "Trí tuệ", "mày tính" thay "máy
+  tính" — không phải bug, là nhiễu ASR bình thường không ảnh hưởng luồng).
+
+**Giới hạn còn lại của chính lượt verify này:** dùng `subtitle_mode="soft"`
+(phụ đề mềm), KHÔNG test `subtitle_mode="burn"` (ghi cứng vào hình, đi qua
+`ass_karaoke.py`) trên quy mô nhiều câu — karaoke alignment cho video dài
+vẫn chưa có bằng chứng thật riêng, dù cơ chế bên dưới (`align_segments`)
+không có gì phụ thuộc số lượng câu để tin sẽ khác hành vi khi burn. Cũng
+chưa test `bg_mode="demucs"` trên video dài (dùng "duck" để tiết kiệm thời
+gian — Demucs tự nó không phải thứ đang kiểm chứng ở lượt này, đã verify
+riêng ở chỗ khác trong TEST_LOG).
 
 ## V12 — Cloud rendering production-ready (đưa V9 từ PoC thành hạ tầng thật)
 
