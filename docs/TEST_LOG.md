@@ -2008,3 +2008,118 @@ Việt. Đây là gap thật cần đóng, không phải suy diễn.
 - 190/204 ngôn ngữ FLORES-200 còn lại (tính năng dịch phụ đề rời, V14) vẫn
   chưa có LANGUAGE_RULES riêng — quyết định trước đó (phiên trước) là giữ
   nguyên phạm vi, không mở rộng thêm ở đợt này.
+
+## V19 — Bố cục phụ đề không tương thích ngôn ngữ không dấu-cách (Phase E, 2026-08-12)
+
+Theo `docs/PLAN.md` mục V19. Chủ dự án hỏi trực tiếp: khi tự động đổi
+giọng/ngôn ngữ, bố cục phụ đề có "cân đối" theo từng ngôn ngữ không —
+audit thật (không suy đoán) qua Explore agent đọc code, tìm ra 4 vấn đề
+thật, ảnh hưởng trực tiếp 3 ngôn ngữ mới (V17): Trung, Nhật, Thái.
+
+### Audit — 4 phát hiện thật
+
+1. **`autodub/text/srt.py` — bug ngắt dòng nghiêm trọng**: cả logic ngắt
+   theo "số từ/dòng" lẫn "số ký tự/dòng" đều gọi `text.split()` (tách theo
+   dấu CÁCH). Tiếng Trung/Nhật không có dấu cách giữa chữ → cả câu bị coi
+   là "1 từ duy nhất" → không bao giờ ngắt dòng → phụ đề tràn khung hình.
+   Tiếng Thái chỉ có dấu cách giữa CỤM (không phải từ) → ngắt thô, khó đọc.
+2. **`autodub/text/ass_karaoke.py` — karaoke fallback cùng lỗi**: đường DỰ
+   PHÒNG (`estimate_word_times`, chỉ chạy khi Whisper alignment thật thất
+   bại) cũng `.split()` — cả câu tiếng Trung/Nhật sáng lên cùng lúc, mất
+   hẳn hiệu ứng karaoke. Đường CHÍNH (alignment thật qua Whisper) đã đúng
+   ngôn ngữ từ V11, không phải sửa.
+3. **Ngưỡng ký tự/dòng cố định (42), không đổi theo ngôn ngữ**: chữ CJK
+   render rộng hơn Latin cùng cỡ chữ (quy ước Unicode "East Asian Width" —
+   ký tự "Wide/Fullwidth" ≈ gấp đôi bề ngang "Narrow/Halfwidth") — 42 ký tự
+   CJK/dòng tràn khung hình dù ĐÃ ngắt đúng.
+4. **Font đóng gói sẵn (`fonts/`) không phủ CJK/Thái**: 8 font hiện có đều
+   là font trang trí Latin/tiếng Việt — chữ Trung/Nhật/Thái ghi cứng vào
+   video (chế độ "burn") rất có thể hiện thành ô vuông rỗng (tofu).
+
+Không test nào trong bộ hiện tại (`test_subtitle*.py`, `test_ass_karaoke.py`)
+chạm tới CJK/Thái trước đợt này — góc mù thật, không phải đã biết mà bỏ qua.
+
+**Quyết định phạm vi giữa chừng (chủ dự án đổi ý)**: ban đầu định sửa đủ cả
+ja/zh/th + font Nhật/Thái. Chủ dự án sau đó yêu cầu: bỏ font Nhật/Thái, chỉ
+giữ font Trung (vì zh là ngôn ngữ NGUỒN có sẵn từ đầu dự án — zh-CN/HK/TW,
+hợp lý dùng chung font hơn ja/th vốn chỉ mới thêm làm đích ở V17), dồn ưu
+tiên còn lại cho vi/en. Logic ngắt dòng/karaoke CHO ja/th vẫn giữ nguyên
+trong code (không tốn thêm chi phí, đúng ngay cả khi chưa có font riêng —
+người dùng có thể tự thả font Nhật/Thái vào `fonts/` theo đúng quy ước sẵn
+có của dự án, xem `fonts/THEM_FONT_O_DAY.txt`), chỉ KHÔNG đóng gói sẵn font
+cho 2 ngôn ngữ đó.
+
+### Sửa
+
+- `autodub/text/srt.py`: thêm `is_char_wrap_lang()` (ja/zh/th) — `_wrap_lines()`,
+  `split_for_display()` ngắt theo KÝ TỰ khi ngôn ngữ đích thuộc nhóm này
+  (bỏ qua `line_words` — khái niệm "số chữ/dòng" không có nghĩa cho CJK).
+  Sửa thêm regex ngắt mệnh đề: `\s+` → `\s*` + thêm dấu câu CJK toàn độ
+  rộng (，。！？；…) — dấu câu Latin cần `\s+` phía sau mới khớp, nhưng CJK
+  không có khoảng trắng sau dấu câu nên regex cũ không khớp gì cả cho văn
+  bản CJK. Thêm `MAX_LINE_CHARS_CJK = 20` (khác `MAX_LINE_CHARS = 42`) —
+  bề rộng thật trên màn hình tương đương. `generate_srt`/`generate_srt_styled`
+  nhận thêm `lang_key` — nối vào 3 call site thật: `subtitles.py::refresh_subtitles`
+  (`target.key`), `pipeline.py` (transcript gốc, dùng `lang_code` NGUỒN),
+  `editor.py` (xem trước trong Trình chỉnh sửa).
+- `autodub/text/ass_karaoke.py`: `estimate_word_times()` nhận `char_tokens`
+  — tách theo ký tự thay vì `.split()` cho ja/zh/th (mỗi chữ Hán/Kana đúng
+  1 âm tiết, khớp ĐÚNG tinh thần ước lượng âm tiết ban đầu của hàm này, chỉ
+  khác đơn vị "1 tiếng"). `_BREAK_PUNCT`/`_PAUSE_WEIGHT` thêm dấu câu CJK
+  toàn độ rộng (cùng vấn đề như regex ở srt.py). `resolve_word_times()`
+  tự suy `char_tokens` từ `language` (đã là mã Whisper ngắn sẵn có, khớp
+  thẳng `is_char_wrap_lang()`, không cần chuyển đổi thêm).
+- `fonts/NotoSansSC-Regular.ttf` (mới, ~10MB) — font thật Google Noto Sans
+  Simplified Chinese, tải qua Google Fonts CSS2 API thật (không phải file
+  tự tạo), **xác minh glyph coverage thật** bằng `fontTools` (23 ký tự Hán
+  thường dùng test qua, 0 ký tự thiếu). Kèm `fonts/NotoSansSC-OFL.txt`
+  (giấy phép SIL Open Font License thật, tải từ repo `google/fonts`) — đúng
+  quy ước đã ghi sẵn trong `fonts/THEM_FONT_O_DAY.txt` ("Nhớ giữ kèm file
+  license (OFL.txt) của font nếu phát hành app").
+
+### Verify
+
+- `tests/test_srt_generator.py` (+9 test): tái tạo ĐÚNG bug cũ (không
+  `lang_key` → câu Trung dài vẫn 1 dòng, vượt xa MAX_LINE_CHARS) để khoá
+  hành vi CŨ không đổi khi không truyền lang_key (0 regression cho call
+  site chưa cập nhật); có `lang_key="zh"` → ngắt đúng, ghép lại đúng
+  nguyên văn không mất/thêm ký tự; tiếng Nhật câu ngắn không dấu cách vẫn
+  ra đúng 1 dòng; tiếng Thái ngắt theo ký tự; `line_words` bị bỏ qua đúng
+  cho char_wrap; ngưỡng CJK (20) khác Latin (42); tiếng Việt hoàn toàn
+  không đổi hành vi có/không truyền `lang_key`.
+- `tests/test_ass_karaoke.py` (+5 test): tái tạo bug cũ (không `char_tokens`
+  → cả câu Trung thành 1 "từ"); có `char_tokens=True` → tách đúng từng ký
+  tự, mốc thời gian đơn điệu liên tục, phủ đủ `duration`; dấu câu CJK
+  toàn độ rộng được nhận đúng trọng số nghỉ; `chunk_words()` gộp đúng cụm
+  cố định theo ký tự, ghép lại đúng nguyên văn.
+- `pytest tests/ -q` toàn bộ: **759 passed, 4 skipped, 0 failed** (746 + 13
+  test mới về ngắt dòng/karaoke — tính cả 1 test khoá `MAX_LINE_CHARS_CJK`).
+- Font: xác minh bằng `fontTools.ttLib.TTFont.getBestCmap()` thật, không
+  suy đoán từ tên file.
+
+### Remaining Limits (V19)
+
+- **Font Nhật/Thái CHƯA đóng gói** — quyết định có chủ đích của chủ dự án
+  (ưu tiên vi/en), không phải thiếu sót kỹ thuật. Logic ngắt dòng/karaoke
+  cho ja/th vẫn đúng trong code, chỉ chưa có font đi kèm sẵn — người dùng
+  cần dịch sang Nhật/Thái với chế độ "burn" phải tự thả font vào `fonts/`
+  theo đúng hướng dẫn có sẵn của dự án.
+- **Ngắt dòng tiếng Thái vẫn là "chấp nhận được", không phải đúng ranh
+  giới từ thật** — ngắt theo ký tự tránh được bug "không bao giờ ngắt",
+  nhưng có thể cắt giữa 1 từ tiếng Thái thật (đúng ranh giới từ cần bộ
+  tách từ tiếng Thái riêng, vd `pythainlp` — thêm dependency mới, ngoài
+  phạm vi mini-spec này, và không phải ưu tiên hiện tại theo chủ dự án).
+- **`MAX_LINE_CHARS_CJK = 20`** là ước lượng hợp lý theo quy ước độ rộng
+  ký tự Unicode + kinh nghiệm phổ biến ngành phụ đề (không phải số đo thật
+  trên khung hình cụ thể của app này) — chưa có video CJK thật render ra
+  để đo bằng mắt xem 20 ký tự có thật sự vừa khung hay cần chỉnh thêm.
+- **Font Trung mới CHƯA test render thật qua libass/ffmpeg burn** — chỉ
+  xác nhận glyph coverage ở tầng font file (fontTools), chưa chạy hết
+  pipeline burn-in thật để nhìn tận mắt chữ Trung hiện đúng trên video
+  xuất ra (cần video test + ffmpeg thật, ngoài phạm vi phiên này do chủ dự
+  án đã đổi ưu tiên sang vi/en).
+- Cỡ chữ (`SUBTITLE_FONT_SIZE`)/margin toàn cục vẫn là 1 giá trị người
+  dùng tự chọn, không tự động đổi theo ngôn ngữ đích — quyết định có chủ
+  đích: đây là preference của người dùng (áp dụng mọi ngôn ngữ), phần
+  thích ứng thật sự cần thiết (bề rộng dòng) đã xử lý ở tầng ngắt dòng
+  (`MAX_LINE_CHARS_CJK`), không cần ép đổi cỡ chữ toàn cục theo target.

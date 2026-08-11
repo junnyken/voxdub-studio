@@ -43,6 +43,52 @@ def test_estimate_empty_and_zero_duration():
     assert estimate_word_times("xin chào", 0.0, 0.0) == []
 
 
+# --------------------------- V19 (docs/PLAN.md, Phase E): char_tokens CJK -- #
+# Bug thật: .split() coi cả câu tiếng Trung/Nhật (không dấu cách) là 1 "từ"
+# duy nhất -> karaoke sáng lên nguyên câu 1 lượt, mất hẳn hiệu ứng nhảy chữ.
+# Đây là đường FALLBACK (dùng khi Whisper alignment thật thất bại) — đường
+# alignment thật (resolve_word_times -> align_segments) đã đúng ngôn ngữ
+# từ V11, không phải sửa ở đây.
+
+def test_estimate_without_char_tokens_chinese_becomes_one_giant_word_bug_reproduced():
+    text = "你好这是一段测试文字"
+    words = estimate_word_times(text, 0.0, 3.0)
+    assert len(words) == 1
+    assert words[0][0] == text
+
+
+def test_estimate_with_char_tokens_chinese_splits_per_character():
+    text = "你好这是一段测试文字"
+    words = estimate_word_times(text, 0.0, 3.0, char_tokens=True)
+    assert len(words) == len(text)
+    assert [w for w, _, _ in words] == list(text)
+    assert words[0][1] == 0.0
+    assert words[-1][2] == pytest.approx(3.0, abs=0.01)
+    for (_, s1, e1), (_, s2, _e2) in zip(words, words[1:]):
+        assert e1 == pytest.approx(s2, abs=0.001)
+
+
+def test_estimate_char_tokens_respects_fullwidth_punctuation_pause():
+    # "，" (full-width, dấu phẩy Trung/Nhật) phải được nhận là dấu ngắt nhịp
+    # giống "," ASCII — token "，" (ở giữa câu) phải dài hơn 1 chữ thường
+    # đứng trước nó, vì bản thân nó mang trọng số nghỉ TTS ngân dài hơn.
+    words = estimate_word_times("好，好，好", 0.0, 5.0, char_tokens=True)
+    d = {}
+    for i, (w, s, e) in enumerate(words):
+        d.setdefault(w, []).append(e - s)
+    assert len(words) == 5
+    assert d["，"][0] > d["好"][0]
+
+
+def test_chunk_words_with_char_tokens_groups_fixed_size_by_character():
+    text = "你好这是一段测试文字啊"  # 11 ký tự, không dấu câu
+    words = estimate_word_times(text, 0.0, 4.0, char_tokens=True)
+    chunks = chunk_words(words, 3)
+    assert [len(c) for c in chunks] == [3, 3, 3, 2]
+    rejoined = "".join(w for chunk in chunks for w, _, _ in chunk)
+    assert rejoined == text
+
+
 # --------------------------------------------------------------- chunking -- #
 
 def _mk(words):

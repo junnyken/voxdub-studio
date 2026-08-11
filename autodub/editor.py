@@ -817,7 +817,8 @@ def render_segment_preview(
                        duck_voice_db=settings.bg_duck_voice_db)
         if subtitle_mode == "burn":
             srt_tmp = data_path(work_dir, "preview_subs.tmp.srt")
-            generate_srt_styled(sub_window, srt_tmp, target.text_field, style)
+            generate_srt_styled(sub_window, srt_tmp, target.text_field, style,
+                                lang_key=target.key)
 
         # Cửa sổ tính trên timeline ĐÃ làm chậm; đường deferred cắt trên tệp
         # nguồn (timeline gốc) rồi làm chậm trong chính lượt mã hóa này.

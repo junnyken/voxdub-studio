@@ -34,10 +34,16 @@ _TAIL_S = 0.15
 _MIN_CUE_S = 0.20
 
 # Dấu kết thúc cụm sớm (ngắt theo nhịp đọc thay vì đếm chữ cứng nhắc).
-_BREAK_PUNCT = ",.!?…;:"
+# mini-spec V19 (docs/PLAN.md, Phase E): thêm dấu câu CJK toàn độ rộng
+# (，。！？；：…) — thiếu chúng thì câu tiếng Trung/Nhật không bao giờ được
+# coi là có dấu ngắt nhịp, dù văn bản THẬT SỰ có dấu (chỉ là dấu full-width
+# khác ASCII).
+_BREAK_PUNCT = ",.!?…;:，。！？；："
 # Trọng số nghỉ sau dấu — TTS ngân dài hơn ở các dấu này.
 _PAUSE_WEIGHT = {",": 0.5, ";": 0.5, ":": 0.5,
-                 ".": 0.9, "!": 0.9, "?": 0.9, "…": 0.9}
+                 ".": 0.9, "!": 0.9, "?": 0.9, "…": 0.9,
+                 "，": 0.5, "；": 0.5, "：": 0.5,
+                 "。": 0.9, "！": 0.9, "？": 0.9}
 
 DEFAULT_KARAOKE = {
     "display": "sentence",        # "sentence" (SRT cũ) | "karaoke"
@@ -54,14 +60,22 @@ def _pause_after(word: str) -> float:
     return _PAUSE_WEIGHT.get(w[-1:], 0.0)
 
 
-def estimate_word_times(text: str, start: float,
-                        duration: float) -> list[tuple[str, float, float]]:
+def estimate_word_times(text: str, start: float, duration: float,
+                        char_tokens: bool = False) -> list[tuple[str, float, float]]:
     """Ước lượng mốc từng chữ khi không có alignment thật.
 
     Mỗi chữ tiếng Việt ~1 âm tiết → chia ``duration`` theo số chữ, cộng
     trọng số nghỉ sau dấu câu (TTS ngân ở đó). Trả về mốc TUYỆT ĐỐI.
+
+    ``char_tokens=True`` (mini-spec V19 — CJK, xem
+    :func:`autodub.text.srt.is_char_wrap_lang`): bug thật — ``text.split()``
+    coi cả câu tiếng Trung/Nhật (không dấu cách) là 1 "từ" duy nhất, karaoke
+    sáng lên nguyên câu 1 lượt thay vì nhảy theo từng cụm. Tách theo KÝ TỰ
+    thay vì dấu cách — mỗi chữ Hán/Kana đúng 1 âm tiết, khớp ĐÚNG tinh thần
+    ước lượng âm tiết ban đầu của hàm này (chỉ là đơn vị "1 tiếng" khác nhau
+    giữa tiếng Việt ghép-bằng-dấu-cách và CJK không dấu cách).
     """
-    tokens = text.split()
+    tokens = list(text) if char_tokens else text.split()
     if not tokens or duration <= 0:
         return []
     weights = [1.0 + _pause_after(t) for t in tokens]
@@ -91,8 +105,12 @@ def resolve_word_times(
     ước lượng (non-fatal, video vẫn ra).
     """
     from autodub.media.audio import wav_duration_s
-    from autodub.text.srt import has_subtitle_override, subtitle_text
+    from autodub.text.srt import has_subtitle_override, is_char_wrap_lang, subtitle_text
 
+    # mini-spec V19 — `language` ở đây đã là mã Whisper ngắn ("ja"/"zh"/"th",
+    # xem WHISPER_LANG_MAP ở call site subtitles.py) — khớp thẳng với
+    # is_char_wrap_lang(), không cần chuyển đổi thêm.
+    char_tokens = is_char_wrap_lang(language)
     aligned: dict[int, list[tuple[str, float, float]]] = {}
     use_align = getattr(settings, "karaoke_alignment", True) if settings else True
     if use_align:
@@ -119,7 +137,8 @@ def resolve_word_times(
         if not words:
             dur = (wav_duration_s(seg_wav_path(merge_dir, sid))
                    or float(seg.get("end", 0)) - float(seg.get("start", 0)))
-            words = estimate_word_times(text, float(seg["start"]), dur)
+            words = estimate_word_times(text, float(seg["start"]), dur,
+                                        char_tokens=char_tokens)
             n_est += 1
         if words:
             out[sid] = words

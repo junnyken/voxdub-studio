@@ -47,7 +47,8 @@ def refresh_subtitles(
     from autodub.text.srt import generate_srt_styled
 
     srt_path = srt_path_of(work_dir, target)
-    generate_srt_styled(segments, srt_path, target.text_field, style)
+    generate_srt_styled(segments, srt_path, target.text_field, style,
+                        lang_key=target.key)
 
     if not for_burn or (style or {}).get("display") != "karaoke" or not merge_dir:
         return srt_path, srt_path

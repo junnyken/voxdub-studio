@@ -438,7 +438,7 @@ class DubPipeline:
                                   whisper_cache=self._whisper_cache)
             save_transcript(segments, transcript_orig_path)
             generate_srt(segments, data_path(work_dir, "transcript_original.srt"),
-                         text_field="text")
+                         text_field="text", lang_key=lang_code.split("-")[0].lower())
             logger.info(f"Nghe xong: video có {len(segments)} câu thoại")
             rep.emit("asr", "done", detail=f"{len(segments)} segments")
         logger.info(f"Transcribed {len(segments)} segments")
