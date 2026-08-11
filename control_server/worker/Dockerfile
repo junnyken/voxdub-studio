@@ -15,7 +15,11 @@ WORKDIR /app
 # apt-get install libsndfile1 (đã xác nhận: pip install thành công và
 # import soundfile chạy được trên image python-slim sạch, không cài thêm
 # gì ở tầng hệ điều hành).
-RUN pip install --no-cache-dir demucs>=4.0.0 soundfile>=0.13.0 requests>=2.31.0
+# --retries/--timeout: mạng build chậm/không ổn định (đã gặp thật, xem
+# docs/TEST_LOG.md mục V12) — pip tự thử lại thay vì chết ngay ở 1 lần
+# nghẽn mạng tạm thời.
+RUN pip install --no-cache-dir --retries 5 --timeout 180 \
+    demucs>=4.0.0 soundfile>=0.13.0 requests>=2.31.0
 
 COPY autodub/media/demucs_worker.py /app/autodub_media/demucs_worker.py
 COPY control_server/worker/render_worker.py /app/render_worker.py
