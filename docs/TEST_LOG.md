@@ -2123,3 +2123,103 @@ cho 2 ngôn ngữ đó.
   đích: đây là preference của người dùng (áp dụng mọi ngôn ngữ), phần
   thích ứng thật sự cần thiết (bề rộng dòng) đã xử lý ở tầng ngắt dòng
   (`MAX_LINE_CHARS_CJK`), không cần ép đổi cỡ chữ toàn cục theo target.
+
+## V20 — Bug suy giới tính giọng CapCut + khảo sát nguồn giọng vi/en (Phase E, 2026-08-12)
+
+Theo `docs/PLAN.md` mục V20. Chủ dự án hỏi trực tiếp: nguồn giọng đọc
+vi/en hiện tại có đa dạng ngữ điệu/nam-nữ không, muốn "ổn định chỗ này".
+
+### Khảo sát thật (đọc dữ liệu thật, không suy đoán)
+
+**VieNeu (offline, engine chính cho tiếng Việt)**: `voices/preset_voices_vn/`
+— **120 giọng thật** (70 nam / 50 nữ, xác nhận qua `voices_manifest.json` +
+đếm file `.wav`), mỗi giọng có tên người thật (vd "Huỳnh Khánh", "Dương Duy"),
+mẫu âm thanh ~8 giây, transcript thật đi kèm. **Gap thật**: manifest KHÔNG
+có trường phong cách/ngữ điệu (chỉ `display_name`/`gender`/`file_name`/
+`transcript`) — không thể lọc "giọng ấm áp"/"giọng năng động" mà không nghe
+thử từng giọng trong 120 giọng.
+
+**CapCut vi-VN**: 22 giọng, có mô tả phong cách trong tên hiển thị ("Nữ
+ngọt ngào", "Nam trầm ấm", "Review phim", "Bản tin trang trọng") — đa dạng
+PHONG CÁCH tốt nhưng LỆCH giới tính nặng (16 nữ / 3 nam thật sự / 1 giọng
+trẻ em / 3 giọng hiệu ứng ma quái-rung-robot không dùng cho lồng tiếng
+bình thường).
+
+**CapCut en-US**: 39 giọng (audit thật qua `Voice.json`, không phải 40 —
+1 mục "Trickster" bị trùng tên với mục khác, mục sau bị loại khỏi
+`entries()` do `seen` set theo tên — ghi nhận là gap nhỏ, xem Remaining
+Limits). Tên hiển thị kém mô tả hơn tiếng Việt hẳn (nhiều tên thương hiệu/
+gimmick như "Deadpool", "Oogie", "Grim Rock", "Suaraaa", "Robaa" không nói
+lên chất giọng thật).
+
+### Bug thật tìm ra
+
+`autodub/speech/tts/capcut_catalog.py::_gender_of()` — heuristic CŨ chỉ
+nhận diện đúng giọng nữ tiếng Việt: khớp `voice_type` với 3 tiền tố BV cụ
+thể (BV421/BV074/BV562, đặc thù catalog vi-VN) hoặc chuỗi `"female"`
+LITERAL trong `voice_type`. Với catalog tiếng Anh, giới tính thường ghi
+ngay trong TÊN HIỂN THỊ chứ không phải `voice_type` — xác nhận thật qua
+dữ liệu:
+
+| Tên hiển thị | voice_type | Gender TRƯỚC sửa | Gender SAU sửa |
+|---|---|---|---|
+| Jenny | en-US-JennyMultilingualNeural | male ❌ | female ✅ |
+| Energetic Famale | BV503_streaming | male ❌ | female ✅ |
+| American Female | BV029_streaming | male ❌ | female ✅ |
+| Dolly famle | en_us_002_dsp | male ❌ | female ✅ |
+
+**Hậu quả THẬT** (không chỉ hiển thị sai): bộ lọc giới tính trong
+`autodub_gui/pages/voice_library.py` (`gender=self._f_gender.currentData()`)
+và màu thẻ giọng trong `ui/voice_card.py` (`"accent" if gender=="female"
+else "processing"`) đều đọc trực tiếp trường `gender` này — 3-4 giọng nữ
+thật bị ẩn khỏi kết quả lọc "Nữ", hiện sai màu thẻ.
+
+### Sửa
+
+- `_gender_of(voice_type, display_name="")`: đọc thêm TOÀN BỘ tên hiển thị
+  (không chỉ phần mô tả sau dấu "-", vì catalog tiếng Anh thường không có
+  dấu "-" tách tên/mô tả — tín hiệu giới tính nằm ngay trong tên chính).
+  Bắt cả 2 lỗi chính tả thật tồn tại sẵn trong `Voice.json` ("Famale",
+  "famle" — không phải suy đoán, đọc trực tiếp từ dữ liệu).
+- Bảng tra riêng `_KNOWN_VOICE_TYPE_GENDER` cho giọng thương hiệu không có
+  tín hiệu chữ nào (vd "Jenny" — tên + voice_type đều không chứa từ khoá
+  giới tính): "en-US-JennyMultilingualNeural" là giọng Jenny của Microsoft
+  Azure Neural TTS, giới tính nữ là thông tin công khai (voice gallery
+  chính thức Microsoft), không phải suy đoán — liệt kê tường minh, tách
+  khỏi heuristic chung để không code cứng thêm ngoại lệ không kiểm chứng
+  được cho các trường hợp khác.
+- `entries()`: truyền `display_name` gốc (trước khi tách) vào `_gender_of()`.
+
+### Verify
+
+- `tests/test_capcut_catalog.py` (mới, 7 test): tái tạo đúng bug cũ khi
+  không có display_name (0 regression cho code gọi cũ); xác nhận đã sửa
+  cho cả 4 giọng phát hiện thật; giọng Jenny qua bảng tra riêng; giọng
+  hiệu ứng không tín hiệu vẫn mặc định "male" (giữ đúng quy ước cũ); phân
+  bố giới tính catalog tiếng Anh thật không còn lệch do bug.
+- `pytest tests/ -q` toàn bộ: **766 passed, 4 skipped, 0 failed** (759 + 7
+  test mới).
+
+### Remaining Limits (V20)
+
+- **VieNeu (120 giọng) không có metadata phong cách/ngữ điệu** — chỉ có
+  tên người + giới tính, không có tag như CapCut ("ngọt ngào"/"trầm ấm").
+  Muốn tự động chọn giọng "phù hợp video" (vd giọng năng động cho video
+  hài, giọng trầm cho video nghiêm túc) cần gắn nhãn phong cách cho 120
+  mẫu — công việc nghe-đánh giá thủ công hoặc phân loại bằng AI, ngoài
+  phạm vi audit này, cần mini-spec riêng nếu chủ dự án muốn.
+- **1 giọng "Trickster" (en-US) bị ẩn khỏi catalog** do trùng tên với 1
+  giọng khác (`entries()` loại theo tên đã `seen`) — dữ liệu gốc tồn tại
+  (`voice_type` khác nhau: `en_male_trickster_stream` vs
+  `DiT_en_male_trickster`) nhưng không cách nào chọn được giọng thứ 2 qua
+  tên. Ảnh hưởng thấp (chỉ 1/39 giọng, cả 2 đều nam nên không ảnh hưởng
+  phân bố giới tính) — cần đổi chính sách đặt tên duy nhất (vd thêm số thứ
+  tự khi trùng) nếu muốn giải quyết triệt để, chưa làm vì phạm vi hẹp.
+- **Chưa có cơ chế "chọn giọng tự động thông minh theo nội dung video"** —
+  hiện tại người dùng luôn phải TỰ chọn giọng (hoặc dùng đúng 1 giọng mặc
+  định cố định `DEFAULT_CAPCUT_VOICE = "Minh Trang"`); mọi lượt chạy tự
+  động (batch, không thao tác tay) đều ra CÙNG 1 giọng trừ khi người dùng
+  đổi cấu hình — đây có thể là đúng ý "ổn định" chủ dự án muốn (dữ liệu
+  giới tính/phong cách phải ĐÚNG trước khi xây tính năng tự chọn), nhưng
+  bản thân tính năng tự động chọn giọng theo ngữ cảnh CHƯA tồn tại — cần
+  quyết định của chủ dự án có muốn xây mini-spec riêng cho việc này không.

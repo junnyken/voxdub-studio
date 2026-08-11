@@ -25,11 +25,45 @@ LANG = "vi-VN"
 DEFAULT_CAPCUT_VOICE = "Minh Trang"
 
 
-def _gender_of(voice_type: str) -> str:
-    """Suy giới tính từ ``voice_type``; giọng hiệu ứng dựng trên nền nam."""
+#: mini-spec V20 (docs/PLAN.md, Phase E) — bug thật tìm ra khi audit: heuristic
+#: cũ CHỈ nhận diện giọng nữ tiếng Việt (khớp voice_type theo 3 mã BV cụ thể
+#: hoặc chuỗi "female" LITERAL trong voice_type). Với catalog tiếng Anh (V8/
+#: V11), nhiều giọng ghi rõ giới tính ngay trong TÊN hiển thị nhưng KHÔNG có
+#: "female" trong voice_type — bị mặc định gắn nhầm thành "male": xác nhận
+#: thật qua Voice.json — "Energetic Famale" (voice_type=BV503_streaming),
+#: "American Female" (BV029_streaming) đều bị gắn "male" trước khi sửa. Hậu
+#: quả THẬT (không chỉ hiển thị sai): bộ lọc giới tính trong Thư viện giọng
+#: đọc (autodub_gui/pages/voice_library.py) ẨN MẤT các giọng nữ này khỏi kết
+#: quả lọc "Nữ" — người dùng không tìm thấy giọng dù nó tồn tại.
+#:
+#: Vài giọng ("Jenny" — voice_type "en-US-JennyMultilingualNeural") không có
+#: TÍN HIỆU CHỮ nào ở cả voice_type lẫn tên hiển thị (không suy được từ text)
+#: — đây là giọng "Jenny" nổi tiếng của Microsoft Azure Neural TTS, giới
+#: tính nữ là thông tin công khai đã biết (voice gallery chính thức của
+#: Microsoft), không phải suy đoán — liệt kê tường minh, không lẫn vào
+#: heuristic chung để không code cứng thêm ngoại lệ không kiểm chứng được.
+_KNOWN_VOICE_TYPE_GENDER = {
+    "en-us-jennymultilingualneural": "female",
+}
+
+
+def _gender_of(voice_type: str, display_name: str = "") -> str:
+    """Suy giới tính từ ``voice_type`` VÀ tên hiển thị đầy đủ.
+
+    Giọng hiệu ứng/không rõ tín hiệu chữ nào mặc định dựng trên nền nam
+    (giữ đúng quy ước cũ, xem V8) — chỉ mở rộng nguồn tín hiệu để bắt đúng
+    các giọng ghi rõ giới tính trong TÊN thay vì chỉ trong voice_type.
+    """
     vt = voice_type.lower()
-    if "female" in vt or vt.startswith("bv421") or vt.startswith("bv074") \
-            or vt.startswith("bv562"):
+    if vt in _KNOWN_VOICE_TYPE_GENDER:
+        return _KNOWN_VOICE_TYPE_GENDER[vt]
+    text = f"{voice_type} {display_name}".lower()
+    # "famale"/"famle" là lỗi chính tả THẬT tìm thấy trong chính Voice.json
+    # ("Energetic Famale", "Dolly famle") — không phải suy đoán, đọc trực
+    # tiếp từ dữ liệu catalog.
+    if ("female" in text or "famale" in text or "famle" in text or "nữ" in text
+            or vt.startswith("bv421") or vt.startswith("bv074")
+            or vt.startswith("bv562")):
         return "female"
     return "male"
 
@@ -68,7 +102,8 @@ def entries(lang: str = LANG) -> list[dict]:
     for item in raw:
         if not isinstance(item, dict) or item.get("lang") != lang:
             continue
-        name, description = _split_name(str(item.get("display_name", "")))
+        display_name = str(item.get("display_name", ""))
+        name, description = _split_name(display_name)
         voice_type = str(item.get("voice_type", ""))
         if not name or not voice_type or name in seen:
             continue
@@ -76,7 +111,7 @@ def entries(lang: str = LANG) -> list[dict]:
         result.append({
             "name": name,
             "description": description,
-            "gender": _gender_of(voice_type),
+            "gender": _gender_of(voice_type, display_name),
             "voice_type": voice_type,
             "resource_id": str(item.get("resource_id", "")),
         })
