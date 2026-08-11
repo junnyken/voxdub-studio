@@ -1295,18 +1295,27 @@ có `targetLang` cũng không vỡ vì field bị bỏ qua như request thừa f
   lại của cùng file, bao gồm test phủ `run_local_worker()` mới tách ra,
   đều pass). Đã xác nhận không file nào trong 16 fail chạm tới code V15.
 
+### Live verification — THẬT (2026-08-11, sau khi có key thật từ chủ dự án)
+
+Chủ dự án cung cấp 1 API key Gemini thật. Dựng `docker compose up -d mongo
+control_server` (build thật, không mock), seed 1 `AiProvider` (`type:
+"google"`, `model: "gemini-2.5-flash"`, key mã hoá bằng `encrypt()` thật của
+server, không ghi plaintext ra bất kỳ file nào trong repo). Đăng ký 1 device
+thật qua `/v1/device/register`, gọi HTTP thật (không mock):
+
+1. `POST /translate` với `sourceLang=en-US, targetLang=en`, câu nguồn tiếng
+   Trung — response THẬT trả đúng field `text_en` (không còn rơi về `text_vi`
+   như bug đã sửa): `"Hello, welcome to our channel."`. `creditCharged=12`
+   đúng `base(10)+autotranslate(2)`.
+2. Balance thật trừ đúng trong Mongo (`db.devices.findOne(...)`), không chỉ
+   tin response — 500 → 482 sau 2 lượt gọi thật (1 lượt `/translate-subtitle`
+   trước đó, xem mục V14).
+
+**Đã đóng hẳn giới hạn "chưa live-verify" trước đây của V15** — không còn là
+suy luận từ unit/mock nữa.
+
 ### Remaining Limits (V15)
 
-- **CHƯA live-verify qua HTTP thật** (khác với chuẩn V11-V13 của project —
-  luôn có 1 lượt gọi thật qua server đang chạy): sandbox hiện tại không có
-  `MONGODB_URI` trỏ tới Mongo đang chạy và không có API key nhà cung cấp
-  AI thật (`OPENAI_API_KEY`/tương đương) trong `control_server/.env` — không
-  thể dựng `docker compose up -d mongo control_server` rồi gọi `/translate`
-  thật với `targetLang=en` để xác nhận response thật trả `text_en`. Mức
-  verify hiện tại dừng ở unit/mock (assert đúng tham số truyền xuống, đúng
-  nội dung prompt build ra) — CHƯA phải bằng chứng end-to-end như các
-  mini-spec Phase D khác. Cần chủ dự án xác nhận có muốn chờ live-verify
-  thật trước khi coi V15 "Xong", hay chấp nhận mức unit-test hiện tại.
 - Ngôn ngữ đích ngoài danh sách đã biết của `resolveTargetLang()` rơi về
   quy tắc chung (tên ngôn ngữ lấy nguyên `targetKey` làm nhãn) — chưa có
   bảng tên đầy đủ cho mọi `TargetLang` hiện có trong `autodub/languages.py`,
@@ -1436,16 +1445,38 @@ chạy `QT_QPA_PLATFORM=offscreen` để verify THẬT (không phải chỉ đ�
   (dispatch `ROW_SUBTITLE_TRANSLATE` chỉ 3 dòng, rập khuôn các dispatch khác
   đã hoạt động — rủi ro thấp nhưng CHƯA tự xác nhận bằng cách chạy app thật).
 
+### Live verification — THẬT (2026-08-11, sau khi có key thật từ chủ dự án)
+
+Cùng đợt live-verify với V15 ở trên (Mongo + `control_server` thật qua
+`docker compose`, provider Gemini thật, device thật):
+
+1. `POST /translate-subtitle` thật, `eng_Latn→vie_Latn`, 2 dòng: bản dịch
+   THẬT đúng nghĩa, tự nhiên ("Hello, welcome to our channel." → "Chào mừng
+   quý vị đến với kênh của chúng tôi."; "Today we are going to talk about
+   cats." → "Hôm nay chúng ta sẽ nói về mèo."). `creditCharged=4` đúng
+   2 dòng × giá autotranslate (2), KHÔNG cộng `segment.base`.
+2. `vie_Latn→eng_Latn` (chiều ngược): "Xin chào các bạn, hôm nay trời đẹp
+   quá." → "Hello everyone, it's such a beautiful day today." — đúng.
+3. **Idempotency thật**: gọi lại đúng `jobId` cũ — response giống hệt, số
+   dư Mongo (`db.devices.findOne(...)`) xác nhận KHÔNG bị trừ Vox lần 2
+   (500 → 496 → 494, không phải 490).
+
+Nhờ đó `vie_Latn`/`eng_Latn` giờ đã live-verify chất lượng qua **CẢ 2
+đường** — local (NLLB, V6/V11) và SaaS (Gemini thật, V14) — không chỉ NLLB
+như trước.
+
 ### Remaining Limits (V14)
 
-- **CHƯA live-verify SaaS qua HTTP thật với AI provider thật** — cùng giới
-  hạn sandbox đã ghi ở V15 (không có Mongo chạy + API key AI thật). Route
-  test (Scope G) chạy thật qua HTTP nhưng mock lớp gọi AI.
-- **~190/204 mã FLORES-200 CHƯA kiểm chứng chất lượng dịch thật** — chỉ
-  vie_Latn/eng_Latn đã live-verify (qua NLLB, V6/V11). Đây là giới hạn CÓ
-  CHỦ ĐÍCH (đúng tinh thần V4: "mở rộng có kiểm chứng, không làm tất cả cùng
-  lúc"), không phải thiếu sót — GUI/CLI đều cảnh báo rõ khi chọn ngôn ngữ
-  chưa kiểm chứng.
+- **~190/204 mã FLORES-200 CHƯA kiểm chứng chất lượng dịch thật qua đường
+  nào** — chỉ `vie_Latn`/`eng_Latn` đã live-verify (xem "Live verification"
+  ở trên). Đây là giới hạn CÓ CHỦ ĐÍCH (đúng tinh thần V4: "mở rộng có kiểm
+  chứng, không làm tất cả cùng lúc"), không phải thiếu sót — GUI/CLI đều
+  cảnh báo rõ khi chọn ngôn ngữ chưa kiểm chứng.
+- Local NLLB path (`run_local_worker`) CHƯA live-verify qua chính
+  `translate_subtitle_file_local()` — venv `.venv-mt` (ctranslate2) không có
+  trong sandbox này (cùng giới hạn `test_translate_local.py::..._real_model`
+  đã ghi ở V6). Đường SaaS đã live-verify thật (mục trên); đường local mới
+  chỉ verify ở mức unit/mock.
 - Không có cơ chế huỷ giữa chừng ở GUI (`SubtitleTranslateWorker` không có
   `cancel()`) — lượt dịch 1 file thường nhanh, chưa đáng cơ chế huỷ như
   `DownloadWorker`. Nếu file rất lớn (nhiều nghìn dòng) qua SaaS mất nhiều
