@@ -15,17 +15,22 @@ Ví dụ::
     voxdub batch --file danh_sach.txt --state-path batch_state.json
 
 Mã thoát: 0 = thành công; 1 = lỗi pipeline (hoặc có video batch thất bại);
-2 = lỗi tham số dòng lệnh (bao gồm tên giọng không có trong danh mục).
+2 = lỗi tham số dòng lệnh (bao gồm tên giọng không có trong danh mục);
+3 = ``--quality-gate`` bật và video "fail" ngưỡng chất lượng (chỉ với
+``dub`` — ``batch`` ghi verdict vào ``batch_state.json`` thay vì đổi exit
+code, xem mini-spec V23 trong docs/PLAN.md).
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from autodub.config import Settings
 from autodub.pipeline import DubPipeline, DubRequest
 from autodub.progress import ProgressEvent
+from autodub.quality_gate import QualityThresholds, evaluate as evaluate_quality
 
 
 class CliArgError(ValueError):
@@ -78,6 +83,9 @@ def _add_dub_request_args(parser: argparse.ArgumentParser) -> None:
                         help="Chạy tiếp 1 work_dir dở dang có sẵn")
     parser.add_argument("--json", action="store_true",
                         help="In tiến trình dạng NDJSON (1 dòng JSON/sự kiện) ra stderr")
+    parser.add_argument("--quality-gate", action="store_true",
+                        help="Đọc quality_report.json sau khi chạy xong, áp "
+                             "ngưỡng pass/warn/fail (mini-spec V23)")
 
 
 def _progress_fn(as_json: bool):
@@ -93,6 +101,17 @@ def _progress_fn(as_json: bool):
             print(f"[{event.step}] {event.status}{suffix}{detail}",
                  file=sys.stderr, flush=True)
     return _emit
+
+
+def _load_quality_report(work_dir: str) -> dict:
+    from autodub.workdir import data_path
+
+    path = data_path(work_dir, "quality_report.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return {}
 
 
 def _cmd_dub(args: argparse.Namespace) -> int:
@@ -128,13 +147,56 @@ def _cmd_dub(args: argparse.Namespace) -> int:
         print(f"Lỗi pipeline: {e}", file=sys.stderr)
         return 1
 
-    print(json.dumps({"status": result.status, "work_dir": result.work_dir,
-                      "report": result.report}, ensure_ascii=False))
-    return 0 if result.status == "completed" else 1
+    output = {"status": result.status, "work_dir": result.work_dir,
+             "report": result.report}
+    if result.status != "completed":
+        print(json.dumps(output, ensure_ascii=False))
+        return 1
+
+    if args.quality_gate:
+        thresholds = QualityThresholds.from_settings(settings)
+        quality_report = _load_quality_report(result.work_dir)
+        verdict = evaluate_quality(quality_report, thresholds)
+        output["quality"] = verdict.to_dict()
+        print(json.dumps(output, ensure_ascii=False))
+        return 3 if not verdict.passed else 0
+
+    print(json.dumps(output, ensure_ascii=False))
+    return 0
+
+
+def _apply_quality_gate_to_batch_state(state_path: str, output_dir: str | None,
+                                       target, settings: Settings) -> None:
+    """Ghi THÊM field ``quality`` vào mỗi video ``success`` trong
+    ``batch_state.json`` — KHÔNG đổi field ``status`` hiện có (V23
+    Constraint: logic resume của ``run_batch()`` phải tiếp tục đọc đúng
+    ``status`` như trước, kể cả khi cờ này không được dùng ở lần chạy kế).
+    """
+    from autodub.utils import save_json_atomic
+
+    try:
+        with open(state_path, encoding="utf-8") as f:
+            state = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+
+    output_base = output_dir or DubPipeline(settings).default_output_dir(target)
+    thresholds = QualityThresholds.from_settings(settings)
+    changed = False
+    for entry in state.get("videos", []):
+        if entry.get("status") != "success" or not entry.get("output_folder"):
+            continue
+        work_dir = os.path.join(output_base, entry["output_folder"])
+        verdict = evaluate_quality(_load_quality_report(work_dir), thresholds)
+        entry["quality"] = verdict.to_dict()
+        changed = True
+
+    if changed:
+        save_json_atomic(state, state_path)
 
 
 def _cmd_batch(args: argparse.Namespace) -> int:
-    from autodub.batch import run_batch
+    from autodub.batch import STATE_FILENAME, run_batch
 
     settings = Settings.load()
     try:
@@ -171,8 +233,18 @@ def _cmd_batch(args: argparse.Namespace) -> int:
             print(f"[{index + 1}/{total}] {item.label}: {status} {detail}",
                  file=sys.stderr, flush=True)
 
+    # Resolve tường minh (thay vì để run_batch() tự tính ngầm) — cần biết
+    # CHÍNH XÁC nơi state file nằm để đọc lại sau khi áp cổng chất lượng.
+    resolved_state_path = args.state_path or os.path.join(
+        args.output_dir or settings.output_dir, STATE_FILENAME)
+
     summary = run_batch(lines, settings, req_template, observer=observer,
-                        state_path=args.state_path, retry_done=args.retry_done)
+                        state_path=resolved_state_path, retry_done=args.retry_done)
+
+    if args.quality_gate:
+        _apply_quality_gate_to_batch_state(
+            resolved_state_path, args.output_dir, target, settings)
+
     print(json.dumps({"total": summary.total, "success": summary.success,
                       "failed": summary.failed, "skipped": summary.skipped}))
     return 0 if summary.failed == 0 else 1

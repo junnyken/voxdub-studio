@@ -2387,3 +2387,65 @@ hẳn, không ai chọn được dù tồn tại thật trong `Voice.json`.
   trước.
 - Watchdog cho subprocess treo (gap thật đã audit ở `run_local_worker()`)
   CHƯA sửa trong V22 — thuộc đúng phạm vi V24, không mở rộng lấn sang V22.
+
+## V23 — Cổng chất lượng tự động đọc `quality_report.json` (Phase F)
+
+### Xây dựng
+
+- `autodub/quality_gate.py` (mới) — `QualityThresholds`/`QualityVerdict`/
+  `evaluate(report, thresholds)`: hàm THUẦN, chỉ đọc `summary` đã có sẵn
+  trong `quality_report.json`, không tính lại số liệu (đúng Constraint 1
+  của mini-spec). 3 mức verdict: "pass" (0 vấn đề), "warn" (có vấn đề
+  nhưng dưới mọi ngưỡng), "fail" (≥1 ngưỡng bị vượt, kèm lý do cụ thể theo
+  từng field).
+- `autodub/config.py` — 4 field ngưỡng mới (`quality_gate_max_over_budget_
+  ratio`/`_speed_fallback_ratio`/`_postprocess_fallback_ratio`/`_max_shift_s`),
+  đọc từ env theo đúng pattern `env_float()` sẵn có, mặc định bảo thủ (xem
+  "Remaining Limits" bên dưới).
+- `autodub/cli.py` — cờ `--quality-gate` (mặc định TẮT) cho cả `dub`/
+  `batch`: `dub` đọc `quality_report.json` từ `work_dir` vừa chạy xong, in
+  verdict trong JSON kết quả, exit 3 nếu "fail" (khác exit 1 của lỗi
+  pipeline thật). `batch` ghi thêm field `quality` vào từng entry
+  `status=="success"` trong `batch_state.json` SAU KHI `run_batch()` chạy
+  xong — không đổi field `status` (logic resume của `run_batch()` không bị
+  ảnh hưởng, đúng Constraint 3 của mini-spec).
+
+### Verify
+
+- `tests/test_quality_gate.py` (11 test): báo cáo sạch → pass; báo cáo
+  rỗng/thiếu `summary` → pass TRUNG THỰC (không phải fail ngầm định); vấn
+  đề dưới ngưỡng → warn (không chặn); mỗi field (over_budget/speed_
+  fallback/postprocess_fallback/max_shift_s) vượt ngưỡng riêng lẻ → fail
+  đúng lý do; nhiều field vượt cùng lúc → liệt kê đủ mọi lý do; đúng BẰNG
+  ngưỡng không bị coi là vượt (ngưỡng là chặn trên); `from_settings()` đọc
+  đúng cấu hình; `to_dict()` đúng hình dạng.
+- `tests/test_cli.py` (+4 test): KHÔNG bật `--quality-gate` → hành vi Y HỆT
+  trước V23 dù `quality_report.json` có vấn đề (0 regression thật — dùng
+  fixture cố tình lỗi để khoá lại); bật cờ, báo cáo sạch → exit 0 kèm
+  `quality.status=="pass"`; báo cáo lỗi nặng → exit 3 kèm lý do cụ thể;
+  batch ghi đúng field `quality` mà KHÔNG đổi field `status` (test đọc lại
+  chính `batch_state.json` sau khi CLI chạy xong).
+- Live-verify: gọi trực tiếp `evaluate()` trên 1 file `quality_report.json`
+  dựng tay thật ngoài test suite (70% câu vượt ngân sách) — trả đúng
+  `{"status": "fail", "reasons": ["70% câu vượt ngân sách ký tự (ngưỡng
+  15%)"]}`.
+- `pytest tests/ -q` toàn bộ (venv đầy đủ dependency, cùng cách dựng như
+  V22): **793 passed, 6 skipped, 0 failed** (778 pass ở V22 + 15 test mới).
+
+### Remaining Limits (V23)
+
+- **Ngưỡng mặc định CHƯA hiệu chỉnh bằng dữ liệu thật** — đúng như đã ghi
+  trong Constraint 2 của mini-spec, dự án chưa có đủ video đã dub để biết
+  "vượt ngân sách 15%" có thực sự tương ứng với chất lượng kém hay không.
+  Giá trị hiện tại (15%/10%/10%/1.0s) là ước lượng bảo thủ có chủ đích,
+  không phải số đã kiểm chứng — cần 1 vòng audit số liệu thật trên vài
+  chục video (đã ghi trong "Audit Before Build" của mini-spec) trước khi
+  coi các con số này là chính thức. Cấu hình được qua biến môi trường nên
+  chỉnh lại không cần sửa code.
+- `--quality-gate` mặc định TẮT (opt-in) ở cả `dub`/`batch` — người dùng
+  hiện có KHÔNG tự động được bật tính năng này, cần biết để bật tay hoặc
+  qua V24/V25 sau này.
+- Chưa live-verify qua 1 lượt dub THẬT (cùng giới hạn đã ghi ở V22 —
+  `quality_report.json` dùng trong test đều là fixture dựng tay theo đúng
+  shape thật của `_build_quality_report()`, chưa phải file sinh ra từ 1
+  lượt pipeline chạy thật end-to-end qua CLI).

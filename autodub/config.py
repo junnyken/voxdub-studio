@@ -188,6 +188,19 @@ class Settings:
     timing_min_gap_s: float = 0.12      # khoảng thở tối thiểu giữa hai câu
     timing_max_atempo: float = 1.1      # trần nén bất khả kháng (mỗi câu)
 
+    # mini-spec V23 (docs/PLAN.md, Phase F) — cổng chất lượng tự động đọc
+    # quality_report.json (đã có sẵn từ trước, không tính lại số liệu).
+    # Ngưỡng mặc định CHỦ ĐÍCH bảo thủ (thà báo "cần xem lại" oan còn hơn bỏ
+    # sót video lỗi thật) vì dự án CHƯA có dữ liệu thật để hiệu chỉnh trên
+    # quy mô lớn — xem "Remaining Limits" mục V23 trong docs/TEST_LOG.md.
+    quality_gate_max_over_budget_ratio: float = 0.15
+    quality_gate_max_speed_fallback_ratio: float = 0.10
+    quality_gate_max_postprocess_fallback_ratio: float = 0.10
+    # Thấp hơn timing_max_drift_s (trần cứng của timing engine) có chủ đích:
+    # 1 câu áp sát trần đã là dấu hiệu video này bị nén nhiều, đáng xem lại,
+    # dù timing engine không coi đó là lỗi (vẫn nằm trong trần cho phép).
+    quality_gate_max_shift_s: float = 1.0
+
     # --- Ngữ cảnh dịch do người dùng cung cấp (đều không bắt buộc) ---------
     translate_domain: str = ""       # chủ đề, vd "review công nghệ"
     translate_context: str = ""      # mô tả tự do (nhiều dòng)
@@ -387,6 +400,14 @@ class Settings:
                 env_float("TIMING_MIN_GAP_S", "0.12"))),
             timing_max_atempo=min(1.3, max(1.0,
                 env_float("TIMING_MAX_ATEMPO", "1.1"))),
+            quality_gate_max_over_budget_ratio=min(1.0, max(0.0,
+                env_float("QUALITY_GATE_MAX_OVER_BUDGET_RATIO", "0.15"))),
+            quality_gate_max_speed_fallback_ratio=min(1.0, max(0.0,
+                env_float("QUALITY_GATE_MAX_SPEED_FALLBACK_RATIO", "0.10"))),
+            quality_gate_max_postprocess_fallback_ratio=min(1.0, max(0.0,
+                env_float("QUALITY_GATE_MAX_POSTPROCESS_FALLBACK_RATIO", "0.10"))),
+            quality_gate_max_shift_s=min(5.0, max(0.0,
+                env_float("QUALITY_GATE_MAX_SHIFT_S", "1.0"))),
             translate_analysis=env_bool("TRANSLATE_ANALYSIS",
                                         _p["translate_analysis"]),
             translate_review=env_bool("TRANSLATE_REVIEW",

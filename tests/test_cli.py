@@ -270,6 +270,123 @@ def test_batch_unknown_voice_exits_2_before_touching_run_batch(monkeypatch, tmp_
 
 
 # --------------------------------------------------------------------- #
+# mini-spec V23 (Phase F) — cổng chất lượng tự động (--quality-gate)
+
+def _make_quality_report(work_dir, **summary_overrides):
+    import json as _json
+    import os as _os
+
+    summary = {
+        "segments_total": 10, "segments_ok": 10, "segments_shifted": 0,
+        "max_shift_s": 0.0, "segments_compressed": 0, "segments_overlapped": 0,
+        "total_overlap_s": 0.0, "segments_over_budget": 0,
+        "segments_speed_fallback": 0, "segments_postprocess_fallback": 0,
+    }
+    summary.update(summary_overrides)
+    data_dir = _os.path.join(work_dir, "data")
+    _os.makedirs(data_dir, exist_ok=True)
+    with open(_os.path.join(data_dir, "quality_report.json"), "w", encoding="utf-8") as f:
+        _json.dump({"summary": summary}, f)
+
+
+def test_dub_quality_gate_off_by_default_ignores_bad_report(monkeypatch, tmp_path):
+    """Không truyền --quality-gate -> hành vi Y HỆT trước V23 (0 regression)."""
+    parser = cli.build_parser()
+    args = parser.parse_args(["dub", "https://youtu.be/xxxx"])
+    work_dir = str(tmp_path / "session")
+    _make_quality_report(work_dir, segments_ok=0, segments_over_budget=10)
+
+    fake_pipeline = MagicMock()
+    fake_pipeline.run.return_value = DubResult(status="completed", work_dir=work_dir, report={})
+    monkeypatch.setattr(cli, "DubPipeline", lambda *a, **k: fake_pipeline)
+
+    assert cli._cmd_dub(args) == 0
+
+
+def test_dub_quality_gate_pass_exits_0(monkeypatch, tmp_path, capsys):
+    parser = cli.build_parser()
+    args = parser.parse_args(["dub", "https://youtu.be/xxxx", "--quality-gate"])
+    work_dir = str(tmp_path / "session")
+    _make_quality_report(work_dir)  # sạch hoàn toàn
+
+    fake_pipeline = MagicMock()
+    fake_pipeline.run.return_value = DubResult(status="completed", work_dir=work_dir, report={})
+    monkeypatch.setattr(cli, "DubPipeline", lambda *a, **k: fake_pipeline)
+
+    rc = cli._cmd_dub(args)
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["quality"]["status"] == "pass"
+
+
+def test_dub_quality_gate_fail_exits_3(monkeypatch, tmp_path, capsys):
+    parser = cli.build_parser()
+    args = parser.parse_args(["dub", "https://youtu.be/xxxx", "--quality-gate"])
+    work_dir = str(tmp_path / "session")
+    # 80% câu vượt ngân sách -> vượt ngưỡng mặc định (15%) -> fail
+    _make_quality_report(work_dir, segments_ok=2, segments_over_budget=8)
+
+    fake_pipeline = MagicMock()
+    fake_pipeline.run.return_value = DubResult(status="completed", work_dir=work_dir, report={})
+    monkeypatch.setattr(cli, "DubPipeline", lambda *a, **k: fake_pipeline)
+
+    rc = cli._cmd_dub(args)
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 3
+    assert out["quality"]["status"] == "fail"
+    assert out["quality"]["reasons"]
+
+
+def test_batch_quality_gate_writes_field_without_touching_status(monkeypatch, tmp_path):
+    """Constraint V23: field `quality` chỉ ĐƯỢC THÊM — `status` (dùng cho
+    resume của run_batch()) phải giữ nguyên y hệt."""
+    lines_file = tmp_path / "urls.txt"
+    lines_file.write_text("https://youtu.be/a\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+
+    parser = cli.build_parser()
+    args = parser.parse_args([
+        "batch", "--file", str(lines_file), "--output-dir", str(output_dir),
+        "--quality-gate",
+    ])
+
+    work_dir = output_dir / "20260101_vi"
+    _make_quality_report(str(work_dir), segments_ok=2, segments_over_budget=8)
+
+    import json as _json
+    from dataclasses import dataclass as _dataclass
+
+    state_path = output_dir / "batch_state.json"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def fake_run_batch(lines, settings, req_template, observer=None,
+                       state_path=None, retry_done=False):
+        state = {"output_dir": str(output_dir), "videos": [
+            {"video_url": "https://youtu.be/a", "status": "success",
+             "output_folder": "20260101_vi"},
+        ]}
+        with open(state_path, "w", encoding="utf-8") as f:
+            _json.dump(state, f)
+
+        @_dataclass
+        class _S:
+            total: int = 1
+            success: int = 1
+            failed: int = 0
+            skipped: int = 0
+        return _S()
+
+    monkeypatch.setattr("autodub.batch.run_batch", fake_run_batch)
+    cli._cmd_batch(args)
+
+    with open(state_path, encoding="utf-8") as f:
+        saved = json.load(f)
+    entry = saved["videos"][0]
+    assert entry["status"] == "success"  # không đổi
+    assert entry["quality"]["status"] == "fail"
+
+
+# --------------------------------------------------------------------- #
 # console-script wiring
 
 def test_console_script_registered_in_pyproject():
