@@ -1859,3 +1859,48 @@ mock:
   `LANGUAGE_RULES` — 8 ngôn ngữ mới rơi về `_GENERIC_RULES` chung khi dịch
   qua đường SaaS) — đường SaaS cho các ngôn ngữ này chưa được đánh giá
   chất lượng, chỉ đường local (NLLB) đã live-verify ở trên cho tiếng Nhật.
+
+## Ghi nhận: thử deploy lên VAYS (2026-08-12) — không phù hợp cho monorepo này
+
+Chủ dự án yêu cầu deploy `control_server` lên nền tảng VAYS (`vibehost.matbao.ai`,
+PaaS nội bộ Mắt Bão, auto-detect + tự build từ Git). Thử thật, không suy đoán:
+
+1. **`git.matbao.support` không kết nối được từ hạ tầng build VAYS** — network
+   namespace VAYS không tới được GitLab nội bộ (`Failed to connect ... Couldn't
+   connect to server`). Khắc phục: mirror repo sang GitHub công khai
+   (`github.com/junnyken/voxdub-studio`) — VAYS clone được từ đó.
+2. **Deploy nguyên gốc repo (không subdir)**: VAYS nhận nhầm cả monorepo là
+   **"framework=python"** (vì quét thấy nhiều code Python ở `autodub/` hơn
+   `control_server/` Node) → container thật sự cố chạy `python /app/app.py`
+   (không tồn tại) → crash-loop 6 lần → bị circuit-breaker chặn. Đồng thời tự
+   gộp env-var của CẢ desktop app (`autodub_gui`, ~14 biến vô nghĩa với server)
+   lẫn `control_server`/`render_worker` thành 1 danh sách 19 biến "thiếu", và tự
+   nối sai 1 biến (`CONTROL_SERVER_URL`) vào MongoDB managed tự tạo (vô lý về kỹ
+   thuật — biến đó là URL nội bộ giữa 2 container, không liên quan CSDL).
+3. **Deploy chỉ `subdir=control_server`** (bỏ `render_worker`, dùng MongoDB
+   managed VAYS): nhận diện đúng Node, chỉ hỏi đúng 5 biến thật cần
+   (`ADMIN_TOKEN`, `PAYOS_*` ×3, `WORKER_INTERNAL_TOKEN`) — nhưng build LỖI THẬT
+   khác: `control_server/Dockerfile` COPY cả `website/` lẫn `control_server/`
+   (2 thư mục anh em ở gốc repo, vì server tự serve luôn website cùng process) —
+   mô hình `subdir` của VAYS đặt build context = chính subdir đó, không "nhìn"
+   ra được thư mục anh em `website/`. AI Doctor của VAYS tự thử sửa 3 lượt,
+   `aiFixStopReason: "no_change"` — không tìm ra cách sửa tự động.
+4. Ngoài ra 2 lần gặp `NO_HEALTHY_NODE` (hạ tầng VAYS hết node rảnh tạm thời) —
+   không liên quan cấu hình, tự hết sau vài phút.
+
+**Kết luận**: VAYS (auto-detect PaaS đơn-service) không phù hợp kiến trúc hiện
+tại của repo này (monorepo nhiều ngôn ngữ, `control_server` cố ý serve chung
+`website/` cùng process, `docker-compose.yml` 3-service ở gốc). Sửa để vừa VAYS
+(tách server khỏi website, hoặc bỏ render_worker) là đổi kiến trúc thật chỉ để
+vừa 1 nền tảng cụ thể — chủ dự án đã quyết **KHÔNG làm** (xem PLAN.md), giữ
+nguyên kiến trúc đã live-verify đầy đủ qua Docker Compose thật (mục V12) làm
+bằng chứng chính. Nếu cần deploy công khai thật sau này, xem lại `mb-deploy`/
+Coolify (đã nhắc trong CLAUDE.md) — nền tảng đó vốn nhận `docker-compose.yml`
+trực tiếp, không qua lớp auto-detect single-app như VAYS.
+
+**Dọn dẹp còn nợ**: 3 project rác trên VAYS (`voxdub-control-server`,
+`voxdub-studio`, `voxdub-server`, đều trạng thái lỗi) + 1 MongoDB managed
+(`voxdub-studio-db`) — không có API xoá qua MCP, chủ dự án cần tự xoá qua
+dashboard VAYS nếu muốn giải phóng hạn mức (đang dùng 3/10 dịch vụ). Repo
+mirror GitHub (`github.com/junnyken/voxdub-studio`, public) vẫn còn tồn tại —
+cân nhắc xoá hoặc chuyển private nếu không cần dùng tiếp cho VAYS.
