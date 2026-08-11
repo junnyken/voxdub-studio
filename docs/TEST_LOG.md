@@ -2449,3 +2449,138 @@ hẳn, không ai chọn được dù tồn tại thật trong `Voice.json`.
   `quality_report.json` dùng trong test đều là fixture dựng tay theo đúng
   shape thật của `_build_quality_report()`, chưa phải file sinh ra từ 1
   lượt pipeline chạy thật end-to-end qua CLI).
+
+## V24 — Batch resilience: retry + watchdog + failures.jsonl (Phase F, E2+E5+E6)
+
+### Audit
+
+Rà TOÀN BỘ điểm gọi subprocess trong `autodub/speech/` + `autodub/media/`
+(đúng yêu cầu "Audit Before Build" của mini-spec — không đoán số/hành vi):
+
+- Mọi lời gọi `subprocess.run()` một-lượt (ffmpeg/ffprobe...) — kiểm bằng
+  script duyệt AST thật trên 8 file — **100% ĐÃ có `timeout=`**, không cần
+  sửa (audio.py, retime.py, video.py, capcut_vi.py, transcriber.py,
+  douyin.py, text_regions.py, vocal_separator.py — 22/22 lời gọi).
+- Worker dài hạn (Popen + giao thức JSON qua dòng) — 2 KIỂU khác nhau:
+  - **ĐÃ ĐÚNG từ trước**: `autodub/media/vocal_separator.py::_read_line`
+    (luồng nền bơm dòng vào hàng đợi, đọc CÓ TIMEOUT qua
+    `queue.Queue.get(timeout=...)`) và `autodub/speech/tts/vieneu_vi.py`
+    (cùng kỹ thuật, `_read_response(timeout)`).
+  - **CHƯA ĐÚNG (bug thật, cùng dạng)**: `for line in proc.stdout:` chặn
+    VÔ THỜI HẠN nếu worker treo — 4 điểm: `autodub/text/translate_local.py
+    ::run_local_worker()`, `autodub/speech/transcriber.py` (worker
+    Whisper), `autodub/speech/paraformer_transcriber.py`,
+    `autodub/speech/tts/voice_downloader.py`.
+- Kết luận Design Choice: tổng quát hoá kiểu ĐÃ ĐÚNG (không phát minh kiểu
+  mới) thành `autodub/subprocess_watchdog.py`, áp dụng NGAY cho
+  `run_local_worker()` (điểm mini-spec nêu tên ở Scope C, đã có bug thật
+  liên quan từ V21) — 3 điểm còn lại (Whisper/Paraformer/tải giọng) xác
+  nhận CÙNG loại gap thật nhưng CHƯA sửa trong đợt này (xem "Remaining
+  Limits" — cần audit riêng giá trị timeout hợp lý cho từng loại việc,
+  đúng như mini-spec dự liệu, KHÔNG đoán số).
+
+### Xây dựng
+
+- `autodub/subprocess_watchdog.py` (mới) — `WatchedLineReader`/
+  `read_lines_with_timeout()`: tổng quát hoá kỹ thuật luồng nền + hàng đợi
+  đã đúng ở `vocal_separator.py`, raise `SubprocessTimeoutError` nếu không
+  dòng nào tới trong thời gian cho phép (thay vì chặn vô thời hạn).
+- `autodub/text/translate_local.py::run_local_worker()` — thay
+  `proc.stdout.readline()`/`for line in proc.stdout:` bằng
+  `WatchedLineReader` (2 timeout riêng: 300s nạp model, 120s giữa các dòng
+  dịch — bảo thủ có chủ đích, CHƯA benchmark thật, xem Remaining Limits).
+  Dùng `raise LocalTranslateError(...) from e` (giữ `__cause__`) khi bọc
+  `SubprocessTimeoutError` — cần thiết để `batch_retry.is_transient_error()`
+  thấy được lỗi GỐC xuyên qua lớp bọc (bắt được qua test tích hợp thật, xem
+  dưới).
+- `autodub/batch_retry.py` (mới) — `is_transient_error(exc)`: phân loại
+  theo EXCEPTION TYPE (Constraint 1), tái dùng đúng luật đã có ở
+  `saas_retry.py` (V16) cho lỗi SaaS thay vì phát minh luật thứ 2; duyệt
+  `__cause__`/`__context__` để nhận lỗi tạm thời bị bọc bởi 1 lớp exception
+  khác. Mặc định AN TOÀN: không nhận diện được → vĩnh viễn (không tự thử
+  lại).
+- `autodub/failures_log.py` (mới) — `append_failure()`/`failures_path()`:
+  `failures.jsonl` append-only, nằm CẠNH `batch_state.json`, KHÔNG đổi
+  format file đó.
+- `autodub/batch.py::_run_items()` — bọc lượt `pipeline.run()` trong vòng
+  lặp thử lại: lỗi TẠM THỜI (`retry_transient=True`, mặc định TẮT) resume
+  NGAY từ `work_dir` vừa lưu (tái dùng cơ chế resume có sẵn, không viết
+  logic chạy lại riêng) tối đa `max_retries` lần (mặc định 2) với backoff
+  tăng dần (5s/15s); lỗi VĨNH VIỄN không bao giờ thử lại dù cờ bật. Mỗi lỗi
+  (thử lại hay không, `retry_transient` bật hay không) đều ghi vào
+  `failures.jsonl` — quan sát LUÔN bật, tách khỏi quyết định retry.
+- `autodub/cli.py` — cờ `--retry-transient`/`--max-retries` cho `batch`
+  (mặc định TẮT — 0 regression).
+
+### Verify
+
+- `tests/test_subprocess_watchdog.py` (5 test): đọc bình thường khi worker
+  phản hồi tốt; dừng sạch khi stdout đóng; **raise trong thời gian hữu hạn
+  khi worker treo THẬT (subprocess Python thật ngủ 60s, timeout test 0.3s,
+  phát hiện trong <5s)** — khoá đúng bug đã audit; treo giữa chừng sau khi
+  đã có vài dòng vẫn phát hiện đúng; dòng trống không bị hiểu nhầm là đóng
+  luồng.
+- `tests/test_translate_local_watchdog.py` (3 test) — dùng 1 worker giả THẬT
+  (script Python nhỏ, đúng giao thức JSON, không mock `Popen`): worker khoẻ
+  vẫn hoạt động y hệt qua đường watchdog mới (0 regression); worker treo
+  lúc nạp model → `LocalTranslateError` trong thời gian hữu hạn; worker
+  dịch xong câu 1 rồi treo ở câu 2 → lỗi rõ ràng kèm số câu đã dịch được
+  trước đó (khác hẳn "treo vô thời hạn, không log" của bug cũ).
+- `tests/test_batch_retry.py` (10 test): `SubprocessTimeoutError`/
+  `OfflineError`/`ConnectionError`/`TimeoutError` → tạm thời; `Insufficient
+  CreditError`/`DeviceBlockedError`/`MaintenanceError`/`ConfigError` → vĩnh
+  viễn; exception lạ mặc định vĩnh viễn (an toàn); **lỗi tạm thời bị bọc
+  bởi `LocalTranslateError` qua `raise ... from e` VẪN được nhận đúng** —
+  test này bắt được thật 1 lỗi thiết kế trong lúc viết (lần đầu quên `from
+  e`, is_transient_error trả sai `False` cho lỗi treo thật của worker dịch
+  local — sửa ngay bằng chaining tường minh + duyệt `__cause__`/
+  `__context__`).
+- `tests/test_failures_log.py` (4 test): tạo file/thư mục; append không ghi
+  đè; giữ nguyên Unicode.
+- `tests/test_batch_retry_integration.py` (11 test, qua `run_batch()` thật,
+  không mock nội bộ) — **bắt được 1 bug thật trong chính test harness lúc
+  viết**: `ScriptedPipeline` giả lập work_dir bằng chuỗi không tồn tại trên
+  đĩa, khiến `os.path.isdir(prev_dir)` (điều kiện có sẵn từ trước V24 trong
+  logic resume) luôn `False` → resume_dir không bao giờ được set — sửa test
+  harness để tạo thật thư mục (đúng như pipeline thật làm), xác nhận sau đó
+  lượt thử lại resume ĐÚNG work_dir cũ. Các test: tắt cờ (mặc định) → lỗi
+  tạm thời vẫn fail ngay, KHÔNG tự thử lại (0 regression); bật cờ → phục
+  hồi trong giới hạn thử lại, resume đúng work_dir; lỗi vĩnh viễn không bao
+  giờ thử lại dù cờ bật; vượt quá `max_retries` → cuối cùng vẫn fail đúng
+  sau đúng số lần; video khác trong cùng batch không bị ảnh hưởng; observer
+  nhận đúng trạng thái "retrying"; `failures.jsonl` LUÔN ghi dù không bật
+  retry; ghi đúng từng lượt thử riêng biệt; không đụng field `status` của
+  `batch_state.json`; timestamp lấy từ `now_fn` truyền vào (không gọi
+  `datetime.now()` trực tiếp trong code lõi — test được xác định).
+- `tests/test_cli.py` (+2 test): `--retry-transient`/`--max-retries` truyền
+  đúng vào `run_batch()`; mặc định tắt khi không truyền cờ.
+- Live-verify: `voxdub batch --help` qua console script thật (không phải
+  `python -m`) — hiện đúng 2 cờ mới với mô tả.
+- `pytest tests/ -q` toàn bộ (venv đầy đủ dependency): **828 passed, 6
+  skipped, 0 failed** (793 pass ở V23 + 35 test mới).
+
+### Remaining Limits (V24)
+
+- **3/4 điểm subprocess-treo đã audit CHƯA sửa**: `transcriber.py` (worker
+  Whisper), `paraformer_transcriber.py`, `voice_downloader.py` đều dùng
+  đúng kiểu `for line in proc.stdout:` không timeout đã tìm thấy ở
+  `run_local_worker()` — CÙNG loại gap thật, nhưng cần audit riêng giá trị
+  timeout hợp lý cho từng loại việc (Whisper 1 video dài khác hẳn dịch 1
+  câu) trước khi áp `subprocess_watchdog.py`, đúng như mini-spec dự liệu
+  ("để dành làm bước audit riêng khi triển khai, KHÔNG đoán số"). Ưu tiên
+  sửa tiếp nếu chủ dự án xác nhận cần.
+- **Giá trị timeout của `run_local_worker()` (300s/120s) CHƯA benchmark
+  thật** — bảo thủ có chủ đích (mục tiêu: biến "treo vô hạn" thành "treo có
+  trần", không phải tối ưu tốc độ phát hiện), cùng loại giới hạn như ngưỡng
+  V23.
+- **`--retry-transient` mặc định TẮT** (opt-in, giống `--quality-gate`
+  V23) — quyết định vận hành (mặc định bật ảnh hưởng thời gian chạy batch
+  mặc định) chưa được chủ dự án xác nhận nên chọn opt-in an toàn.
+- Phân loại transient/permanent hiện chỉ phủ các exception type ĐÃ BIẾT
+  trong code (SubprocessTimeoutError/SaasError/ConnectionError/
+  TimeoutError) — lỗi mạng lộ ra dưới dạng exception type KHÁC (vd
+  `requests.exceptions.*` nếu có nơi nào raise thẳng, chưa audit riêng) sẽ
+  mặc định bị coi là vĩnh viễn (an toàn nhưng có thể bỏ lỡ vài cơ hội phục
+  hồi hợp lệ) — cần audit thêm nếu muốn mở rộng danh sách.
+- Backoff (5s/15s) và trần retry (2 lần) là giá trị khởi đầu hợp lý, CHƯA
+  có dữ liệu thật từ vận hành để hiệu chỉnh.

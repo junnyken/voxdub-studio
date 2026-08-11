@@ -27,6 +27,7 @@ import json
 import os
 import sys
 
+from autodub.batch import DEFAULT_MAX_RETRIES
 from autodub.config import Settings
 from autodub.pipeline import DubPipeline, DubRequest
 from autodub.progress import ProgressEvent
@@ -238,8 +239,12 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     resolved_state_path = args.state_path or os.path.join(
         args.output_dir or settings.output_dir, STATE_FILENAME)
 
-    summary = run_batch(lines, settings, req_template, observer=observer,
-                        state_path=resolved_state_path, retry_done=args.retry_done)
+    summary = run_batch(
+        lines, settings, req_template, observer=observer,
+        state_path=resolved_state_path, retry_done=args.retry_done,
+        retry_transient=args.retry_transient,
+        max_retries=(args.max_retries if args.max_retries is not None
+                    else DEFAULT_MAX_RETRIES))
 
     if args.quality_gate:
         _apply_quality_gate_to_batch_state(
@@ -267,6 +272,14 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--state-path", default=None)
     batch.add_argument("--retry-done", action="store_true",
                        help="Chạy lại cả video đã đánh dấu success")
+    batch.add_argument("--retry-transient", action="store_true",
+                       help="Tự thử lại NGAY video lỗi tạm thời (mất mạng, "
+                            "subprocess treo...) trong cùng lượt batch này "
+                            "(mini-spec V24, mặc định TẮT)")
+    batch.add_argument("--max-retries", type=int, default=None,
+                       help="Số lần thử lại tối đa mỗi video (mặc định: "
+                            f"{DEFAULT_MAX_RETRIES}, chỉ có nghĩa cùng "
+                            "--retry-transient)")
     _add_dub_request_args(batch)
     batch.set_defaults(func=_cmd_batch)
 

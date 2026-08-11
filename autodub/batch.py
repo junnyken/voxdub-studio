@@ -19,10 +19,14 @@ import os
 import re
 import shutil
 import threading
+import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Callable, Iterable
 
+from autodub.batch_retry import is_transient_error
 from autodub.config import Settings
+from autodub.failures_log import append_failure, failures_path
 from autodub.pipeline import DubPipeline, DubRequest
 from autodub.progress import PipelineCancelled
 from autodub.utils import save_json_atomic, setup_logging
@@ -70,7 +74,8 @@ class BatchSummary:
 
 
 # Observer signature: (index, total, item, status, detail)
-# status: "start" | "success" | "failed"
+# status: "start" | "success" | "failed" | "retrying" (mini-spec V24 — chỉ
+# phát khi retry_transient=True, xem _run_items)
 BatchObserver = Callable[[int, int, BatchItem, str, str], None]
 
 
@@ -196,6 +201,15 @@ def parse_lines(text: str | Iterable[str]) -> list[BatchItem]:
     return items
 
 
+# mini-spec V24 (docs/PLAN.md, Phase F) — trần retry TỰ ĐỘNG mặc định NHỎ
+# (Constraint 4: 1 lần đầu + 2 thử lại) + giãn cách tăng dần, cùng bậc với
+# `saas_retry.py` (V16) cho lỗi 1 lượt — ở đây là VIDEO NGUYÊN CON nên giãn
+# cách dài hơn (giây, không phải mili-giây) để tránh dồn dập vào cùng 1 lỗi
+# hạ tầng (mạng/GPU) vừa mới xảy ra.
+DEFAULT_MAX_RETRIES = 2
+DEFAULT_RETRY_BACKOFF_S = (5.0, 15.0)
+
+
 def _run_items(
     items: list[BatchItem],
     pipeline: DubPipeline,
@@ -203,12 +217,25 @@ def _run_items(
     on_result: Callable[[BatchItem, dict | None, str | None], None],
     on_start: Callable[[BatchItem], None] | None = None,
     observer: BatchObserver | None = None,
+    retry_transient: bool = False,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_backoff: tuple[float, ...] = DEFAULT_RETRY_BACKOFF_S,
+    failures_log_path: str | None = None,
+    now_fn: Callable[[], str] = lambda: datetime.now().isoformat(timespec="seconds"),
 ) -> BatchSummary:
     """Process items sequentially; call ``on_result(item, report, error)`` after
     each one (report on success, error message on failure) so the caller can
     persist status crash-safely. ``observer`` (if given) receives display-only
     per-item events — used by the GUI. A :class:`PipelineCancelled` from the
-    pipeline aborts the whole batch (it is not recorded as a failure)."""
+    pipeline aborts the whole batch (it is not recorded as a failure).
+
+    ``retry_transient`` (mini-spec V24, mặc định TẮT — 0 regression khi
+    không dùng): lỗi được :func:`autodub.batch_retry.is_transient_error`
+    nhận là TẠM THỜI được tự thử lại NGAY trong cùng lượt batch này (resume
+    đúng ``work_dir`` vừa lưu, không tải/nghe-chép lại từ đầu) thay vì rơi
+    thẳng xuống ``failed`` và chờ người dùng tự chạy lại. Lỗi VĨNH VIỄN
+    không bao giờ thử lại dù cờ này bật (Constraint 1).
+    """
     summary = BatchSummary(total=len(items))
     # req_template.output_dir có thể None — dùng default của pipeline để
     # thư mục _prefetch nằm cạnh các work_dir.
@@ -228,74 +255,106 @@ def _run_items(
         # Bắt đầu tải nền video KẾ TIẾP ngay khi video này khởi động.
         if i + 1 < len(items):
             prefetcher.start(i + 1, items[i + 1])
-        try:
-            # Video này từng chạy dở (lỗi, thiếu Vox…)? Chạy TIẾP đúng thư
-            # mục cũ: phần đã tải/nghe-chép/dịch được dùng lại, không tạo
-            # thư mục mới — job_id giữ nguyên nên không bị trừ Vox lần nữa.
-            resume_dir = None
-            if isinstance(item.ref, dict):
-                prev_dir = item.ref.get("work_dir") or ""
-                if prev_dir and os.path.isdir(prev_dir):
-                    resume_dir = prev_dir
-            result = pipeline.run(DubRequest(
-                url=item.url,
-                file_path=prefetched or item.file_path,
-                source_lang=req_template.source_lang,
-                voice=item.voice or req_template.voice,
-                bg_mode=req_template.bg_mode,
-                bg_duck_db=req_template.bg_duck_db,
-                skip_video=req_template.skip_video,
-                subtitle_mode=item.subtitle_mode or req_template.subtitle_mode,
-                subtitle_style=(item.subtitle_style
-                                if item.subtitle_style is not None
-                                else req_template.subtitle_style),
-                blur_regions=(item.blur_regions
-                              if item.blur_regions is not None
-                              else req_template.blur_regions),
-                output_dir=req_template.output_dir,
-                resume_dir=resume_dir,
-            ))
-            if result.status != "completed":
-                # Vietnamese-first: this string lands in the batch table and
-                # the user's log, not just the console.
-                reasons = {
-                    "translate_pending": (
-                        "Video chờ bản dịch tay — mở video này ở trang Tạo "
-                        "dự án để dịch rồi chạy tiếp."),
-                    "credit_blocked": (
-                        "Không đủ Vox cho video này — nạp thêm rồi chạy lại; "
-                        "phần đã nghe-chép được dùng lại, chưa bị trừ Vox."),
-                }
-                raise RuntimeError(reasons.get(
-                    result.status,
-                    f"Pipeline dừng ở trạng thái {result.status} "
-                    f"(work_dir={result.work_dir})."))
-            summary.success += 1
-            logger.info(f"[{i + 1}/{len(items)}] SUCCESS → {result.report['session_id']}")
-            if prefetched:
-                # Dọn file tải trước vào work_dir để resume tự tìm thấy.
-                _Prefetcher.adopt(prefetched, result.report.get("output_dir", ""))
-            on_result(item, result.report, None)
-            if observer:
-                observer(i, len(items), item, "success", result.report["session_id"])
-        except PipelineCancelled:
-            logger.info("Batch cancelled by user")
-            # Nhớ thư mục dở dang để lần chạy lại đi tiếp từ chỗ dừng.
-            if isinstance(item.ref, dict) and getattr(pipeline, "last_work_dir", ""):
-                item.ref["work_dir"] = pipeline.last_work_dir
-            prefetcher.cleanup()
-            raise
-        except Exception as e:
-            summary.failed += 1
-            error_msg = str(e)[:200]
-            logger.error(f"[{i + 1}/{len(items)}] FAILED: {error_msg}")
-            # Ghi lại thư mục của lượt chạy hỏng — chạy lại sẽ resume đúng
-            # thư mục này thay vì tải + nghe-chép lại từ đầu.
-            if isinstance(item.ref, dict) and getattr(pipeline, "last_work_dir", ""):
-                item.ref["work_dir"] = pipeline.last_work_dir
-            on_result(item, None, error_msg)
-            if observer:
-                observer(i, len(items), item, "failed", error_msg)
+
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                # Video này từng chạy dở (lỗi, thiếu Vox…), hoặc vừa thử
+                # lại tự động? Chạy TIẾP đúng thư mục cũ: phần đã tải/nghe-
+                # chép/dịch được dùng lại, không tạo thư mục mới — job_id
+                # giữ nguyên nên không bị trừ Vox lần nữa.
+                resume_dir = None
+                if isinstance(item.ref, dict):
+                    prev_dir = item.ref.get("work_dir") or ""
+                    if prev_dir and os.path.isdir(prev_dir):
+                        resume_dir = prev_dir
+                result = pipeline.run(DubRequest(
+                    url=item.url,
+                    file_path=prefetched or item.file_path,
+                    source_lang=req_template.source_lang,
+                    voice=item.voice or req_template.voice,
+                    bg_mode=req_template.bg_mode,
+                    bg_duck_db=req_template.bg_duck_db,
+                    skip_video=req_template.skip_video,
+                    subtitle_mode=item.subtitle_mode or req_template.subtitle_mode,
+                    subtitle_style=(item.subtitle_style
+                                    if item.subtitle_style is not None
+                                    else req_template.subtitle_style),
+                    blur_regions=(item.blur_regions
+                                  if item.blur_regions is not None
+                                  else req_template.blur_regions),
+                    output_dir=req_template.output_dir,
+                    resume_dir=resume_dir,
+                ))
+                if result.status != "completed":
+                    # Vietnamese-first: this string lands in the batch table and
+                    # the user's log, not just the console.
+                    reasons = {
+                        "translate_pending": (
+                            "Video chờ bản dịch tay — mở video này ở trang Tạo "
+                            "dự án để dịch rồi chạy tiếp."),
+                        "credit_blocked": (
+                            "Không đủ Vox cho video này — nạp thêm rồi chạy lại; "
+                            "phần đã nghe-chép được dùng lại, chưa bị trừ Vox."),
+                    }
+                    raise RuntimeError(reasons.get(
+                        result.status,
+                        f"Pipeline dừng ở trạng thái {result.status} "
+                        f"(work_dir={result.work_dir})."))
+                summary.success += 1
+                logger.info(f"[{i + 1}/{len(items)}] SUCCESS → {result.report['session_id']}")
+                if prefetched:
+                    # Dọn file tải trước vào work_dir để resume tự tìm thấy.
+                    _Prefetcher.adopt(prefetched, result.report.get("output_dir", ""))
+                on_result(item, result.report, None)
+                if observer:
+                    observer(i, len(items), item, "success", result.report["session_id"])
+                break
+            except PipelineCancelled:
+                logger.info("Batch cancelled by user")
+                # Nhớ thư mục dở dang để lần chạy lại đi tiếp từ chỗ dừng.
+                if isinstance(item.ref, dict) and getattr(pipeline, "last_work_dir", ""):
+                    item.ref["work_dir"] = pipeline.last_work_dir
+                prefetcher.cleanup()
+                raise
+            except Exception as e:
+                # Ghi lại thư mục của lượt chạy hỏng TRƯỚC KHI quyết định thử
+                # lại hay không — cả 2 nhánh đều cần resume đúng chỗ.
+                if isinstance(item.ref, dict) and getattr(pipeline, "last_work_dir", ""):
+                    item.ref["work_dir"] = pipeline.last_work_dir
+
+                transient = is_transient_error(e)
+                will_retry = retry_transient and transient and attempt <= max_retries
+                error_msg = str(e)[:200]
+
+                if failures_log_path:
+                    append_failure({
+                        "timestamp": now_fn(),
+                        "video": item.label,
+                        "attempt": attempt,
+                        "transient": transient,
+                        "retried": will_retry,
+                        "error": error_msg,
+                    }, failures_log_path)
+
+                if will_retry:
+                    delay = retry_backoff[min(attempt - 1, len(retry_backoff) - 1)]
+                    logger.warning(
+                        f"[{i + 1}/{len(items)}] Lỗi tạm thời ({error_msg}) — "
+                        f"thử lại lần {attempt}/{max_retries} sau {delay:.0f}s")
+                    if observer:
+                        observer(i, len(items), item, "retrying",
+                                 f"{error_msg} (thử lại lần {attempt}/{max_retries})")
+                    time.sleep(delay)
+                    continue
+
+                summary.failed += 1
+                logger.error(f"[{i + 1}/{len(items)}] FAILED: {error_msg}")
+                on_result(item, None, error_msg)
+                if observer:
+                    observer(i, len(items), item, "failed", error_msg)
+                break
 
     prefetcher.cleanup()
     logger.info("=" * 60)
@@ -336,6 +395,9 @@ def run_batch(
     state_path: str | None = None,
     retry_done: bool = False,
     reuse_tts: bool = True,
+    retry_transient: bool = False,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+    retry_backoff: tuple[float, ...] = DEFAULT_RETRY_BACKOFF_S,
 ) -> BatchSummary:
     """Dub every video in the batch.
 
@@ -353,7 +415,16 @@ def run_batch(
     ``pipeline`` is injected.
 
     ``pipeline`` lets a frontend inject a DubPipeline wired with its own
-    progress callback / cancel event; defaults to a plain one."""
+    progress callback / cancel event; defaults to a plain one.
+
+    ``retry_transient`` (mini-spec V24, docs/PLAN.md, Phase F — mặc định
+    TẮT, 0 regression khi không dùng): tự thử lại NGAY trong lượt batch này
+    cho video lỗi TẠM THỜI (xem :mod:`autodub.batch_retry`), tối đa
+    ``max_retries`` lần với giãn cách ``retry_backoff``. Mỗi lỗi (thử lại
+    hay không) đều được ghi vào ``failures.jsonl`` cạnh ``batch_state.json``
+    (xem :mod:`autodub.failures_log`) — LUÔN bật, không phụ thuộc
+    ``retry_transient`` (quan sát thuần, không đổi hành vi chạy).
+    """
     if (isinstance(lines, list) and lines
             and all(isinstance(x, BatchItem) for x in lines)):
         items = lines
@@ -448,7 +519,11 @@ def run_batch(
                                whisper_cache=whisper_cache)
     try:
         summary = _run_items(pending, pipeline, req_template, on_result,
-                             on_start=on_start, observer=observer)
+                             on_start=on_start, observer=observer,
+                             retry_transient=retry_transient,
+                             max_retries=max_retries,
+                             retry_backoff=retry_backoff,
+                             failures_log_path=failures_path(state_path))
     finally:
         # Lưu lần cuối: bấm Dừng giữa chừng thì work_dir dở dang vừa được
         # ghi vào item.ref cũng xuống đĩa, lần chạy lại mới resume được.

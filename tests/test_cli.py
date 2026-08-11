@@ -223,7 +223,8 @@ def test_batch_reads_file_and_reports_summary(monkeypatch, tmp_path, capsys):
     captured = {}
 
     def fake_run_batch(lines, settings, req_template, observer=None,
-                       state_path=None, retry_done=False):
+                       state_path=None, retry_done=False,
+                       retry_transient=False, max_retries=2):
         captured["lines"] = lines
         return _Summary()
 
@@ -360,7 +361,8 @@ def test_batch_quality_gate_writes_field_without_touching_status(monkeypatch, tm
     output_dir.mkdir(parents=True, exist_ok=True)
 
     def fake_run_batch(lines, settings, req_template, observer=None,
-                       state_path=None, retry_done=False):
+                       state_path=None, retry_done=False,
+                       retry_transient=False, max_retries=2):
         state = {"output_dir": str(output_dir), "videos": [
             {"video_url": "https://youtu.be/a", "status": "success",
              "output_folder": "20260101_vi"},
@@ -384,6 +386,68 @@ def test_batch_quality_gate_writes_field_without_touching_status(monkeypatch, tm
     entry = saved["videos"][0]
     assert entry["status"] == "success"  # không đổi
     assert entry["quality"]["status"] == "fail"
+
+
+# --------------------------------------------------------------------- #
+# mini-spec V24 (Phase F) — --retry-transient / --max-retries flow through
+
+def test_batch_retry_flags_flow_through_to_run_batch(monkeypatch, tmp_path):
+    lines_file = tmp_path / "urls.txt"
+    lines_file.write_text("https://youtu.be/a\n", encoding="utf-8")
+    parser = cli.build_parser()
+    args = parser.parse_args([
+        "batch", "--file", str(lines_file), "--retry-transient",
+        "--max-retries", "5",
+    ])
+
+    @dataclass
+    class _Summary:
+        total: int = 1
+        success: int = 1
+        failed: int = 0
+        skipped: int = 0
+
+    captured = {}
+
+    def fake_run_batch(lines, settings, req_template, observer=None,
+                       state_path=None, retry_done=False,
+                       retry_transient=False, max_retries=2):
+        captured["retry_transient"] = retry_transient
+        captured["max_retries"] = max_retries
+        return _Summary()
+
+    monkeypatch.setattr("autodub.batch.run_batch", fake_run_batch)
+    cli._cmd_batch(args)
+
+    assert captured["retry_transient"] is True
+    assert captured["max_retries"] == 5
+
+
+def test_batch_retry_off_by_default(monkeypatch, tmp_path):
+    lines_file = tmp_path / "urls.txt"
+    lines_file.write_text("https://youtu.be/a\n", encoding="utf-8")
+    parser = cli.build_parser()
+    args = parser.parse_args(["batch", "--file", str(lines_file)])
+
+    @dataclass
+    class _Summary:
+        total: int = 1
+        success: int = 1
+        failed: int = 0
+        skipped: int = 0
+
+    captured = {}
+
+    def fake_run_batch(lines, settings, req_template, observer=None,
+                       state_path=None, retry_done=False,
+                       retry_transient=False, max_retries=2):
+        captured["retry_transient"] = retry_transient
+        return _Summary()
+
+    monkeypatch.setattr("autodub.batch.run_batch", fake_run_batch)
+    cli._cmd_batch(args)
+
+    assert captured["retry_transient"] is False
 
 
 # --------------------------------------------------------------------- #

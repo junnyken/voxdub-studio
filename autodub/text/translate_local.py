@@ -22,10 +22,21 @@ from collections import deque
 
 from autodub.languages import TargetLang
 from autodub.progress import ProgressReporter
+from autodub.subprocess_watchdog import SubprocessTimeoutError, WatchedLineReader
 from autodub.text.translate_hint import ensure_terminal_punct
 from autodub.utils import bundled_file, setup_logging
 
 logger = setup_logging("autodub.translate_local")
+
+# mini-spec V24 (docs/PLAN.md, Phase F) — bug thật đã audit: đọc
+# ``proc.stdout`` bằng vòng lặp chặn (`for line in proc.stdout:`) không có
+# timeout tổng — nếu worker treo (model kẹt, deadlock hiếm), pipeline gọi
+# nó treo VÔ THỜI HẠN. Giá trị dưới đây CHỦ ĐÍCH bảo thủ (rộng rãi, không
+# phải benchmark thật) — mục tiêu là biến "treo vô hạn" thành "treo có
+# trần", không phải tối ưu tốc độ phát hiện. Cấu hình lại cần dữ liệu thật
+# từ nhiều lượt chạy — xem "Remaining Limits" mục V24 trong TEST_LOG.md.
+_READY_TIMEOUT_S = 300     # nạp model NLLB 600MB int8 từ đĩa
+_TRANSLATE_LINE_TIMEOUT_S = 120   # dịch xong 1 segment (có thể nhiều câu)
 
 # BCP-47 (dùng trong app) -> FLORES-200 (dùng bởi NLLB). Gồm các ngôn ngữ
 # nguồn đã có trong autodub_gui/dub_constants.py (V4) + mọi TargetLang.code
@@ -108,8 +119,20 @@ def run_local_worker(
             pass
 
     threading.Thread(target=_drain, daemon=True).start()
+    reader = WatchedLineReader(proc)
 
-    ready_line = proc.stdout.readline().strip()
+    try:
+        ready_line = reader.readline(_READY_TIMEOUT_S).strip()
+    except SubprocessTimeoutError as e:
+        proc.kill()
+        # `from e`: giữ lại SubprocessTimeoutError làm __cause__ — mini-spec
+        # V24 (Phase F) phân loại lỗi tạm thời/vĩnh viễn theo EXCEPTION TYPE
+        # (autodub/batch_retry.py::is_transient_error), cần thấy được lỗi
+        # GỐC xuyên qua lớp bọc LocalTranslateError này để nhận đúng "tạm
+        # thời" thay vì mặc định "vĩnh viễn" (mặc định an toàn khi không rõ).
+        raise LocalTranslateError(
+            f"Worker dịch local không phản hồi trong {_READY_TIMEOUT_S}s "
+            "khi nạp model — coi như treo.\n" + "\n".join(stderr_tail)) from e
     try:
         ready = json.loads(ready_line)
     except (json.JSONDecodeError, ValueError):
@@ -130,25 +153,36 @@ def run_local_worker(
 
     by_id: dict = {}
     done = False
-    for line in proc.stdout:
-        line = line.strip()
-        if not line or not line.startswith("{"):
-            continue
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if msg.get("error"):
-            proc.wait(timeout=5)
-            raise LocalTranslateError(f"Worker dịch local: {msg['error']}")
-        if msg.get("seg"):
-            by_id[msg.get("id")] = str(msg.get("text", ""))
-            if reporter is not None:
-                reporter.emit(progress_step, "progress",
-                              current=len(by_id), total=len(items))
-        elif msg.get("done"):
-            done = True
-            break
+    try:
+        while True:
+            line = reader.readline(_TRANSLATE_LINE_TIMEOUT_S)
+            if not line:
+                break
+            line = line.strip()
+            if not line or not line.startswith("{"):
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("error"):
+                proc.wait(timeout=5)
+                raise LocalTranslateError(f"Worker dịch local: {msg['error']}")
+            if msg.get("seg"):
+                by_id[msg.get("id")] = str(msg.get("text", ""))
+                if reporter is not None:
+                    reporter.emit(progress_step, "progress",
+                                  current=len(by_id), total=len(items))
+            elif msg.get("done"):
+                done = True
+                break
+    except SubprocessTimeoutError as e:
+        proc.kill()
+        raise LocalTranslateError(
+            f"Worker dịch local không phản hồi trong "
+            f"{_TRANSLATE_LINE_TIMEOUT_S}s giữa lúc dịch — coi như treo "
+            f"(đã dịch được {len(by_id)}/{len(items)} câu trước đó).\n"
+            + "\n".join(stderr_tail)) from e
 
     proc.wait(timeout=30)
     if not done:
