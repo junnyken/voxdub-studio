@@ -41,7 +41,7 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V11 | Hoàn thiện đa ngôn ngữ đích (đóng gap V8) | ✅ Xong | Audit hết Vietnamese-assumption + fix bug align.py + voices.catalog/GUI target-aware + live-verify 2 lượt pipeline thật target=en, 0 crash — xem TEST_LOG |
 | V12 | Cloud rendering production-ready (đóng gap V9) | ⚠️ Backend+GUI xong, image Docker chưa build được trong sandbox | State machine bất đồng bộ + worker Python + GUI toggle live-verify thật (worker chạy trực tiếp + control_server thật trong Docker); `docker compose build render_worker` THẤT BẠI THẬT (pip timeout tải torch) sau ~2h — giới hạn mạng build của sandbox, không phải lỗi Dockerfile — xem TEST_LOG |
 | V13 | Phễu hoàn thành/bỏ dở pipeline (đóng gap V10) | ✅ Xong | Telemetry PipelineEvent + client gửi event thật + banner minh bạch (guardrail 1 — cập nhật TRƯỚC khi bật) + dashboard phễu; live-verify thật qua HTTP thật (2 run, kể cả privacy-test chặn field cấm thật) — xem TEST_LOG |
-| V14 | Dịch phụ đề rời (`.srt`/`.vtt`, ngoài luồng dub) | 🔴 Dở dang, CHƯA có mini-spec chính thức | Parser (`subtitle_parse.py`) + hạ tầng dùng lại (`run_local_worker()`) đã xong, có test; module nối `subtitle_translate.py` + wiring (GUI/CLI, local-only hay cả SaaS) CHƯA làm — thiếu quyết định của chủ dự án, xem mục dưới |
+| V14 | Dịch phụ đề rời (`.srt`/`.vtt`, ngoài luồng dub) | ⚠️ Code+test xong, CHƯA live AI thật | Core+SaaS endpoint+GUI (verify headless offscreen)+CLI đủ theo Scope A-G; 35 test mới (autodub) + 11 test mới (control_server); ~190/204 mã FLORES-200 chưa kiểm chứng chất lượng (có chủ đích) — xem TEST_LOG |
 | V15 | Sửa bug hardcode tiếng Việt ở prompt dịch server-side | ⚠️ Code xong, CHƯA live-verify | Tìm ra khi audit V14 — `/translate`,`/analyze`,`/review` giờ nhận `targetLang`, field response đổi `text_<targetLang>`; 146+24 test unit/mock pass, CHƯA gọi HTTP thật (sandbox thiếu Mongo + API key AI) — xem TEST_LOG |
 
 ## Tổng quan phase
@@ -1135,34 +1135,122 @@ hiện tại thiếu Mongo chạy + API key nhà cung cấp AI thật) — xem c
 `docs/TEST_LOG.md` mục V15, bao gồm Remaining Limits cần chủ dự án xác nhận có chờ
 live-verify trước khi đóng hẳn V15 hay không.
 
-### V14 — Dịch phụ đề rời (`.srt`/`.vtt`, NGOÀI luồng dub video) — CHƯA có mini-spec chính thức
+### V14 — Dịch phụ đề rời (`.srt`/`.vtt`, NGOÀI luồng dub video)
 
-**Trạng thái**: bắt đầu code trực tiếp KHÔNG qua đúng quy trình Playbook (không có
-Context/Goal/Constraints/Scope như V11-13 ở trên) — vi phạm chính nguyên tắc đầu mục
-"Cách dùng tài liệu này" bên dưới. Dừng lại ở đây để chủ dự án quyết định trước khi viết
-tiếp, thay vì tự đoán.
+```
+V14 — Tính năng mới: dịch 1 file phụ đề rời (không gắn video nào đang lồng tiếng)
 
-Đã có:
-- `autodub/text/subtitle_parse.py` — đọc/ghi `.srt`/`.vtt` rời (không đọc được qua
-  `srt.py` hiện có, vốn chỉ SINH file từ segment nội bộ của pipeline dub), thuần regex,
-  bỏ qua khối hỏng thay vì hỏng cả file. 24 test, `tests/test_subtitle_parse.py`.
-- `autodub/text/translate_local.py`: tách `run_local_worker()` (lõi gọi subprocess dịch
-  local dùng chung) ra khỏi `translate_segments_local()` — hạ tầng dùng lại cho module
-  dịch phụ đề rời, không phá chữ ký/hành vi cũ (7 test cũ vẫn pass nguyên).
+Context:
+- Phát sinh ngoài kế hoạch Phase A-D ban đầu — không phải đóng gap của V8/V9/V10 như
+  V11-13, mà là TÍNH NĂNG MỚI. Thiết kế thuật toán parser dựa trên 1 công cụ khác của
+  chủ dự án (VidGrab, 2026-08) đã kiểm chứng thật, chuyển quy ước sang project này.
+- Đã có sẵn trước khi mở mini-spec chính thức (audit xác nhận, giữ nguyên):
+  `autodub/text/subtitle_parse.py` (đọc/ghi `.srt`/`.vtt` rời, bỏ qua khối hỏng thay vì
+  hỏng cả file, 24 test) và `run_local_worker()` tách ra từ `translate_local.py` (lõi
+  gọi subprocess dịch local dùng chung, không phá hành vi `translate_segments_local()`
+  cũ — 7 test cũ vẫn pass).
+- 5 quyết định đã hỏi chủ dự án (2026-08-11), không tự đoán:
+  1. Wiring: CẢ HAI — dialog trong `autodub_gui/` (desktop) VÀ script CLI riêng
+     (`scripts/`).
+  2. Nguồn dịch: CẢ HAI — local (NLLB qua `run_local_worker()`, offline) VÀ SaaS (cần
+     endpoint control_server mới, xem Design Choice).
+  3. Phạm vi ngôn ngữ: MỞ RỘNG theo FLORES-200 đầy đủ (~200 ngôn ngữ), không giới hạn
+     theo `TargetLang`/`LANG_TO_FLORES` hẹp hiện có (chỉ 9 mã, gắn với pipeline dub).
+  4. Đầu ra: LUÔN sinh file mới (`<tên>_<flores-code-đích>.<đuôi gốc>`), không ghi đè.
+  5. Giá SaaS: tính phí như autotranslate — dùng lại `credit.cost.segment.autotranslate`
+     (config service đã có), mỗi dòng phụ đề tính 1 "segment".
 
-**Chưa có, cần quyết định trước khi làm**:
-1. **Wiring ở đâu**: thêm màn hình/nút trong `autodub_gui/` (desktop, PySide6), hay
-   script CLI riêng (`scripts/`), hay cả hai?
-2. **Nguồn dịch**: chỉ dịch local (NLLB qua `run_local_worker()`, offline, không cần
-   `is_configured()`), hay cũng cho dịch qua SaaS (cần endpoint control_server riêng
-   — khác `/translate` hiện có, vốn được thiết kế cho segment ASR có `duration`/
-   `max_chars`, không khớp cue phụ đề)?
-3. **Ngôn ngữ nguồn/đích**: có giới hạn theo `TargetLang`/`flores_code()` đã có, hay mở
-   rộng hơn (phụ đề rời không nhất thiết đi kèm video đang lồng tiếng)?
-4. **Đầu ra**: ghi đè file gốc, hay luôn sinh file mới (`<tên>_<lang>.srt`)? Giữ style
-   gốc (`.srt` giữ `.srt`, `.vtt` giữ `.vtt`) hay cho chọn định dạng khác đầu ra?
+Goal:
+- Người dùng dịch được 1 file `.srt`/`.vtt` độc lập (không cần đang lồng tiếng video
+  nào) sang bất kỳ ngôn ngữ nào trong FLORES-200, từ cả GUI lẫn CLI, chọn được local
+  (offline, miễn phí) hoặc SaaS (tốn Vox, chất lượng cao hơn qua LLM thật).
 
-Không tự quyết các mục trên — đúng nguyên tắc Phase D đã áp dụng cho V11-V13.
+Constraints (Guardrails):
+1. **KHÔNG tái dùng `TargetLang`** cho ngôn ngữ nguồn/đích của V14 — `TargetLang` gắn
+   chặt với pipeline dub (audio_name/srt_name/folder_suffix/iso639_2 cho MP4 track,
+   chỉ 2 giá trị vi/en). V14 dùng thẳng MÃ FLORES-200 (vd `vie_Latn`) làm định danh
+   NGÔN NGỮ DUY NHẤT xuyên suốt (GUI/CLI/API) — không dựng thêm tầng ánh xạ BCP-47↔
+   FLORES-200 cho ~200 ngôn ngữ (rủi ro sai âm thầm không test nào bắt được, vd các cặp
+   dễ nhầm như `azb_Arab`/`azj_Latn`, hay `arb_Arab` không map 1-1 vào 1 mã BCP-47 quốc
+   gia nào). Bảng mã FLORES-200 lấy nguyên từ nguồn thật
+   (`facebookresearch/flores` repo, `flores200/README.md`) — KHÔNG tự suy đoán/nhớ lại,
+   ghi rõ nguồn trong code.
+2. Vì phụ đề rời không có audio kèm theo → KHÔNG tự nhận diện ngôn ngữ nguồn — người
+   dùng chọn tay CẢ nguồn lẫn đích (khác pipeline dub, vốn có ASR biết ngôn ngữ nguồn).
+3. Endpoint SaaS mới TÁCH KHỎI `/translate` hiện có — payload/prompt của `/translate`
+   gắn với `duration`/`max_chars`/`cpsBudget` (ràng buộc tốc độ đọc cho TTS dub), không
+   áp dụng cho phụ đề thuần (không có TTS). Prompt riêng, đơn giản hơn (không có luật
+   prosody/CPS của prompt dub).
+4. Billing: mỗi dòng phụ đề = 1 "segment" theo `credit.cost.segment.autotranslate` —
+   KHÔNG cộng thêm `credit.cost.segment.base` (phần đó gắn với xử lý ASR/dub segment,
+   không áp dụng ở đây).
+5. Local path KHÔNG cần `is_configured()` (giữ triết lý offline-first) — GUI/CLI phải tự
+   quyết định hiện lựa chọn SaaS hay không dựa trên `is_configured()`, không ẩn tuỳ chọn
+   local dù có server cấu hình.
+6. Đúng cảnh báo chất lượng đã áp dụng ở V4/V6: CHỈ live-verify được ngôn ngữ đã dùng
+   thật trong app (vi/en qua NLLB đã verify từ V6/V11) — ~190 ngôn ngữ FLORES-200 còn lại
+   CHƯA có bằng chứng chất lượng dịch thật nào, phải nói rõ trong docs, không ngầm định
+   "hỗ trợ" nghĩa là "đã kiểm chứng".
+
+Scope:
+A. `autodub/text/flores200.py` (mới) — bảng đầy đủ `{code: name}` từ nguồn
+   `facebookresearch/flores` (flores200/README.md), hàm tra cứu tên hiển thị.
+B. `autodub/text/subtitle_translate.py` (mới) — orchestrate: đọc file
+   (`subtitle_parse.parse_subtitle`) → dịch text từng cue (local qua
+   `run_local_worker()`, hoặc SaaS qua `SaasClient.translate_subtitle()` mới) → ghép lại
+   cue (giữ nguyên timestamp gốc) → serialize → ghi file mới.
+C. `autodub/saas_client.py`: `translate_subtitle(texts, *, job_id, source_flores,
+   target_flores, target_name, hold_id=None) -> dict` — endpoint mới.
+D. `control_server`: route `POST /v1/ai/translate-subtitle` (file mới hoặc thêm vào
+   `routes/ai.js`) — billing theo guardrail 4, gọi
+   `ai-gateway.service.js` hàm mới `translateSubtitleBatch()` (không cps/prosody).
+   `prompts/subtitle-translate.js` (mới) — prompt đơn giản: dịch trung thực, giữ số
+   dòng/thứ tự, JSON in/out theo id.
+E. CLI: `scripts/translate_subtitle.py` — argparse (`input`, `--source`, `--target` nhận
+   mã FLORES-200, `--mode local|saas`).
+F. GUI: `autodub_gui/subtitle_translate_dialog.py` (mới) — file picker, 2 combo tìm-được
+   (nguồn/đích, 200 mục), toggle local/SaaS (ẩn SaaS nếu `not is_configured()`), chạy nền
+   qua pattern `workers.py` sẵn có, báo đường dẫn file kết quả. Gắn entry point vào
+   `autodub_gui/shell.py`.
+G. Tests: unit cho A/B/C (mock local worker + saas client), CLI arg parsing, JS cho
+   D (route + billing + prompt builder, theo đúng pattern `translate-prompts.test.js`
+   của V15).
+
+Audit Before Build:
+- Đã audit `autodub/languages.py` (TargetLang chỉ vi/en, gắn dub) và
+  `translate_local.py` (`LANG_TO_FLORES` chỉ 9 mã) trước khi quyết định KHÔNG tái dùng
+  — đúng guardrail 1.
+- Đã audit `control_server/src/services/config.service.js` — `credit.cost.segment.
+  autotranslate` đã tồn tại (giá trị hiện tại: 2), dùng lại đúng theo guardrail 4, không
+  tạo key giá mới.
+- Bảng FLORES-200 lấy qua WebFetch thật từ `facebookresearch/flores` (flores200/
+  README.md) tại thời điểm viết mini-spec này (2026-08-11) — không gõ tay từ trí nhớ.
+
+Design Choice:
+- Ngôn ngữ = mã FLORES-200 xuyên suốt (guardrail 1) — đơn giản hoá lớn, đánh đổi: GUI
+  phải hiện tên người-đọc-được từ bảng tra cứu (flores200.py), không hiện mã thô cho
+  người dùng cuối.
+- SaaS path dùng endpoint/prompt RIÊNG (guardrail 3) thay vì nhét thêm field optional
+  vào `/translate` — giữ `/translate` (dùng cho pipeline dub) không phình thêm logic
+  không liên quan, đúng tinh thần "0 regression" đã áp dụng ở V15.
+
+Test Plan:
+- Unit: parser (đã xong, V14 giữ nguyên), `subtitle_translate` (mock cả 2 nguồn dịch,
+  test giữ đúng timestamp/thứ tự cue, test file output đặt tên đúng quy ước).
+- Unit JS: billing tính đúng theo số dòng × `credit.cost.segment.autotranslate`, prompt
+  builder không crash với ngôn ngữ ngoài vi/en (fallback tên = mã FLORES-200 nếu chưa có
+  tên hiển thị riêng).
+- KHÔNG live-verify dịch thật ngoài vi/en (guardrail 6) — nếu cần, đó là 1 đợt live-
+  verify riêng sau khi có nhu cầu thị trường thật cho ngôn ngữ cụ thể, giống tinh thần
+  V4.
+
+Success Criteria:
+- Dịch được 1 file `.srt`/`.vtt` thật (source=zh/vi/en đã có sẵn, target bất kỳ trong
+  FLORES-200) qua CẢ 2 đường GUI và CLI, CẢ 2 nguồn local/SaaS, ra file mới đúng tên,
+  giữ nguyên timestamp.
+- Billing SaaS đúng số Vox trừ = số dòng × giá autotranslate, verify bằng test (chưa
+  live HTTP thật — cùng giới hạn đã ghi ở V15).
+```
 
 ---
 

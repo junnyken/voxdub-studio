@@ -18,6 +18,7 @@ const {
   parseResponseSegments, parseJsonObject, mergeTranslations, containsCjk,
 } = require('../utils/json-repair')
 const prompts = require('../prompts/translate')
+const subtitlePrompts = require('../prompts/subtitle-translate')
 
 class AiError extends Error {
   constructor(code, message, statusCode = 503) {
@@ -335,6 +336,70 @@ async function translateBatch({ segments, sourceLang, targetKey = 'vi', context,
   }
 }
 
+/**
+ * Dịch một lô dòng phụ đề rời (mini-spec V14, docs/PLAN.md) — TÁCH KHỎI
+ * `translateBatch` (pipeline dub, có cps/context/prosody không áp dụng ở
+ * đây). Cùng chiến lược chia-đôi-lô-khi-thiếu-câu như `translateBatch`, đơn
+ * giản hoá phần còn lại (không CJK-leftover-fix pass — xem Remaining Limits
+ * V14 trong docs/TEST_LOG.md).
+ * ``sourceFlores``/``targetFlores`` là mã FLORES-200; ``sourceName``/
+ * ``targetName`` là tên hiển thị (từ `autodub/text/flores200.py` phía
+ * client) — rơi về chính mã nếu thiếu, không ném lỗi.
+ */
+async function translateSubtitleBatch({ items, sourceFlores, targetFlores,
+  sourceName, targetName, maxRetries = 2, depth = 0 }) {
+  const system = subtitlePrompts.buildSystemPrompt({
+    sourceName: sourceName || sourceFlores,
+    targetName: targetName || targetFlores,
+  })
+  const user = subtitlePrompts.buildUserPrompt({ items })
+  const schema = subtitlePrompts.schema()
+
+  const { content, usage, provider } = await callWithFallback('translate',
+    { system, user, schema, maxRetries })
+  const returned = parseResponseSegments(content)
+  const { merged, missing } = mergeTranslations(items, returned, 'text')
+
+  if (!missing.length) {
+    return { segments: merged, usage, provider: provider.name, model: provider.model }
+  }
+  if (items.length === 1 || depth >= 3) {
+    return { segments: merged, usage, provider: provider.name, model: provider.model, missing }
+  }
+
+  const missingSet = new Set(missing.map(String))
+  const rest = items.filter((s) => missingSet.has(String(s.id)))
+  const mid = Math.floor(rest.length / 2) || 1
+  const halves = [rest.slice(0, mid), rest.slice(mid)].filter((h) => h.length)
+
+  const results = await Promise.all(halves.map((half) => translateSubtitleBatch({
+    items: half, sourceFlores, targetFlores, sourceName, targetName,
+    maxRetries, depth: depth + 1,
+  }).catch(() => null)))
+
+  const extra = []
+  let extraPrompt = 0
+  let extraCompletion = 0
+  for (const r of results) {
+    if (!r) continue
+    extra.push(...r.segments)
+    extraPrompt += r.usage.promptTokens
+    extraCompletion += r.usage.completionTokens
+  }
+
+  const byId = new Map([...merged, ...extra].map((s) => [String(s.id), s]))
+  const ordered = items.map((s) => byId.get(String(s.id))).filter(Boolean)
+  return {
+    segments: ordered,
+    usage: {
+      promptTokens: usage.promptTokens + extraPrompt,
+      completionTokens: usage.completionTokens + extraCompletion,
+    },
+    provider: provider.name,
+    model: provider.model,
+  }
+}
+
 /** Dịch lại các câu còn sót chữ Hán (lưới cuối trước khi trả về app). */
 async function fixCjkLeftovers({ merged, sourceLang, targetKey = 'vi', context, cpsBudget }) {
   const { field: targetField, name: targetName } = prompts.resolveTargetLang(targetKey)
@@ -439,6 +504,7 @@ async function generatePost({ scriptOriginal, scriptVi, videoTitle }) {
 module.exports = {
   AiError,
   translateBatch,
+  translateSubtitleBatch,
   fixCjkLeftovers,
   analyze,
   reviewOne,

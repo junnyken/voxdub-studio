@@ -862,3 +862,45 @@ class ExportSubsFileWorker(QThread):
                 self.failed.emit(str(e))
         finally:
             detach_gui_logging(handler)
+
+
+class SubtitleTranslateWorker(QThread):
+    """Dịch 1 file phụ đề rời (mini-spec V14, docs/PLAN.md) — KHÔNG liên quan
+    tới `SubtitleWorker` ở trên (cái đó ghi phụ đề vào video của lượt dub
+    hiện có; cái này dịch 1 file `.srt`/`.vtt` độc lập, không cần dự án nào).
+    """
+
+    log = Signal(str, int)
+    finished_ok = Signal(object)   # SubtitleTranslateResult
+    failed = Signal(str)
+
+    def __init__(self, input_path: str, source_flores: str, target_flores: str,
+                 mode: str, settings: Settings, parent=None):
+        super().__init__(parent)
+        self._input_path = input_path
+        self._source_flores = source_flores
+        self._target_flores = target_flores
+        self._mode = mode   # "local" | "saas"
+        self._settings = settings
+
+    def run(self) -> None:
+        from autodub.text.subtitle_translate import (
+            translate_subtitle_file_local, translate_subtitle_file_saas,
+        )
+
+        handler = attach_gui_logging(self.log)
+        try:
+            if self._mode == "saas":
+                import uuid
+                result = translate_subtitle_file_saas(
+                    self._input_path, self._source_flores, self._target_flores,
+                    job_id=f"sub-{uuid.uuid4().hex}")
+            else:
+                result = translate_subtitle_file_local(
+                    self._input_path, self._source_flores, self._target_flores,
+                    self._settings)
+            self.finished_ok.emit(result)
+        except Exception as e:  # noqa: BLE001
+            self.failed.emit(str(e))
+        finally:
+            detach_gui_logging(handler)

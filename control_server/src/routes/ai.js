@@ -558,6 +558,156 @@ module.exports = async function aiRoutes(fastify) {
     return response
   })
 
+  // ------------------------------------------- dịch phụ đề rời (V14) ----
+  //
+  // Tách khỏi `/translate` (dùng cho pipeline dub, payload gắn `duration`/
+  // `max_chars`/`cpsBudget` — ràng buộc tốc độ đọc cho TTS, không áp dụng
+  // cho phụ đề thuần không có TTS nào đọc theo). Ngôn ngữ là mã FLORES-200
+  // (vd "vie_Latn"), không phải khoá ngắn "vi"/"en" như /translate — xem
+  // Constraint 1/3 mini-spec V14, docs/PLAN.md.
+  //
+  // Billing: mỗi dòng phụ đề tính giá autotranslate (KHÔNG cộng
+  // `credit.cost.segment.base`, phần đó gắn xử lý ASR/dub segment không áp
+  // dụng ở đây — Constraint 4 của V14).
+  fastify.post('/translate-subtitle', {
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['jobId', 'sourceFlores', 'targetFlores', 'items'],
+        properties: {
+          jobId: { type: 'string', minLength: 8, maxLength: 100 },
+          holdId: { type: 'string', minLength: 8, maxLength: 100 },
+          sourceFlores: { type: 'string', pattern: '^[a-z]{3}_[A-Z][a-z]{3}$' },
+          targetFlores: { type: 'string', pattern: '^[a-z]{3}_[A-Z][a-z]{3}$' },
+          sourceName: { type: 'string', maxLength: 80 },
+          targetName: { type: 'string', maxLength: 80 },
+          items: {
+            type: 'array',
+            minItems: 1,
+            items: {
+              type: 'object',
+              required: ['id', 'text'],
+              properties: {
+                id: { type: 'integer' },
+                text: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { device } = request
+    const { jobId, holdId, items, sourceFlores, targetFlores,
+      sourceName, targetName } = request.body
+
+    const cached = await replay(jobId, device.fingerprint)
+    if (cached) return cached
+
+    const cfg = await config.getMany([
+      'ai.max.segments.per.request', 'ai.max.chars.per.segment',
+      'ai.max.retries', 'credit.enabled',
+      'credit.cost.segment.autotranslate',
+      'internal.cost.translate.per_sentence',
+    ])
+    if (items.length > cfg['ai.max.segments.per.request']) {
+      return reply.code(400).send({
+        code: 'BATCH_TOO_LARGE',
+        message: `Tối đa ${cfg['ai.max.segments.per.request']} dòng mỗi lượt.`,
+        maxSegments: cfg['ai.max.segments.per.request'],
+      })
+    }
+    const maxChars = cfg['ai.max.chars.per.segment']
+    const tooLong = items.find((s) => String(s.text || '').length > maxChars)
+    if (tooLong) {
+      return reply.code(400).send({
+        code: 'SEGMENT_TOO_LONG',
+        message: `Dòng ${tooLong.id} dài quá ${maxChars} ký tự.`,
+      })
+    }
+
+    const perLine = cfg['credit.cost.segment.autotranslate']
+    const cost = cfg['credit.enabled'] ? items.length * perLine : 0
+    if (cfg['credit.enabled']) {
+      const short = await precheck(device.fingerprint, holdId, cost,
+        { action: 'translate_subtitle', jobId })
+      if (short) {
+        return reply.code(402).send({
+          code: 'INSUFFICIENT_CREDIT',
+          message: `Không đủ Vox. Cần ${short.required}, bạn có ${short.balance}.`,
+          balance: short.balance,
+          required: short.required,
+        })
+      }
+    }
+
+    const log = await UsageLog.create({
+      fingerprint: device.fingerprint,
+      jobId,
+      action: 'translate_subtitle',
+      inputSize: items.length,
+      ip: request.ip,
+      appVersion: device.appVersion,
+    })
+    const started = Date.now()
+
+    let result
+    try {
+      result = await gateway.translateSubtitleBatch({
+        items, sourceFlores, targetFlores, sourceName, targetName,
+        maxRetries: cfg['ai.max.retries'],
+      })
+    } catch (err) {
+      await UsageLog.updateOne({ _id: log._id }, {
+        $set: {
+          status: 'error',
+          errorCode: err.code || 'AI_ERROR',
+          errorMessage: String(err.message).slice(0, 500),
+          durationMs: Date.now() - started,
+        },
+      })
+      request.log.error({ err, jobId }, 'translate-subtitle failed')
+      return reply.code(err.statusCode || 503).send({
+        code: err.code || 'AI_UNAVAILABLE',
+        message: 'Dịch vụ dịch tạm thời không phản hồi. Thử lại sau ít phút.',
+        retryAfter: 30,
+      })
+    }
+
+    const done = result.segments.length
+    const paid = await charge(device, {
+      holdId,
+      jobId,
+      action: 'translate_subtitle',
+      walletCost: cfg['credit.enabled'] ? done * perLine : 0,
+      internalVox: done * cfg['internal.cost.translate.per_sentence'],
+      sentences: done,
+      description: `Dịch phụ đề ${done} dòng`,
+      ip: request.ip,
+    })
+
+    const response = {
+      jobId,
+      segments: result.segments,
+      creditCharged: paid.charged,
+      balanceAfter: paid.balanceAfter,
+    }
+    await Promise.all([
+      remember(jobId, device.fingerprint, 'translate_subtitle', response, paid.charged),
+      UsageLog.updateOne({ _id: log._id }, {
+        $set: {
+          status: 'success',
+          creditCharged: paid.charged,
+          promptTokens: result.usage.promptTokens,
+          completionTokens: result.usage.completionTokens,
+          durationMs: Date.now() - started,
+        },
+      }),
+    ])
+    return response
+  })
+
   // ------------------------------------------------- nội dung đăng bài ----
   fastify.post('/generate-post', {
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },

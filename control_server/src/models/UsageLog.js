@@ -1,9 +1,9 @@
 'use strict'
 
 /**
- * Nhật ký từng lượt gọi AI (translate/analyze/review/generate_post) — dùng
- * cho đối soát chi phí + dashboard analytics. Dựng lại từ routes/ai.js —
- * xem ghi chú Device.js.
+ * Nhật ký từng lượt gọi AI (translate/analyze/review/generate_post/
+ * translate_subtitle) — dùng cho đối soát chi phí + dashboard analytics.
+ * Dựng lại từ routes/ai.js — xem ghi chú Device.js.
  */
 const mongoose = require('mongoose')
 
@@ -12,7 +12,9 @@ const usageLogSchema = new mongoose.Schema({
   jobId: { type: String, required: true },
   action: {
     type: String,
-    enum: ['translate', 'analyze', 'review', 'generate_post'],
+    // 'translate_subtitle' thêm ở mini-spec V14 (docs/PLAN.md) — dịch phụ
+    // đề rời, tách khỏi 'translate' (pipeline dub).
+    enum: ['translate', 'analyze', 'review', 'generate_post', 'translate_subtitle'],
     required: true,
   },
   inputSize: { type: Number, default: 0 },

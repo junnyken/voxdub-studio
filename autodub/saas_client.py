@@ -541,6 +541,36 @@ class SaasClient:
         self._note_usage(data)
         return data.get("segments") or []
 
+    def translate_subtitle(self, items: list[dict], *, job_id: str,
+                           source_flores: str, target_flores: str,
+                           source_name: str | None = None,
+                           target_name: str | None = None,
+                           hold_id: str | None = None) -> dict:
+        """Dịch phụ đề rời (mini-spec V14, docs/PLAN.md) — TÁCH KHỎI
+        :meth:`translate` (dùng cho pipeline dub, gắn ``duration``/
+        ``max_chars``/``cpsBudget`` không áp dụng cho phụ đề thuần).
+
+        ``items``: ``[{"id", "text"}]``. ``source_flores``/``target_flores``
+        là mã FLORES-200 (vd ``"vie_Latn"``) — KHÔNG phải BCP-47/khoá ngắn
+        như :meth:`translate`, xem Constraint 1 của V14.
+        Trả về ``{"segments": [{"id", "text"}], "creditCharged", "balanceAfter"}``.
+        """
+        payload = {
+            "jobId": job_id,
+            "sourceFlores": source_flores,
+            "targetFlores": target_flores,
+            "items": items,
+        }
+        if source_name:
+            payload["sourceName"] = source_name
+        if target_name:
+            payload["targetName"] = target_name
+        if hold_id:
+            payload["holdId"] = hold_id
+        data = self._request("POST", "/v1/ai/translate-subtitle", json_body=payload)
+        self._note_usage(data)
+        return data
+
     def generate_post(self, script_original: str, script_vi: str, *,
                       job_id: str, video_title: str = "",
                       hold_id: str | None = None) -> dict:

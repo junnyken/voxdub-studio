@@ -66,10 +66,25 @@ offline như VieNeu tiếng Việt). `languages.TARGETS` là registry duy nhất
 en-US/zh-HK/zh-TW/ko-KR/ja-JP/th-TH/id-ID, mini-spec V4) dù Whisper hỗ trợ
 ~100 ngôn ngữ.
 
+**Dịch phụ đề rời (mini-spec V14, 2026-08-11):** tính năng ĐỘC LẬP với pipeline
+dub ở trên — dịch 1 file `.srt`/`.vtt` rời, không cần dự án lồng tiếng nào.
+`text/subtitle_parse.py` (đọc/ghi, bỏ qua khối hỏng) + `text/subtitle_translate.py`
+(orchestrate: parse → dịch local (`translate_local.run_local_worker()`, dùng
+lại từ pipeline dub) hoặc SaaS (`saas_client.translate_subtitle()`, endpoint
+RIÊNG `/v1/ai/translate-subtitle`, KHÔNG dùng chung `/translate` vì payload đó
+gắn `cpsBudget`/prosody cho TTS không áp dụng ở đây) → ghi file mới, KHÔNG bao
+giờ ghi đè). Ngôn ngữ = mã FLORES-200 (`text/flores200.py`, ~200 mã, nguồn từ
+`facebookresearch/flores` repo) — KHÔNG dùng `languages.TargetLang` (gắn chặt
+dub, chỉ 2 giá trị). CLI: `scripts/translate_subtitle.py`. GUI: trang "Dịch
+phụ đề" riêng (`autodub_gui/pages/subtitle_translate_page.py`,
+`SubtitleTranslateWorker` trong `workers.py`). CHỈ `vie_Latn`/`eng_Latn` đã
+live-verify chất lượng dịch — ~190 mã còn lại trong bảng chỉ là mã hợp lệ NLLB
+nhận, CHƯA kiểm chứng chất lượng thật, xem `docs/TEST_LOG.md` mục V14.
+
 ### 2.2 `autodub_gui/` — Desktop GUI
 
 PySide6, dark theme (`theme.py` QSS + `tokens.py` là nguồn màu duy nhất). Entry:
-`app.py:main()`. 14 trang, tất cả wire đầy đủ tới `autodub/` (không có mock/orphan feature).
+`app.py:main()`. 15 trang, tất cả wire đầy đủ tới `autodub/` (không có mock/orphan feature).
 Có prewarm trang, preflight machine check, crash handler + file log, smoke-test mode
 (`AUTODUB_SMOKE=1`), setup wizard lần đầu, update checker (GitHub releases).
 
@@ -110,6 +125,15 @@ liệu. Dashboard admin có phễu 6 chặng (tải video→tách nhạc→nghe-
 ghép video) + số bỏ dở (ước lượng theo `updatedAt` quá cũ, không phải sự thật tuyệt
 đối). Xem `docs/TEST_LOG.md` mục V13.
 
+**Dịch phụ đề rời (mini-spec V14, 2026-08-11):** `POST /v1/ai/translate-subtitle` —
+endpoint RIÊNG khỏi `/v1/ai/translate` (payload/prompt của `/translate` gắn
+`cpsBudget`/prosody cho TTS dub, không áp dụng phụ đề thuần). Billing: mỗi dòng
+tính giá `credit.cost.segment.autotranslate` (KHÔNG cộng `segment.base`). Prompt
+riêng `prompts/subtitle-translate.js` (không có bảng `LANGUAGE_RULES` theo tên
+như `translate.js` — nhận `sourceName`/`targetName` hiển thị từ client, vì
+không khả thi soạn luật riêng cho ~200 ngôn ngữ FLORES-200). Xem
+`docs/API.md`/`docs/TEST_LOG.md` mục V14.
+
 ### 2.4 `website/` — Storefront + Admin
 
 React 18 + Vite + Tailwind + Zustand + react-router. Build ra static asset, được
@@ -148,3 +172,8 @@ Phía client: không có DB — toàn bộ state là file trên đĩa dưới `o
   **31 test** (Vitest, chỉ logic thuần — utils/store, CHƯA test render/tương tác UI React).
   Tổng **853 test, 0 fail** — xem `docs/TEST_LOG.md` cho log live-verify chi tiết từng
   mini-spec.
+- Sau V14/V15 (2026-08-11, cùng ngày): +59 test `autodub/` (749 — cộng dồn theo số test
+  MỚI thêm, không tự đếm lại toàn repo trong sandbox viết mini-spec này vì thiếu
+  `PySide6`/`numpy`/`ctranslate2`, xem `docs/TEST_LOG.md` mục V14), +25 test
+  `control_server` (**157 pass, 1 skip, xác nhận chạy thật** `node --test tests/*.test.js`
+  trong sandbox này).

@@ -42,13 +42,14 @@ ROW_VOICE    = 8    # Giọng đọc AI
 ROW_TRANSLATE = 9   # Dịch thuật
 ROW_SUBTITLE  = 10  # Phụ đề
 ROW_QUALITY   = 11  # Báo cáo chất lượng
+ROW_SUBTITLE_TRANSLATE = 12  # Dịch phụ đề rời (mini-spec V14, docs/PLAN.md)
 
 # Trang launcher editor (trung gian — không hiện trong sidebar)
-ROW_EDITOR_LAUNCHER = 12
+ROW_EDITOR_LAUNCHER = 13
 
-ROW_ACCOUNT = 13    # Tài khoản: ví Vox, kích hoạt mã, lịch sử
+ROW_ACCOUNT = 14    # Tài khoản: ví Vox, kích hoạt mã, lịch sử
 
-PAGE_COUNT = 14
+PAGE_COUNT = 15
 
 # (số thứ tự, nhãn ở thanh bên, tiêu đề trang, mô tả trang, biểu tượng, nhóm)
 PAGES: list[tuple[int, str, str, str, object, str]] = [
@@ -84,6 +85,9 @@ PAGES: list[tuple[int, str, str, str, object, str]] = [
     (ROW_QUALITY,   "Báo cáo chất lượng","Báo cáo chất lượng",
      "Thống kê ASR, dịch thuật và cảnh báo timing",
      icons.chart_bar, "tools"),
+    (ROW_SUBTITLE_TRANSLATE, "Dịch phụ đề",  "Dịch phụ đề rời",
+     "Dịch 1 file .srt/.vtt độc lập, không cần dự án lồng tiếng nào",
+     icons.captions, "tools"),
     # Nhóm "second" — HỆ THỐNG
     (ROW_ACCOUNT,   "Tài khoản",         "Tài khoản",
      "Số Vox còn lại, kích hoạt mã và lịch sử sử dụng",
@@ -117,6 +121,7 @@ _VIDEO_PROBE_MS = 4000     # thời gian chờ tối đa khi thử giải mã vi
 _PREWARM_ORDER = (ROW_HELP, ROW_SETTINGS, ROW_NEW, ROW_PROJECTS,
                   ROW_BATCH, ROW_DOWNLOAD, ROW_EDITOR,
                   ROW_VOICE, ROW_TRANSLATE, ROW_SUBTITLE, ROW_QUALITY,
+                  ROW_SUBTITLE_TRANSLATE,
                   ROW_EDITOR_LAUNCHER, ROW_ACCOUNT)
 _PREWARM_START_MS = 700     # chờ khung hình đầu vẽ xong rồi mới dựng
 _PREWARM_GAP_MS = 250       # nghỉ giữa hai trang để giao diện luôn mượt
@@ -335,6 +340,11 @@ class MainWindow(QMainWindow):
         elif row == ROW_QUALITY:
             from autodub_gui.pages.quality_page import QualityPage
             page = QualityPage(self._fresh_settings, self.pages)
+        elif row == ROW_SUBTITLE_TRANSLATE:
+            from autodub_gui.pages.subtitle_translate_page import (
+                SubtitleTranslatePage,
+            )
+            page = SubtitleTranslatePage(self._fresh_settings, self.pages)
         elif row == ROW_ACCOUNT:
             from autodub_gui.pages.account_page import AccountPage
             page = AccountPage(self._fresh_settings, self.pages)

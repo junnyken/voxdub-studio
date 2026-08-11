@@ -111,6 +111,20 @@ Body: `{ jobId, holdId?, scriptOriginal (max 20000), scriptVi (max 20000), video
 Response: `{ jobId, metadata: object, creditCharged, balanceAfter }`
 Lỗi: `402 INSUFFICIENT_CREDIT`, `503 AI_UNAVAILABLE`.
 
+### `POST /translate-subtitle` (mini-spec V14, thêm 2026-08-11)
+Dịch phụ đề rời (`.srt`/`.vtt` độc lập, không gắn video nào đang lồng tiếng) —
+TÁCH KHỎI `/translate` ở trên (payload đó gắn `duration`/`max_chars`/
+`cpsBudget` cho ràng buộc tốc độ đọc TTS, không áp dụng cho phụ đề thuần).
+Ngôn ngữ là mã **FLORES-200** (vd `"vie_Latn"`), KHÔNG phải khoá ngắn "vi"/"en"
+như `/translate` — xem `autodub/text/flores200.py`.
+Body: `{ jobId, holdId?, sourceFlores, targetFlores, sourceName?, targetName?, items: [{id,text}] }`
+Response: `{ jobId, segments: [{id,text}], creditCharged, balanceAfter }`
+Billing: mỗi dòng tính giá `credit.cost.segment.autotranslate` — KHÔNG cộng
+`credit.cost.segment.base` (phần đó gắn xử lý ASR/dub segment, không áp dụng
+ở đây).
+Lỗi: `400 BATCH_TOO_LARGE`, `400 SEGMENT_TOO_LONG`, `402 INSUFFICIENT_CREDIT`,
+`503 AI_UNAVAILABLE`/khác (kèm `retryAfter`).
+
 ## `/v1/jobs` (mọi route cần token) — mini-spec V9 → V12, CHỈ stage Demucs
 
 Không thay thế luồng local — TUỲ CHỌN thêm (`autodub.cloud_render`, GUI: ô

@@ -12,7 +12,8 @@ const jobResultSchema = new mongoose.Schema({
   fingerprint: { type: String, required: true },
   action: {
     type: String,
-    enum: ['translate', 'analyze', 'review', 'generate_post'],
+    // 'translate_subtitle' thêm ở mini-spec V14 (docs/PLAN.md).
+    enum: ['translate', 'analyze', 'review', 'generate_post', 'translate_subtitle'],
     required: true,
   },
   result: { type: mongoose.Schema.Types.Mixed, required: true },

@@ -1311,3 +1311,148 @@ có `targetLang` cũng không vỡ vì field bị bỏ qua như request thừa f
   quy tắc chung (tên ngôn ngữ lấy nguyên `targetKey` làm nhãn) — chưa có
   bảng tên đầy đủ cho mọi `TargetLang` hiện có trong `autodub/languages.py`,
   chỉ mới phủ các ngôn ngữ đã dùng thật (vi, en).
+
+## V14 — Dịch phụ đề rời (`.srt`/`.vtt`, tính năng mới ngoài luồng dub)
+
+Theo `docs/PLAN.md` mục V14. **5 quyết định đã hỏi chủ dự án trước khi bắt
+tay** (2026-08-11, đúng guardrail Phase D): wiring CẢ GUI+CLI, nguồn dịch CẢ
+local+SaaS, phạm vi ngôn ngữ MỞ RỘNG FLORES-200 đầy đủ, đầu ra LUÔN file
+mới, giá SaaS = autotranslate. Tự phát hiện lúc audit: server-side prompt
+dịch (`/translate`,`/analyze`,`/review`) hardcode tiếng Việt — mở
+riêng **V15** để vá trước (xem mục trên) vì không hợp lý viết thêm tính
+năng dịch mới trên nền server đang dịch sai ngôn ngữ.
+
+### Audit Before Build
+
+- `autodub/languages.py`: `TargetLang`/`TARGETS` chỉ 2 giá trị (vi/en), gắn
+  chặt field dub (`audio_name`/`srt_name`/`folder_suffix`/`iso639_2` cho MP4
+  track) — xác nhận KHÔNG tái dùng được cho phạm vi FLORES-200 đầy đủ, đúng
+  Constraint 1 của mini-spec.
+- `autodub/text/translate_local.py`: `LANG_TO_FLORES` chỉ map 9 mã (các
+  ngôn ngữ nguồn ASR đã dùng thật) — xác nhận cần bảng riêng cho V14, không
+  mở rộng bảng cũ (bảng cũ gắn với ASR nguồn của pipeline dub, ý nghĩa khác).
+- `control_server/src/services/config.service.js`: `credit.cost.segment.
+  autotranslate` đã tồn tại sẵn (giá trị mặc định 2) — dùng lại đúng theo
+  quyết định giá đã chốt, không tạo key giá mới.
+- Bảng mã FLORES-200 (`autodub/text/flores200.py`, 204 mã) lấy qua **WebFetch
+  thật** từ `facebookresearch/flores` repo (`flores200/README.md`) lúc viết
+  mini-spec — KHÔNG gõ tay từ trí nhớ (đúng nguyên tắc "no fake data": một
+  mã sai trong bảng 200 mục sẽ là lỗi dịch sai ngôn ngữ âm thầm, không test
+  nào bắt được nếu chỉ đoán).
+
+### Design Choice
+
+Ngôn ngữ = mã FLORES-200 xuyên suốt GUI/CLI/API (không dựng tầng ánh xạ
+BCP-47↔FLORES-200 cho ~200 ngôn ngữ — rủi ro sai âm thầm, xem Constraint 1
+trong `docs/PLAN.md`). SaaS dùng endpoint + prompt RIÊNG khỏi `/translate`
+(payload/prompt đó gắn cps/prosody cho TTS dub, không áp dụng phụ đề thuần).
+
+### Thay đổi (Scope A-G)
+
+- **A** `autodub/text/flores200.py` (mới) — bảng 204 mã, `VERIFIED_QUALITY_
+  CODES` (chỉ vie_Latn/eng_Latn), `display_name()`.
+- **B** `autodub/text/subtitle_translate.py` (mới) — `translate_subtitle_
+  file_local()`/`translate_subtitle_file_saas()`, giữ nguyên timestamp gốc,
+  KHÔNG dùng `ensure_terminal_punct()` (chuẩn hoá cho TTS, ép dấu câu cuối —
+  sai với phụ đề thuần đọc, không có TTS nào đọc theo).
+- **C** `autodub/saas_client.py`: `translate_subtitle()` — endpoint riêng.
+- **D** `control_server`: route `POST /v1/ai/translate-subtitle`
+  (`routes/ai.js`), `ai-gateway.service.js` thêm `translateSubtitleBatch()`
+  (cùng chiến lược chia-đôi-lô-khi-thiếu-câu như `translateBatch`, bỏ CJK-
+  leftover-fix pass — xem Remaining Limits), `prompts/subtitle-translate.js`
+  (prompt riêng, không có bảng `LANGUAGE_RULES` theo tên như `translate.js`
+  — nhận `sourceName`/`targetName` từ client vì không khả thi soạn luật cho
+  ~200 ngôn ngữ).
+- **E** `scripts/translate_subtitle.py` — CLI, `--list-languages` để tra mã.
+- **F** `autodub_gui/pages/subtitle_translate_page.py` (trang mới, "Dịch phụ
+  đề" trong nhóm Công cụ) + `SubtitleTranslateWorker` (`workers.py`) + wiring
+  `app.py` (`ROW_SUBTITLE_TRANSLATE`, PAGE_COUNT 14→15). 2 combo ngôn ngữ
+  tìm-được (QComboBox editable + QCompleter, 204 mục), radio local/SaaS (SaaS
+  disable khi `not is_configured()`, KHÔNG ẩn — đúng Constraint 5), cảnh báo
+  khi chọn ngôn ngữ ngoài `VERIFIED_QUALITY_CODES`.
+- **G** Tests — xem mục dưới.
+
+### Bug thật tìm ra khi viết test route SaaS
+
+`UsageLog`/`JobResult` (Mongoose model) có `action` field kiểu `enum` cứng
+(`['translate','analyze','review','generate_post']`) — route
+`/translate-subtitle` gọi `UsageLog.create({..., action: 'translate_
+subtitle'})` **ném lỗi validation thật ngay lập tức** (500, không phải lỗi
+suy đoán — bắt được bằng cách gọi HTTP thật qua `app.inject` rồi đọc response
+body). Sửa: thêm `'translate_subtitle'` vào enum của cả 2 model. Nếu chỉ
+unit-test tầng prompt/gateway (như V15) sẽ KHÔNG bao giờ bắt được bug này —
+lý do route test (Scope G) đáng làm dù tốn công hơn.
+
+### Tests (thật, chạy tại 2026-08-11)
+
+- `tests/test_subtitle_parse.py` — 24 pass (đã có từ trước khi mở mini-spec
+  chính thức, giữ nguyên).
+- `tests/test_subtitle_translate.py` — **6 pass**: ghi file mới đúng tên,
+  giữ nguyên timestamp, từ chối mã FLORES-200 không hợp lệ, từ chối nguồn=
+  đích, billing SaaS đúng `creditCharged`/`balanceAfter`, câu thiếu trong
+  kết quả trả về rơi về văn bản gốc (không mất nội dung).
+- `tests/test_translate_subtitle_cli.py` — **5 pass**: `--list-languages`,
+  thiếu tham số bắt buộc, mã FLORES-200 sai, chạy local thật (mock
+  `run_local_worker`), chạy SaaS thật (mock `SaasClient`) — nạp module CLI
+  bằng `importlib` (đúng cách vì `scripts/` không phải package).
+- `control_server/tests/subtitle-translate-prompts.test.js` — **4 pass**:
+  prompt builder đúng ngôn ngữ, KHÔNG có luật CPS/prosody của prompt dub,
+  giữ đúng id/text, schema đúng.
+- `control_server/tests/translate-subtitle-route.test.js` — **7 pass qua
+  HTTP thật** (`fastify.inject`, mock `gateway.translateSubtitleBatch` —
+  KHÔNG gọi AI provider thật, sandbox không có key): 401 thiếu token, 400
+  mã FLORES-200 sai schema, **billing đúng số dòng × giá autotranslate
+  KHÔNG cộng segment.base**, idempotent theo jobId (gọi lại không tính phí/
+  không gọi lại AI — xác nhận bằng `mock.callCount()`), 400 BATCH_TOO_LARGE
+  không gọi gateway, lỗi gateway → 503 KHÔNG trừ Vox, `credit.enabled=false`
+  → `creditCharged=0`.
+- Regression: `autodub` (pytest, sandbox không đủ `PySide6`/`numpy`/
+  `ctranslate2`) **597 pass, 16 fail** (cùng 16 fail môi trường có từ trước
+  V14/V15, đã xác nhận không liên quan) — tăng đúng +11 so với trước khi mở
+  V14 (6 subtitle_translate + 5 CLI). `control_server`: `node --test
+  tests/*.test.js` **157 pass, 1 skip** (tăng +11 so với sau V15: 7 route +
+  4 prompt).
+
+### GUI — verify headless (offscreen), KHÔNG phải bấm chuột thật
+
+Môi trường viết mini-spec này không có `PySide6` cài sẵn lẫn màn hình — đã
+tự cài `PySide6` vào 1 venv tạm (`pip install PySide6`, xoá sau khi xong) và
+chạy `QT_QPA_PLATFORM=offscreen` để verify THẬT (không phải chỉ đọc code):
+- `SubtitleTranslatePage` dựng được, `on_shown()` chạy không lỗi, mặc định
+  nguồn=`eng_Latn`/đích=`vie_Latn` đúng.
+- Cảnh báo chất lượng ẩn với vi/en, hiện đúng khi đổi sang ngôn ngữ chưa
+  kiểm chứng (vd `fra_Latn`).
+- `_start()` chặn đúng: chưa chọn file, nguồn=đích giống nhau — không tạo
+  worker.
+- **Luồng thật qua QThread** (bấm nút → `SubtitleTranslateWorker.run()` →
+  tín hiệu `finished_ok`/`failed`): mock `translate_subtitle_file_local`/
+  `saas_client.get_client` (không chạy model/gọi mạng thật), bơm event loop
+  Qt thật (`QEventLoop`) chờ luồng nền chạy xong THẬT — xác nhận cả 2 nhánh
+  local và SaaS cập nhật đúng `summary` (kèm số Vox đã trừ ở nhánh SaaS),
+  bật đúng nút "Mở thư mục", và nhánh lỗi gọi đúng `ConfirmDialog.show_error`
+  + dòng log thân thiện qua `error_line()`.
+- **Chưa verify**: bố cục/màu sắc thật (không có màn hình để nhìn), thao tác
+  chuột thật của người dùng, và cụm `MainWindow`/Sidebar đầy đủ trong `app.py`
+  (dispatch `ROW_SUBTITLE_TRANSLATE` chỉ 3 dòng, rập khuôn các dispatch khác
+  đã hoạt động — rủi ro thấp nhưng CHƯA tự xác nhận bằng cách chạy app thật).
+
+### Remaining Limits (V14)
+
+- **CHƯA live-verify SaaS qua HTTP thật với AI provider thật** — cùng giới
+  hạn sandbox đã ghi ở V15 (không có Mongo chạy + API key AI thật). Route
+  test (Scope G) chạy thật qua HTTP nhưng mock lớp gọi AI.
+- **~190/204 mã FLORES-200 CHƯA kiểm chứng chất lượng dịch thật** — chỉ
+  vie_Latn/eng_Latn đã live-verify (qua NLLB, V6/V11). Đây là giới hạn CÓ
+  CHỦ ĐÍCH (đúng tinh thần V4: "mở rộng có kiểm chứng, không làm tất cả cùng
+  lúc"), không phải thiếu sót — GUI/CLI đều cảnh báo rõ khi chọn ngôn ngữ
+  chưa kiểm chứng.
+- Không có cơ chế huỷ giữa chừng ở GUI (`SubtitleTranslateWorker` không có
+  `cancel()`) — lượt dịch 1 file thường nhanh, chưa đáng cơ chế huỷ như
+  `DownloadWorker`. Nếu file rất lớn (nhiều nghìn dòng) qua SaaS mất nhiều
+  phút, người dùng phải chờ hết hoặc đóng app.
+- SaaS path không có lưới CJK-leftover-fix như `/translate` (V15 giữ
+  nguyên lưới đó cho pipeline dub) — nếu model trả sót chữ Hán cho phụ đề
+  dịch từ nguồn tiếng Trung, không có lượt dịch lại tự động thứ 2.
+- `docs/ARCH.md` cập nhật số trang GUI 14→15 và số test cộng dồn theo diff
+  (không tự đếm lại toàn repo do thiếu dependency trong sandbox) — xem ghi
+  chú trong chính ARCH.md.
