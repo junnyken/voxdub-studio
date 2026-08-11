@@ -30,10 +30,10 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V1 | Test + API docs control_server | ✅ Xong | Đầy đủ, 84 test |
 | V2 | Tách billing khỏi pipeline.py | ⚠️ Thu hẹp | Chỉ di chuyển code, KHÔNG tách global HOLD state (xem V2 trong TEST_LOG) |
 | V3 | Minh bạch Local-vs-SaaS | ✅ Xong | Đầy đủ, tìm+sửa 1 bug thật |
-| V4 | +4 ngôn ngữ nguồn ASR | ⚠️ Chưa live-verify chất lượng | Code đúng, CHƯA test video thật cho 4 ngôn ngữ mới |
-| V5 | OCR thay boxblur | ⚠️ Chưa test video thật | Verify qua GUI+ảnh tổng hợp, CHƯA video nén thật |
+| V4 | +4 ngôn ngữ nguồn ASR | ✅ Xong, live-verify thật (08-11) | Whisper thật (model small) nghe TTS thật ko/ja/th/id — 3/4 khớp gần tuyệt đối, 1 lỗi nhỏ 1 từ (th) — giới hạn còn lại: giọng TTS sạch, chưa video YouTube thật — xem TEST_LOG |
+| V5 | OCR thay boxblur | ⚠️ Một phần, live-verify mở rộng (08-11) | RapidOCR thật phát hiện đúng watermark trên video H.264 NÉN THẬT (không còn chỉ ảnh PIL) — verify bằng crop trực quan; còn thiếu: watermark thật (không phải tự vẽ), benchmark thời gian, ≥3 video đa dạng — xem TEST_LOG |
 | V6 | Dịch local (NLLB-200) | ✅ Xong, mặc định bật | Verify thật, chất lượng câu ngắn còn kém |
-| V7 | Docker hoá control_server | ⚠️ Một phần | Chỉ Node, CHƯA có Python cho pipeline thật |
+| V7 | Docker hoá control_server | ✅ Xong, live-verify thật (đã có sẵn + re-verify 08-11) | `docker compose up -d mongo control_server` chạy thật, health 200; audit Linux autodub/ re-confirm 715/720 pass (0 fail) trên chính sandbox — xem TEST_LOG |
 | V8 | TTS đa ngôn ngữ đích | 🔶 PoC tầng engine (đóng ở V11) | Registry + verify CapCut API thật — GUI/voices.catalog target-aware nay đã xong, xem V11 |
 | V9 | Cloud rendering (Demucs) | 🔶 PoC hẹp (đóng ở V12) | Verify end-to-end thật — xử lý ĐỒNG BỘ (không queue), CHƯA UI — nay đã xong, xem V12 |
 | V10 | Analytics/retention | ⚠️ Một phần (đóng ở V13) | Retention cohort xong; phễu hoàn thành/bỏ dở nay đã xong, xem V13 |

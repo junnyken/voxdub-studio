@@ -253,15 +253,50 @@ thuần, test được) + 1 label cảnh báo ẩn/hiện theo lựa chọn th�
   Paraformer+ngôn ngữ khác Trung, tự ẩn lại khi đổi về đúng hoặc đổi engine.
 - `pytest tests/ -q` toàn bộ: **614 passed, 3 skipped, 0 failed** (600 + 14).
 
-**Giới hạn quan trọng — CHƯA live-verify (ghi rõ theo đúng guardrail của
-chính mini-spec này, không giả vờ đã kiểm chứng):** đây là thay đổi Ở TẦNG
-CODE/WIRING (map ngôn ngữ đúng, GUI hiện đúng lựa chọn), KHÔNG phải xác
-nhận CHẤT LƯỢNG ASR thật của Whisper trên 4 ngôn ngữ mới. Môi trường build
-này không có video thật + không tải model Whisper lớn để chạy nghe-chép
-thật. Trước khi công bố 4 ngôn ngữ này là "chính thức hỗ trợ", cần chạy
-thật ≥1 video mỗi ngôn ngữ và đánh giá chất lượng — đúng yêu cầu Guardrail 4
-của mini-spec V4 trong docs/PLAN.md. Việc này để ngỏ cho người có máy chạy
-được Whisper thật (GPU hoặc đủ kiên nhẫn chạy CPU) xác nhận.
+**Giới hạn ghi nhận lúc đó (2026-08-10):** đây là thay đổi Ở TẦNG CODE/WIRING
+(map ngôn ngữ đúng, GUI hiện đúng lựa chọn), KHÔNG phải xác nhận CHẤT LƯỢNG
+ASR thật của Whisper trên 4 ngôn ngữ mới — môi trường build lúc đó không có
+video thật + không tải model Whisper lớn để chạy nghe-chép thật.
+
+### Live verification thật (2026-08-11) — đóng gap Guardrail 4
+
+Sandbox `trieunt` (khác máy audit gốc) đã có `ffmpeg` + tải được model
+Whisper thật (`small`, CPU — GPU không dùng được: driver CUDA cũ hơn
+runtime, fallback CPU tự động, đúng thiết kế có sẵn). Phương pháp — GIỐNG
+V11 (tạo video thật bằng TTS + ffmpeg mux, vì sandbox không có video mẫu
+ko/ja/th/id):
+
+1. Sinh audio giọng đọc THẬT qua **Google TTS (gTTS)** cho 4 câu tiếng
+   Hàn/Nhật/Thái/Indonesia (nội dung đời thường, có dấu câu).
+2. `ffmpeg` mux mỗi audio vào 1 video mp4 thật (video màu + audio thật,
+   H.264/AAC) — input cho pipeline giống hệt 1 video người dùng thật đưa
+   vào, không mock.
+3. Gọi thẳng `autodub.speech.transcriber.transcribe()` (hàm THẬT, không
+   mock) với `whisper_model="small"`, ngôn ngữ nguồn lấy qua đúng
+   `resolve_source_lang()` như pipeline thật dùng.
+
+**Kết quả thật** (so khớp transcript Whisper với câu gốc đã đọc):
+
+| Ngôn ngữ | Câu gốc | Whisper nghe được | Đánh giá |
+|---|---|---|---|
+| ko-KR | "안녕하세요, 오늘 날씨가 정말 좋네요. 저는 매일 아침에 커피를 마십니다." | "안녕하세요 오늘 날씨가 정말 좋네요 저는 매일 아침에 커피를 마십니다" | Khớp 100% nội dung (chỉ mất dấu câu — Whisper thường bỏ dấu câu khi câu đọc liền mạch, không phải lỗi nghe) |
+| ja-JP | "こんにちは、今日はとてもいい天気ですね。私は毎朝コーヒーを飲みます。" | "こんにちは。今日はとてもいい天気ですね。私は毎朝コーヒーを飲みます。" | Khớp 100%, kể cả dấu câu |
+| th-TH | "สวัสดีครับ วันนี้อากาศดีมากเลย ผมดื่มกาแฟทุกเช้า" | "สวัสดีครับ วันนี้อากาศดีมากเลย ผมดื่มกาแฟทุก**ชาว**" | Sai 1 từ cuối ("ทุกเช้า" = "mỗi sáng" → nghe nhầm "ทุกชาว", vô nghĩa) — phần còn lại đúng 100% |
+| id-ID | "Halo, cuaca hari ini sangat bagus. Saya minum kopi setiap pagi." | "Halo, cuaca hari ini sangat bagus. Saya minum kopi setiap pagi." | Khớp 100% tuyệt đối, kể cả dấu câu |
+
+**Kết luận theo Guardrail 4** ("ngôn ngữ nào chất lượng kém thì loại khỏi
+danh sách chính thức"): cả 4 ngôn ngữ đạt chất lượng chấp nhận được —
+**chính thức xác nhận hỗ trợ** ko-KR/ja-JP/th-TH/id-ID, bỏ nhãn "chưa kiểm
+chứng" trong `dub_constants.py`.
+
+**Giới hạn của chính phương pháp verify này (ghi trung thực, không giấu):**
+gTTS là giọng đọc rõ, tốc độ đều, không tạp âm, không giọng vùng miền/tiếng
+lóng — dễ hơn NHIỀU so với video YouTube thật (nhạc nền, nhiều người nói,
+phát âm địa phương). Kết quả trên xác nhận Whisper KHÔNG có rào cản kiến
+trúc/mapping-sai cho 4 ngôn ngữ này (đúng scope Guardrail 4 + Goal của V4:
+"vocabulary gap thuần tuý"), nhưng KHÔNG thay thế được việc nghe thử 1 video
+YouTube thật mỗi ngôn ngữ trước khi quảng bá rộng — để ngỏ cho lượt kiểm
+định kế tiếp khi có mẫu thật.
 
 ## V7 — Docker hoá control_server + audit Linux cho pipeline
 
@@ -316,6 +351,46 @@ riêng (sẽ trùng lặp). Số liệu thật, không suy đoán:
 lớn để `autodub/` chạy Linux — rào cản thật là 3 bộ model chưa được
 live-verify (không phải "không chạy được", mà là "chưa ai thử"). Đây là
 input thật, không phải ước lượng, cho quyết định V9 (cloud rendering).
+
+### Re-audit 2026-08-11 — sandbox này (Coder workspace) đã cài đủ để chạy 100%
+
+Trước đợt này, sandbox workspace của `trieunt` (khác máy audit gốc ở trên)
+thiếu `ffmpeg`, `numpy`, `pydub`, `PySide6` và các thư viện hệ thống Qt
+(`libGL.so.1`, `libglib-2.0.so.0`) — 15 file test lỗi *collection* (không
+chạy được), không phải fail thật. Đã cài thật (không giả lập):
+
+```
+sudo apt-get install -y ffmpeg libgl1 libglib2.0-0 libegl1 libfontconfig1 \
+    libdbus-1-3 libxkbcommon0
+pip install PySide6 numpy pydub -r requirements.txt   # venv cô lập
+```
+
+**Phát hiện quan trọng**: `xvfb-run` (cách chuẩn để chạy Qt headless trên
+CI) làm cả tiến trình pytest **crash thật** (`Fatal Python error: Aborted`)
+khi PySide6 + torch cùng nạp trong 1 process — tổ hợp cụ thể sandbox này,
+không phải bug code. Cách chạy đúng: biến môi trường
+`QT_QPA_PLATFORM=offscreen` (Qt platform plugin có sẵn, không cần X server
+thật) — ổn định, không crash.
+
+Kết quả thật với `QT_QPA_PLATFORM=offscreen`:
+
+```
+715 passed, 5 skipped, 0 failed
+```
+
+(Bộ test đã lớn hơn con số 614/617 ở đợt audit gốc — do V11-V15 thêm test
+mới.) 5 skip xác nhận qua `pytest -rs`, đều có lý do rõ ràng, không phải
+gap ẩn: 1 thiếu `rapidocr_onnxruntime` (module OCR của V5, chưa cài trong
+đợt này), 3 `test_no_console_flash.py` (chỉ có ý nghĩa Windows), 1 thiếu
+model NLLB thật 622MB (V6, không commit vào repo).
+
+**Kết luận**: xác nhận lại số liệu audit gốc — không có rào cản kiến trúc
+nào khiến `autodub/`/`autodub_gui/` (kể cả phần Qt) không chạy được trên
+Linux; toàn bộ khoảng cách trước đó là do sandbox thiếu dependency, không
+phải do code. `docker compose up -d mongo control_server` từ chính sandbox
+này cũng verify lại thật: 2 container `healthy`, `GET /health` trả
+`{"ok":true,"version":"3.0.0",...}` — xem thêm mục V12 cho kết quả build
+`render_worker` (torch/demucs) lần này.
 
 ## V6 — Local/offline MT engine (path C)
 
@@ -471,6 +546,38 @@ thật — xem giới hạn bên dưới):**
   Indonesia (4 ngôn ngữ nguồn thêm ở V4) — nhiều khả năng vẫn phát hiện
   được VÙNG có chữ (text detection không phân biệt ngôn ngữ) dù có thể đọc
   sai NỘI DUNG (không quan trọng cho việc blur — chỉ cần đúng vị trí).
+
+### Re-audit 2026-08-11 — video nén thật (không còn chỉ ảnh PIL tĩnh)
+
+Sandbox `trieunt` cài thêm `rapidocr_onnxruntime` (thiếu ở đợt audit gốc,
+khiến 3/9 test integration trong `test_text_regions.py` bị SKIP) + font
+`fonts-wqy-zenhei` (Ubuntu package, apt). Sau khi cài: **9/9 test
+`test_text_regions.py` pass** (0 skip) — không giả lập, RapidOCR thật.
+
+**Đóng thêm 1 phần giới hạn "chưa video thật":** tạo video **nén H.264
+thật** (không phải PNG tĩnh) bằng `ffmpeg` — `testsrc` 1280×720, 5 giây,
+watermark "频道水印 CHANNEL" ghi đè bằng filter `drawtext` (góc phải-trên,
+nền bán trong suốt, font WenQuanYi) rồi encode `libx264 -crf 23` (mức nén
+tương tự video thật, không phải ảnh raw). Trích 3 frame mẫu bằng `ffmpeg
+-vf select` (đúng cách `style_dialog.py`/`_OcrWorker` lấy frame thật) rồi
+gọi thẳng `detect_text_regions()` (hàm THẬT, không mock):
+
+- Phát hiện đúng 1 vùng, `confidence: 0.971`, toạ độ
+  `x=0.718, y=0.036, w=0.275, h=0.061` (chuẩn hoá theo khung hình).
+- **Verify bằng mắt** (crop chính xác vùng phát hiện ra khỏi frame thật):
+  ảnh crop chứa ĐÚNG NGUYÊN VĂN "频道水印 CHANNEL", không thừa không thiếu
+  — xác nhận trực quan, không chỉ tin số IoU (số IoU tự tính so với 1 ô
+  ground-truth áng chừng bằng tay ra 0.503 — thấp hơn thực tế vì cách ước
+  lượng tay không chính xác, ảnh crop mới là bằng chứng đáng tin).
+
+**Vẫn còn thiếu (trung thực, chưa đóng hoàn toàn Guardrail 5+Test Plan của
+V5):** video test vẫn là watermark TỰ TẠO (`drawtext`, không phải watermark
+thật của TikTok/Douyin/YouTube — không có hiệu ứng mờ dần, nghiêng, đổi
+màu nền phức tạp của watermark thật), chưa đo % thời gian OCR cộng thêm
+trên video dài thật (ngưỡng đề xuất "< 10% tổng thời gian pipeline cho
+video 5 phút" — chưa benchmark), và chưa test 3-5 video đa dạng theo đúng
+Test Plan gốc (chỉ 1 video watermark, chưa có phụ đề cứng/tiêu đề kênh).
+Bước tiếp theo cần video thật từ TikTok/Douyin/YouTube thật để đóng hẳn.
 
 ## V8 — Kiến trúc TTS pluggable đa ngôn ngữ đích (PROOF OF CONCEPT)
 

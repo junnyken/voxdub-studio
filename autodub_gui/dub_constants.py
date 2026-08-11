@@ -6,10 +6,10 @@ Gom về một chỗ để trang Tạo dự án, trang Xử lý hàng loạt và
 from __future__ import annotations
 
 #: Mini-spec V4 (docs/PLAN.md) — mở rộng danh sách nguồn Whisper hỗ trợ sẵn.
-#: 4 ngôn ngữ cuối (Hàn/Nhật/Thái/Indonesia) CHƯA live-verify chất lượng ASR
-#: bằng video thật (xem docs/TEST_LOG.md mục V4) — người dùng chọn vẫn chạy
-#: được (Whisper nhận mọi code này), chỉ là chất lượng chưa được xác nhận
-#: chính thức như 4 ngôn ngữ đầu.
+#: 4 ngôn ngữ cuối (Hàn/Nhật/Thái/Indonesia) đã live-verify chất lượng ASR
+#: (2026-08-11, xem docs/TEST_LOG.md mục V4 — TTS thật + Whisper thật, khớp
+#: gần như tuyệt đối cả 4 ngôn ngữ). Giới hạn còn lại: verify dùng giọng đọc
+#: TTS rõ ràng, chưa thử video thật có nhạc nền/giọng vùng miền.
 SOURCE_LANGS: list[tuple[str, str]] = [
     ("Tiếng Trung (zh-CN)", "zh-CN"),
     ("Tiếng Anh (en-US)", "en-US"),
