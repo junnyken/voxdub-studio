@@ -251,6 +251,13 @@ class Settings:
     # Dịch thuật (do BA duyệt câu chữ cuối cùng, theo BA⇄DEV convention).
     translate_local_enabled: bool = True
 
+    # Mini-spec V9 → V12 (docs/PLAN.md) — tách nhạc nền (Demucs) trên cloud
+    # thay vì trên máy. Chỉ có nghĩa ở chế độ SaaS (is_configured()==True,
+    # xem autodub.cloud_render.is_available) — TẮT mặc định, khác
+    # translate_local_enabled: đây là tính năng TỐN VOX mỗi lượt, không nên
+    # tự bật cho người dùng chưa chọn.
+    cloud_render_enabled: bool = False
+
     # --- Phụ đề -----------------------------------------------------------
     # Kiểu mặc định: "none" | "soft" (tệp rời) | "burn" (ghi thẳng vào hình)
     subtitle_mode: str = "none"
@@ -408,6 +415,8 @@ class Settings:
                 env_int("TRANSLATE_BATCH_SIZE", "40"))),
             translate_local_enabled=env("TRANSLATE_LOCAL_ENABLED", "false")
                                     .strip().lower() not in ("0", "false", "no"),
+            cloud_render_enabled=env("CLOUD_RENDER_ENABLED", "false")
+                                 .strip().lower() not in ("0", "false", "no"),
             subtitle_mode=_one_of(env("SUBTITLE_MODE", "none"),
                                   ("none", "soft", "burn"), "none"),
             subtitle_preset=env("SUBTITLE_PRESET", "clean").strip() or "clean",

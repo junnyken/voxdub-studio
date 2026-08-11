@@ -108,11 +108,75 @@ function RetentionTable({ cohorts }) {
   )
 }
 
+// Tên kỹ thuật (khớp autodub.progress.STEPS) -> nhãn tiếng Việt cho người
+// dùng, đúng 6 chặng mini-spec V13 Scope D nêu (download→demucs→asr→
+// translate→tts→mux).
+const FUNNEL_LABELS = {
+  acquire: 'Tải video',
+  separate: 'Tách nhạc nền',
+  asr: 'Nghe & chép lời',
+  translate: 'Dịch',
+  tts: 'Đọc giọng',
+  merge_video: 'Ghép video',
+}
+
+/** Phễu hoàn thành/bỏ dở theo stage (mini-spec V13, docs/PLAN.md) — dữ
+ * liệu thật từ PipelineEvent, chỉ ghi khi client ở chế độ SaaS. */
+function PipelineFunnel({ data }) {
+  const rows = data.funnel || []
+  const max = rows.length ? rows[0].count : 0
+  if (!max) {
+    return <p className="text-sm text-ink-muted py-8 text-center">Chưa có dữ liệu.</p>
+  }
+  return (
+    <div className="mt-4 space-y-2.5">
+      {rows.map((r) => {
+        const pct = max ? Math.round((r.count / max) * 100) : 0
+        return (
+          <div key={r.stage} className="flex items-center gap-3">
+            <span className="text-xs text-ink-soft w-32 shrink-0">
+              {FUNNEL_LABELS[r.stage] || r.stage}
+            </span>
+            <div className="flex-1 h-6 bg-panel-soft rounded overflow-hidden">
+              <div
+                className="h-full bg-primary/70 rounded flex items-center justify-end px-2"
+                style={{ width: `${Math.max(pct, 4)}%` }}
+              >
+                <span className="text-[10px] text-white font-medium">{r.count}</span>
+              </div>
+            </div>
+            <span className="text-xs text-ink-muted w-10 text-right shrink-0">{pct}%</span>
+          </div>
+        )
+      })}
+      <div className="grid grid-cols-3 gap-3 pt-3 mt-1 border-t border-border-subtle">
+        <div>
+          <p className="text-xs text-ink-muted">Hoàn thành</p>
+          <p className="text-sm font-semibold text-ok">{data.completed}</p>
+        </div>
+        <div>
+          <p className="text-xs text-ink-muted">Lỗi</p>
+          <p className={`text-sm font-semibold ${data.failed ? 'text-danger' : ''}`}>
+            {data.failed}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-ink-muted" title={`Đang "started" quá ${data.staleHours} giờ không thấy cập nhật — ước lượng, không phải sự thật tuyệt đối.`}>
+            Bỏ dở (ước lượng)
+          </p>
+          <p className="text-sm font-semibold text-warn">{data.abandoned}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const [days, setDays] = useState(7)
   const overview = useFetch(() => adminApi.overview(days), [days])
   const usage = useFetch(() => adminApi.usage(days), [days])
   const retention = useFetch(() => adminApi.retention(8), [])
+  const funnel = useFetch(() => adminApi.pipelineFunnel(days, 6), [days])
 
   if (overview.loading) return <Loading />
   if (overview.error) return <ErrorBox error={overview.error} onRetry={overview.reload} />
@@ -176,6 +240,18 @@ export default function Dashboard() {
         {retention.loading && <Loading />}
         {retention.error && <ErrorBox error={retention.error} onRetry={retention.reload} />}
         {retention.data && <RetentionTable cohorts={retention.data.cohorts} />}
+      </div>
+
+      <div className="card p-5">
+        <h2 className="font-semibold text-sm">Phễu lồng tiếng — hoàn thành/bỏ dở theo bước</h2>
+        <p className="text-xs text-ink-muted mt-1">
+          Chỉ tính lượt chạy từ thiết bị ở chế độ SaaS (có cấu hình máy chủ) — thiết bị
+          local-only không gửi trạng thái này. &quot;Bỏ dở&quot; là ước lượng (không có
+          nút &quot;tôi bỏ cuộc&quot;), suy từ việc không thấy cập nhật quá lâu.
+        </p>
+        {funnel.loading && <Loading />}
+        {funnel.error && <ErrorBox error={funnel.error} onRetry={funnel.reload} />}
+        {funnel.data && <PipelineFunnel data={funnel.data} />}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">

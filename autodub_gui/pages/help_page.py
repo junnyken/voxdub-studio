@@ -67,6 +67,16 @@ EXTRA_PROBLEMS = (
      "chủ thì ứng dụng tự chuyển sang dịch tay (dán vào ChatGPT/Gemini), "
      "vẫn miễn phí. Xem đúng chế độ máy bạn đang chạy ở màn chào lần đầu "
      "hoặc trang Tài khoản (ẩn nếu không có máy chủ)."),
+    ("App có gửi dữ liệu gì về máy chủ không?",
+     "Chạy local-only (không cấu hình máy chủ): KHÔNG BAO GIỜ gửi bất kỳ "
+     "thứ gì đi, mọi dữ liệu ở lại máy bạn. Có cấu hình máy chủ (chế độ "
+     "SaaS): ngoài nội dung cần DỊCH (gửi để dịch, không lưu lại nội dung "
+     "gốc), app còn gửi TRẠNG THÁI TIẾN TRÌNH mỗi lượt lồng tiếng — bắt "
+     "đầu lúc nào, xong hay lỗi, dừng ở bước nào (tải video/tách nhạc/"
+     "nghe-chép/dịch/đọc giọng/ghép video) — để cải thiện dịch vụ. Trạng "
+     "thái tiến trình CHỈ gồm mã máy, mã lượt chạy, tên bước và thời gian — "
+     "KHÔNG BAO GIỜ gồm nội dung video, lời thoại, audio hay đường dẫn file "
+     "trên máy bạn."),
     ("Máy chưa có FFmpeg",
      "FFmpeg là công cụ ghép hình và tiếng. Hãy tải bản đầy đủ, giải nén rồi "
      "thêm thư mục bin vào đường dẫn hệ thống, sau đó mở lại ứng dụng."),

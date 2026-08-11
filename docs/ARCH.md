@@ -58,8 +58,13 @@ Orchestrator: `pipeline.py` (`DubPipeline.run()`, ~1946 dòng).
 | Content/metadata | `content/generator.py` | Sinh title/description/hashtag — **chỉ chạy khi có server** (server-side) |
 | Licensing/credit (Vox) | `billing.py` (`HoldBillingAdapter`, tách khỏi `pipeline.py` ở mini-spec V2), `securestore.py`, `device_id.py`, `keystore.py` | Hold credit sau ASR, mã hoá AES-256-GCM artifact trung gian đến khi export/commit hold. `pipeline.py` chỉ còn gọi delegate sang `billing.py`. **Global `HOLD`/`USAGE` (`text/translate_common.py`) vẫn được đọc trực tiếp ở nhiều module khác (`translate_saas.py`, `translate_review.py`, `translate_hint.py`, `content/generator.py`, và ngay trong `DubPipeline.run()`) — chưa tách hoàn toàn khỏi core, xem `docs/TEST_LOG.md` mục V2 cho lý do và giới hạn.** |
 
-Ngôn ngữ đích **chỉ tiếng Việt** (`languages.py`), nguồn giới hạn 4 lựa chọn trong GUI
-(`zh-CN`/`en-US`/`zh-HK`/`zh-TW`) dù Whisper hỗ trợ ~100 ngôn ngữ.
+Ngôn ngữ đích: tiếng Việt (mặc định) + tiếng Anh (mini-spec V8→V11, đánh dấu
+"thử nghiệm" trong GUI — engine giọng đọc chỉ CapCut qua mạng, chưa có giọng
+offline như VieNeu tiếng Việt). `languages.TARGETS` là registry duy nhất
+(`autodub/languages.py`); `voices.catalog()`/GUI đều target-aware, xem
+`docs/TEST_LOG.md` mục V11. Nguồn giới hạn ~8 lựa chọn trong GUI (zh-CN/
+en-US/zh-HK/zh-TW/ko-KR/ja-JP/th-TH/id-ID, mini-spec V4) dù Whisper hỗ trợ
+~100 ngôn ngữ.
 
 ### 2.2 `autodub_gui/` — Desktop GUI
 
@@ -78,13 +83,32 @@ theo segment (+ phụ phí auto-translate + phí metadata). Debit dùng `findOne
 atomic (không có Mongo transaction — single-node). API key nhà cung cấp AI mã hoá
 AES-256-GCM tại rest.
 
-**Cloud rendering (mini-spec V9, POC hẹp, 2026-08-11):** `routes/jobs.js` +
-`services/render-job.service.js` cho phép server chạy stage Demucs thay máy người dùng
-— spawn nguyên văn `autodub/media/demucs_worker.py` qua subprocess (Python cần cài sẵn
-trên server host, KHÔNG có trong `docker-compose.yml` hiện tại — xem `docs/TEST_LOG.md`
-mục V9). File input/output xoá ngay sau khi trả kết quả (chính sách dữ liệu đã chủ dự
-án duyệt). Tuỳ chọn thêm, không thay thế luồng local — xử lý đồng bộ trong request
-(chưa có queue/worker pool thật), chưa có UI.
+**Cloud rendering (mini-spec V9 → V12, production-ready 2026-08-11):** tách nhạc nền
+(Demucs) trên cloud thay máy người dùng, xử lý BẤT ĐỒNG BỘ thật — 2 image Docker RIÊNG:
+`control_server` (Node) và `control_server/worker/render_worker.py` (Python, container
+riêng, torch+demucs — build/deploy không phụ thuộc lẫn nhau). `POST /v1/jobs/demucs`
+trả `{status:"queued"}` ngay, worker poll job qua API nội bộ `/internal/jobs/*`
+(`X-Worker-Token`, tách hẳn token thiết bị/admin), spawn nguyên văn
+`autodub/media/demucs_worker.py` qua subprocess — KHÔNG rebuild logic tách nhạc. Mongo
+(`RenderJob`, có `workerId`/`heartbeatAt`) vẫn là nguồn sự thật duy nhất, không thêm
+Redis/broker; worker chết giữa chừng (heartbeat quá hạn) tự động chuyển job `failed`,
+không treo mãi. File input/output xoá ngay sau khi trả kết quả (chính sách dữ liệu đã
+chủ dự án duyệt từ V9). GUI: ô "Xử lý tách nhạc trên cloud" ở bước Nghe và chép lời
+(`autodub/cloud_render.py`), hiện giá TRƯỚC khi chạy, lỗi cloud tự fallback Demucs máy.
+Live-verify thật qua worker chạy trực tiếp + `control_server` thật trong Docker — build
+`docker compose` full 3-service CHƯA tự xác nhận được (mạng build torch quá chậm trong
+môi trường audit, không phải lỗi thiết kế) — xem `docs/TEST_LOG.md` mục V12.
+
+**Telemetry tiến trình (mini-spec V13, 2026-08-11):** `PipelineEvent` (1 document/run,
+upsert theo fingerprint+runId) ghi trạng thái `started`/`completed`/`failed` + giai đoạn
+mới nhất — CHỈ khi client ở chế độ SaaS (`autodub/telemetry.py`, cổng
+`saas_client.is_configured()`, không bao giờ ở local-only). `POST /v1/telemetry/
+pipeline-event` chặn NGHIÊM field ngoài runId/status/stage/errorStage (400, không âm
+thầm bỏ qua) — không bao giờ nội dung video/transcript/audio. Banner minh bạch
+(`autodub_gui/first_run.py`, `help_page.py`) đã cập nhật TRƯỚC khi tính năng gửi dữ
+liệu. Dashboard admin có phễu 6 chặng (tải video→tách nhạc→nghe-chép→dịch→đọc giọng→
+ghép video) + số bỏ dở (ước lượng theo `updatedAt` quá cũ, không phải sự thật tuyệt
+đối). Xem `docs/TEST_LOG.md` mục V13.
 
 ### 2.4 `website/` — Storefront + Admin
 
@@ -119,7 +143,8 @@ Phía client: không có DB — toàn bộ state là file trên đĩa dưới `o
   chưa được README làm rõ.
 - Logic thương mại (hold/credit) nằm xen trong `pipeline.py` chứ chưa tách lớp rõ ràng
   khỏi core OSS.
-- Test: 46 file/~546 test cho `autodub/` (pytest), rất đầy đủ. `control_server` chỉ có
-  3 file test thuần utility (không có test tích hợp DB). `website/` không có test nào.
-- Dependency thừa: `content = ["google-genai"]` trong `pyproject.toml` không còn được
-  reference ở đâu trong code (content generation đã chuyển hẳn sang server-side).
+- Test (2026-08-11, sau Phase D V11-V13): `autodub/` (pytest) **690 test pass**;
+  `control_server` **132 test pass** (integration thật, MongoDB in-memory); `website/`
+  **31 test** (Vitest, chỉ logic thuần — utils/store, CHƯA test render/tương tác UI React).
+  Tổng **853 test, 0 fail** — xem `docs/TEST_LOG.md` cho log live-verify chi tiết từng
+  mini-spec.

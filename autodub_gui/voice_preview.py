@@ -38,10 +38,16 @@ def _safe_name(voice: str) -> str:
     return re.sub(r"[^0-9A-Za-z]+", "_", voice or "voice").strip("_") or "voice"
 
 
-def cached_path(voice: str) -> str:
-    """Đường dẫn tệp câu mẫu của một giọng trong thư mục đệm."""
-    return os.path.join(_cache_dir(),
-                        f"v{_CACHE_VERSION}_{_safe_name(voice)}.wav")
+def cached_path(voice: str, target_key: str = "vi") -> str:
+    """Đường dẫn tệp câu mẫu của một giọng trong thư mục đệm.
+
+    Khoá thêm theo ``target_key`` (mini-spec V11): tên giọng CapCut không
+    đảm bảo duy nhất xuyên các catalog ngôn ngữ, gộp chung sẽ phát nhầm câu
+    mẫu ngôn ngữ khác cho cùng một tên.
+    """
+    suffix = "" if target_key == "vi" else f"_{target_key}"
+    return os.path.join(
+        _cache_dir(), f"v{_CACHE_VERSION}_{_safe_name(voice)}{suffix}.wav")
 
 
 def _library_wav(voice: str) -> str:
@@ -63,29 +69,35 @@ class _Synthesizer(QThread):
     """Tạo câu mẫu ở luồng nền để cửa sổ không bị đứng."""
 
     def __init__(self, parent, cache: dict, cache_lock, settings, voice: str,
-                 out_path: str):
+                 out_path: str, target_key: str = "vi"):
         super().__init__(parent)
         self._cache = cache
         self._cache_lock = cache_lock
         self._settings = settings
         self._voice = voice
         self._out = out_path
+        self._target_key = target_key
         self.error = ""
 
     def run(self) -> None:
         try:
+            # target_key (mini-spec V11, docs/PLAN.md): cache theo (giọng,
+            # ngôn ngữ đích) — cùng tên giọng có thể tồn tại ở nhiều catalog
+            # ngôn ngữ khác nhau (CapCut), phát trộn ngôn ngữ nếu chỉ khoá
+            # theo tên.
+            cache_key = (self._voice, self._target_key)
             with self._cache_lock:
-                synth = self._cache.get(self._voice)
+                synth = self._cache.get(cache_key)
             if synth is None:
                 from autodub.languages import get_target
                 from autodub.speech.tts import get_synthesizer
 
                 # Nạp NGOÀI lock (mất vài giây) rồi mới ghi vào sổ — giữ lock
                 # xuyên qua get_synthesizer sẽ chặn cả cleanup ở luồng GUI.
-                synth = get_synthesizer(get_target("vi"), self._settings,
-                                        voice=self._voice)
+                synth = get_synthesizer(get_target(self._target_key),
+                                        self._settings, voice=self._voice)
                 with self._cache_lock:
-                    self._cache[self._voice] = synth
+                    self._cache[cache_key] = synth
             os.makedirs(os.path.dirname(self._out), exist_ok=True)
             synth.synthesize(PREVIEW_TEXT, self._out)
         except Exception as e:  # noqa: BLE001 — hiện nguyên nhân cho người dùng
@@ -118,11 +130,16 @@ class VoicePreview(QObject):
         """Máy có phát được âm thanh trong ứng dụng không."""
         return HAS_MEDIA
 
-    def play(self, settings, voice: str) -> None:
-        """Phát mẫu giọng: có tệp sẵn thì phát ngay, chưa có mới tổng hợp."""
+    def play(self, settings, voice: str, target_key: str = "vi") -> None:
+        """Phát mẫu giọng: có tệp sẵn thì phát ngay, chưa có mới tổng hợp.
+
+        ``target_key`` (mini-spec V11, docs/PLAN.md): giọng CapCut ngôn ngữ
+        khác tiếng Việt phải tra đúng catalog ngôn ngữ đó, không thì bị coi
+        nhầm là chưa cài VieNeu.
+        """
         if self.is_busy():
             return
-        problem = self._blocking_problem(settings, voice)
+        problem = self._blocking_problem(settings, voice, target_key)
         if problem:
             self.status_changed.emit(problem)
             self.finished.emit(False)
@@ -136,7 +153,7 @@ class VoicePreview(QObject):
             self.finished.emit(True)
             return
 
-        out_path = cached_path(voice)
+        out_path = cached_path(voice, target_key)
         if os.path.isfile(out_path) and os.path.getsize(out_path) > 0:
             self.status_changed.emit("Đang phát…")
             self._play_file(out_path)
@@ -147,13 +164,13 @@ class VoicePreview(QObject):
             f"Đang tạo câu mẫu bằng giọng «{voice}»… Chỉ lần đầu phải chờ, "
             "các lần sau sẽ phát ngay.")
         worker = _Synthesizer(self, self._synths, self._synths_lock,
-                              settings, voice, out_path)
+                              settings, voice, out_path, target_key)
         worker.finished.connect(lambda: self._on_ready(worker, out_path))
         self._thread = worker
         worker.start()
 
     @staticmethod
-    def _blocking_problem(settings, voice: str) -> str:
+    def _blocking_problem(settings, voice: str, target_key: str = "vi") -> str:
         """Lý do không nghe thử được, hoặc chuỗi rỗng nếu mọi thứ sẵn sàng."""
         if not HAS_MEDIA:
             return "Máy này không phát được âm thanh trong ứng dụng."
@@ -161,9 +178,11 @@ class VoicePreview(QObject):
             return "Hãy chọn một giọng trước khi nghe thử."
         # Giọng CapCut đọc qua mạng nên nghe thử được ngay; chỉ giọng offline
         # mới cần model VieNeu trên máy.
+        from autodub.languages import get_target
         from autodub.speech.tts import voices as voice_catalog
 
-        if voice_catalog.is_capcut_voice(voice):
+        target_code = get_target(target_key).code
+        if voice_catalog.is_capcut_voice(voice, lang=target_code):
             return ""
         if not settings.vieneu_configured():
             from autodub.speech.tts import NOT_INSTALLED_HINT

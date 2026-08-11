@@ -570,6 +570,15 @@ module.exports = async function adminRoutes(fastify) {
     return { weeks, cohorts: computeWeeklyRetention(devices, weeks, new Date()) }
   })
 
+  // Mini-spec V13 (docs/PLAN.md) — phễu hoàn thành/bỏ dở theo stage, dữ
+  // liệu thật từ PipelineEvent (autodub.telemetry, chỉ ghi ở chế độ SaaS).
+  fastify.get('/analytics/pipeline-funnel', async (request) => {
+    const days = Math.min(90, Math.max(1, Number(request.query.days) || 7))
+    const staleHours = Math.min(72, Math.max(1, Number(request.query.staleHours) || 6))
+    const telemetry = require('../services/telemetry.service')
+    return telemetry.overview(days, staleHours)
+  })
+
   fastify.get('/audit-log', async (request) => {
     const { action = '', target = '', page = 1, limit = 50 } = request.query
     const filter = {}

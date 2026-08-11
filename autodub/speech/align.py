@@ -69,10 +69,18 @@ def _load_align_model():
     return model, "cpu", workers
 
 
-def _asr_words(model, wav_path: str) -> list[tuple[str, float, float]]:
-    """Chữ + mốc (tương đối trong clip) Whisper nghe được từ một clip."""
+def _asr_words(model, wav_path: str,
+               language: str = "vi") -> list[tuple[str, float, float]]:
+    """Chữ + mốc (tương đối trong clip) Whisper nghe được từ một clip.
+
+    ``language`` PHẢI khớp ngôn ngữ ĐÍCH thật của clip TTS (mini-spec V11,
+    xem docs/PLAN.md) — trước đây hardcode "vi", nên clip TTS tiếng Anh bị
+    Whisper nghe nhầm sang tiếng Việt, alignment sai/rớt về ước lượng cho
+    MỌI video không phải tiếng Việt. Không có fallback ngầm ở đây; caller
+    (``align_segments``) chịu trách nhiệm truyền đúng mã Whisper.
+    """
     segments, _info = model.transcribe(
-        wav_path, language="vi", word_timestamps=True,
+        wav_path, language=language, word_timestamps=True,
         beam_size=1,              # audio sạch — greedy đủ, nhanh gấp đôi
         condition_on_previous_text=False,
         vad_filter=False,         # clip đã là lời nói thuần
@@ -137,6 +145,7 @@ def align_segments(
     merge_dir: str,
     text_field: str,
     cache_path: str | None = None,
+    language: str = "vi",
 ) -> dict[int, list[tuple[str, float, float]]]:
     """Alignment thật cho mọi segment. Trả ``{id: [(chữ, t0, t1), ...]}``.
 
@@ -144,6 +153,11 @@ def align_segments(
     Segment thiếu file/khớp hỏng thì vắng mặt trong kết quả — caller bù bằng
     ước lượng. Cache theo (mtime clip, text) nên chỉ câu bị re-TTS/sửa chữ
     mới phải nghe lại.
+
+    ``language`` là mã Whisper của NGÔN NGỮ ĐÍCH (giọng TTS đọc thứ tiếng
+    gì) — mặc định "vi" để mọi lời gọi cũ (chỉ có target tiếng Việt trước
+    V11) chạy y hệt trước, KHÔNG suy ra tự động ở đây (mini-spec V11, xem
+    docs/PLAN.md — caller là nơi biết target thật).
     """
     from autodub.media.audio import wav_duration_s
 
@@ -199,7 +213,7 @@ def align_segments(
         sid = seg.get("id")
         text_words = str(seg.get(text_field, "")).split()
         try:
-            asr = _asr_words(model, wav)
+            asr = _asr_words(model, wav, language)
         except Exception as e:
             logger.debug(f"ASR alignment câu {sid} lỗi ({e}) — ước lượng")
             return None

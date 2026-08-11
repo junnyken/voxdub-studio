@@ -309,6 +309,99 @@ class SaasClient:
             self._config = config
         return config
 
+    # ------------------------------------------ cloud rendering (V12) ----
+    #
+    # Mini-spec V9 → V12 (docs/PLAN.md) — POC hẹp: CHỈ stage Demucs. Job xử
+    # lý BẤT ĐỒNG BỘ (V12): nộp -> nhận jobId ngay -> tự poll -> tải kết
+    # quả. Không dùng ``_request`` (chỉ JSON) — nộp job là multipart, tải
+    # kết quả là stream nhị phân.
+
+    def submit_demucs_job(self, audio_path: str) -> dict:
+        """Nộp 1 file audio để tách nhạc trên cloud. Trả về ngay
+        ``{"jobId", "status": "queued", "async": true, "balanceAfter"}`` —
+        KHÔNG đợi xử lý xong (V12, khác V9 cũ). Thiếu Vox ->
+        :class:`InsufficientCreditError`.
+        """
+        import requests
+
+        if not self.base_url:
+            raise OfflineError("Chưa cấu hình địa chỉ máy chủ VoxDub.")
+        token = self._load_token() or self._register_device()
+        url = f"{self.base_url}/v1/jobs/demucs"
+        try:
+            with open(audio_path, "rb") as f:
+                resp = self._http().post(
+                    url, files={"file": (os.path.basename(audio_path), f, "audio/wav")},
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=(_CONNECT_TIMEOUT, 60.0))
+        except requests.exceptions.RequestException as e:
+            raise OfflineError(
+                "Không kết nối được máy chủ VoxDub. Kiểm tra mạng rồi thử lại."
+            ) from e
+        return self._parse_response(resp)
+
+    def job_status(self, job_id: str) -> dict:
+        """Trạng thái job — gọi lặp lại (poll) tới khi ``status`` là
+        ``"done"``/``"failed"``. Trả về ``{"jobId", "stage", "status",
+        "error", "creditCharged", "expiresAt"}``."""
+        return self._request("GET", f"/v1/jobs/{job_id}", timeout=30.0)
+
+    def download_job_result(self, job_id: str, stem: str, dest_path: str) -> None:
+        """Tải 1 stem kết quả (``"vocals"``/``"no_vocals"``) về ``dest_path``.
+
+        Máy chủ XOÁ file NGAY sau khi cả 2 stem đã tải (chính sách dữ liệu
+        đã chủ dự án duyệt, xem docs/TEST_LOG.md mục V9) — gọi lại lần 2
+        cho stem đã tải trước đó sẽ nhận SaasError (file không còn).
+        """
+        import requests
+
+        if not self.base_url:
+            raise OfflineError("Chưa cấu hình địa chỉ máy chủ VoxDub.")
+        token = self._load_token() or self._register_device()
+        url = f"{self.base_url}/v1/jobs/{job_id}/result/{stem}"
+        try:
+            resp = self._http().get(
+                url, headers={"Authorization": f"Bearer {token}"},
+                timeout=(_CONNECT_TIMEOUT, 120.0), stream=True)
+        except requests.exceptions.RequestException as e:
+            raise OfflineError(
+                "Không kết nối được máy chủ VoxDub. Kiểm tra mạng rồi thử lại."
+            ) from e
+        if resp.status_code != 200:
+            self._parse_response(resp)   # ném SaasError phù hợp với mã lỗi
+            return
+        os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
+        with open(dest_path, "wb") as f:
+            for chunk in resp.iter_content(chunk_size=1024 * 256):
+                if chunk:
+                    f.write(chunk)
+
+    def _parse_response(self, resp) -> dict:
+        """Diễn giải 1 response HTTP thô thành dict hoặc ném SaasError —
+        cùng luật mã lỗi với ``_request`` (402/DEVICE_BLOCKED/MAINTENANCE/
+        429), tách riêng vì multipart/stream không đi qua ``_request``."""
+        if resp.status_code == 200:
+            try:
+                return resp.json()
+            except ValueError as e:
+                raise SaasError("Máy chủ trả về dữ liệu không đọc được.") from e
+        try:
+            data = resp.json()
+        except ValueError:
+            data = {}
+        code = str(data.get("code") or "")
+        message = str(data.get("message") or f"Lỗi máy chủ (HTTP {resp.status_code})")
+        if resp.status_code == 402:
+            raise InsufficientCreditError(
+                message, balance=int(data.get("balance") or 0),
+                required=int(data.get("required") or 0))
+        if code == "DEVICE_BLOCKED":
+            raise DeviceBlockedError(message, code=code, status=resp.status_code)
+        if code == "MAINTENANCE":
+            raise MaintenanceError(message, code=code, status=resp.status_code)
+        raise SaasError(message, code=code, status=resp.status_code,
+                        retry_after=_retry_after_s(resp))
+
     def _note_usage(self, data: dict) -> None:
         """Ghi số Vox vừa tiêu vào sổ chung của lượt dịch, và cập nhật số dư.
 
@@ -454,6 +547,24 @@ class SaasClient:
                              json_body=payload)
         self._note_usage(data)
         return data.get("metadata") or {}
+
+    # -------------------------------------------- telemetry (V13) --------
+
+    def send_pipeline_event(self, run_id: str, status: str, stage: str,
+                            error_stage: str = "") -> None:
+        """Báo trạng thái tiến trình 1 lượt dubbing (mini-spec V13, xem
+        docs/PLAN.md). CHỈ (runId, status, stage, errorStage?) — không bao
+        giờ nội dung, máy chủ tự chặn field lạ (guardrail 2).
+
+        Không tự bọc try/except ở đây — bên gọi (``autodub.telemetry``)
+        chạy hàm này trong luồng nền riêng và nuốt mọi lỗi (guardrail 3:
+        best-effort, không được làm chậm/hỏng pipeline chính).
+        """
+        payload = {"runId": run_id, "status": status, "stage": stage}
+        if error_stage:
+            payload["errorStage"] = error_stage
+        self._request("POST", "/v1/telemetry/pipeline-event", timeout=10.0,
+                      json_body=payload)
 
 
 def _retry_after_s(resp) -> float:

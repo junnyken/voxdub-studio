@@ -269,6 +269,18 @@ FIELDS: tuple[Field, ...] = (
           "Xuất video xong là dọn ngay các tệp trung gian nặng. Tiết kiệm "
           "đĩa, nhưng dự án đó sẽ không sửa từng câu hay xuất lại được nữa."),
 
+    # Mini-spec V9 → V12 (docs/PLAN.md): chỉ có tác dụng khi ĐÃ cấu hình máy
+    # chủ VoxDub (chế độ SaaS) — máy chưa cấu hình vẫn tách nhạc trên máy
+    # như cũ dù bật cờ này (is_available() là cổng, xem autodub.cloud_render).
+    Field("CLOUD_RENDER_ENABLED", CHECK,
+          "Tách nhạc nền trên cloud (Demucs)", TAB_ADVANCED, "Xử lý trên cloud",
+          "false",
+          "Chỉ có tác dụng khi đã cấu hình máy chủ VoxDub. Máy chủ tách "
+          "giọng/nhạc nền thay cho máy bạn — nhanh hơn trên máy yếu, tốn "
+          "Vox mỗi lượt (giá hiện ở bước Tạo dự án trước khi chạy). Máy chủ "
+          "lỗi hoặc mất mạng thì tự chuyển về tách trên máy, không mất "
+          "tính năng."),
+
     # -- Thẻ Dịch thuật ------------------------------------------------
     # Mô hình, lời nhắc và API Key nằm trên máy chủ VoxDub. Người dùng không
     # chọn nơi dịch nữa — thứ họ đóng góp được là NGỮ CẢNH: video nói về gì,

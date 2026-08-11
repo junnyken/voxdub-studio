@@ -26,6 +26,11 @@ module.exports = async function configRoutes(fastify) {
       'credit.cost.segment.base', 'credit.cost.segment.autotranslate',
       'credit.cost.metadata',
       'ai.max.segments.per.request',
+      // Mini-spec V12 (docs/PLAN.md) — GUI cần biết TRƯỚC khi người dùng
+      // bấm "Xử lý trên cloud": có bật không, và giá bao nhiêu Vox
+      // (guardrail 4 — hiện đúng giá trước khi trừ Vox, không được trừ
+      // tiền rồi mới báo).
+      'cloud.render.enabled', 'credit.cost.cloud.demucs',
     ])
     return {
       creditEnabled: cfg['credit.enabled'],
@@ -38,7 +43,9 @@ module.exports = async function configRoutes(fastify) {
         segmentBase: cfg['credit.cost.segment.base'],
         segmentAutoTranslate: cfg['credit.cost.segment.autotranslate'],
         metadata: cfg['credit.cost.metadata'],
+        cloudRenderDemucs: cfg['credit.cost.cloud.demucs'],
       },
+      cloudRenderEnabled: cfg['cloud.render.enabled'],
       webUrl: (process.env.PUBLIC_URL || 'http://localhost:3001').replace(/\/+$/, ''),
       serverVersion: '3.0.0',
     }

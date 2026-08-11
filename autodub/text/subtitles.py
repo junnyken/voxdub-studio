@@ -55,11 +55,20 @@ def refresh_subtitles(
     # Phụ đề cụm chữ: sinh .ass từ mốc chữ thật của chính bản giọng đọc cuối
     # cùng. Hỏng thì quay về phụ đề cả câu — video vẫn phải ra được.
     try:
+        from autodub.languages import WHISPER_LANG_MAP
         from autodub.text.ass_karaoke import build_karaoke_ass
+
+        # Mini-spec V11 (docs/PLAN.md): alignment (nghe lại chính clip TTS
+        # để canh mốc chữ) phải biết ĐÚNG ngôn ngữ đích, không phải luôn
+        # "vi" — trước đây hardcode nên mọi target khác tiếng Việt bị
+        # Whisper nghe sai, rớt về ước lượng thô cho MỌI câu.
+        whisper_lang = WHISPER_LANG_MAP.get(target.code,
+                                            target.code.split("-")[0].lower())
         burn_path = build_karaoke_ass(
             segments, merge_dir, data_path(work_dir, KARAOKE_NAME),
             style, text_field=target.text_field, settings=settings,
-            cache_path=data_path(work_dir, "align_cache.json"))
+            cache_path=data_path(work_dir, "align_cache.json"),
+            language=whisper_lang)
         return srt_path, burn_path
     except Exception as e:
         logger.warning(f"Không tạo được phụ đề kiểu cụm chữ ({e}) — "

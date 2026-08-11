@@ -95,7 +95,8 @@ class DubRequest:
     blur_regions: list[dict] = field(default_factory=list)
     subtitle_style: dict | None = None  # libass styling; None → Settings default
 
-    # The dub target is always Vietnamese now.
+    # Ngôn ngữ đích lồng tiếng — khoá ngắn khớp autodub.languages.TARGETS
+    # ("vi"/"en"). Mặc định "vi" giữ hành vi trước mini-spec V8/V11.
     target: str = "vi"
 
     #: Luồng wizard: giữ chỗ Vox sau ASR, chạy tới hết ghép audio rồi DỪNG
@@ -126,7 +127,27 @@ class DubPipeline:
         whisper_cache=None,
     ):
         self.settings = settings
-        self._reporter = ProgressReporter(progress, cancel_event)
+        # Telemetry tiến trình (mini-spec V13, docs/PLAN.md) — gắn THÊM 1
+        # listener vào callback progress hiện có, độc lập với UI (Design
+        # Choice của V13: tái dùng rep.emit(), không thêm hook mới trong
+        # logic pipeline). run_id được gán mỗi lượt trong run() bên dưới.
+        self._telemetry_run_id: str | None = None
+        self._telemetry_last_stage: str = ""
+        from autodub import telemetry
+        telemetry_listener = telemetry.make_progress_listener(self)
+
+        def _progress_with_telemetry(event, _orig=progress, _tel=telemetry_listener):
+            if _orig is not None:
+                try:
+                    _orig(event)
+                except Exception:
+                    # Lỗi ở callback GUI không được chặn telemetry chạy
+                    # tiếp — ProgressReporter.emit() cũng nuốt lỗi tương tự
+                    # cho callback gốc, đây chỉ đảm bảo _tel() luôn tới lượt.
+                    pass
+            _tel(event)
+
+        self._reporter = ProgressReporter(_progress_with_telemetry, cancel_event)
         # Vòng đời hold Vox của lượt chạy này — logic đầy đủ nằm ở
         # autodub/billing.py (mini-spec V2, xem docs/PLAN.md); các phương
         # thức _setup_hold/_stop_for_export/_settle_hold_inline/
@@ -165,9 +186,18 @@ class DubPipeline:
         # Xoá dấu vết lượt trước — lỡ lượt này đổ TRƯỚC khi chọn xong thư mục
         # thì batch không nhầm sang thư mục của video trước đó.
         self.last_work_dir = ""
+        # Telemetry (V13): 1 run_id MỚI mỗi lượt run() — pipeline dùng lại
+        # cho cả batch (nhiều video/1 instance) nên phải reset ở đây, không
+        # phải __init__. is_configured()==False thì listener là no-op nên
+        # new_job_id() ở đây không lãng phí gì đáng kể (chuỗi UUID rẻ).
+        from autodub.saas_client import new_job_id
+        self._telemetry_run_id = new_job_id()
+        self._telemetry_last_stage = ""
         try:
             return self._run_impl(req)
         except BaseException:
+            from autodub import telemetry
+            telemetry.note_failed(self)
             fut = self._active_bg_future
             if fut is not None:
                 fut.cancel()
@@ -734,7 +764,8 @@ class DubPipeline:
         from autodub.editor import load_render_opts, save_render_opts
         from autodub.speech.tts import voices as voice_catalog
         render_opts = load_render_opts(work_dir)
-        render_opts["voice"] = voice_catalog.resolve(self.settings, req.voice)
+        render_opts["voice"] = voice_catalog.resolve(self.settings, req.voice,
+                                                       target=target)
         dubbed_video_path = None
         if not req.skip_video:
             rep.check_cancelled()
@@ -868,7 +899,18 @@ class DubPipeline:
     # ------------------------------------------------------------------ #
 
     def default_output_dir(self, target: TargetLang) -> str:
-        return self.settings.vi_output_dir()
+        """Thư mục kết quả mặc định — theo ngôn ngữ đích.
+
+        target=vi (0 regression): y hệt trước V11 — ``vi_output_dir()``
+        (tôn trọng ``VIETNAMESE_OUTPUT_DIR`` nếu người dùng đã đặt riêng).
+        Target khác: KHÔNG dùng override đó (đặt để dời output tiếng Việt,
+        không phải mọi ngôn ngữ) — về ``<output_dir>/<KEY>`` theo target,
+        ví dụ ``output/EN`` cho tiếng Anh, tránh video tiếng Anh nằm lẫn
+        trong thư mục "VN" như trước khi phát hiện ở live-verify V11.
+        """
+        if target.key == "vi":
+            return self.settings.vi_output_dir()
+        return os.path.join(self.settings.output_dir, target.key.upper())
 
     def _setup_hold(
         self, segments: list[dict], target: TargetLang, work_dir: str,
@@ -1179,10 +1221,31 @@ class DubPipeline:
                     rate, ch = w.getframerate(), w.getnchannels()
             except (OSError, EOFError, _wave.Error):
                 pass
-            from autodub.media.vocal_separator import separate_vocals
-            sep = separate_vocals(audio_path, data_dir(work_dir, create=True),
-                                  sample_rate=rate, channels=ch,
-                                  demucs_cache=self._demucs_cache)
+
+            sep = None
+            # Mini-spec V12 (docs/PLAN.md): tách nhạc trên cloud nếu người
+            # dùng đã bật + có máy chủ cấu hình. Lỗi cloud (mạng, job hỏng,
+            # quá hạn chờ) rơi về Demucs máy — cùng nguyên tắc "degrade
+            # trung thực" đã có (vd Paraformer → Whisper), không im lặng
+            # mất tính năng.
+            from autodub import cloud_render
+            from autodub.progress import PipelineCancelled
+            if cloud_render.is_available(self.settings):
+                try:
+                    sep = cloud_render.separate_vocals_cloud(
+                        audio_path, data_dir(work_dir, create=True),
+                        sample_rate=rate, channels=ch, reporter=rep)
+                except PipelineCancelled:
+                    raise   # người dùng hủy — KHÔNG fallback, phải dừng thật
+                except Exception as e:  # noqa: BLE001 — lỗi cloud khác đều fallback
+                    logger.warning(f"Tách nhạc trên cloud lỗi ({e}) — "
+                                   "chuyển sang tách trên máy")
+                    sep = None
+            if sep is None:
+                from autodub.media.vocal_separator import separate_vocals
+                sep = separate_vocals(audio_path, data_dir(work_dir, create=True),
+                                      sample_rate=rate, channels=ch,
+                                      demucs_cache=self._demucs_cache)
             background_path = sep.get("no_vocals")
             if background_path is None:
                 logger.warning(
@@ -1277,7 +1340,7 @@ class DubPipeline:
         # thì đọc bằng giọng đó. Mỗi giọng phụ chỉ mở MỘT tiến trình con —
         # vài câu lẻ không đáng nhân đôi RAM của cả nhóm worker.
         from autodub.speech.tts import voices as voice_catalog
-        run_voice = voice_catalog.resolve(self.settings, voice)
+        run_voice = voice_catalog.resolve(self.settings, voice, target=target)
         extra_synths: dict[str, object] = {}
         extra_lock = threading.Lock()
 
@@ -1285,7 +1348,7 @@ class DubPipeline:
             seg_voice = str(seg.get("voice", "")).strip()
             if not seg_voice:
                 return synth
-            name = voice_catalog.resolve(self.settings, seg_voice)
+            name = voice_catalog.resolve(self.settings, seg_voice, target=target)
             if name == run_voice:
                 return synth
             with extra_lock:
@@ -1320,7 +1383,8 @@ class DubPipeline:
         seg_voices = {str(s.get("voice", "")).strip()
                       for s in segments if str(s.get("voice", "")).strip()}
         n_voices = len({run_voice} | {
-            voice_catalog.resolve(self.settings, v) for v in seg_voices})
+            voice_catalog.resolve(self.settings, v, target=target)
+            for v in seg_voices})
         logger.info(
             f"Giọng đọc: {run_voice}"
             + (f" + {n_voices - 1} giọng riêng cho một số câu"
@@ -1491,7 +1555,8 @@ class DubPipeline:
             "source_language": lang_code,
             "target_language": target.code,
             # Tên giọng đã dùng thật (đã phân giải), để thẻ dự án hiện đúng.
-            "voice": voice_catalog.resolve(self.settings, req.voice),
+            "voice": voice_catalog.resolve(self.settings, req.voice,
+                                           target=target),
             "total_segments": len(segments),
             "total_original_duration": round(sum(s["duration"] for s in segments), 3),
             "total_tts_duration": round(sum(r["actual_duration"] for r in tts_results), 3),

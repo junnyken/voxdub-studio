@@ -33,14 +33,13 @@ TARGETS: dict[str, TargetLang] = {
         audio_name="audio_vi_full.wav",
         folder_suffix="_vi",
     ),
-    # Mini-spec V8 (docs/PLAN.md) — PROOF OF CONCEPT, chưa full pipeline.
-    # Đã live-verify TTS engine (CapCutSynthesizer qua CapCut API thật,
-    # giọng en_us_006, xem docs/TEST_LOG.md mục V8) SẢN XUẤT ĐƯỢC audio
-    # tiếng Anh thật. CHƯA verify: GUI chọn ngôn ngữ đích (voices.catalog()
-    # vẫn chưa nhận target — trộn chung VieNeu tiếng Việt + CapCut theo
-    # ngôn ngữ), timing/ass_karaoke/editor.py (còn giả định ngầm tiếng
-    # Việt). KHÔNG dùng target này trong pipeline thật cho tới khi các phần
-    # đó được audit + verify — xem "Remaining Limits" trong docs/TEST_LOG.md.
+    # Mini-spec V8 (docs/PLAN.md) — engine ban đầu chỉ PROOF OF CONCEPT.
+    # Mini-spec V11 đóng gap: voices.catalog()/GUI đã target-aware,
+    # timing/ass_karaoke/editor.py đã audit hết + fix bug align.py hardcode
+    # language="vi" — live-verify 2 lượt pipeline thật (target=en, không
+    # crash, xem docs/TEST_LOG.md mục V11). Hạn chế còn lại (chất lượng
+    # dịch NLLB khi ASR nhiễu, chưa video dài) ghi trong "Remaining Limits"
+    # mục V11 — không phải giả định tiếng Việt còn sót.
     "en": TargetLang(
         key="en",
         code="en-US",

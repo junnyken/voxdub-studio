@@ -373,10 +373,11 @@ def resynth_segments(
     with open(path, encoding="utf-8") as f:
         segments = json.load(f)
     voice_of = {s.get("id"): str(s.get("voice", "")).strip() for s in segments}
-    main_voice = voice_catalog.resolve(settings, voice)
+    main_voice = voice_catalog.resolve(settings, voice, target=target)
     by_voice: dict[str, list[int]] = {}
     for seg_id in seg_ids:
-        name = voice_catalog.resolve(settings, voice_of.get(seg_id) or voice)
+        name = voice_catalog.resolve(settings, voice_of.get(seg_id) or voice,
+                                     target=target)
         by_voice.setdefault(name, []).append(seg_id)
     # Giọng chung đi trước để giữ thứ tự tiến độ quen thuộc.
     voice_order = sorted(by_voice, key=lambda n: (n != main_voice, n))

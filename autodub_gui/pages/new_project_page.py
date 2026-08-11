@@ -89,6 +89,7 @@ class NewProjectPage(BasePage):
         self._result: DubResult | None = None
         self._blur_regions: list[dict] = []
         self._subtitle_style: dict | None = None
+        self._cloud_render_cost: int = 0
         # Dự án đang làm dở của phiên này: thư mục + lý do dừng. Được lưu vào
         # bản nháp để lần mở app sau vẫn mời chạy tiếp thay vì tạo dự án mới
         # (dự án mới = job_id mới = trừ Vox lần nữa).
@@ -102,6 +103,7 @@ class NewProjectPage(BasePage):
         self._draft_timer.timeout.connect(self._save_draft)
         self._build()
         self._load_draft()
+        self._refresh_cloud_render_info()
         REGISTRY.job_changed.connect(self._sync_live_stepper)
 
     # -- Dựng giao diện ------------------------------------------------
@@ -204,6 +206,11 @@ class NewProjectPage(BasePage):
         self.step_voice.preview_requested.connect(self._preview_voice)
         self.step_voice.style_requested.connect(self._open_style_dialog)
         self._preview.status_changed.connect(self.step_voice.set_status)
+        # Đổi ngôn ngữ đích ở bước Dịch phải nạp lại đúng danh mục giọng ở
+        # bước Giọng đọc (mini-spec V11, docs/PLAN.md).
+        self.step_translate.target.changed.connect(
+            lambda: self.step_voice.set_target_key(
+                self.step_translate.target.current_key()))
         # Khi URL thay đổi, bỏ file đã tải sẵn để tải lại lần sau.
         self.step_video.url.changed.connect(self._on_url_changed)
 
@@ -379,6 +386,8 @@ class NewProjectPage(BasePage):
         return [
             ("Video", source or "chưa chọn"),
             ("Ngôn ngữ gốc", self._source_lang_label()),
+            ("Ngôn ngữ đích",
+             label_of(consts.DUB_TARGETS, data.get("target_key", "vi"))),
             ("Độ chính xác khi nghe",
              label_of(consts.WHISPER_MODELS, data["whisper_model"])),
             ("Cách dịch",
@@ -396,7 +405,10 @@ class NewProjectPage(BasePage):
             ("Phụ đề",
              f"{label_of(consts.SUBTITLE_MODES, data['subtitle_mode'])} · "
              f"kiểu {label_of(PRESET_CHOICES, data['subtitle_preset'])}"),
-            ("Nhạc nền", label_of(consts.BG_MODES, data["bg_mode"])),
+            ("Nhạc nền",
+             label_of(consts.BG_MODES, data["bg_mode"])
+             + (f" · xử lý trên cloud (+{self._cloud_render_cost} Vox)"
+                if data.get("cloud_render") else "")),
             ("Chỉ xuất âm thanh", "có" if data["skip_video"] else "không"),
         ]
 
@@ -501,6 +513,28 @@ class NewProjectPage(BasePage):
         self._go_to_step(0)
         TOASTS.info("Đã xóa bản nháp.")
 
+    # -- Xử lý trên cloud (mini-spec V12) -------------------------------
+    def _refresh_cloud_render_info(self) -> None:
+        """Đọc giá + trạng thái bật/tắt từ máy chủ, cập nhật ô chọn ở bước
+        Nghe và chép lời. ``app_config()`` có cache riêng (SaasClient) nên
+        gọi đồng bộ ở đây không chặn giao diện — lần đầu chưa có cache thì
+        trả dict rỗng ngay (fail-open), không treo màn hình chờ mạng.
+        """
+        self._cloud_render_cost = 0
+        try:
+            settings = self._settings_provider()
+        except Exception:  # noqa: BLE001 — cấu hình hỏng thì ẩn hẳn ô chọn
+            self.step_recognize.set_cloud_render_info(False)
+            return
+        from autodub import cloud_render
+        info = cloud_render.pricing(settings)
+        if info is None:
+            self.step_recognize.set_cloud_render_info(False)
+            return
+        self._cloud_render_cost = info["cost_vox"]
+        self.step_recognize.set_cloud_render_info(
+            True, enabled_on_server=info["enabled"], cost_vox=info["cost_vox"])
+
     # -- Nghe thử và kiểu phụ đề ---------------------------------------
     def _preview_voice(self, voice: str) -> None:
         try:
@@ -508,7 +542,8 @@ class NewProjectPage(BasePage):
         except Exception as e:  # noqa: BLE001 — báo lên giao diện
             self.step_voice.set_status(f"Không đọc được cấu hình: {e}")
             return
-        self._preview.play(settings, voice)
+        self._preview.play(settings, voice,
+                          target_key=self.step_translate.target.current_key())
 
     def _base_style(self, preset: str) -> dict:
         """Kiểu nền cho bộ đang chọn — TÔN TRỌNG tinh chỉnh trong Cài đặt.
@@ -614,6 +649,7 @@ class NewProjectPage(BasePage):
                        else data["file_path"] if source in ("file", "resume")
                        else None),
             source_lang=("" if data["auto_detect"] else data["source_lang"]),
+            target=data.get("target_key") or "vi",
             voice=data["voice"] or None,
             bg_mode=data["bg_mode"],
             bg_duck_db=data["bg_duck_db"],
@@ -643,7 +679,8 @@ class NewProjectPage(BasePage):
             if part).strip()
         changes = {"voice_speed": data["voice_speed"],
                    "translate_enabled": bool(data["auto_translate"]),
-                   "generate_metadata": bool(data["generate_metadata"])}
+                   "generate_metadata": bool(data["generate_metadata"]),
+                   "cloud_render_enabled": bool(data["cloud_render"])}
         if merged != settings.translate_style_notes:
             changes["translate_style_notes"] = merged
         if data["asr_engine"]:
@@ -663,6 +700,8 @@ class NewProjectPage(BasePage):
             updates["TRANSLATE_ENABLED"] = bool_to_env(data["auto_translate"])
         if bool(data["generate_metadata"]) != settings.generate_metadata:
             updates["GENERATE_METADATA"] = bool_to_env(data["generate_metadata"])
+        if bool(data["cloud_render"]) != settings.cloud_render_enabled:
+            updates["CLOUD_RENDER_ENABLED"] = bool_to_env(data["cloud_render"])
         if not updates:
             return
         try:

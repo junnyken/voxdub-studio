@@ -27,6 +27,10 @@ function checkEnv() {
   if (!(process.env.ADMIN_TOKEN || '').trim()) {
     console.warn('[voxdub] CẢNH BÁO: chưa đặt ADMIN_TOKEN — /v1/admin/* sẽ trả 503.')
   }
+  if (!(process.env.WORKER_INTERNAL_TOKEN || '').trim()) {
+    console.warn('[voxdub] CẢNH BÁO: chưa đặt WORKER_INTERNAL_TOKEN — cloud '
+      + 'rendering (mini-spec V12) không hoạt động, /internal/jobs/* sẽ trả 503.')
+  }
 }
 
 async function main() {
@@ -68,6 +72,29 @@ async function main() {
     }
   }, 24 * 60 * 60 * 1000)
   reconcileTimer.unref()
+
+  // Sweeper cloud rendering (mini-spec V9 xoá TTL đã có sẵn từ đầu nhưng
+  // CHƯA từng được nối vào scheduler nào — job hết hạn nằm lại vô thời hạn
+  // cho tới khi phát hiện lúc audit V12; nối luôn cả sweeper heartbeat mới
+  // của V12 (worker chết giữa chừng → job không treo mãi ở "running").
+  const renderJobService = require('./src/services/render-job.service')
+  const renderSweepMinutes = Number(
+    await config.get('cloud.render.sweep.interval.minutes')) || 2
+  const renderSweepTimer = setInterval(async () => {
+    try {
+      const [expired, staleFailed] = await Promise.all([
+        renderJobService.sweepExpired(app.log),
+        renderJobService.sweepStaleRunning(app.log),
+      ])
+      if (expired > 0) app.log.info({ expired }, 'đã dọn render job hết hạn TTL')
+      if (staleFailed > 0) {
+        app.log.warn({ staleFailed }, 'đã chuyển failed render job kẹt ở running (worker mất kết nối)')
+      }
+    } catch (err) {
+      app.log.warn({ err }, 'vòng quét render job thất bại')
+    }
+  }, renderSweepMinutes * 60 * 1000)
+  renderSweepTimer.unref()
 
   // Tắt êm: ngừng nhận request mới, cho request đang chạy kịp xong.
   for (const sig of ['SIGINT', 'SIGTERM']) {

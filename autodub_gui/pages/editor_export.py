@@ -26,7 +26,8 @@ class VoiceAndExportMixin:
         # Khoá nút ngay khi bấm, tránh bấm liên tục khi phải chờ tổng hợp.
         # finished signal sẽ mở lại (kết nối trong editor_page._build_panels).
         self.voice_panel.picker.set_preview_enabled(False)
-        self._preview.play(settings, voice or self.voice_panel.picker.voice())
+        self._preview.play(settings, voice or self.voice_panel.picker.voice(),
+                          target_key=self.target_key())
 
     def _resynth_one(self, seg_id: int) -> None:
         self._flush_edits()

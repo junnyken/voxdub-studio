@@ -82,6 +82,7 @@ def resolve_word_times(
     text_field: str,
     settings=None,
     cache_path: str | None = None,
+    language: str = "vi",
 ) -> dict[int, list[tuple[str, float, float]]]:
     """Mốc từng chữ cho mọi segment: alignment thật trước, ước lượng bù sau.
 
@@ -98,7 +99,7 @@ def resolve_word_times(
         try:
             from autodub.speech.align import align_segments
             aligned = align_segments(segments, merge_dir, text_field,
-                                     cache_path=cache_path)
+                                     cache_path=cache_path, language=language)
         except Exception as e:
             logger.warning(f"Không canh được phụ đề theo giọng đọc ({e}) — "
                            "chữ sẽ chia đều theo thời lượng câu")
@@ -226,11 +227,15 @@ def build_karaoke_ass(
     text_field: str = "text_vi",
     settings=None,
     cache_path: str | None = None,
+    language: str = "vi",
 ) -> str:
     """Sinh file .ass hoàn chỉnh cho toàn video. Trả về ``out_path``.
 
     ``merge_dir`` là thư mục clip CUỐI CÙNG (đã hậu kỳ + voice speed +
     timing mềm) — mốc chữ tính trên đúng audio người nghe sẽ nghe.
+    ``language``: mã Whisper của ngôn ngữ ĐÍCH (mini-spec V11) — dùng để
+    alignment nghe đúng thứ tiếng của giọng TTS, không mặc định "vi" mù
+    quáng.
     """
     from autodub.media.subtitle import normalize_style
 
@@ -240,7 +245,8 @@ def build_karaoke_ass(
     all_caps = bool(s["all_caps"])
 
     word_times = resolve_word_times(segments, merge_dir, text_field,
-                                    settings=settings, cache_path=cache_path)
+                                    settings=settings, cache_path=cache_path,
+                                    language=language)
 
     events: list[str] = []
     for seg in segments:

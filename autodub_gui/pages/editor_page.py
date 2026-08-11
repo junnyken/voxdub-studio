@@ -498,7 +498,8 @@ class EditorPage(VoiceAndExportMixin, BasePage):
         # phân giải theo cài đặt chung — không bao giờ đoán mò.
         from autodub.speech.tts import voices as voice_catalog
         project_voice = voice_catalog.resolve(
-            settings, opts.get("voice") or self._project.voice)
+            settings, opts.get("voice") or self._project.voice,
+            target=self._state.target if self._state else None)
         self.voice_panel.set_project_voice(project_voice)
         self.overview.set_voice(project_voice)
         self.voice_panel.speed.set_value(

@@ -1,16 +1,24 @@
 'use strict'
 
 /**
- * Xử lý Job cloud rendering (mini-spec V9, xem docs/PLAN.md — POC hẹp: CHỈ
+ * Xử lý Job cloud rendering (mini-spec V9 → V12, xem docs/PLAN.md — vẫn CHỈ
  * stage Demucs, tái dùng ĐÚNG NGUYÊN VĂN `autodub/media/demucs_worker.py`
- * qua subprocess — KHÔNG viết lại logic tách nhạc bằng Node (guardrail 1
- * của mini-spec: không rebuild pipeline).
+ * qua subprocess — KHÔNG viết lại logic tách nhạc bằng Node, đúng guardrail
+ * gốc của cả 2 mini-spec).
+ *
+ * V9 xử lý ĐỒNG BỘ ngay trong request (giữ HTTP mở suốt lúc chạy Demucs).
+ * V12 tách hẳn: `submitDemucsJob` chỉ tạo job `queued` rồi trả về NGAY —
+ * một worker Python riêng (container khác, `control_server/worker/
+ * render_worker.py`) poll qua HTTP nội bộ (`/internal/jobs/*`,
+ * `worker-auth.middleware.js`), tự spawn `demucs_worker.py`, rồi báo kết
+ * quả về qua `completeJob`/`failJob`. Node không đụng subprocess Python
+ * nữa — service này giờ chỉ còn quản lý STATE MACHINE của job trong Mongo
+ * (nguồn sự thật duy nhất, guardrail 2 của V12 — không thêm Redis/broker).
  *
  * Chính sách dữ liệu (chủ dự án duyệt 2026-08-11): xoá file input/output
  * NGAY sau khi trả kết quả (`cleanupJob`), TTL `expiresAt` chỉ là lưới an
  * toàn dự phòng (sweeper, giống `hold.service.expireSweep`).
  */
-const { spawn } = require('node:child_process')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 
@@ -29,12 +37,6 @@ class RenderJobError extends Error {
   }
 }
 
-// Repo layout: control_server/ và autodub/ là 2 thư mục anh em cùng cấp
-// (xem docs/ARCH.md) — ghi đè bằng DEMUCS_WORKER_SCRIPT/DEMUCS_PYTHON nếu
-// server triển khai layout khác.
-const WORKER_SCRIPT = process.env.DEMUCS_WORKER_SCRIPT
-  || path.join(__dirname, '..', '..', '..', 'autodub', 'media', 'demucs_worker.py')
-const PYTHON_BIN = process.env.DEMUCS_PYTHON || 'python3'
 const UPLOAD_DIR = process.env.RENDER_UPLOAD_DIR
   || path.join(require('node:os').tmpdir(), 'voxdub-render-jobs')
 
@@ -44,7 +46,7 @@ async function ensureUploadDir() {
 }
 
 function jobPaths(jobId) {
-  const dir = path.join(UPLOAD_DIR, jobId)
+  const dir = path.join(UPLOAD_DIR, String(jobId))
   return {
     dir,
     input: path.join(dir, 'input.wav'),
@@ -53,36 +55,11 @@ function jobPaths(jobId) {
   }
 }
 
-/** Chạy demucs_worker.py thật qua subprocess — đúng CLI contract đã có. */
-function runDemucsWorker({ input, vocals, noVocals }) {
-  return new Promise((resolve) => {
-    const proc = spawn(PYTHON_BIN, [
-      WORKER_SCRIPT,
-      '--input', input, '--vocals', vocals, '--no-vocals', noVocals,
-    ])
-    let stdout = ''
-    let stderr = ''
-    proc.stdout.on('data', (d) => { stdout += d })
-    proc.stderr.on('data', (d) => { stderr += d })
-    proc.on('close', (code) => {
-      const lastLine = stdout.trim().split('\n').pop() || ''
-      let parsed = null
-      try { parsed = JSON.parse(lastLine) } catch { /* worker crash trước khi in JSON */ }
-      if (parsed && parsed.ok) return resolve({ ok: true })
-      resolve({
-        ok: false,
-        error: (parsed && parsed.error) || stderr.slice(-500) || `exit code ${code}`,
-      })
-    })
-    proc.on('error', (err) => resolve({ ok: false, error: String(err.message) }))
-  })
-}
-
 /**
  * Tạo job mới: trừ Vox NGAY (nguyên tắc giống hold — thu trước, không có
  * gì để hoàn nếu job thất bại vì máy chủ đã tốn tài nguyên xử lý), lưu
- * file input, chạy Demucs NGAY (đồng bộ — POC hẹp chưa cần queue đa tiến
- * trình, xem Remaining Limits trong docs/TEST_LOG.md mục V9).
+ * file input, đặt job vào `queued` rồi TRẢ VỀ NGAY (V12 — bất đồng bộ
+ * thật, không giữ HTTP mở chờ Demucs chạy xong như V9).
  */
 async function submitDemucsJob({ device, fileBuffer, ip = '' }) {
   if (!(await config.get('cloud.render.enabled'))) {
@@ -118,29 +95,14 @@ async function submitDemucsJob({ device, fileBuffer, ip = '' }) {
     fingerprint: device.fingerprint,
     deviceId: device._id,
     stage: 'demucs',
-    status: 'running',
+    status: 'queued',
     inputPath: paths.input,
     creditCharged: charged.charged,
-    startedAt: new Date(),
     expiresAt,
   })
 
-  const result = await runDemucsWorker({
-    input: paths.input, vocals: paths.vocals, noVocals: paths.noVocals,
-  })
-
-  if (result.ok) {
-    job.status = 'done'
-    job.resultPaths = { vocals: paths.vocals, no_vocals: paths.noVocals }
-  } else {
-    job.status = 'failed'
-    job.error = String(result.error).slice(0, 1000)
-  }
-  job.completedAt = new Date()
-  await job.save()
-
   await audit.log({
-    action: 'cloud_render.demucs',
+    action: 'cloud_render.demucs.submit',
     actor: `device:${device.fingerprint.slice(0, 8)}`,
     target: String(job._id),
     after: { status: job.status, creditCharged: charged.charged },
@@ -152,6 +114,81 @@ async function submitDemucsJob({ device, fileBuffer, ip = '' }) {
 
 async function getJob(fingerprint, jobId) {
   return RenderJob.findOne({ _id: jobId, fingerprint }).lean()
+}
+
+// ---------------------------------------------------------------------- //
+// State machine cho worker (mini-spec V12) — gọi từ routes/internal-jobs.js,
+// KHÔNG bao giờ lộ ra `/v1/*` public (worker xác thực bằng token riêng,
+// xem worker-auth.middleware.js — hoàn toàn tách khỏi token thiết bị).
+// ---------------------------------------------------------------------- //
+
+/**
+ * Nhận 1 job `queued` cũ nhất (FIFO), atomic — 2 worker gọi cùng lúc
+ * không bao giờ nhận trùng cùng 1 job (findOneAndUpdate là atomic ở tầng
+ * Mongo, không cần lock riêng).
+ */
+async function claimNextJob(workerId) {
+  const job = await RenderJob.findOneAndUpdate(
+    { status: 'queued' },
+    {
+      $set: {
+        status: 'running', workerId, heartbeatAt: new Date(), startedAt: new Date(),
+      },
+    },
+    { sort: { createdAt: 1 }, new: true },
+  ).lean()
+  return job
+}
+
+/** Chỉ cập nhật heartbeat nếu job vẫn do ĐÚNG worker này giữ — worker đã bị
+ * sweeper coi là chết (job bị nhận lại/fail) thì heartbeat trễ không được
+ * hồi sinh job đó, tránh 2 worker cùng đụng vào 1 job. */
+async function heartbeat(jobId, workerId) {
+  const updated = await RenderJob.findOneAndUpdate(
+    { _id: jobId, workerId, status: 'running' },
+    { $set: { heartbeatAt: new Date() } },
+    { new: true },
+  ).lean()
+  return Boolean(updated)
+}
+
+async function completeJob(jobId, workerId, resultPaths) {
+  const job = await RenderJob.findOneAndUpdate(
+    { _id: jobId, workerId, status: 'running' },
+    {
+      $set: {
+        status: 'done', completedAt: new Date(),
+        resultPaths: { vocals: resultPaths.vocals, no_vocals: resultPaths.no_vocals },
+      },
+    },
+    { new: true },
+  ).lean()
+  if (job) {
+    await audit.log({
+      action: 'cloud_render.demucs.complete',
+      actor: `worker:${workerId}`,
+      target: String(jobId),
+      after: { status: 'done' },
+    })
+  }
+  return job
+}
+
+async function failJob(jobId, workerId, error) {
+  const job = await RenderJob.findOneAndUpdate(
+    { _id: jobId, workerId, status: 'running' },
+    { $set: { status: 'failed', completedAt: new Date(), error: String(error).slice(0, 1000) } },
+    { new: true },
+  ).lean()
+  if (job) {
+    await audit.log({
+      action: 'cloud_render.demucs.fail',
+      actor: `worker:${workerId}`,
+      target: String(jobId),
+      after: { status: 'failed', error: job.error },
+    })
+  }
+  return job
 }
 
 /** Xoá file input/output của 1 job — gọi ngay sau khi trả kết quả cho
@@ -181,12 +218,53 @@ async function sweepExpired(log = null) {
   return done
 }
 
+/**
+ * Sweeper (mini-spec V12, guardrail 5): worker chết giữa chừng (crash, mất
+ * mạng, container bị kill) để lại job kẹt mãi ở `running` — không ai chờ
+ * mãi được. Job `running` mà `heartbeatAt` quá cũ so với ngưỡng thì coi là
+ * worker đã chết, chuyển `failed` với lý do rõ ràng (không phải lỗi Demucs
+ * thật, để người dùng/hỗ trợ phân biệt được).
+ */
+async function sweepStaleRunning(log = null) {
+  const staleMinutes = Number(await config.get('cloud.render.heartbeat.stale.minutes')) || 5
+  const staleBefore = new Date(Date.now() - staleMinutes * 60 * 1000)
+  const stale = await RenderJob.find(
+    { status: 'running', heartbeatAt: { $lt: staleBefore } },
+    { _id: 1, workerId: 1 },
+  ).limit(200).lean()
+  let failed = 0
+  for (const j of stale) {
+    try {
+      const updated = await RenderJob.findOneAndUpdate(
+        { _id: j._id, status: 'running', heartbeatAt: { $lt: staleBefore } },
+        {
+          $set: {
+            status: 'failed',
+            completedAt: new Date(),
+            error: `Worker (${j.workerId || 'không rõ'}) mất kết nối quá ${staleMinutes} phút — job tự động chuyển lỗi, không treo mãi.`,
+          },
+        },
+        { new: true },
+      ).lean()
+      if (updated) failed += 1
+    } catch (err) {
+      if (log) log.warn({ err, jobId: j._id }, 'quét job running quá hạn heartbeat thất bại')
+    }
+  }
+  return failed
+}
+
 module.exports = {
   RenderJobError,
   ensureUploadDir,
   jobPaths,
   submitDemucsJob,
   getJob,
+  claimNextJob,
+  heartbeat,
+  completeJob,
+  failJob,
   cleanupJob,
   sweepExpired,
+  sweepStaleRunning,
 }

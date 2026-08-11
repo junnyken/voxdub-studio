@@ -149,5 +149,8 @@ export const adminApi = {
   overview: (days) => adminRequest(`/analytics/overview${qs({ days })}`),
   usage: (days) => adminRequest(`/analytics/usage${qs({ days })}`),
   retention: (weeks) => adminRequest(`/analytics/retention${qs({ weeks })}`),
+  // Mini-spec V13 (docs/PLAN.md) — phễu hoàn thành/bỏ dở theo stage.
+  pipelineFunnel: (days, staleHours) =>
+    adminRequest(`/analytics/pipeline-funnel${qs({ days, staleHours })}`),
   auditLog: (params) => adminRequest(`/audit-log${qs(params)}`),
 }

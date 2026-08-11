@@ -76,6 +76,11 @@ const DEFAULTS = {
   // Chính sách dữ liệu đã chủ dự án duyệt (2026-08-11): xoá ngay sau khi
   // trả kết quả; TTL dưới đây chỉ là lưới an toàn dự phòng.
   'cloud.render.ttl.hours': 2,
+  // Mini-spec V12 — worker Python poll heartbeat mỗi 30s (render_worker.py);
+  // 5 phút không thấy nhịp coi là worker chết, sweeper chuyển job `failed`
+  // (guardrail 5) thay vì treo mãi ở `running`.
+  'cloud.render.heartbeat.stale.minutes': 5,
+  'cloud.render.sweep.interval.minutes': 2,
   // Chuẩn giá: 1 Vox = 10đ (1.000 Vox = 10.000đ). Bonus tăng dần theo gói.
   'credit.packages': [
     { id: 'mini', label: 'Khởi đầu', vnd: 10000, vox: 1000, bonus: 0, popular: false },

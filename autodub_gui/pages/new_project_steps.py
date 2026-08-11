@@ -264,9 +264,59 @@ class RecognizeStep(_StepPanel):
         self.duck.changed.connect(lambda _v: self.changed.emit())
         self._bg_section.add_widget(self.background)
         self._bg_section.add_widget(self.duck)
+
+        # Xử lý trên cloud (mini-spec V9 → V12, docs/PLAN.md) — chỉ hiện khi
+        # máy chủ VoxDub thật sự bật tính năng này (set_cloud_render_info()
+        # gọi từ trang cha, đúng nguyên tắc "không thêm UI cho tính năng
+        # chưa tồn tại"). Guardrail 4: PHẢI hiện đúng giá TRƯỚC khi chạy.
+        self.cloud_render = QCheckBox("Xử lý tách nhạc trên cloud thay vì trên máy")
+        self.cloud_render.toggled.connect(lambda _c: self.changed.emit())
+        self.cloud_render.setVisible(False)
+        # KHÔNG dùng self.cloud_render.isVisible() ở values() — ô này nằm
+        # trong CollapsibleSection ("Nhạc nền") vốn GẬP LẠI mặc định, nên
+        # isVisible() (tính cả tổ tiên) luôn trả False bất kể setVisible()
+        # ở đây, kể cả khi tính năng thật sự khả dụng. Theo dõi quyết định
+        # của set_cloud_render_info() bằng cờ riêng thay vì suy qua Qt.
+        self._cloud_render_available = False
+        self._bg_section.add_widget(self.cloud_render)
+        self._cloud_price = QLabel("")
+        self._cloud_price.setWordWrap(True)
+        self._cloud_price.setStyleSheet(
+            f"color: {tokens.TEXT_MUTED}; font-size: {tokens.FS_META}px; "
+            f"background: transparent;")
+        self._cloud_price.setVisible(False)
+        self._bg_section.add_widget(self._cloud_price)
+
         self.body.addWidget(self._bg_section)
         self.finish()
         self._on_background()
+
+    def set_cloud_render_info(self, available: bool, enabled_on_server: bool = True,
+                              cost_vox: int = 0) -> None:
+        """Gọi từ trang cha sau khi đọc cấu hình máy chủ (mini-spec V12).
+
+        ``available``: đã bật ở Cài đặt VÀ có máy chủ cấu hình
+        (:func:`autodub.cloud_render.is_available`). ``enabled_on_server``:
+        máy chủ có đang cho phép tính năng này không (Admin có thể tắt tạm
+        thời) — hiện ô chọn nhưng khoá lại kèm lý do nếu máy chủ đang tắt.
+        """
+        show = available
+        self._cloud_render_available = show
+        self.cloud_render.setVisible(show)
+        self._cloud_price.setVisible(show)
+        if not show:
+            return
+        self.cloud_render.setEnabled(enabled_on_server)
+        if not enabled_on_server:
+            self._cloud_price.setText("Máy chủ đang tạm tắt xử lý trên cloud.")
+        elif cost_vox > 0:
+            self._cloud_price.setText(
+                f"Tốn thêm {cost_vox} Vox mỗi video. Máy chủ lỗi hoặc mất "
+                "mạng thì tự chuyển về tách trên máy, không mất tính năng.")
+        else:
+            self._cloud_price.setText(
+                "Máy chủ lỗi hoặc mất mạng thì tự chuyển về tách trên máy, "
+                "không mất tính năng.")
 
     def _on_auto(self, checked: bool) -> None:
         self.language.setEnabled(not checked)
@@ -289,6 +339,13 @@ class RecognizeStep(_StepPanel):
             "auto_detect": self.auto_detect.isChecked(),
             "bg_mode": self.background.current_key(),
             "bg_duck_db": self.duck.value(),
+            # Chỉ có nghĩa khi set_cloud_render_info() đã xác nhận khả dụng
+            # — chưa/không khả dụng thì luôn coi như tắt, không đọc trạng
+            # thái ô (có thể còn giữ giá trị cũ từ trước khi đổi máy chủ).
+            # Dùng cờ riêng, KHÔNG dùng isVisible() (xem chú thích ở nơi
+            # khai báo self._cloud_render_available).
+            "cloud_render": (self.cloud_render.isChecked()
+                            if self._cloud_render_available else False),
         }
 
     def load(self, data: dict) -> None:
@@ -298,16 +355,18 @@ class RecognizeStep(_StepPanel):
         self.auto_detect.setChecked(bool(data.get("auto_detect", False)))
         self.background.set_key(data.get("bg_mode", "demucs"))
         self.duck.set_value(float(data.get("bg_duck_db", -12.0)))
+        if self._cloud_render_available:
+            self.cloud_render.setChecked(bool(data.get("cloud_render", False)))
         self._on_background()
 
 
 class TranslateStep(_StepPanel):
-    """Bước 3: dịch sang tiếng Việt."""
+    """Bước 3: dịch sang ngôn ngữ đích."""
 
     def __init__(self, parent: QWidget | None = None):
-        super().__init__("Dịch sang tiếng Việt",
-                         "Chọn cách dịch và giọng văn cho bản dịch. Ngôn ngữ "
-                         "đích luôn là tiếng Việt.", parent)
+        super().__init__("Dịch sang ngôn ngữ đích",
+                         "Chọn cách dịch, giọng văn và ngôn ngữ lồng tiếng "
+                         "cho video này.", parent)
         self.source_view = QLabel("")
         self.source_view.setStyleSheet(
             f"color: {tokens.TEXT_SECONDARY}; font-size: {tokens.FS_BODY}px; "
@@ -317,13 +376,16 @@ class TranslateStep(_StepPanel):
             "Dịch từ", self.source_view,
             "Lấy theo ngôn ngữ bạn chọn ở bước Nghe và chép lời."))
 
-        target = QLabel("Tiếng Việt")
-        target.setStyleSheet(
-            f"color: {tokens.TEXT_PRIMARY}; font-size: {tokens.FS_BODY}px; "
-            f"font-weight: 600; background: {tokens.BG_INPUT}; "
-            f"border-radius: 8px; padding: 8px 12px;")
-        self.body.addWidget(LabeledWidget(
-            "Dịch sang", target, "Bản này chỉ lồng tiếng Việt."))
+        # target_key (mini-spec V11, docs/PLAN.md): danh sách lấy từ
+        # DUB_TARGETS, khớp autodub.languages.TARGETS — trước V11 đây là
+        # nhãn tĩnh "Tiếng Việt", pipeline luôn nhận req.target="vi" bất kể
+        # người dùng muốn gì.
+        self.target = LabeledCombo(
+            "Dịch sang", consts.DUB_TARGETS,
+            "Ngôn ngữ lồng tiếng cho video này. Đổi giọng đọc phù hợp ở "
+            "bước Giọng đọc & phụ đề sau khi chọn.")
+        self.target.changed.connect(self.changed.emit)
+        self.body.addWidget(self.target)
 
         # Hai lựa chọn quyết định giá của video — lưu lại vào Cài đặt khi
         # bấm chạy để các video sau dùng luôn, khỏi chọn lại.
@@ -399,6 +461,7 @@ class TranslateStep(_StepPanel):
             "generate_metadata": self.metadata.isChecked(),
             "translate_style": self.style.current_key(),
             "translate_note": self.note.text(),
+            "target_key": self.target.current_key() or "vi",
         }
 
     def load(self, data: dict) -> None:
@@ -415,6 +478,7 @@ class TranslateStep(_StepPanel):
         self.metadata.setChecked(bool(data.get("generate_metadata", fb_meta)))
         self.style.set_key(data.get("translate_style", "natural"))
         self.note.set_text(data.get("translate_note", ""))
+        self.target.set_key(data.get("target_key", "vi"))
         self._on_auto_translate(self.auto_translate.isChecked())
 
 
@@ -433,6 +497,11 @@ class VoiceStep(_StepPanel):
         from autodub.media.subtitle import PRESET_CHOICES
         from autodub_gui.ui.collapsible import CollapsibleSection
         from autodub_gui.voice_picker import VoicePicker
+
+        # target_key (mini-spec V11, docs/PLAN.md): đồng bộ với lựa chọn ở
+        # bước Dịch qua set_target_key() — quyết định danh mục giọng nào
+        # hiện ra (VieNeu chỉ hiện cho tiếng Việt, đúng Constraint 3).
+        self._target_key = "vi"
 
         # Giọng mặc định đang dùng + nút nghe thử ngay
         default_row = QHBoxLayout()
@@ -511,22 +580,46 @@ class VoiceStep(_StepPanel):
         self.finish()
         self._refresh_default_label()
 
-    @staticmethod
-    def _default_voice() -> str:
-        """Tên giọng mặc định trong Cài đặt, đọc lại mỗi lần cần."""
+    def _default_voice(self) -> str:
+        """Tên giọng mặc định, đọc lại mỗi lần cần.
+
+        target=vi (mặc định, 0 regression): y hệt trước V11 — đọc thẳng
+        ``settings.vieneu_voice``. target khác tiếng Việt: cấu hình VieNeu
+        không có nghĩa gì (model chuyên biệt tiếng Việt), phân giải qua
+        catalog CapCut đúng ngôn ngữ thay vì trả về tên giọng tiếng Việt.
+        """
         from autodub.speech.tts.voices import DEFAULT_VOICE
 
         try:
             from autodub.config import Settings
-            return Settings.load(override=True).vieneu_voice or DEFAULT_VOICE
+            settings = Settings.load(override=True)
         except Exception:  # noqa: BLE001 — cấu hình hỏng thì dùng giọng gốc
             return DEFAULT_VOICE
+        if self._target_key == "vi":
+            return settings.vieneu_voice or DEFAULT_VOICE
+        from autodub.languages import get_target
+        from autodub.speech.tts import voices as voice_catalog
+        return voice_catalog.resolve(settings, None,
+                                     target=get_target(self._target_key))
+
+    def set_target_key(self, target_key: str) -> None:
+        """Đồng bộ ngôn ngữ đích từ bước Dịch — nạp lại đúng danh mục giọng."""
+        key = target_key or "vi"
+        if key == self._target_key:
+            return
+        self._target_key = key
+        from autodub.languages import get_target
+        self.picker.reload(target=get_target(key))
+        self._refresh_default_label()
 
     def _refresh_default_label(self) -> None:
         self._default_label.setText(
             f"Giọng mặc định: {self._default_voice()}")
         self._default_label.setToolTip(
-            "Đổi giọng mặc định trong Cài đặt, thẻ Giọng đọc.")
+            "Đổi giọng mặc định trong Cài đặt, thẻ Giọng đọc."
+            if self._target_key == "vi" else
+            "Giọng CapCut mặc định cho ngôn ngữ này (chưa có mục cấu hình "
+            "riêng trong Cài đặt).")
 
     def showEvent(self, event) -> None:  # noqa: N802 — theo quy ước của Qt
         # Người dùng có thể vừa đổi giọng mặc định trong Cài đặt.
@@ -552,8 +645,11 @@ class VoiceStep(_StepPanel):
         }
 
     def load(self, data: dict) -> None:
+        from autodub.languages import get_target
+
         voice = (data.get("voice") or "").strip()
-        self.picker.reload()
+        self._target_key = data.get("target_key") or "vi"
+        self.picker.reload(target=get_target(self._target_key))
         if voice:
             self.picker.set_voice(voice)
         self._override.set_expanded(bool(voice))

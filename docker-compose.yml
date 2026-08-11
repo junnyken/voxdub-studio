@@ -3,7 +3,16 @@
 # desktop Windows) — compose này chỉ đóng gói phần server-side vốn dĩ đã
 # cross-platform (Node/Fastify/Mongo), xem docs/ARCH.md.
 #
-# Chạy: cp control_server/.env.example control_server/.env  (rồi điền secret)
+# Mini-spec V12: thêm service `render_worker` (Python, torch+demucs) — xử lý
+# cloud rendering THẬT qua Docker, không cần cài Python/torch/demucs ngoài
+# container nữa (khác V9 — DEMUCS_PYTHON trỏ ra ngoài). Image tách riêng
+# khỏi control_server (guardrail 1 của V12): build/deploy control_server
+# không phụ thuộc thay đổi bên Python. Giao tiếp qua volume dùng chung
+# (`voxdub-render-jobs`) + HTTP nội bộ (`/internal/jobs/*`,
+# WORKER_INTERNAL_TOKEN) — không thêm Redis/broker (guardrail 2).
+#
+# Chạy: cp control_server/.env.example control_server/.env  (rồi điền secret,
+#       gồm cả WORKER_INTERNAL_TOKEN)
 #       docker compose up --build
 
 services:
@@ -36,8 +45,39 @@ services:
       MONGODB_URI: mongodb://mongo:27017/voxdub
       HOST: 0.0.0.0
       PORT: "3001"
+      # render_worker đọc/ghi CÙNG thư mục này qua volume dùng chung — cả
+      # 2 container phải trỏ tới đúng 1 đường dẫn (guardrail 1 của V12).
+      RENDER_UPLOAD_DIR: /data/render-jobs
     ports:
       - "${HOST_PORT:-3001}:3001"
+    volumes:
+      - voxdub-render-jobs:/data/render-jobs
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  render_worker:
+    build:
+      context: .
+      dockerfile: control_server/worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      control_server:
+        condition: service_healthy
+    # CÙNG tệp .env với control_server — WORKER_INTERNAL_TOKEN phải khớp cả
+    # 2 phía để worker xác thực được với /internal/jobs/* (đọc trực tiếp
+    # biến đó từ đây, không qua interpolation ${...} của compose — tránh 2
+    # nguồn giá trị lệch nhau nếu người dùng chỉ sửa 1 trong 2 chỗ).
+    env_file:
+      - control_server/.env
+    environment:
+      CONTROL_SERVER_URL: http://control_server:3001
+    volumes:
+      - voxdub-render-jobs:/data/render-jobs
 
 volumes:
   voxdub-mongo-data:
+  voxdub-render-jobs:

@@ -306,6 +306,7 @@ class VoicePicker(QWidget):
         self._catalog = catalog
         self._voices: list = []
         self._current = ""
+        self._target = None
 
         clear_background(self)
         root = QVBoxLayout(self)
@@ -350,12 +351,20 @@ class VoicePicker(QWidget):
         self.reload()
 
     # -- Dữ liệu -------------------------------------------------------
-    def reload(self, settings=None) -> None:
-        """Đọc lại danh mục giọng (gọi sau khi vừa học thêm một giọng mới)."""
+    def reload(self, settings=None, target=None) -> None:
+        """Đọc lại danh mục giọng (gọi sau khi vừa học thêm một giọng mới).
+
+        ``target`` (mini-spec V11, docs/PLAN.md): danh sách phải đúng ngôn
+        ngữ đích — mặc định None giữ hành vi cũ (danh mục tiếng Việt), tránh
+        VieNeu (chuyên biệt tiếng Việt) lẫn vào danh sách khi target khác.
+        """
         from autodub.config import Settings
 
+        if target is not None:
+            self._target = target
         try:
-            self._voices = self._catalog.catalog(settings or Settings.load())
+            self._voices = self._catalog.catalog(
+                settings or Settings.load(), target=self._target)
         except Exception:  # noqa: BLE001 — thiếu tệp thì để catalog rỗng
             self._voices = []
         if not self._current or all(

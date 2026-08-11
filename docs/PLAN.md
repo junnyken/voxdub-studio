@@ -34,10 +34,13 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V5 | OCR thay boxblur | ⚠️ Chưa test video thật | Verify qua GUI+ảnh tổng hợp, CHƯA video nén thật |
 | V6 | Dịch local (NLLB-200) | ✅ Xong, mặc định bật | Verify thật, chất lượng câu ngắn còn kém |
 | V7 | Docker hoá control_server | ⚠️ Một phần | Chỉ Node, CHƯA có Python cho pipeline thật |
-| V8 | TTS đa ngôn ngữ đích | 🔶 PoC tầng engine | Registry + verify CapCut API thật — CHƯA GUI, CHƯA voices.catalog target-aware |
-| V9 | Cloud rendering (Demucs) | 🔶 PoC hẹp | Verify end-to-end thật — xử lý ĐỒNG BỘ (không queue), CHƯA UI |
-| V10 | Analytics/retention | ⚠️ Một phần | Retention cohort xong; phễu hoàn thành/bỏ dở CHƯA làm (cần quyết định telemetry) |
+| V8 | TTS đa ngôn ngữ đích | 🔶 PoC tầng engine (đóng ở V11) | Registry + verify CapCut API thật — GUI/voices.catalog target-aware nay đã xong, xem V11 |
+| V9 | Cloud rendering (Demucs) | 🔶 PoC hẹp (đóng ở V12) | Verify end-to-end thật — xử lý ĐỒNG BỘ (không queue), CHƯA UI — nay đã xong, xem V12 |
+| V10 | Analytics/retention | ⚠️ Một phần (đóng ở V13) | Retention cohort xong; phễu hoàn thành/bỏ dở nay đã xong, xem V13 |
 | — | Re-audit 08-11: dọn dependency thừa + 2 CVE + website 0 test | ✅ Xong | google-genai xoá, react-router vá, 31 test mới cho website |
+| V11 | Hoàn thiện đa ngôn ngữ đích (đóng gap V8) | ✅ Xong | Audit hết Vietnamese-assumption + fix bug align.py + voices.catalog/GUI target-aware + live-verify 2 lượt pipeline thật target=en, 0 crash — xem TEST_LOG |
+| V12 | Cloud rendering production-ready (đóng gap V9) | ⚠️ Backend+GUI xong, image Docker chưa build được trong sandbox | State machine bất đồng bộ + worker Python + GUI toggle live-verify thật (worker chạy trực tiếp + control_server thật trong Docker); `docker compose build render_worker` THẤT BẠI THẬT (pip timeout tải torch) sau ~2h — giới hạn mạng build của sandbox, không phải lỗi Dockerfile — xem TEST_LOG |
+| V13 | Phễu hoàn thành/bỏ dở pipeline (đóng gap V10) | ✅ Xong | Telemetry PipelineEvent + client gửi event thật + banner minh bạch (guardrail 1 — cập nhật TRƯỚC khi bật) + dashboard phễu; live-verify thật qua HTTP thật (2 run, kể cả privacy-test chặn field cấm thật) — xem TEST_LOG |
 
 ## Tổng quan phase
 

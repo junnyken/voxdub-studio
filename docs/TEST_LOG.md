@@ -758,3 +758,483 @@ nào xử lý (V1/V9/V10 chỉ thêm test cho `control_server`).** Thêm:
   này chỉ đóng gap "0 test" bằng unit test cho logic thuần (utils/store),
   chưa test render/tương tác UI — cần 1 mini-spec riêng nếu muốn coverage
   sâu hơn (thêm `@testing-library/react`, nặng hơn đáng kể).
+
+## V11 — Hoàn thiện đa ngôn ngữ đích (đưa V8 từ PoC thành tính năng dùng được)
+
+Theo `docs/PLAN.md` mục V11 (Phase D). Guardrail: audit trước, sửa sau; không
+đổi mặc định tiếng Việt; VieNeu chỉ hiện khi target là tiếng Việt.
+
+### Audit Before Build — kết quả từng điểm (Constraint 4)
+
+- **`autodub/timing.py`** — đọc toàn bộ, 0 chuỗi `"vi"`/CPS tiếng Việt/dấu
+  thanh. Mọi hằng số (CPS budget, atempo range) đã tổng quát từ trước V8 —
+  **không cần sửa**.
+- **`autodub/editor.py`** — mọi hàm public đã nhận `target_key: str = "vi"`
+  làm tham số tường minh từ trước (không phải mặc định ẩn), `get_target()`
+  gọi đúng chỗ mỗi hàm — **không cần sửa cấu trúc**. Có sửa 2 lời gọi
+  `voice_catalog.resolve()` thiếu `target=` (xem mục "Sửa" dưới).
+- **`autodub/text/ass_karaoke.py`** — **CÓ bug thật**: `resolve_word_times()`/
+  `build_karaoke_ass()` nhận `language` nhưng không truyền tiếp xuống
+  `align_segments()` → `_asr_words()` trong `autodub/speech/align.py`, nơi
+  `language="vi"` bị **hardcode** khi Whisper nghe lại chính clip TTS vừa
+  tạo ra để canh mốc từng chữ cho karaoke. Kết quả: target khác tiếng Việt
+  sẽ bị Whisper nghe SAI ngôn ngữ ở bước canh karaoke, alignment âm thầm
+  hỏng/rớt về ước lượng thô — không crash, không log lỗi, chỉ sai lệch.
+  **Đã sửa**: `language` thread xuyên suốt `refresh_subtitles(target)` →
+  `build_karaoke_ass` → `resolve_word_times` → `align_segments` →
+  `_asr_words(..., language=...)`, dùng `WHISPER_LANG_MAP` để đổi
+  BCP-47 → mã Whisper. Khoá lại bằng `tests/test_align_language.py` (4 test,
+  bắt đúng bug cũ trước khi sửa — patch `align_mod.seg_wav_path` chứ không
+  phải `autodub.utils.seg_wav_path` vì `align.py` import tên vào namespace
+  riêng lúc load module).
+
+### Sửa — Scope B (`voices.py` target-aware)
+
+- `autodub/speech/tts/voices.py`: `_capcut_voices(lang=None)`,
+  `is_capcut_voice(name, lang=None)`, `catalog(settings, target=None)`,
+  `resolve(settings, name=None, target=None)` — tất cả nhận tham số TUỲ
+  CHỌN, `target=None`/`lang=None` giữ đúng hành vi trước V11 (0 regression,
+  verify bằng test). `catalog()` giờ CHỈ trộn VieNeu khi `target` là tiếng
+  Việt (Constraint 3) — target khác chỉ trả CapCut catalog đúng ngôn ngữ.
+- `autodub/speech/tts/__init__.py` (`get_synthesizer`) và
+  `autodub/speech/tts/capcut_vi.py` (`CapCutSynthesizer.__init__` nhận
+  `lang=None`) — thread `target`/`lang` xuống `voice_catalog.resolve()` /
+  `is_capcut_voice()` / `capcut_catalog.lookup()`.
+- Thread `target=` vào mọi lời gọi `voice_catalog.resolve()` còn thiếu:
+  `pipeline.py` (4 chỗ: `_export_phase`, `_synthesize_segments` ×2,
+  `_build_report`), `editor.py` (`resynth_segments`, 2 chỗ),
+  `billing.py` (`stop_for_export`, tự suy `target` từ `state["target"]` —
+  cùng quy ước với `pipeline.py:1729`).
+- Test mới `tests/test_voices_target_language.py` (12 test): catalog theo
+  target None/vi/en, resolve không lẫn tên vi-VN sang catalog en-US,
+  `is_capcut_voice` theo lang, `get_synthesizer(target=en)` KHÔNG bao giờ
+  đòi cài VieNeu (Constraint 3), `CapCutSynthesizer` từ chối tên giọng sai
+  ngôn ngữ khi `lang=` được truyền tường minh.
+
+### Sửa — Scope D (GUI chọn ngôn ngữ đích)
+
+- `autodub_gui/dub_constants.py`: `DUB_TARGETS` (2 lựa chọn: Tiếng Việt /
+  Tiếng Anh — đánh dấu "thử nghiệm", đúng nguyên tắc chỉ hiện UI khi tính
+  năng đã tồn tại thật).
+- `autodub_gui/pages/new_project_steps.py` — `TranslateStep`: thay nhãn
+  tĩnh "Tiếng Việt" bằng `LabeledCombo` thật (`self.target`), giá trị vào
+  `values()["target_key"]`. `VoiceStep`: thêm `set_target_key()` — đổi
+  target ở bước Dịch nạp lại đúng danh mục giọng ở bước Giọng đọc (không
+  còn hiện VieNeu/giọng vi-VN khi target=en); `_default_voice()` dùng
+  `voice_catalog.resolve(target=...)` cho target khác tiếng Việt thay vì
+  đọc thẳng `settings.vieneu_voice` (khái niệm chỉ có nghĩa cho tiếng Việt).
+- `autodub_gui/pages/new_project_page.py` — nối `TranslateStep.target.changed`
+  → `VoiceStep.set_target_key()`; `DubRequest.target = data["target_key"]`;
+  thêm dòng "Ngôn ngữ đích" vào bảng tóm tắt bước cuối.
+- `autodub_gui/voice_picker.py` (`VoicePicker.reload(settings, target=None)`)
+  và `autodub_gui/voice_preview.py` (`VoicePreview.play(..., target_key="vi")`,
+  cache nghe thử khoá theo `(voice, target_key)` — tên giọng CapCut không
+  đảm bảo duy nhất xuyên ngôn ngữ) — cả hai mặc định giữ hành vi cũ.
+  `editor_page.py`/`editor_export.py` truyền đúng `target`/`target_key` của
+  dự án đang mở khi tải/nghe thử giọng.
+- **Verify runtime thật** (không chỉ đọc code): dựng `QApplication`
+  offscreen thật, tạo `TranslateStep`+`VoiceStep` thật, đổi combo sang
+  "en" → xác nhận `VoiceStep` nạp lại đúng 39 giọng CapCut en-US thật (0
+  giọng vi-VN lẫn vào, khớp `capcut_catalog.names(lang="en-US")`), giọng
+  mặc định resolve ra tên hợp lệ trong catalog en-US. `values()`/`load()`
+  round-trip đúng `target_key`.
+
+### Live verification end-to-end (Test Plan — Integration + Success Criteria)
+
+Chạy **THẬT** `DubPipeline.run()` (không mock) 2 lần, target=en, KHÔNG SaaS
+(`saas_client.is_configured() == False` — dịch qua path C, NLLB local V6):
+
+- Nguồn: video thật tự tạo — giọng đọc tiếng Việt tổng hợp qua **CapCut API
+  thật** (mạng thật, giống V8), mux vào .mp4 bằng ffmpeg thật.
+- ASR: **faster-whisper thật** (model `small`, in-process vì `.venv-whisper`
+  chưa cài trong máy dev — đúng nhánh fallback có sẵn trong
+  `transcriber.py`, không phải đường tắt riêng cho test này).
+- Dịch: **ctranslate2 + NLLB-200-distilled-600M int8 thật** (`.venv-mt` trỏ
+  qua venv dev có sẵn ctranslate2, model đã tải sẵn từ mini-spec V6 —
+  không mock, không stub).
+- TTS: **CapCut API thật**, giọng `EN US 2` (catalog en-US, đúng đường mới
+  sửa ở Scope B).
+- Lượt 1 (2 câu, có nhiễu ASR nhẹ): pipeline chạy hết 7 bước, `status:
+  "completed"`, xuất `dubbed_video.mp4` (H.264 + AAC + phụ đề mềm mov_text)
+  thật, không crash, không cần sửa tay giữa chừng — **đúng Success
+  Criteria**. Nhật ký giọng đọc, phụ đề, catalog en-US đều đúng như thiết kế.
+- Lượt 2 (câu ngắn, sạch hơn): tương tự, dịch đầy đủ nội dung
+  ("Xin chào các bạn! Hôm nay trời đẹp và tôi rất vui!" →
+  "It's a beautiful day and I'm so happy!"), video xuất ra có audio tiếng
+  Anh thật, phụ đề khớp.
+- **0 regression**: toàn bộ **657 test** (autodub, gồm 16 test mới —
+  12 cho voices.py target-aware + 4 cho default_output_dir — + 641 test
+  cũ) pass y hệt sau toàn bộ thay đổi V11.
+
+**Phát hiện thật ngoài phạm vi V11 (KHÔNG sửa trong mini-spec này — đúng
+guardrail "không mở rộng phạm vi ngoài gap đã xác nhận")**: ở lượt 1, NLLB
+chỉ dịch câu đầu của transcript 2 câu, câu sau bị bỏ hoàn toàn (không lỗi,
+không log — model tự dừng sớm). Đã cô lập nguyên nhân bằng gọi thẳng
+`ctranslate2.Translator` ngoài pipeline: **cùng 2 câu đó dịch ĐẦY ĐỦ khi
+văn bản nguồn sạch** (test tay bằng đúng câu đưa vào CapCut TTS), nhưng
+**bị cắt khi văn bản nguồn là bản Whisper nghe lại có lỗi nhỏ** ("trí tựa
+nhân tạo" thay vì "trí tuệ nhân tạo", "giàn lập" thay vì "giả lập") — model
+dừng sớm khi gặp từ nhiễu/không có nghĩa, bất kể `beam_size` (thử cả 1 và
+4) hay `max_decoding_length` tường minh. Verify thêm: hướng `zh→vi` (hướng
+đã test kỹnhất từ V6) dịch đúng đầy đủ với văn bản 2 câu tương đương —
+**không phải bug riêng của target=en/V11**, mà là hạn chế robustness sẵn
+có của NLLB-200-distilled-600M (V6) trước nhiễu ASR, xảy ra với MỌI cặp
+ngôn ngữ. Cần một mini-spec riêng cho V6 (vd: dịch câu-theo-câu tách bằng
+dấu câu trước khi gửi NLLB, hoặc phát hiện+cảnh báo khi output ngắn bất
+thường so với input) — ghi vào "Remaining Limits" bên dưới, KHÔNG chặn
+Success Criteria của V11 (tiêu chí là "không crash", không phải "dịch
+hoàn hảo mọi trường hợp nhiễu").
+
+**Chưa làm** (đúng Test Plan, cần người ngoài): "người bản ngữ tiếng Anh
+nghe thử đánh giá chất lượng giọng đọc + timing" — cần chủ dự án hoặc
+người thứ ba, tôi (AI) không tự đánh giá chất lượng phát âm tiếng Anh bằng
+tai không rành ngôn ngữ đó, đúng như Test Plan đã ghi rõ từ đầu.
+
+### Sửa thêm — phát hiện qua IDE diagnostic khi rà lại code xung quanh
+
+`DubPipeline.default_output_dir(target)` (pipeline.py) bỏ QUA tham số
+`target`, luôn trả về `vi_output_dir()` — 2 lượt live-verify ở trên xuất
+ra đúng `output/VN/20260811..._en` (video tiếng Anh nằm trong thư mục tên
+"VN"). Không crash, không sai chức năng dịch/lồng tiếng, chỉ sai tổ chức
+thư mục — nhưng đúng loại "giả định tiếng Việt" mà V11 nhắm tới. Đã sửa:
+target=vi giữ nguyên hành vi cũ (0 regression, kể cả tôn trọng
+`VIETNAMESE_OUTPUT_DIR` nếu người dùng đã đặt riêng); target khác về
+`<output_dir>/<KEY>` (vd `output/EN`), KHÔNG đi theo override
+`VIETNAMESE_OUTPUT_DIR` (biến đó di dời output tiếng Việt, không phải mọi
+ngôn ngữ). Test mới `tests/test_output_dir_target_language.py` (4 test).
+
+### Remaining Limits (V11)
+
+- NLLB local-translate (V6) có thể bỏ sót câu khi ASR nguồn nhiễu — phát
+  hiện thật ở trên, chưa fix, cần mini-spec riêng cho V6 (không phải V8/V11).
+- Chưa live-verify với video DÀI (vài phút, hàng chục câu) target=en — 2
+  lượt test đều là clip ngắn (dưới 6 giây, 1 câu ASR) để tiết kiệm thời
+  gian/tài nguyên máy dev; chưa chứng minh timing/karaoke alignment ổn
+  định trên transcript nhiều câu thật cho tiếng Anh.
+- `.venv-whisper`/`.venv-mt` chưa cài đặt thật trong bản đóng gói (PyInstaller)
+  — live-verify này dùng venv dev sẵn có (đường fallback in-process của
+  Whisper, override thủ công cho NLLB), CHƯA verify qua đúng quy trình cài
+  đặt `scripts/setup_whisper.py`/`scripts/setup_translate_local.py` mà
+  người dùng cuối sẽ chạy.
+- Đánh giá chất lượng giọng đọc tiếng Anh bởi người bản ngữ — chưa làm,
+  cần chủ dự án hoặc bên thứ ba (xem trên).
+
+## V12 — Cloud rendering production-ready (đưa V9 từ PoC thành hạ tầng thật)
+
+Theo `docs/PLAN.md` mục V12 (Phase D). Guardrail: worker Python RIÊNG khỏi
+control_server, KHÔNG rebuild logic Demucs, KHÔNG thêm Redis/broker (Mongo
+vẫn là nguồn sự thật), KHÔNG bypass billing, GUI hiện đúng giá trước khi
+trừ Vox, worker chết không được treo job mãi.
+
+### Backend — state machine + API nội bộ (Scope A/B/C)
+
+- `RenderJob` thêm `workerId`/`heartbeatAt` + 2 index mới
+  (`{status,heartbeatAt}` cho sweeper, `{status,createdAt}` cho FIFO claim).
+- `render-job.service.js` viết lại: `submitDemucsJob()` không còn spawn
+  subprocess — chỉ tạo job `queued` rồi trả về NGAY. State machine mới:
+  `claimNextJob(workerId)` (atomic FIFO), `heartbeat`, `completeJob`,
+  `failJob` — cả 3 chỉ áp dụng khi `workerId` khớp job đang giữ (worker
+  khác/đã bị sweeper coi là chết thì bị từ chối `409`, tránh 2 worker cùng
+  đụng 1 job).
+- `sweepStaleRunning()` mới (guardrail 5): job `running` mà `heartbeatAt`
+  cũ hơn `cloud.render.heartbeat.stale.minutes` (mặc định 5) tự chuyển
+  `failed` kèm lý do rõ ràng.
+- **Phát hiện thật ngoài phạm vi trực tiếp**: `sweepExpired()` (TTL dọn
+  file, có từ V9) **chưa bao giờ được nối vào scheduler nào** — job hết
+  hạn nằm lại vô thời hạn. Phát hiện lúc audit lại `server.js` để nối
+  sweeper mới của V12. Đã nối cả 2 sweeper vào `server.js` (cùng pattern
+  `setInterval` + `.unref()` như `hold.service.expireSweep`).
+- `POST /v1/jobs/demucs` đổi contract: trả `{jobId, status:"queued",
+  async:true, balanceAfter}` NGAY, không đợi xử lý — BREAKING CHANGE có
+  chủ đích (V9 chưa từng có client thật, xem Audit Before Build trong
+  docs/PLAN.md mục V12).
+- `/internal/jobs/*` (route mới, KHÔNG dưới `/v1`): `claim`/`heartbeat`/
+  `complete`/`fail`, xác thực bằng `WORKER_INTERNAL_TOKEN` riêng
+  (`worker-auth.middleware.js`, cùng khuôn `admin.middleware.js` —
+  `safeEqual` timing-safe, redact khỏi log).
+- `/v1/config/app` thêm `cloudRenderEnabled` + `pricing.cloudRenderDemucs`
+  — GUI đọc trước khi cho bật (guardrail 4).
+
+### Worker Python (Scope B) — `control_server/worker/`
+
+- `render_worker.py`: standalone (không import autodub, cùng quy ước
+  `demucs_worker.py`), poll `/internal/jobs/claim` mỗi 3s, heartbeat luồng
+  riêng mỗi 30s trong lúc xử lý, spawn `demucs_worker.py` qua subprocess
+  ĐÚNG NGUYÊN VĂN CLI contract của V9 (`--input/--vocals/--no-vocals`) —
+  không viết lại logic tách nhạc.
+- `Dockerfile`: `python:3.12-slim` + `pip install demucs soundfile requests`
+  + copy đúng 1 file `autodub/media/demucs_worker.py` (không copy cả gói
+  `autodub`/`autodub_gui` — tránh kéo PySide6 không cần cho worker).
+  **Sửa 1 lần trong lúc build**: dự định `apt-get install libsndfile1`
+  trước, nhưng mạng sandbox chặn `deb.debian.org` — thử bỏ bước apt và xác
+  nhận **thật** (không đoán) rằng wheel `soundfile` trên Linux đã gói sẵn
+  `libsndfile`, `pip install` + chạy Demucs thật vẫn thành công không cần
+  cài gì ở tầng hệ điều hành.
+
+### Live verification — THẬT, không mock (Test Plan/Success Criteria)
+
+**Giới hạn môi trường phát hiện thật**: mạng docker build trong sandbox
+này cực chậm khi tải các layer torch (~15 phút vẫn chưa xong tính tới lúc
+chuyển hướng) — không phải lỗi Dockerfile (đã review kỹ, chỉ là
+`pip install` + 2 lệnh `COPY`), mà là băng thông riêng của build context
+trong sandbox này (pip cài trực tiếp vào venv thường ở phần khác của phiên
+làm việc này chạy nhanh bình thường). Thay vì chờ vô thời hạn, đã live-
+verify **toàn bộ logic mới** (thứ thật sự cần kiểm chứng — state machine,
+giao thức worker, tích hợp Demucs thật) bằng cách chạy `render_worker.py`
+**trực tiếp trên máy** (venv có sẵn torch+demucs+requests từ audit V12)
+nhắm vào `control_server` **thật chạy trong Docker** + **MongoDB thật**:
+
+1. `docker compose up -d mongo control_server` — 2 image ĐÃ build xong
+   trước khi build worker bị chậm mạng — chạy thật, `/health` trả 200.
+2. Bind-mount tạm `RENDER_UPLOAD_DIR` ra thư mục host thật (thay named
+   volume, để tiến trình worker chạy NGOÀI container đọc/ghi cùng file
+   với control_server) — chỉ để verify, không phải kiến trúc thật (compose
+   thật dùng named volume dùng chung giữa 2 container, xem docker-compose.yml).
+3. Đăng ký 1 device thật qua `POST /v1/device/register`, nộp 1 file WAV
+   thật (2 giây, sine 440Hz) qua `POST /v1/jobs/demucs` — nhận ngay
+   `{status:"queued", async:true, balanceAfter:450}` (trừ đúng 50 Vox,
+   KHÔNG đợi xử lý — đúng Success Criteria "không bị timeout HTTP").
+4. `render_worker.py` (chạy thật, không mock) claim job qua HTTP thật, spawn
+   `demucs_worker.py` thật, **model Demucs thật load và chạy tách nhạc
+   thật** trên file WAV thật.
+5. Bắt được 2 lỗi thật trong lúc verify (KHÔNG phải lỗi logic — lỗi
+   permission/path do cách bind-mount tạm cho việc verify, ghi lại trung
+   thực): (a) lần đầu worker đọc nhầm path do thiếu symlink `/data/render-
+   jobs` trên host trỏ đúng bind mount; (b) sau khi sửa, job dừng ở
+   "running" → "failed" vì thư mục job do control_server (chạy root trong
+   container) tạo ra không cho tiến trình host (user thường) ghi —
+   `chmod 777` thư mục dùng chung rồi chạy lại. Cả hai đều là hạn chế của
+   PHƯƠNG PHÁP VERIFY (bind-mount + worker ngoài container), KHÔNG tồn tại
+   trong kiến trúc thật (2 container cùng mount 1 named volume, cùng
+   UID/permission model nếu cùng Dockerfile base).
+6. Lượt chạy thứ 3: **`status:"done"`** — job hoàn tất thật.
+7. Tải cả 2 stem qua `GET /v1/jobs/:id/result/vocals` và `/no_vocals` —
+   **cả hai `HTTP 200`, file WAV thật 2.0 giây** (khớp nguồn), không giả.
+8. Xác nhận chính sách xoá dữ liệu (đã duyệt từ V9) vẫn đúng qua đường mới:
+   sau khi tải xong CẢ HAI stem, thư mục job **tự biến mất** — kiểm bằng
+   `ls` thật sau khi tải, không còn tồn tại.
+9. `kill -TERM` worker giữa lúc đang chạy vòng lặp — log in ra đúng
+   "Nhận signal 15 — dừng sau job hiện tại..." (graceful shutdown hoạt
+   động như thiết kế).
+10. Server logs suốt phiên verify: **0 uncaught exception**, sweeper mới
+    (`sweepExpired`/`sweepStaleRunning`) chạy im lặng đúng thiết kế (không
+    có gì để dọn thì không log, không lỗi).
+
+**Regression**: `control_server` **113/113 test pass** (98 cũ + 8
+`internal-jobs.test.js` mới + net thêm ở `render-job.integration.test.js`,
+gồm cả 1 test spawn Demucs thật qua `VOXDUB_TEST_DEMUCS_PYTHON`, **đã chạy
+thật — pass, 18.4s**). `autodub` (pytest) **672/672 pass** (657 cũ + 11
+`test_cloud_render.py` + 4 `test_pipeline_cloud_render.py`).
+
+### GUI (Scope D)
+
+- Cài đặt (`autodub_gui/pages/settings_fields.py`): thêm `Field` khai báo
+  `CLOUD_RENDER_ENABLED` (hệ thống Field có sẵn tự dựng ô nhập + lưu/nạp —
+  không cần code tay, đã verify `test_settings_fields.py` 15/15 pass không
+  sửa gì thêm).
+- Tạo dự án (`RecognizeStep`, mục "Nhạc nền"): ô "Xử lý tách nhạc trên
+  cloud" — CHỈ hiện khi `autodub.cloud_render.pricing(settings)` xác nhận
+  khả dụng (đúng nguyên tắc "không thêm UI cho tính năng chưa tồn tại"),
+  hiện rõ số Vox TRƯỚC khi chạy (guardrail 4). Bảng tóm tắt bước cuối cũng
+  hiện dòng "+N Vox" nếu đã bật.
+- **Bug thật tìm ra + sửa lúc viết smoke test runtime** (không chỉ đọc
+  code): `values()` ban đầu dùng `self.cloud_render.isVisible()` để quyết
+  định có tính lựa chọn cloud hay không — nhưng ô này nằm trong
+  `CollapsibleSection` "Nhạc nền" GẬP LẠI mặc định, nên `isVisible()`
+  (tính cả tổ tiên) **luôn trả `False`** bất kể trạng thái thật, kể cả khi
+  tính năng khả dụng và người dùng đã tick chọn — nghĩa là lựa chọn cloud
+  của người dùng **âm thầm bị bỏ qua mỗi lần chạy**. Bắt được bằng
+  `QApplication` offscreen thật, dựng widget thật, kiểm `.isVisible()` vs
+  `.isHidden()` — sửa bằng cờ riêng `_cloud_render_available` theo dõi
+  đúng quyết định của `set_cloud_render_info()`, không suy qua Qt.
+- `autodub/saas_client.py`: `submit_demucs_job()` (multipart), `job_status()`,
+  `download_job_result()` (stream) — không dùng `_request()` (chỉ JSON).
+- `autodub/cloud_render.py` (mới): `is_available()`/`pricing()`/
+  `separate_vocals_cloud()` — cùng chữ ký trả về với
+  `vocal_separator.separate_vocals()` (drop-in). Lỗi cloud (mạng/job hỏng/
+  quá hạn 30 phút) **fallback về Demucs máy**, đúng nguyên tắc "degrade
+  trung thực" đã có sẵn (vd Paraformer→Whisper) — không phải phát minh
+  mới. **Bug thật tìm ra khi viết test**: nhánh `except Exception` bọc
+  quanh lời gọi cloud ban đầu sẽ NUỐT NHẦM `PipelineCancelled` (người dùng
+  bấm Hủy giữa lúc chờ job) rồi fallback sang Demucs máy thay vì dừng thật
+  — sửa bằng `except PipelineCancelled: raise` đứng trước
+  `except Exception`. Khoá lại bằng
+  `test_cancellation_during_cloud_wait_is_not_swallowed`.
+- Wiring vào `DubPipeline._resolve_background()`: cloud trước (nếu khả
+  dụng) → lỗi thì fallback Demucs máy → cả hai lỗi thì nền câm (hành vi cũ,
+  không đổi).
+
+### Remaining Limits (V12)
+
+- **Xác nhận CHẮC CHẮN (không còn "đang chờ")**: build `render_worker` qua
+  `docker compose build` **THẤT BẠI THẬT SỰ** sau ~2 giờ 6 phút — không
+  phải chậm rồi xong, mà chết hẳn với `ReadTimeoutError: HTTPSConnectionPool
+  (host='files.pythonhosted.org', port=443): Read timed out` ngay ở bước
+  `pip install demucs`. Đây là giới hạn THẬT của mạng build-context trong
+  sandbox này (khác hẳn mạng bình thường của sandbox — cùng gói `demucs`/
+  `torch` cài trực tiếp vào venv ở phần khác của phiên làm việc này chạy
+  bình thường, và `docker compose build control_server`/`docker pull mongo:7`
+  đều thành công nhanh). KHÔNG phải lỗi Dockerfile (đã review kỹ, chỉ 3
+  dòng: pip install + 2 COPY). Cần build lại trên máy/CI có mạng build
+  bình thường trước khi coi Success Criteria "docker compose up chạy được
+  Demucs thật, không cần cài gì thêm ngoài Docker" là đã xác nhận theo
+  đúng nghĩa đen — logic bên trong (state machine, giao thức worker, tích
+  hợp Demucs thật) ĐÃ live-verify đầy đủ bằng cách khác (xem trên), chỉ
+  riêng bước "build đúng qua Docker" chưa tự xác nhận được trong sandbox
+  này.
+- Chưa live-verify job DÀI thật (vài phút) để chứng minh "không bị timeout
+  HTTP" so với ngưỡng cụ thể — verify hiện tại dùng clip 2 giây (đủ chứng
+  minh state machine bất đồng bộ hoạt động đúng, chưa chứng minh bằng số
+  liệu thời gian thật cho video dài).
+- Chưa test tải đồng thời N job (mini-spec Test Plan có nhắc "load test");
+  `claimNextJob` atomic đã đúng theo lý thuyết Mongo
+  (`findOneAndUpdate`) và có test khoá lại (`claimNextJob: FIFO, atomic`)
+  nhưng chưa chạy N worker thật song song.
+- GUI cloud-render: chưa hiện TIẾN ĐỘ job đang chạy trên cloud trong lúc
+  chờ (mini-spec Scope D có nhắc "hiện tiến độ job") — hiện tại chỉ có
+  1 dòng log tiến độ chung ("Đang chờ máy chủ xử lý…") qua
+  `ProgressReporter`, chưa có UI riêng hiện %/trạng thái job cloud tách
+  biệt khỏi các bước khác của pipeline.
+- Chưa chạy thật qua GUI desktop (PySide6 thật, không phải smoke test
+  offscreen) — verify GUI mới dừng ở dựng widget thật trong `QApplication`
+  offscreen + gọi hàm thật, chưa click chuột thật qua toàn bộ luồng Tạo dự
+  án → chạy → nhận video có nhạc nền tách bằng cloud.
+
+## V13 — Phễu hoàn thành/bỏ dở pipeline (đưa V10 từ "một phần" thành đầy đủ)
+
+Theo `docs/PLAN.md` mục V13 (Phase D). **Quyết định chính sách**: đây là
+tính năng THU THẬP DỮ LIỆU MỚI — đã hỏi chủ dự án trước khi bắt tay (đúng
+guardrail của Phase D), chủ dự án chọn "làm đầy đủ" (backend + client gửi
+event thật + banner minh bạch + dashboard), không chọn phương án "chỉ
+backend, chưa cho gửi".
+
+### Audit Before Build
+
+Đọc `autodub/progress.py` trước khi code (đúng yêu cầu mini-spec): `STEPS`
+đã là danh sách thứ tự đầy đủ (acquire→extract→separate→asr→translate→
+tts→merge_audio→merge_video→content→done), `ProgressReporter.emit()` đã là
+điểm chạm DUY NHẤT cho mọi chuyển giai đoạn — đủ để tái dùng theo đúng
+Design Choice của mini-spec ("1 listener gắn thêm, không thêm hook mới
+trong pipeline.py"), không cần sửa gì ở `progress.py`.
+
+### Domain model + services (Scope A/B/C)
+
+- `PipelineEvent` (Mongo, mới): **1 document mỗi run**, upsert theo
+  `(fingerprint, runId)` — không lưu lịch sử từng bước, chỉ điểm dừng MỚI
+  NHẤT (`stage`) + `status` (`started`/`completed`/`failed`, đúng 3 giá
+  trị Scope A quy định) + `errorStage` (khi failed) + `startedAt`/
+  `updatedAt`/`completedAt`. Quyết định thiết kế: dùng field `stage` cập
+  nhật liên tục trong lúc `status` vẫn `"started"` để có granularity cho
+  phễu mà không cần một collection lịch sử riêng — đơn giản hơn, đủ cho
+  quy mô hiện tại (đúng tinh thần "đừng over-engineer" xuyên suốt các
+  guardrail V9-V12).
+- `telemetry.service.js`: `recordEvent()` (validate NGHIÊM status/stage,
+  400 khi sai — không âm thầm ghi rác), `funnel()` (số run đạt tới mỗi
+  chặng, suy từ điểm dừng cuối cùng — dừng ở X thì tính vào MỌI chặng ≤
+  X), `abandonedCount()` (guardrail 4 — `started` + `updatedAt` quá
+  `staleHours`), `overview()` (gộp cho dashboard).
+- `POST /v1/telemetry/pipeline-event` (route mới) — **guardrail 2 thực thi
+  ở tầng validate, không phải quy ước**: field ngoài
+  `runId`/`status`/`stage`/`errorStage` bị từ chối `400 FORBIDDEN_FIELD`.
+  `fingerprint` lấy từ token đã xác thực (`requireDevice`), không tin
+  client tự khai.
+- `GET /v1/admin/analytics/pipeline-funnel` — dashboard đọc từ đây.
+- `autodub/saas_client.py`: `send_pipeline_event()` — không tự bọc
+  try/except (bên gọi lo, xem dưới).
+- `autodub/telemetry.py` (mới): `make_progress_listener(pipeline)` — bọc
+  THÊM 1 listener vào callback progress hiện có của `DubPipeline`
+  (`__init__`), đọc `pipeline._telemetry_run_id` động (gán mới mỗi lượt
+  trong `run()`). Local-only (`is_configured()==False`) → trả no-op ngay
+  từ lúc dựng pipeline, quyết định MỘT LẦN — 0 overhead, 0 network cho
+  mọi event sau đó (guardrail 5). `_send_async()` chạy trong luồng nền
+  daemon riêng, nuốt MỌI lỗi (guardrail 3 — best-effort thật, không mock).
+  `note_failed()` gọi từ `DubPipeline.run()`'s except block — báo
+  `"failed"` kèm `errorStage` = giai đoạn cuối cùng đã ghi nhận (bao gồm
+  cả khi người dùng huỷ — `PipelineCancelled` cũng là `BaseException`,
+  map vào `"failed"` vì schema chỉ có 3 giá trị; quyết định có chủ đích,
+  không phải bỏ sót — một run bị huỷ có TERMINAL EVENT rõ ràng thì chính
+  xác hơn để nó rơi vào "bỏ dở" và chờ sweeper suy đoán hàng giờ sau).
+
+### Bug thật tìm ra khi viết wiring vào pipeline.py
+
+`ProgressReporter.emit()` vốn tự nuốt lỗi của callback (`try: self.
+_callback(...) except Exception: pass`) — nếu chỉ đơn giản gọi callback
+GUI gốc RỒI GỌI listener telemetry theo sau trong CÙNG một hàm không có
+try/except riêng, một lỗi ở callback GUI (bug tầng UI, không liên quan gì
+tới telemetry) sẽ chặn luôn `_tel(event)` không bao giờ chạy tới — vì
+exception bay thẳng ra khỏi hàm gộp, bị `emit()` nuốt ở tầng NGOÀI CÙNG.
+Sửa: bọc lời gọi callback gốc trong try/except RIÊNG bên trong hàm gộp,
+đảm bảo `_tel(event)` luôn tới lượt bất kể callback gốc thế nào. Khoá lại
+bằng `test_broken_gui_callback_does_not_block_telemetry` (callback GUI cố
+ý ném lỗi, xác nhận telemetry vẫn nhận được event).
+
+### GUI — banner minh bạch (Scope D, guardrail 1 — BẮT BUỘC trước khi gửi)
+
+- `autodub_gui/first_run.py` (`mode_banner_text()`, đã có từ V3): nhánh
+  "có máy chủ" thêm câu nói rõ việc gửi TRẠNG THÁI tiến trình (bắt đầu/
+  xong/lỗi, dừng ở bước nào) và khẳng định KHÔNG BAO GIỜ gửi nội dung.
+  Nhánh "local-only" thêm câu khẳng định KHÔNG gửi bất kỳ dữ liệu nào.
+  Khoá lại bằng `test_mode_banner_discloses_telemetry_when_server_configured`
+  và `test_mode_banner_local_only_explicitly_states_nothing_sent` — đọc
+  THẬT nội dung banner, không chỉ tin đã sửa đúng.
+- `autodub_gui/pages/help_page.py` (`EXTRA_PROBLEMS`, FAQ): thêm mục "App
+  có gửi dữ liệu gì về máy chủ không?" — phân biệt rõ local-only (không
+  gửi gì) vs SaaS (gửi trạng thái tiến trình, liệt kê đúng field, khẳng
+  định không bao giờ nội dung). Khoá bằng
+  `tests/test_help_page_telemetry_faq.py`.
+- `website/src/pages/admin/Dashboard.jsx`: `PipelineFunnel` — biểu đồ
+  thanh ngang 6 chặng (Tải video/Tách nhạc nền/Nghe & chép lời/Dịch/Đọc
+  giọng/Ghép video) + số Hoàn thành/Lỗi/Bỏ dở (ước lượng, có tooltip giải
+  thích rõ không phải sự thật tuyệt đối). `npm run build` sạch.
+
+### Live verification — THẬT (Test Plan/Success Criteria)
+
+Dựng lại `docker compose up -d mongo control_server` (2 image đã build từ
+V12, build lại `control_server` để lấy code V13 mới — nhanh, ~8s, không
+đụng gì tới build chậm của `render_worker`):
+
+1. **Chạy `SaasClient` THẬT** (không mock) nhắm vào server thật, gửi 2
+   luồng run thật qua HTTP thật:
+   - Run 1: `started@acquire` → `started@asr` → `started@tts` →
+     `completed@done`.
+   - Run 2: `started@acquire` → `started@separate` →
+     `failed@separate` (errorStage="separate").
+2. **Cố ý gửi field cấm `transcript` qua `_request()` thẳng vào endpoint
+   thật** — xác nhận máy chủ chặn THẬT: `SaasError: Event không được chứa
+   field: transcript...` (không phải đoán từ code, gọi HTTP thật và nhận
+   lỗi thật).
+3. `GET /v1/admin/analytics/pipeline-funnel` (admin token thật) trả về
+   ĐÚNG số liệu suy từ 2 run trên:
+   `funnel: acquire=2, separate=2, asr=1, translate=1, tts=1, merge_video=1`
+   (đúng — run 2 dừng ở "separate" nên KHÔNG được tính vào asr trở đi;
+   run 1 hoàn tất nên tính vào mọi chặng, "done" tính là đã qua
+   merge_video), `started=2, completed=1, failed=1, abandoned=0` (đúng —
+   run 2 có terminal event rõ ràng "failed", không rơi vào "bỏ dở" dù
+   dừng sớm).
+4. Regression suite thật: `control_server` **132/132 pass** (113 cũ +
+   9 `telemetry.integration.test.js` + 10 `telemetry-route.test.js`),
+   `autodub` (pytest) **690/690 pass** (672 cũ + 10 `test_telemetry.py` +
+   5 `test_pipeline_telemetry_wiring.py` + 2 test mới trong
+   `test_first_run_mode.py` + 1 `test_help_page_telemetry_faq.py`).
+
+### Remaining Limits (V13)
+
+- Định nghĩa "bỏ dở" (guardrail 4) là ƯỚC LƯỢNG theo thiết kế — 1 run
+  đang xử lý thật (video dài, > `staleHours` giờ nhưng vẫn còn heartbeat
+  progress) sẽ bị đếm nhầm là bỏ dở nếu app KHÔNG gửi event nào trong
+  suốt khoảng đó (vd 1 bước nội bộ chạy rất lâu không có ranh giới stage
+  nào ở giữa). `staleHours` mặc định 6 — chưa có số liệu thật để tinh
+  chỉnh ngưỡng này cho video rất dài.
+- Chưa thấy dữ liệu thật từ người dùng thật (chỉ verify bằng client tự
+  gọi) — cần thời gian sau khi tính năng thật sự triển khai để dashboard
+  có ý nghĩa thống kê.
+- Chưa test tải đồng thời nhiều run cùng lúc gửi event (khối lượng thấp
+  theo thiết kế — mỗi lượt dubbing tối đa ~10 event, không phải luồng
+  cao tần).
+- Chưa chạy thật qua GUI desktop bấm chuột thật để xác nhận banner hiện
+  đúng lúc mở app lần đầu — verify hiện tại là đọc thẳng nội dung hàm
+  `mode_banner_text()`/`EXTRA_PROBLEMS` bằng test, chưa chụp màn hình
+  dialog thật.
+- `website` chưa có test cho `PipelineFunnel`/`Dashboard.jsx` (component
+  React) — cùng giới hạn đã ghi nhận từ đợt re-audit 08-11 (chưa có
+  `@testing-library/react`, `npm run build` là mức verify hiện tại).

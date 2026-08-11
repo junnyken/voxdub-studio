@@ -102,28 +102,85 @@ Body: `{ jobId, holdId?, scriptOriginal (max 20000), scriptVi (max 20000), video
 Response: `{ jobId, metadata: object, creditCharged, balanceAfter }`
 Lỗi: `402 INSUFFICIENT_CREDIT`, `503 AI_UNAVAILABLE`.
 
-## `/v1/jobs` (mọi route cần token) — mini-spec V9, POC hẹp: CHỈ stage Demucs
+## `/v1/jobs` (mọi route cần token) — mini-spec V9 → V12, CHỈ stage Demucs
 
-Không thay thế luồng local — TUỲ CHỌN thêm, chỉ dùng khi người dùng chủ động
-bật (chưa có UI, xem docs/TEST_LOG.md mục V9 "Remaining Limits"). Chính sách
-dữ liệu: file input/output XOÁ NGAY sau khi tải xong CẢ HAI stem (hoặc theo
-TTL `cloud.render.ttl.hours`, mặc định 2 giờ, làm lưới an toàn dự phòng).
+Không thay thế luồng local — TUỲ CHỌN thêm (`autodub.cloud_render`, GUI: ô
+"Xử lý tách nhạc trên cloud" ở bước Nghe và chép lời). Chính sách dữ liệu:
+file input/output XOÁ NGAY sau khi tải xong CẢ HAI stem (hoặc theo TTL
+`cloud.render.ttl.hours`, mặc định 2 giờ, làm lưới an toàn dự phòng).
 
-### `POST /jobs/demucs` — nộp job (upload audio, xử lý ĐỒNG BỘ trong request)
+V12 BREAKING CHANGE so với V9: job xử lý BẤT ĐỒNG BỘ thật (trước đây `POST
+/jobs/demucs` giữ HTTP mở tới khi Demucs chạy xong — không chịu được video
+dài, timeout HTTP). Xem docs/PLAN.md mục V12 "Audit Before Build" cho lý do
+an toàn để đổi contract ngay bây giờ.
+
+### `POST /jobs/demucs` — nộp job, TRẢ VỀ NGAY (không đợi xử lý)
 Multipart, field `file` (audio, tối đa 200 MB).
-Response: `{ jobId, status: "done"|"failed", error?, balanceAfter }`
+Response: `{ jobId, status: "queued", async: true, balanceAfter }` — client
+PHẢI tự poll `GET /jobs/:jobId` tới khi `status` là `"done"`/`"failed"`.
 Lỗi: `400 NO_FILE`/`EMPTY_FILE`, `402 INSUFFICIENT_CREDIT`, `409 CLOUD_RENDER_DISABLED`.
-Trừ Vox theo `credit.cost.cloud.demucs` (mặc định 50) TRƯỚC khi xử lý — mất
+Trừ Vox theo `credit.cost.cloud.demucs` (mặc định 50) NGAY LÚC NỘP — mất
 tiền cả khi job fail (đã tốn tài nguyên máy chủ), không hoàn.
 
 ### `GET /jobs/:jobId`
-Response: `{ jobId, stage, status, error?, creditCharged, expiresAt }`
+Response: `{ jobId, stage, status, error?, creditCharged, expiresAt }`.
+`status`: `queued` → `running` (worker đã nhận, xem `/internal/jobs/claim`)
+→ `done`/`failed`. `running` quá lâu không thấy heartbeat (mặc định 5 phút,
+`cloud.render.heartbeat.stale.minutes`) tự chuyển `failed` — worker chết
+giữa chừng không treo job mãi.
 
 ### `GET /jobs/:jobId/result/:stem` (`stem` = `vocals` | `no_vocals`)
 Trả file `.wav` (`Content-Disposition: attachment`). Sau khi CẢ HAI stem đã
 được tải, server tự xoá thư mục job.
 Lỗi: `400 BAD_STEM`, `404 NOT_FOUND`/`RESULT_NOT_FOUND`, `409 NOT_READY`,
 `410 RESULT_EXPIRED` (đã bị dọn — tải trước đó hoặc quá TTL).
+
+## `/internal/jobs` (header `X-Worker-Token`, KHÔNG dưới `/v1`) — mini-spec V12
+
+API nội bộ cho `control_server/worker/render_worker.py` (container Python
+riêng, torch+demucs) — poll job, báo tiến độ, trả kết quả. KHÔNG bao giờ gọi
+từ client thiết bị/website; secret riêng (`WORKER_INTERNAL_TOKEN`) tách hẳn
+khỏi token thiết bị và `ADMIN_TOKEN`.
+
+### `POST /internal/jobs/claim` — `{ workerId }`
+Nhận 1 job `queued` cũ nhất (FIFO, atomic). Response:
+`{ job: { jobId, stage, inputPath, vocalsPath, noVocalsPath } | null }`.
+
+### `POST /internal/jobs/:jobId/heartbeat` — `{ workerId }`
+Báo còn sống trong lúc xử lý dài. `409 JOB_NOT_OWNED` nếu sweeper đã coi job
+là chết (heartbeat quá trễ) và chuyển `failed` rồi — worker dừng xử lý.
+
+### `POST /internal/jobs/:jobId/complete` — `{ workerId, resultPaths: {vocals, no_vocals} }`
+### `POST /internal/jobs/:jobId/fail` — `{ workerId, error }`
+Cả hai `409 JOB_NOT_OWNED` nếu `workerId` không khớp worker đang giữ job.
+
+## `/v1/config` — bổ sung mini-spec V12
+`GET /config/app` giờ có thêm `cloudRenderEnabled: bool` và
+`pricing.cloudRenderDemucs: number` — GUI đọc TRƯỚC khi cho bật ô "Xử lý
+trên cloud" để hiện đúng giá (guardrail 4 của V12, không trừ Vox rồi mới báo).
+
+## `/v1/telemetry` (mọi route cần token) — mini-spec V13
+
+Trạng thái tiến trình lồng tiếng — CHỈ gửi khi client ở chế độ SaaS
+(`saas_client.is_configured()==True`, guardrail 5, xem
+`autodub/telemetry.py`). Banner minh bạch (`autodub_gui/first_run.py`,
+`help_page.py`) đã cập nhật nói rõ việc này TRƯỚC KHI tính năng gửi bất kỳ
+dữ liệu thật nào (guardrail 1).
+
+### `POST /telemetry/pipeline-event`
+Body: `{ runId, status: "started"|"completed"|"failed", stage, errorStage? }`.
+`stage` phải là 1 trong `autodub.progress.STEPS` (acquire/extract/separate/
+asr/translate/tts/merge_audio/merge_video/content/done). `fingerprint` lấy
+từ token đã xác thực, KHÔNG đọc từ body. Upsert theo `(fingerprint, runId)`
+— gọi nhiều lần với `status:"started"` chỉ cập nhật `stage`/`updatedAt`
+(điểm dừng mới nhất), KHÔNG tạo document mới.
+
+**Guardrail 2 — chặn nội dung THẬT, không chỉ quy ước**: field nào ngoài
+`runId`/`status`/`stage`/`errorStage` đều bị từ chối `400 FORBIDDEN_FIELD`
+— server validate nghiêm, không âm thầm bỏ qua field lạ. Event KHÔNG BAO
+GIỜ được chứa nội dung video/transcript/audio/đường dẫn file.
+
+Lỗi: `400 BAD_RUN_ID`/`BAD_STATUS`/`BAD_STAGE`/`FORBIDDEN_FIELD`.
 
 ## `/v1/billing` (không cần token thiết bị — public storefront)
 
@@ -174,6 +231,7 @@ bộ vẫn trả `{success:true}` (giao dịch đã ghi ở PayOS, đối chiế
 | `GET /analytics/overview?days` | Revenue/orders/devices/credit/ai/keys tổng hợp |
 | `GET /analytics/usage?days` | Usage theo ngày × action |
 | `GET /analytics/retention?weeks` | Cohort retention theo tuần đăng ký (V10, xem docs/PLAN.md) — `{weeks, cohorts: [{cohortWeek, cohortSize, retention:[{offsetWeeks,active,pct}]}]}`, dùng lại `Device.firstSeenAt`/`lastSeenAt`, không thu thập gì mới |
+| `GET /analytics/pipeline-funnel?days&staleHours` | Phễu hoàn thành/bỏ dở (V13, xem docs/PLAN.md) — `{days, staleHours, funnel:[{stage,count}], started, completed, failed, abandoned}`. `funnel` là 6 chặng `acquire→separate→asr→translate→tts→merge_video`, đếm số run PHÂN BIỆT đã từng đạt tới mỗi chặng. `abandoned` = ước lượng (`started` không cập nhật quá `staleHours` giờ, mặc định 6) — KHÔNG phải sự thật tuyệt đối, không có sự kiện "abandoned" tường minh. Nguồn: `PipelineEvent`, chỉ ghi từ client ở chế độ SaaS. |
 | `GET /audit-log?action&target&page&limit` | Nhật ký hành động |
 
 ## Model (`src/models/`) — dựng lại 2026-08-10, xem `docs/TEST_LOG.md` V0
@@ -181,3 +239,4 @@ bộ vẫn trả `{success:true}` (giao dịch đã ghi ở PayOS, đối chiế
 `Device`, `ActivationKey`, `Order`, `CreditLedger`, `CreditHold`, `AiProvider`,
 `AppConfig`, `UsageLog`, `AuditLog`, `JobResult` — field/enum/index chi tiết
 nằm trực tiếp trong từng file (comment giải thích lý do mỗi ràng buộc).
+`RenderJob` (V9→V12) và `PipelineEvent` (V13) thêm sau, cùng quy ước.

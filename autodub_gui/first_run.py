@@ -73,15 +73,25 @@ def mode_banner_text() -> str:
     """Dòng đầu tiên người dùng thấy: đang chạy local-only hay có máy chủ.
 
     Trước V3, không có điểm chạm nào chủ động nói rõ điều này ngay từ đầu —
-    xem docs/PLAN.md mini-spec V3 và docs/TEST_LOG.md."""
+    xem docs/PLAN.md mini-spec V3 và docs/TEST_LOG.md.
+
+    Mini-spec V13: khi có máy chủ, app còn gửi TRẠNG THÁI TIẾN TRÌNH (bắt
+    đầu/xong/lỗi, dừng ở bước nào) — banner PHẢI nói rõ điều này TRƯỚC KHI
+    tính năng gửi bất kỳ event nào (guardrail 1 của V13, đây là gate không
+    được bỏ qua — xem docs/TEST_LOG.md mục V13)."""
     from autodub.saas_client import is_configured
 
     if is_configured():
         return ("Chế độ: có kết nối máy chủ dịch — dịch tự động dùng Vox "
                 "(xem số dư ở trang Tài khoản). Phần lồng tiếng chính vẫn "
-                "chạy trên máy bạn, không tốn phí.")
+                "chạy trên máy bạn, không tốn phí. App cũng gửi về máy chủ "
+                "TRẠNG THÁI tiến trình mỗi lượt chạy (bắt đầu/xong/lỗi, "
+                "dừng ở bước nào) để cải thiện dịch vụ — KHÔNG BAO GIỜ gửi "
+                "nội dung video/lời thoại/audio. Xem chi tiết ở trang Trợ "
+                "giúp.")
     return ("Chế độ: chạy hoàn toàn trên máy (local) — không kết nối máy "
-            "chủ nào, không tốn phí, mọi dữ liệu ở lại máy bạn.")
+            "chủ nào, không tốn phí, không gửi bất kỳ dữ liệu nào đi, mọi "
+            "thứ ở lại máy bạn.")
 
 
 def _marker_path() -> str:

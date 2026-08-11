@@ -118,11 +118,15 @@ class CapCutSynthesizer:
 
     recommended_threads = RECOMMENDED_THREADS
 
-    def __init__(self, settings, voice_name: str):
+    def __init__(self, settings, voice_name: str, lang: str | None = None):
         from autodub.speech.tts import capcut_catalog
         from autodub.speech.tts.capcut_api import CapCutClient
 
-        entry = capcut_catalog.lookup(voice_name)
+        # lang (mini-spec V11, docs/PLAN.md): mặc định None -> vi-VN, giữ
+        # nguyên hành vi trước V11. Bắt buộc truyền đúng khi target khác
+        # tiếng Việt, không thì lookup() tìm nhầm catalog vi-VN và báo
+        # "không có giọng" cho tên giọng CapCut ngôn ngữ khác hoàn toàn hợp lệ.
+        entry = capcut_catalog.lookup(voice_name, lang or capcut_catalog.LANG)
         if entry is None:
             raise ValueError(f"Không có giọng CapCut tên «{voice_name}»")
         self.settings = settings

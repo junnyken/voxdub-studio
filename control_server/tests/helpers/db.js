@@ -17,6 +17,7 @@ function setTestEnv() {
   process.env.JWT_SECRET ||= 'test-jwt-secret-at-least-32-characters-long'
   process.env.APP_ENCRYPTION_KEY ||= '1'.repeat(64)
   process.env.ADMIN_TOKEN ||= 'test-admin-token'
+  process.env.WORKER_INTERNAL_TOKEN ||= 'test-worker-token'
   process.env.PAYOS_CLIENT_ID ||= 'test-client'
   process.env.PAYOS_API_KEY ||= 'test-api-key'
   process.env.PAYOS_CHECKSUM_KEY ||= 'test-checksum-key-0123456789abcdef'

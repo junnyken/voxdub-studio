@@ -59,6 +59,16 @@ SUBTITLE_MODES: list[tuple[str, str]] = [
     ("Ghi thẳng vào hình", "burn"),
 ]
 
+# Ngôn ngữ đích khi lồng tiếng (mini-spec V11, xem docs/PLAN.md). Nhãn hiển
+# thị lấy tay ở đây (tiếng Việt, cho người dùng) — khoá "vi"/"en" khớp với
+# autodub.languages.TARGETS (nguồn thật cho lõi xử lý). Tiếng Anh đánh dấu
+# thử nghiệm: engine giọng đọc chỉ có CapCut (qua mạng), chưa có giọng
+# offline như VieNeu cho tiếng Việt.
+DUB_TARGETS: list[tuple[str, str]] = [
+    ("Tiếng Việt", "vi"),
+    ("Tiếng Anh (thử nghiệm, cần mạng cho giọng đọc)", "en"),
+]
+
 # Sáu phong cách dịch. Chuỗi ghi chú được nối thêm vào phần hướng dẫn dịch
 # mà lõi xử lý đã đọc sẵn, nên không phải sửa gì trong lõi.
 TRANSLATE_STYLES: list[tuple[str, str, str]] = [

@@ -1,12 +1,21 @@
 'use strict'
 
 /**
- * `/v1/jobs` — xử lý cloud rendering (mini-spec V9, xem docs/PLAN.md — POC
- * hẹp: CHỈ stage Demucs). Mọi route cần token thiết bị.
+ * `/v1/jobs` — xử lý cloud rendering (mini-spec V9 → V12, xem docs/PLAN.md
+ * — vẫn POC hẹp: CHỈ stage Demucs). Mọi route cần token thiết bị.
  *
  * Không thay thế luồng local hiện có — đây là TUỲ CHỌN thêm (guardrail của
  * mini-spec), người dùng không cấu hình VOXDUB_API_URL vẫn chạy 100% local
  * như trước, route này không được gọi tới.
+ *
+ * BREAKING CHANGE (V12, có chủ đích — xem Audit Before Build trong
+ * docs/PLAN.md mục V12): V9 xử lý ĐỒNG BỘ, response trả về SAU khi Demucs
+ * chạy xong (status luôn là "done"/"failed"). V12 trả về NGAY với
+ * status:"queued" — client PHẢI tự poll `GET /:jobId` tới khi status là
+ * "done"/"failed". Trường `async:true` đánh dấu rõ hợp đồng mới, để một
+ * client cũ (giả sử có) nhận ra ngay thay vì đọc nhầm "queued" thành lỗi.
+ * An toàn để đổi ngay bây giờ: V9 chưa từng có GUI wiring (audit xác nhận
+ * autodub_gui chưa gọi route này lần nào) — đây là client thật ĐẦU TIÊN.
  */
 const renderJob = require('../services/render-job.service')
 
@@ -15,7 +24,7 @@ module.exports = async function jobsRoutes(fastify) {
 
   fastify.addHook('preHandler', requireDevice)
 
-  // --- Nộp job Demucs (upload audio, xử lý đồng bộ trong request) --------
+  // --- Nộp job Demucs (upload audio, TRẢ VỀ NGAY — xử lý bất đồng bộ) -----
   fastify.post('/demucs', {
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
   }, async (request, reply) => {
@@ -37,6 +46,7 @@ module.exports = async function jobsRoutes(fastify) {
       return {
         jobId: job._id,
         status: job.status,
+        async: true,
         error: job.error || undefined,
         balanceAfter,
       }

@@ -20,7 +20,8 @@ async function build(opts = {}) {
   const app = Fastify({
     logger: opts.logger !== undefined ? opts.logger : {
       level: process.env.LOG_LEVEL || 'info',
-      redact: ['req.headers.authorization', 'req.headers["x-admin-token"]'],
+      redact: ['req.headers.authorization', 'req.headers["x-admin-token"]',
+              'req.headers["x-worker-token"]'],
     },
     trustProxy: process.env.TRUST_PROXY === '1',
     bodyLimit: 4 * 1024 * 1024,   // transcript một video dài vẫn lọt
@@ -80,6 +81,13 @@ async function build(opts = {}) {
   await app.register(require('./routes/jobs'), { prefix: '/v1/jobs' })
   await app.register(require('./routes/billing'), { prefix: '/v1/billing' })
   await app.register(require('./routes/admin'), { prefix: '/v1/admin' })
+  // Mini-spec V13: trạng thái tiến trình lồng tiếng — CHỈ khi client ở chế
+  // độ SaaS (is_configured()), chưa từng gọi ở local-only.
+  await app.register(require('./routes/telemetry'), { prefix: '/v1/telemetry' })
+  // Mini-spec V12: API nội bộ cho worker Python (poll job, heartbeat, báo
+  // kết quả) — KHÔNG dưới /v1, xác thực bằng WORKER_INTERNAL_TOKEN riêng
+  // (worker-auth.middleware.js), không lộ ra client thiết bị/website.
+  await app.register(require('./routes/internal-jobs'), { prefix: '/internal/jobs' })
 
   // Website tĩnh (nếu đã build). SPA: đường dẫn lạ ngoài /v1 trả index.html.
   const hasWeb = opts.web !== false && fs.existsSync(path.join(WEB_DIST, 'index.html'))

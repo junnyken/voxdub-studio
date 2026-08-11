@@ -5,9 +5,11 @@ Phạm vi ĐÃ verify trong đợt này: registry TARGETS + capcut_catalog đọ
 (test riêng, có gọi mạng thật — xem docs/TEST_LOG.md mục V8 cho log đầy
 đủ, không lặp lại ở đây để không phụ thuộc mạng khi chạy CI thường xuyên).
 
-Phạm vi CHƯA làm (xem Remaining Limits trong TEST_LOG.md): GUI chọn ngôn
-ngữ đích, voices.catalog() chưa target-aware, timing/ass_karaoke/editor.py
-chưa audit hết giả định tiếng Việt.
+Phạm vi đóng tiếp ở mini-spec V11 (xem docs/PLAN.md/TEST_LOG.md mục V11):
+GUI chọn ngôn ngữ đích, voices.catalog() target-aware, audit đầy đủ
+timing/ass_karaoke/editor.py + fix bug align.py hardcode language="vi" —
+test riêng cho các phần đó nằm ở tests/test_voices_target_language.py và
+tests/test_align_language.py, không lặp lại ở đây.
 """
 from __future__ import annotations
 

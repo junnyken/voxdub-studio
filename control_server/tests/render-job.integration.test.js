@@ -1,15 +1,21 @@
 'use strict'
 
 /**
- * Integration test cho cloud rendering (mini-spec V9, xem docs/PLAN.md —
- * POC hẹp: chỉ stage Demucs). Chạm MongoDB thật (in-memory).
+ * Integration test cho cloud rendering (mini-spec V9 → V12, xem docs/PLAN.md
+ * — vẫn POC hẹp: chỉ stage Demucs). Chạm MongoDB thật (in-memory).
  *
- * `submitDemucsJob` thật sự spawn `python3 demucs_worker.py` — mặc định
- * SKIP các test spawn tiến trình con thật (cần torch+demucs cài trong
- * DEMUCS_PYTHON, không phải môi trường CI thông thường). Set biến môi
- * trường VOXDUB_TEST_DEMUCS_PYTHON để chạy thật (đã live-verify tay khi
- * audit V9 — xem docs/TEST_LOG.md mục V9 cho log đầy đủ, bao gồm cả
- * luồng HTTP thật qua curl không lặp lại ở đây để test không cần mạng).
+ * V12: `submitDemucsJob` không còn tự spawn subprocess — chỉ tạo job
+ * `queued`. Việc chạy `demucs_worker.py` thật giờ thuộc về
+ * `control_server/worker/render_worker.py` (tiến trình Python riêng); test
+ * ở đây mô phỏng ĐÚNG luồng đó bằng cách tự spawn subprocess theo cùng CLI
+ * contract rồi gọi `claimNextJob`/`completeJob` — không lặp lại logic worker,
+ * chỉ xác nhận state machine + Demucs thật khớp nhau.
+ *
+ * Mặc định SKIP các test spawn tiến trình con thật (cần torch+demucs cài
+ * trong DEMUCS_PYTHON). Set biến môi trường VOXDUB_TEST_DEMUCS_PYTHON để
+ * chạy thật — xem docs/TEST_LOG.md mục V9/V12 cho log live-verify đầy đủ,
+ * bao gồm cả `docker compose up` + HTTP thật, không lặp lại ở đây để test
+ * không cần Docker/mạng.
  *
  * Chạy:  node --test tests/render-job.integration.test.js
  */
@@ -18,6 +24,7 @@ const assert = require('node:assert')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
+const { spawnSync } = require('node:child_process')
 
 const { setTestEnv, startDb, stopDb, clearDb } = require('./helpers/db')
 setTestEnv()
@@ -27,10 +34,6 @@ const HAS_DEMUCS = Boolean(DEMUCS_PYTHON) && fs.existsSync(DEMUCS_PYTHON)
 const WORKER_SCRIPT = process.env.VOXDUB_TEST_DEMUCS_WORKER
   || path.join(__dirname, '..', '..', 'autodub', 'media', 'demucs_worker.py')
 
-if (HAS_DEMUCS) {
-  process.env.DEMUCS_PYTHON = DEMUCS_PYTHON
-  process.env.DEMUCS_WORKER_SCRIPT = WORKER_SCRIPT
-}
 process.env.RENDER_UPLOAD_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'voxdub-render-test-'))
 
 const Device = require('../src/models/Device')
@@ -93,6 +96,21 @@ test('submitDemucsJob: tắt cloud.render.enabled thì từ chối rõ ràng', a
   )
 })
 
+test('submitDemucsJob (V12): trả về NGAY status=queued, KHÔNG chạy Demucs inline', async () => {
+  const device = await makeDevice('q'.repeat(64), 1000)
+  const cost = await config.get('credit.cost.cloud.demucs')
+
+  const { job, balanceAfter } = await renderJob.submitDemucsJob({
+    device, fileBuffer: fakeWavBuffer(),
+  })
+
+  assert.equal(job.status, 'queued', 'V12 phải trả về queued ngay, không đợi xử lý')
+  assert.equal(job.creditCharged, cost, 'vẫn trừ Vox ngay lúc submit, đúng nguyên tắc hold')
+  assert.equal(balanceAfter, 1000 - cost)
+  assert.equal(job.workerId, '', 'chưa worker nào nhận job')
+  assert.equal(job.heartbeatAt, null)
+})
+
 test('cleanupJob: xoá sạch thư mục job, gọi lại lần 2 không lỗi (idempotent)', async () => {
   const device = await makeDevice('c'.repeat(64), 1000)
   const jobId = 'fake-job-id-for-cleanup-test'
@@ -132,26 +150,157 @@ test('RenderJob schema: enum status/stage đúng, index {status,expiresAt} có m
   assert.deepEqual(stages, ['demucs'])
   const indexes = RenderJob.schema.indexes().map(([fields]) => JSON.stringify(fields))
   assert.ok(indexes.includes(JSON.stringify({ status: 1, expiresAt: 1 })),
-    'thiếu index {status, expiresAt} cho sweeper')
+    'thiếu index {status, expiresAt} cho sweeper TTL')
+  assert.ok(indexes.includes(JSON.stringify({ status: 1, heartbeatAt: 1 })),
+    'thiếu index {status, heartbeatAt} cho sweeper heartbeat (V12)')
 })
 
-test('submitDemucsJob thật: chạy Demucs thật, trừ đúng Vox, sinh 2 file kết quả hợp lệ',
-  { skip: !HAS_DEMUCS && 'cần VOXDUB_TEST_DEMUCS_PYTHON trỏ tới python đã cài torch+demucs — xem docs/TEST_LOG.md mục V9' },
+// ------------------------------------------------ state machine (V12) --- //
+
+test('claimNextJob: FIFO, atomic — 2 lần claim liên tiếp không bao giờ trùng job', async () => {
+  const device = await makeDevice('f'.repeat(64), 1000)
+  const older = await RenderJob.create({
+    fingerprint: device.fingerprint, deviceId: device._id, stage: 'demucs',
+    status: 'queued', inputPath: '/tmp/a', expiresAt: new Date(Date.now() + 3600_000),
+  })
+  await new Promise((r) => { setTimeout(r, 5) })
+  const newer = await RenderJob.create({
+    fingerprint: device.fingerprint, deviceId: device._id, stage: 'demucs',
+    status: 'queued', inputPath: '/tmp/b', expiresAt: new Date(Date.now() + 3600_000),
+  })
+
+  const first = await renderJob.claimNextJob('worker-1')
+  assert.equal(String(first._id), String(older._id), 'phải nhận job CŨ NHẤT trước (FIFO)')
+  assert.equal(first.status, 'running')
+  assert.equal(first.workerId, 'worker-1')
+  assert.ok(first.heartbeatAt)
+
+  const second = await renderJob.claimNextJob('worker-2')
+  assert.equal(String(second._id), String(newer._id))
+
+  const third = await renderJob.claimNextJob('worker-3')
+  assert.equal(third, null, 'hết job queued thì trả null, không lỗi')
+})
+
+test('heartbeat: cập nhật đúng khi job vẫn do worker đó giữ, từ chối khi không phải', async () => {
+  const device = await makeDevice('g'.repeat(64), 1000)
+  await RenderJob.create({
+    fingerprint: device.fingerprint, deviceId: device._id, stage: 'demucs',
+    status: 'queued', inputPath: '/tmp/a', expiresAt: new Date(Date.now() + 3600_000),
+  })
+  const claimed = await renderJob.claimNextJob('worker-1')
+
+  const ok = await renderJob.heartbeat(claimed._id, 'worker-1')
+  assert.equal(ok, true)
+
+  const wrongWorker = await renderJob.heartbeat(claimed._id, 'worker-2')
+  assert.equal(wrongWorker, false, 'worker khác không được cập nhật heartbeat của job không phải mình')
+})
+
+test('completeJob: chuyển done + lưu resultPaths, từ chối nếu không đúng worker đang giữ', async () => {
+  const device = await makeDevice('h'.repeat(64), 1000)
+  await RenderJob.create({
+    fingerprint: device.fingerprint, deviceId: device._id, stage: 'demucs',
+    status: 'queued', inputPath: '/tmp/a', expiresAt: new Date(Date.now() + 3600_000),
+  })
+  const claimed = await renderJob.claimNextJob('worker-1')
+
+  const wrongWorker = await renderJob.completeJob(claimed._id, 'worker-2',
+    { vocals: '/tmp/v', no_vocals: '/tmp/nv' })
+  assert.equal(wrongWorker, null)
+
+  const done = await renderJob.completeJob(claimed._id, 'worker-1',
+    { vocals: '/tmp/v', no_vocals: '/tmp/nv' })
+  assert.equal(done.status, 'done')
+  assert.equal(done.resultPaths.vocals, '/tmp/v')
+  assert.ok(done.completedAt)
+})
+
+test('failJob: chuyển failed + lưu lý do', async () => {
+  const device = await makeDevice('i'.repeat(64), 1000)
+  await RenderJob.create({
+    fingerprint: device.fingerprint, deviceId: device._id, stage: 'demucs',
+    status: 'queued', inputPath: '/tmp/a', expiresAt: new Date(Date.now() + 3600_000),
+  })
+  const claimed = await renderJob.claimNextJob('worker-1')
+
+  const failed = await renderJob.failJob(claimed._id, 'worker-1', 'CUDA out of memory')
+  assert.equal(failed.status, 'failed')
+  assert.equal(failed.error, 'CUDA out of memory')
+})
+
+test('sweepStaleRunning (guardrail 5): job running mà heartbeat quá cũ tự chuyển failed', async () => {
+  const device = await makeDevice('j'.repeat(64), 1000)
+  const staleMinutes = await config.get('cloud.render.heartbeat.stale.minutes')
+  const stuck = await RenderJob.create({
+    fingerprint: device.fingerprint, deviceId: device._id, stage: 'demucs',
+    status: 'running', workerId: 'dead-worker', inputPath: '/tmp/a',
+    heartbeatAt: new Date(Date.now() - (staleMinutes + 1) * 60_000),
+    startedAt: new Date(Date.now() - (staleMinutes + 1) * 60_000),
+    expiresAt: new Date(Date.now() + 3600_000),
+  })
+  const alive = await RenderJob.create({
+    fingerprint: device.fingerprint, deviceId: device._id, stage: 'demucs',
+    status: 'running', workerId: 'alive-worker', inputPath: '/tmp/b',
+    heartbeatAt: new Date(), startedAt: new Date(),
+    expiresAt: new Date(Date.now() + 3600_000),
+  })
+
+  const failedCount = await renderJob.sweepStaleRunning()
+  assert.equal(failedCount, 1)
+
+  const stuckAfter = await RenderJob.findById(stuck._id).lean()
+  assert.equal(stuckAfter.status, 'failed')
+  assert.match(stuckAfter.error, /mất kết nối/)
+
+  const aliveAfter = await RenderJob.findById(alive._id).lean()
+  assert.equal(aliveAfter.status, 'running', 'job còn heartbeat sống không được đụng tới')
+})
+
+test('sweepStaleRunning: job queued (chưa ai nhận) không bị coi là stale', async () => {
+  const device = await makeDevice('k'.repeat(64), 1000)
+  await RenderJob.create({
+    fingerprint: device.fingerprint, deviceId: device._id, stage: 'demucs',
+    status: 'queued', inputPath: '/tmp/a', expiresAt: new Date(Date.now() + 3600_000),
+  })
+  const failedCount = await renderJob.sweepStaleRunning()
+  assert.equal(failedCount, 0)
+})
+
+// --------------------------------------- Demucs thật + state machine ---- //
+
+test('luồng worker thật: submit → claim → chạy Demucs thật (subprocess) → complete → tải kết quả',
+  { skip: !HAS_DEMUCS && 'cần VOXDUB_TEST_DEMUCS_PYTHON trỏ tới python đã cài torch+demucs — xem docs/TEST_LOG.md mục V9/V12' },
   async () => {
     const device = await makeDevice('e'.repeat(64), 1000)
     const cost = await config.get('credit.cost.cloud.demucs')
 
-    const { job, balanceAfter } = await renderJob.submitDemucsJob({
+    const { job: submitted, balanceAfter } = await renderJob.submitDemucsJob({
       device, fileBuffer: fakeWavBuffer(),
     })
-
-    assert.equal(job.status, 'done', job.error)
-    assert.equal(job.creditCharged, cost)
+    assert.equal(submitted.status, 'queued')
     assert.equal(balanceAfter, 1000 - cost)
-    assert.ok(fs.existsSync(job.resultPaths.vocals))
-    assert.ok(fs.existsSync(job.resultPaths.no_vocals))
-    assert.ok(fs.statSync(job.resultPaths.vocals).size > 0)
 
-    await renderJob.cleanupJob(job._id)
-    assert.ok(!fs.existsSync(job.resultPaths.vocals), 'cleanup phải xoá file thật')
+    // Mô phỏng render_worker.py: claim rồi tự spawn demucs_worker.py với
+    // đúng CLI contract (--input/--vocals/--no-vocals), y hệt cách worker
+    // thật gọi — KHÔNG lặp lại logic tách nhạc, chỉ xác nhận contract khớp.
+    const claimed = await renderJob.claimNextJob('test-worker')
+    const paths = renderJob.jobPaths(claimed._id)
+    const proc = spawnSync(DEMUCS_PYTHON, [
+      WORKER_SCRIPT, '--input', claimed.inputPath,
+      '--vocals', paths.vocals, '--no-vocals', paths.noVocals,
+    ], { encoding: 'utf-8' })
+    const lastLine = (proc.stdout || '').trim().split('\n').pop() || ''
+    const parsed = JSON.parse(lastLine)
+    assert.equal(parsed.ok, true, `demucs_worker.py lỗi: ${JSON.stringify(parsed)} — stderr: ${proc.stderr}`)
+
+    const done = await renderJob.completeJob(claimed._id, 'test-worker',
+      { vocals: paths.vocals, no_vocals: paths.noVocals })
+    assert.equal(done.status, 'done')
+    assert.ok(fs.existsSync(done.resultPaths.vocals))
+    assert.ok(fs.existsSync(done.resultPaths.no_vocals))
+    assert.ok(fs.statSync(done.resultPaths.vocals).size > 0)
+
+    await renderJob.cleanupJob(done._id)
+    assert.ok(!fs.existsSync(done.resultPaths.vocals), 'cleanup phải xoá file thật')
   })

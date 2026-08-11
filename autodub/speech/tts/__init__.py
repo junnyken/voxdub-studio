@@ -68,16 +68,20 @@ def get_synthesizer(
     câu gán giọng riêng) để không nhân đôi RAM theo cả nhóm worker. Giọng
     CapCut bỏ qua tham số này (số luồng do ``recommended_threads`` quyết).
     """
-    voice_name = voice_catalog.resolve(settings, voice)
+    # target (mini-spec V11, docs/PLAN.md): danh mục giọng phải đúng ngôn
+    # ngữ đích — không mặc định tiếng Việt cho mọi target như trước V11.
+    voice_name = voice_catalog.resolve(settings, voice, target=target)
 
-    if voice_catalog.is_capcut_voice(voice_name):
+    if voice_catalog.is_capcut_voice(voice_name, lang=target.code):
         from autodub.speech.tts.capcut_vi import CapCutSynthesizer
 
         logger.info(f"Dùng giọng CapCut «{voice_name}» (qua mạng)")
-        return CapCutSynthesizer(settings, voice_name=voice_name)
+        return CapCutSynthesizer(settings, voice_name=voice_name, lang=target.code)
 
     # Chỉ nhánh offline mới cần VieNeu — kiểm tra ở đây chứ không phải đầu
     # hàm, nếu không máy chưa cài VieNeu sẽ bị chặn oan cả giọng CapCut.
+    # VieNeu là model CHUYÊN BIỆT tiếng Việt — target khác tiếng Việt không
+    # bao giờ tới được đây vì catalog(target=khác-vi) chỉ có giọng CapCut.
     if not settings.vieneu_configured():
         raise ConfigError(NOT_INSTALLED_HINT)
 

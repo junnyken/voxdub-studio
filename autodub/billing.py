@@ -207,6 +207,7 @@ class HoldBillingAdapter:
         """
         from autodub import securestore
         from autodub.editor import load_render_opts, save_render_opts
+        from autodub.languages import get_target
         from autodub.pipeline import DubResult
         from autodub.speech.tts import voices as voice_catalog
         from autodub.text.translate_common import HOLD, USAGE
@@ -214,10 +215,13 @@ class HoldBillingAdapter:
         hold_id, key = HOLD.hold_id, HOLD.key
 
         # Ghim giọng + tùy chọn render để thẻ dự án hiện đúng thông tin
-        # (Trình chỉnh sửa vẫn khóa cho tới khi xuất).
+        # (Trình chỉnh sửa vẫn khóa cho tới khi xuất). target (mini-spec V11):
+        # cùng quy ước state["target"] như pipeline.py — không mặc định vi.
+        target = get_target(str(state.get("target") or "vi"))
         render_opts = load_render_opts(work_dir)
         render_opts["voice"] = voice_catalog.resolve(self.settings,
-                                                     state.get("voice"))
+                                                     state.get("voice"),
+                                                     target=target)
         render_opts.setdefault("subtitle_mode", state.get("subtitle_mode"))
         render_opts.setdefault("blur_regions", state.get("blur_regions"))
         render_opts.setdefault("subtitle_style", state.get("subtitle_style"))

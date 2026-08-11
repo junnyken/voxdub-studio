@@ -43,3 +43,21 @@ def test_mode_banner_reflects_server_configured(monkeypatch):
     text = mode_banner_text()
     assert "máy chủ" in text
     assert "Vox" in text
+
+
+def test_mode_banner_discloses_telemetry_when_server_configured(monkeypatch):
+    """Guardrail 1 của mini-spec V13 (docs/PLAN.md) — banner PHẢI nói rõ
+    việc gửi trạng thái tiến trình TRƯỚC KHI tính năng gửi bất kỳ event
+    nào. Đây là gate KHÔNG được bỏ qua — test này khoá lại nội dung thật,
+    không chỉ tin code đã sửa đúng."""
+    monkeypatch.setattr("autodub.saas_client.is_configured", lambda: True)
+    text = mode_banner_text()
+    assert "trạng thái" in text.lower() and "tiến trình" in text.lower()
+    assert "không bao giờ gửi nội dung" in text.lower() or \
+        "không bao giờ gửi" in text.lower()
+
+
+def test_mode_banner_local_only_explicitly_states_nothing_sent(monkeypatch):
+    monkeypatch.setattr("autodub.saas_client.is_configured", lambda: False)
+    text = mode_banner_text()
+    assert "không gửi" in text.lower()
