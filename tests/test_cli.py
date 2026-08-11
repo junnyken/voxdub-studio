@@ -9,6 +9,7 @@ contract, và validate giọng/target tường minh (không rơi ngầm như
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -448,6 +449,97 @@ def test_batch_retry_off_by_default(monkeypatch, tmp_path):
     cli._cmd_batch(args)
 
     assert captured["retry_transient"] is False
+
+
+# --------------------------------------------------------------------- #
+# mini-spec V25 (Phase F) — voxdub watch
+
+def test_watch_subcommand_help_exits_zero():
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["watch", "--help"])
+    assert exc.value.code == 0
+
+
+def test_watch_requires_input_dir():
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["watch"])  # --input-dir bắt buộc
+
+
+def test_watch_missing_input_dir_on_disk_exits_2(tmp_path, capsys):
+    parser = cli.build_parser()
+    args = parser.parse_args([
+        "watch", "--input-dir", str(tmp_path / "khong-ton-tai")])
+    rc = cli._cmd_watch(args)
+    assert rc == 2
+    assert "Lỗi tham số" in capsys.readouterr().err
+
+
+def test_watch_unknown_voice_exits_2_before_starting_loop(monkeypatch, tmp_path):
+    parser = cli.build_parser()
+    args = parser.parse_args([
+        "watch", "--input-dir", str(tmp_path), "--voice", "Sai Tên"])
+
+    fake_voice = MagicMock()
+    fake_voice.name = "Minh Trang"
+    monkeypatch.setattr("autodub.speech.tts.voices.catalog", lambda *a, **k: [fake_voice])
+    watch_forever_mock = MagicMock()
+    monkeypatch.setattr("autodub.watch_folder.watch_forever", watch_forever_mock)
+
+    assert cli._cmd_watch(args) == 2
+    watch_forever_mock.assert_not_called()
+
+
+def test_watch_wires_watch_forever_with_correct_args(monkeypatch, tmp_path):
+    input_dir = tmp_path / "in"
+    input_dir.mkdir()
+    output_dir = tmp_path / "out"
+
+    parser = cli.build_parser()
+    args = parser.parse_args([
+        "watch", "--input-dir", str(input_dir), "--output-dir", str(output_dir),
+        "--poll-interval", "3", "--stable-seconds", "1",
+    ])
+
+    captured = {}
+
+    def fake_watch_forever(input_dir_arg, pipeline, req_template, state_path,
+                           poll_interval_s=10.0, stable_seconds=5.0,
+                           failures_log_path=None, stop_event=None):
+        captured.update(locals())
+
+    monkeypatch.setattr("autodub.watch_folder.watch_forever", fake_watch_forever)
+    monkeypatch.setattr("signal.signal", lambda *a, **k: None)
+
+    rc = cli._cmd_watch(args)
+
+    assert rc == 0
+    assert captured["input_dir_arg"] == str(input_dir)
+    assert captured["poll_interval_s"] == 3.0
+    assert captured["stable_seconds"] == 1.0
+    assert captured["req_template"].output_dir == str(output_dir)
+    assert os.path.isdir(output_dir)  # tự tạo nếu chưa có
+
+
+def test_watch_defaults_output_dir_from_target(monkeypatch, tmp_path):
+    input_dir = tmp_path / "in"
+    input_dir.mkdir()
+    parser = cli.build_parser()
+    args = parser.parse_args(["watch", "--input-dir", str(input_dir)])
+
+    captured = {}
+
+    def fake_watch_forever(input_dir_arg, pipeline, req_template, state_path,
+                           poll_interval_s=10.0, stable_seconds=5.0,
+                           failures_log_path=None, stop_event=None):
+        captured["output_dir"] = req_template.output_dir
+
+    monkeypatch.setattr("autodub.watch_folder.watch_forever", fake_watch_forever)
+    monkeypatch.setattr("signal.signal", lambda *a, **k: None)
+
+    cli._cmd_watch(args)
+    assert captured["output_dir"]  # không rỗng — DubPipeline.default_output_dir() thật
 
 
 # --------------------------------------------------------------------- #

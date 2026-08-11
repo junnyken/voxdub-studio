@@ -2584,3 +2584,101 @@ Rà TOÀN BỘ điểm gọi subprocess trong `autodub/speech/` + `autodub/media
   hồi hợp lệ) — cần audit thêm nếu muốn mở rộng danh sách.
 - Backoff (5s/15s) và trần retry (2 lần) là giá trị khởi đầu hợp lý, CHƯA
   có dữ liệu thật từ vận hành để hiệu chỉnh.
+
+## V25 — Chế độ theo dõi thư mục/hàng đợi không người trực (Phase F, E4)
+
+### Xây dựng
+
+- `autodub/watch_folder.py` (mới):
+  - `StabilityTracker` — kích thước file không đổi liên tục ``stable_
+    seconds`` giây mới coi là ghi xong (Constraint 1); cần ÍT NHẤT 2 lượt
+    quan sát (không bao giờ tin lần thấy ĐẦU TIÊN, dù `stable_seconds=0`).
+  - `file_key()`/`WatchState` — trạng thái bền theo path+mtime+size, sống
+    sót qua tắt/bật lại tiến trình (Constraint 2), tách hẳn khỏi
+    `batch_state.json` (khoá theo URL — mô hình khác nhau, không ép chung).
+  - `discover_ready_files()` — tự loại file "chắc chắn chưa ghi xong"
+    (`.part`/`.crdownload`/`.tmp`/`.download`, file ẩn) VÀ tự loại tên file
+    bookkeeping đã biết (`_watch_state.json`/`failures.jsonl`/
+    `batch_state.json`) — lớp an toàn phòng khi input_dir/output_dir bị
+    trỏ trùng nhau (phát hiện lúc viết test, xem Verify).
+  - `process_file()` — đánh dấu "processing" TRƯỚC khi chạy, resume đúng
+    `work_dir` nếu phát hiện lại 1 file còn dở "processing" từ lượt trước
+    (Constraint 4); lỗi thật (exception) ghi `failed` + `failures.jsonl`,
+    KHÔNG giết cả vòng theo dõi.
+  - `run_watch_once()` — 1 lượt quét đầy đủ (discover + process từng file),
+    hàm THUẦN dùng trực tiếp trong test.
+  - `watch_forever()` — lớp vỏ MỎNG DUY NHẤT có `while`/`sleep` thật, dừng
+    qua `threading.Event` (CLI gắn với SIGINT).
+- `autodub/cli.py` — subcommand `voxdub watch --input-dir ... [--output-dir
+  ...] [--poll-interval] [--stable-seconds]`, dùng lại `DubPipeline`/
+  `DubRequest` như `dub`, nối `failures_log_path` (V24). SIGINT → set
+  `stop_event`, vòng lặp dừng SAU KHI xong lượt quét hiện tại (không cắt
+  giữa 1 lượt `pipeline.run()` đang chạy dở — xem Remaining Limits).
+
+### Verify
+
+- `tests/test_watch_folder.py` (21 test): `StabilityTracker` (file đang
+  lớn dần không bao giờ "ổn định"; kích thước không đổi đủ lâu → ổn định;
+  file biến mất → không ổn định; `forget()` reset đúng); `file_key()` đổi
+  khi nội dung đổi, ổn định khi không đổi; `WatchState` bền qua "khởi động
+  lại" (test tạo 2 instance riêng trỏ cùng file); trạng thái thiếu → coi
+  như trống; "processing" KHÔNG được tính là đã xong; `discover_ready_
+  files()` chỉ lấy file mới+ổn định, loại file provisional, loại file đã
+  xong, loại thư mục con; **file bookkeeping không bao giờ bị tự "dub"
+  ngay cả khi input=output trùng thư mục** (bug tiềm ẩn tìm ra khi viết
+  test, chặn trước khi xảy ra thật); `process_file()`/`run_watch_once()`
+  qua `FakePipeline` (không tải/ASR/TTS thật) — thành công, lỗi không crash
+  vòng lặp, ghi `failures.jsonl` đúng, xử lý nhiều file 1 lượt rồi bỏ qua ở
+  lượt sau, resume đúng `work_dir` khi phát hiện lại file "processing" dở,
+  video mới vẫn được xử lý sau khi video trước lỗi; `watch_forever()` với
+  `stop_event` dừng đúng sau ĐÚNG 1 lượt xử lý (không polling thật dài hạn
+  trong test, đúng Test Plan của mini-spec).
+- `tests/test_cli.py` (+7 test): `--help`; thiếu `--input-dir` (bắt buộc);
+  thư mục không tồn tại → exit 2; giọng sai → exit 2, KHÔNG chạm tới
+  `watch_forever()`; cờ nối đúng vào `watch_forever()` (input_dir/poll_
+  interval/stable_seconds/output_dir tự tạo); output_dir mặc định theo
+  target khi không truyền.
+- **Live-verify THẬT** (không mock): chạy `voxdub watch` qua console script
+  thật (subprocess thật) trên 1 file giả (không phải video thật) trong
+  `/tmp`, `--poll-interval 1 --stable-seconds 1`, gửi SIGINT sau 6s —
+  **bắt được 1 bug thật**: `watch_forever()` gọi `run_watch_once()` không
+  truyền `now_fn`, rơi về mặc định `lambda: ""` (đúng cho test thuần
+  `process_file()` nhưng SAI cho sản xuất thật) → mọi dòng `failures.jsonl`
+  khi chạy `voxdub watch` thật có `"timestamp": ""`, mất hết giá trị theo
+  dõi theo thời gian của E6. Sửa: `watch_forever()` tự cấp
+  `datetime.now().isoformat()` làm `now_fn` mặc định (cùng pattern
+  `batch.py::_run_items` đã dùng ở V24). Re-verify thật sau khi sửa:
+  `failures.jsonl` có timestamp thật (`"2026-08-12T04:08:16"`); toàn bộ
+  luồng thật khác đã đúng ngay từ đầu — pipeline THẬT chạy (ffmpeg thật
+  được gọi, lỗi thật vì file giả không phải video), `_watch_state.json`
+  ghi đúng `work_dir`/`status`, SIGINT dừng sạch (exit 0, không bị
+  `timeout` cắt ngang — log "Đang dừng theo dõi" in ra trước khi thoát).
+  Thêm test khoá lại hành vi này (`test_watch_forever_passes_a_real_non_
+  empty_timestamp_to_failures_log`).
+- `pytest tests/ -q` toàn bộ (venv đầy đủ dependency): **855 passed, 6
+  skipped, 0 failed** (828 pass ở V24 + 27 test mới).
+
+### Remaining Limits (V25)
+
+- **Ctrl+C GIỮA LÚC 1 lượt `pipeline.run()` đang chạy dở** (không phải
+  giữa 2 lượt poll) có thể KHÔNG resume đúng — `state.record("processing")`
+  chỉ ghi `work_dir` SAU KHI bắt được exception hoặc hoàn thành; tín hiệu
+  ngắt thật (`KeyboardInterrupt`) giữa chừng bỏ qua nhánh `except Exception`
+  (không kế thừa từ `Exception`), nên `work_dir` ghi lại có thể vẫn rỗng —
+  lần chạy watch kế tiếp sẽ dub lại từ đầu thay vì resume. Đây là giới hạn
+  THẬT đã ghi rõ trong Constraint 4 khi viết mini-spec ("Ctrl+C giữa lúc
+  pipeline đang chạy... là trường hợp biên chưa xử lý triệt để") — không
+  phải bỏ sót, cần thêm 1 vòng thiết kế riêng (bắt `KeyboardInterrupt` bên
+  trong `pipeline.run()` chính nó, không chỉ ở tầng CLI) nếu muốn đóng gap
+  này.
+- Không lọc theo đuôi file video cụ thể (không đoán danh sách đuôi ffmpeg
+  hỗ trợ) — chỉ loại các đuôi CHẮC CHẮN chưa ghi xong
+  (`.part`/`.crdownload`/`.tmp`/`.download`) và file ẩn; 1 file không phải
+  video thả vào thư mục theo dõi vẫn được "thử" dub, thất bại sạch qua
+  `failures.jsonl` (đã live-verify đúng hành vi này, không phải bug — chỉ
+  ghi nhận đây KHÔNG PHẢI validate định dạng trước, để tránh đoán sai danh
+  sách định dạng hợp lệ).
+- Tần suất polling/ngưỡng ổn định mặc định (10s/5s) là ước lượng hợp lý,
+  CHƯA xác nhận với chủ dự án theo đúng "Audit Before Build" của mini-spec
+  (ghi rõ đây là quyết định vận hành thực tế, tuỳ tốc độ mạng/ổ đĩa nơi
+  triển khai) — cấu hình được qua cờ CLI nên chỉnh lại không cần sửa code.

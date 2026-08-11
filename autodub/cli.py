@@ -255,6 +255,58 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     return 0 if summary.failed == 0 else 1
 
 
+def _cmd_watch(args: argparse.Namespace) -> int:
+    import signal
+    import threading
+
+    from autodub.failures_log import failures_path
+    from autodub.watch_folder import STATE_FILENAME, watch_forever
+
+    settings = Settings.load()
+    try:
+        target = _validate_target(args.target)
+        _validate_voice(args.voice, target, settings)
+    except (CliArgError, ValueError) as e:
+        print(f"Lỗi tham số: {e}", file=sys.stderr)
+        return 2
+
+    if not os.path.isdir(args.input_dir):
+        print(f"Lỗi tham số: thư mục theo dõi không tồn tại: {args.input_dir}",
+             file=sys.stderr)
+        return 2
+
+    # mini-spec V25: state bền nằm ở OUTPUT dir (không phải input_dir) —
+    # discover_ready_files() vẫn tự loại các tên file bookkeeping đã biết
+    # (STATE_FILENAME/failures.jsonl/batch_state.json) như 1 lớp an toàn
+    # thứ 2, phòng khi input_dir/output_dir bị trỏ trùng nhau.
+    output_dir = args.output_dir or DubPipeline(settings).default_output_dir(target)
+    os.makedirs(output_dir, exist_ok=True)
+    state_path = os.path.join(output_dir, STATE_FILENAME)
+
+    req_template = DubRequest(
+        source_lang=args.source_lang, voice=args.voice, bg_mode=args.bg_mode,
+        bg_duck_db=args.bg_duck_db, skip_video=args.skip_video,
+        subtitle_mode=args.subtitle_mode, output_dir=output_dir, target=args.target,
+    )
+    pipeline = DubPipeline(settings, progress=_progress_fn(args.json))
+
+    stop_event = threading.Event()
+
+    def _handle_sigint(signum, frame):
+        print("\nĐang dừng theo dõi (chờ hết lượt quét hiện tại)...",
+             file=sys.stderr)
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, _handle_sigint)
+    print(f"Đang theo dõi {args.input_dir} — Ctrl+C để dừng.", file=sys.stderr)
+    watch_forever(
+        args.input_dir, pipeline, req_template, state_path,
+        poll_interval_s=args.poll_interval, stable_seconds=args.stable_seconds,
+        failures_log_path=failures_path(state_path), stop_event=stop_event,
+    )
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="voxdub",
                                      description="VoxDub Studio — lồng tiếng tự động, chạy không giao diện")
@@ -282,6 +334,31 @@ def build_parser() -> argparse.ArgumentParser:
                             "--retry-transient)")
     _add_dub_request_args(batch)
     batch.set_defaults(func=_cmd_batch)
+
+    watch = sub.add_parser(
+        "watch", help="Theo dõi 1 thư mục, tự dub video mới xuất hiện "
+                      "(mini-spec V25, chạy dài hạn tới khi Ctrl+C)")
+    watch.add_argument("--input-dir", required=True, help="Thư mục theo dõi video mới")
+    watch.add_argument("--output-dir", default=None,
+                       help="Thư mục kết quả (mặc định theo target, xem 'dub')")
+    watch.add_argument("--poll-interval", type=float, default=10.0,
+                       help="Giây giữa mỗi lượt quét thư mục (mặc định: 10)")
+    watch.add_argument("--stable-seconds", type=float, default=5.0,
+                       help="File phải giữ nguyên kích thước bấy nhiêu giây "
+                            "liên tục mới coi là ghi xong (mặc định: 5)")
+    watch.add_argument("--voice", default=None, help="Tên giọng đọc (khớp danh mục)")
+    watch.add_argument("--target", default="vi", help="Ngôn ngữ đích (mặc định: vi)")
+    watch.add_argument("--source-lang", default="zh-CN",
+                       help="Ngôn ngữ nguồn video (mặc định: zh-CN)")
+    watch.add_argument("--bg-mode", default="demucs",
+                       choices=["demucs", "duck", "none"])
+    watch.add_argument("--bg-duck-db", type=float, default=-12.0)
+    watch.add_argument("--skip-video", action="store_true")
+    watch.add_argument("--subtitle-mode", default="none",
+                       choices=["none", "soft", "burn"])
+    watch.add_argument("--json", action="store_true",
+                       help="In tiến trình dạng NDJSON ra stderr")
+    watch.set_defaults(func=_cmd_watch)
 
     return parser
 
