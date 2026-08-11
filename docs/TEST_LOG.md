@@ -2223,3 +2223,82 @@ thật bị ẩn khỏi kết quả lọc "Nữ", hiện sai màu thẻ.
   giới tính/phong cách phải ĐÚNG trước khi xây tính năng tự chọn), nhưng
   bản thân tính năng tự động chọn giọng theo ngữ cảnh CHƯA tồn tại — cần
   quyết định của chủ dự án có muốn xây mini-spec riêng cho việc này không.
+
+## V21 — 2 bug thật đã biết từ lâu, chưa sửa: NLLB bỏ câu + giọng trùng tên (Phase E, 2026-08-12)
+
+Theo `docs/PLAN.md` mục V21. Sau khi tổng hợp toàn bộ "Remaining Limits"
+qua ~20 mini-spec (theo yêu cầu chủ dự án "tìm vấn đề tồn đọng"), 2 mục
+được phân loại đúng nghĩa **BUG** (không phải "chưa live-verify" hay "có
+chủ đích") — root-cause đã có sẵn từ trước, chỉ chưa ai quay lại sửa. Theo
+đúng yêu cầu "lỗi thì sửa triệt để, test lại" — sửa cả 2 ngay.
+
+### Bug 1 — NLLB bỏ sót câu khi ASR nguồn nhiễu (root-cause từ V11)
+
+**Nguyên nhân** (đã cô lập ở V11, `docs/TEST_LOG.md` mục V11): khi 1
+segment ASR chứa NHIỀU câu (Whisper VAD không tách ở đó — 2 câu liền
+không đủ khoảng lặng), toàn bộ đoạn được đưa vào ctranslate2 trong 1 lượt
+`translate_batch()` DUY NHẤT. Nếu 1 trong các câu có lỗi nghe ASR nhẹ
+(nhiễu), model NLLB "dừng sớm" (early-stop decode) — CHỈ dịch được câu
+đầu, các câu SAU bị mất HOÀN TOÀN, không lỗi, không log gì cả. Ảnh hưởng
+MỌI cặp ngôn ngữ dùng đường dịch local (path C, V6), không riêng target=en
+như audit V11 ban đầu nghi ngờ.
+
+**Sửa**: `autodub/text/translate_local_worker.py` — thêm `_split_sentences()`
+tách 1 segment thành từng câu riêng (theo dấu kết câu Latin + CJK toàn độ
+rộng, cùng cách tiếp cận đã dùng ở V19 cho srt.py). Mỗi câu được đưa vào
+`translate_batch()` như 1 nguồn RIÊNG trong CÙNG 1 lượt gọi (nhiều nguồn
+cùng lúc, KHÔNG chung state decode với nhau — ctranslate2 decode độc lập
+từng phần tử trong batch) — early-stop của model khi gặp 1 câu nhiễu giờ
+chỉ mất đúng câu đó, không kéo theo các câu sau trong cùng segment.
+
+**Verify thật** (không chỉ đọc code — dùng đúng model NLLB thật đã tải ở
+phiên trước):
+1. Tái tạo CHÍNH XÁC văn bản đã gây bug ở V11: "Trí tựa nhân tạo đang thay
+   đổi cách chúng ta làm việc. Đây chỉ là giàn lập, không phải thật."
+   (2 câu, câu 2 có lỗi nghe ASR nhẹ y hệt bug gốc).
+2. **Trước khi sửa** (gọi thẳng `ctranslate2.Translator`, mô phỏng code
+   cũ): "Artificial intelligence is changing the way we work." — CÂU 2
+   MẤT HOÀN TOÀN, đúng y hệt bug đã ghi nhận ở V11.
+3. **Sau khi sửa** (qua đúng đường code production —
+   `translate_segments_local()` → subprocess worker thật, không mock):
+   "Artificial intelligence is changing the way we work. It's just a
+   disconnect, not real." — cả 2 câu đều có mặt. Câu 2 dịch không hoàn hảo
+   (input vốn nhiễu — "giàn lập" là từ vô nghĩa) nhưng KHÔNG BỊ BỎ SÓT,
+   đúng mục tiêu sửa (không đòi hỏi sửa được chất lượng dịch của input
+   nhiễu, chỉ đòi hỏi không mất nội dung âm thầm).
+
+### Bug 2 — Giọng CapCut trùng tên bị ẩn khỏi catalog (phát hiện ở V20)
+
+**Nguyên nhân**: `capcut_catalog.py::entries()` loại bỏ mục có tên hiển thị
+TRÙNG với mục đã thấy trước đó (`if name in seen: continue`) — catalog
+tiếng Anh có 1 cặp trùng tên thật ("Trickster", 2 `voice_type` khác nhau:
+`en_male_trickster_stream` và `DiT_en_male_trickster`) — mục thứ 2 bị loại
+hẳn, không ai chọn được dù tồn tại thật trong `Voice.json`.
+
+**Sửa**: đánh số phân biệt khi trùng tên thay vì loại bỏ — "Trickster" và
+"Trickster (2)" đều xuất hiện trong catalog, đều chọn được.
+
+### Verify
+
+- `tests/test_translate_local.py` (+4 test): `_split_sentences()` thuần
+  (Latin + CJK toàn độ rộng, đoạn không dấu kết câu, đoạn rỗng); test
+  real-model (tự skip nếu không có model NLLB thật — chạy thật được trong
+  sandbox này qua `VOXDUB_TEST_NLLB_MODEL_DIR`) tái hiện đúng bug rồi xác
+  nhận đã sửa qua đường code production.
+- `tests/test_capcut_catalog.py` (+2 test): cả 2 mục "Trickster"/"Trickster
+  (2)" còn trong catalog với đúng `voice_type` gốc; không còn tên nào
+  trùng nhau trong toàn bộ catalog tiếng Anh sau khi đánh số.
+- `pytest tests/ -q` toàn bộ: **770 passed, 5 skipped, 0 failed** (766 + 9
+  test mới, trừ đi phần skip khi thiếu model NLLB cục bộ).
+
+### Remaining Limits (V21)
+
+- Sửa NLLB chỉ THU NHỎ vùng ảnh hưởng của early-stop (còn tối đa 1 câu),
+  KHÔNG sửa được gốc rễ (model tự dừng khi gặp input nhiễu) — 1 câu ĐƠN
+  LẺ có nhiễu ASR vẫn có thể dịch kém/rỗng, chỉ không còn kéo theo các câu
+  KHÁC trong cùng segment nữa. Nếu muốn xử lý cả trường hợp 1 câu đơn dịch
+  rỗng/quá ngắn, cần thêm bước phát hiện+cảnh báo (đã nêu ở V11, chưa làm
+  — ngoài phạm vi V21, chỉ tập trung đúng bug "mất câu SAU").
+- Tách câu bằng regex dấu câu — câu không có dấu kết câu rõ ràng (transcript
+  ASR thiếu dấu câu hoàn toàn) vẫn được coi là 1 câu duy nhất như trước,
+  không có gì thay đổi/cải thiện cho trường hợp đó.

@@ -63,3 +63,24 @@ def test_english_catalog_gender_distribution_real_data_no_longer_skewed():
         assert name in by_name, f"{name} phải còn trong catalog"
         assert by_name[name]["gender"] == "female", (
             f"{name} phải được nhận đúng là giọng nữ")
+
+
+# ------------------- mini-spec V21 (docs/PLAN.md, Phase E): trùng tên ----- #
+# Bug thật tìm ra ở V20, sửa ở V21: 2 mục cùng TÊN hiển thị "Trickster"
+# (2 voice_type khác nhau) — mục thứ 2 trước đây bị `continue` bỏ hẳn khỏi
+# catalog (không ai chọn được, dù tồn tại thật trong Voice.json).
+
+def test_duplicate_display_name_no_longer_dropped_gets_disambiguated():
+    en = entries("en-US")
+    tricksters = [e for e in en if e["name"].startswith("Trickster")]
+    assert len(tricksters) == 2, "cả 2 mục Trickster phải còn trong catalog"
+    names = {e["name"] for e in tricksters}
+    assert names == {"Trickster", "Trickster (2)"}
+    voice_types = {e["voice_type"] for e in tricksters}
+    assert voice_types == {"en_male_trickster_stream", "DiT_en_male_trickster"}
+
+
+def test_all_entry_names_unique_after_disambiguation():
+    en = entries("en-US")
+    names = [e["name"] for e in en]
+    assert len(names) == len(set(names)), "vẫn còn tên trùng sau khi đánh số"

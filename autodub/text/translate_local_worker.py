@@ -21,7 +21,30 @@ stdout protocol (mỗi dòng 1 JSON, log khác đi ra stderr):
 """
 import argparse
 import json
+import re
 import sys
+
+# mini-spec V21 (docs/PLAN.md, Phase E) — bug thật tìm ra + cô lập nguyên
+# nhân ở V11 (docs/TEST_LOG.md): khi 1 segment ASR chứa NHIỀU câu (Whisper
+# VAD không tách ở đó — vd 2 câu liền không có khoảng lặng đủ dài), model
+# NLLB decode CẢ đoạn trong 1 lượt translate_batch() — gặp từ nhiễu ASR
+# (lỗi nghe nhầm nhẹ) ở đâu đó trong đoạn, model "dừng sớm" (early-stop
+# decode), CHỈ dịch được câu đầu, các câu sau bị bỏ HOÀN TOÀN, không lỗi,
+# không log gì cả — verify thật: cùng câu đó dịch riêng lẻ (không ghép với
+# câu khác) thì đủ đầy. Đây là hạn chế robustness thật của
+# NLLB-200-distilled-600M trước input nhiễu, không sửa được ở tầng model,
+# nhưng THU NHỎ được vùng ảnh hưởng: dịch TỪNG CÂU riêng (tách bằng dấu kết
+# câu) thay vì cả đoạn nhiều câu trong 1 lượt gọi — early-stop khi đó chỉ
+# mất tối đa nội dung của 1 câu duy nhất, không kéo theo các câu SAU nó.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…。！？])\s*")
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Tách 1 đoạn thành các câu theo dấu kết câu (Latin + CJK toàn độ
+    rộng — segment nguồn có thể là tiếng Trung/Nhật, xem V19 cho lý do cần
+    cả dấu CJK). Đoạn không có dấu kết câu nào → trả nguyên đoạn (1 câu)."""
+    parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(text) if p.strip()]
+    return parts or ([text] if text.strip() else [])
 
 
 def _die(msg: str) -> None:
@@ -75,15 +98,23 @@ def main() -> None:
             print(json.dumps({"seg": True, "id": seg.get("id"), "text": ""}),
                   flush=True)
             continue
-        tokens = sp.encode(text, out_type=str)
-        source = [args.src_lang] + tokens + ["</s>"]
-        result = translator.translate_batch(
-            [source], target_prefix=[[args.tgt_lang]],
+        # V21: dịch TỪNG CÂU riêng trong 1 lượt translate_batch() (nhiều
+        # nguồn cùng lúc, KHÔNG chung state decode với nhau) — early-stop
+        # của model khi gặp câu nhiễu chỉ mất đúng câu đó, không kéo theo
+        # các câu sau trong cùng segment (xem comment ở _split_sentences).
+        sentences = _split_sentences(text)
+        sources = [[args.src_lang] + sp.encode(sent, out_type=str) + ["</s>"]
+                  for sent in sentences]
+        results = translator.translate_batch(
+            sources, target_prefix=[[args.tgt_lang]] * len(sources),
             beam_size=args.beam_size)
-        hyp = result[0].hypotheses[0]
-        if hyp and hyp[0] == args.tgt_lang:
-            hyp = hyp[1:]
-        out_text = sp.decode(hyp)
+        out_parts = []
+        for r in results:
+            hyp = r.hypotheses[0]
+            if hyp and hyp[0] == args.tgt_lang:
+                hyp = hyp[1:]
+            out_parts.append(sp.decode(hyp))
+        out_text = " ".join(p for p in out_parts if p)
         print(json.dumps({"seg": True, "id": seg.get("id"), "text": out_text},
                          ensure_ascii=False), flush=True)
         translated += 1

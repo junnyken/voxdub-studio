@@ -98,16 +98,25 @@ def entries(lang: str = LANG) -> list[dict]:
         _entries_by_lang[lang] = []
         return _entries_by_lang[lang]
     result: list[dict] = []
-    seen: set[str] = set()
+    seen: dict[str, int] = {}
     for item in raw:
         if not isinstance(item, dict) or item.get("lang") != lang:
             continue
         display_name = str(item.get("display_name", ""))
         name, description = _split_name(display_name)
         voice_type = str(item.get("voice_type", ""))
-        if not name or not voice_type or name in seen:
+        if not name or not voice_type:
             continue
-        seen.add(name)
+        # mini-spec V21 (docs/PLAN.md, Phase E) — bug thật tìm ra ở V20:
+        # 2 mục trùng TÊN hiển thị (vd "Trickster" — 2 voice_type khác
+        # nhau) trước đây bị ``continue`` (bỏ hẳn mục thứ 2, không ai chọn
+        # được nó dù tồn tại thật trong Voice.json). Giờ đánh số phân biệt
+        # thay vì bỏ — "Trickster" và "Trickster (2)" đều chọn được.
+        if name in seen:
+            seen[name] += 1
+            name = f"{name} ({seen[name]})"
+        else:
+            seen[name] = 1
         result.append({
             "name": name,
             "description": description,

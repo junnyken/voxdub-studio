@@ -88,3 +88,60 @@ def test_translate_segments_local_end_to_end_real_model(monkeypatch):
         # Kết quả phải là tiếng Việt thật, không phải giữ nguyên tiếng Trung.
         assert "你好" not in text and "视频" not in text
     print("Bản dịch thật (live NLLB):", [s[target.text_field] for s in result])
+
+
+# --------------------------------------------------------------------- #
+# mini-spec V21 (docs/PLAN.md, Phase E) — bug thật tìm ra + cô lập ở V11
+# (docs/TEST_LOG.md): 1 segment nhiều câu, model NLLB "dừng sớm" khi gặp
+# nhiễu ASR trong 1 câu -> mất HOÀN TOÀN các câu sau trong cùng segment.
+# Sửa: dịch từng câu riêng trong translate_local_worker.py.
+
+def test_split_sentences_pure_function():
+    from autodub.text.translate_local_worker import _split_sentences
+
+    assert _split_sentences("Một câu thôi.") == ["Một câu thôi."]
+    assert _split_sentences("Câu một. Câu hai! Câu ba?") == [
+        "Câu một.", "Câu hai!", "Câu ba?"]
+    assert _split_sentences("") == []
+    assert _split_sentences("Không dấu kết câu") == ["Không dấu kết câu"]
+
+
+def test_split_sentences_handles_cjk_fullwidth_punctuation():
+    from autodub.text.translate_local_worker import _split_sentences
+
+    assert _split_sentences("你好。今天天气很好！") == ["你好。", "今天天气很好！"]
+
+
+@pytest.mark.skipif(not _HAS_MODEL, reason=(
+    "Cần model NLLB thật (622MB, không commit vào repo) — set "
+    "VOXDUB_TEST_NLLB_MODEL_DIR hoặc chạy scripts/setup_translate_local.py "
+    "rồi trỏ về models/translate-local để chạy test này."))
+def test_multi_sentence_segment_with_noisy_asr_no_longer_drops_second_sentence():
+    """Tái tạo ĐÚNG văn bản đã gây bug thật ở V11 — segment 2 câu, câu 2 có
+    lỗi nghe ASR nhẹ ("giàn lập" thay vì "giả lập"). TRƯỚC V21: model dừng
+    sớm ở câu 1, câu 2 mất hoàn toàn, không lỗi, không log. SAU V21: cả 2
+    câu đều có mặt trong bản dịch (không đòi hỏi câu 2 dịch HOÀN HẢO — input
+    vốn nhiễu — chỉ đòi hỏi KHÔNG BỊ BỎ SÓT hoàn toàn)."""
+    from autodub.text.translate_local import translate_segments_local
+
+    settings = Settings()
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(settings, "translate_local_venv_python_path",
+                        lambda: sys.executable)
+    monkeypatch.setattr(settings, "translate_local_model_dir_path",
+                        lambda: _MODEL_DIR)
+    try:
+        segments = [{"id": 1, "text": (
+            "Trí tựa nhân tạo đang thay đổi cách chúng ta làm việc. "
+            "Đây chỉ là giàn lập, không phải thật.")}]
+        target = get_target("en")
+        result = translate_segments_local(segments, target, "vi-VN", settings)
+        text = result[0][target.text_field]
+        print("Bản dịch thật (live NLLB, sau V21):", text)
+        # Trước V21: text CHỈ có câu 1 ("...changing the way we work.") rồi
+        # DỪNG — câu 2 không để lại DẤU VẾT nào. Khoá: câu 2 phải có mặt.
+        assert len(text) > len("Artificial intelligence is changing "
+                               "the way we work.") + 10, (
+            "Câu thứ 2 của segment bị bỏ sót — đúng bug V11 chưa sửa")
+    finally:
+        monkeypatch.undo()
