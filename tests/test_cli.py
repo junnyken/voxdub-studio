@@ -1,0 +1,281 @@
+"""Mini-spec V22 (docs/PLAN.md, Phase F) — CLI headless (`autodub/cli.py`).
+
+Nền tảng cho V23/V24/V25 (Phase F còn lại): mở đường vào pipeline không cần
+Qt/GUI. Test ở đây KHÔNG chạy pipeline thật (cần mạng/GPU) — chỉ kiểm tra
+lớp vỏ CLI: parse tham số đúng, cách ly import khỏi GUI, exit code đúng
+contract, và validate giọng/target tường minh (không rơi ngầm như
+``voices.resolve()`` — xem docstring ``_validate_voice`` trong cli.py).
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from dataclasses import dataclass
+from unittest.mock import MagicMock
+
+import pytest
+
+from autodub import cli
+from autodub.pipeline import DubResult
+
+
+# --------------------------------------------------------------------- #
+# Cách ly import — CLI không được kéo theo Qt/GUI (Constraint 2 của V22).
+#
+# PHẢI chạy trong tiến trình con riêng: chạy trong cùng tiến trình pytest
+# với các file test khác (test_editor.py, test_fonts_app_only.py...) vốn
+# TỰ import autodub_gui/PySide6 sẽ làm ô nhiễm sys.modules TRƯỚC KHI test
+# này chạy — không phải do `import autodub.cli` gây ra, chỉ là hệ quả thứ
+# tự collection của pytest. Tiến trình con sạch mới đo đúng cái cần đo.
+
+def test_importing_cli_does_not_pull_in_gui_or_qt():
+    result = subprocess.run(
+        [sys.executable, "-c",
+         "import autodub.cli, sys; "
+         "assert 'PySide6' not in sys.modules; "
+         "assert 'autodub_gui' not in sys.modules; "
+         "print('OK')"],
+        cwd=cli.__file__.rsplit("/autodub/", 1)[0],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "OK" in result.stdout
+
+
+# --------------------------------------------------------------------- #
+# Parser cơ bản
+
+def test_help_exits_zero(capsys):
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["--help"])
+    assert exc.value.code == 0
+
+
+def test_dub_subcommand_help_exits_zero():
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["dub", "--help"])
+    assert exc.value.code == 0
+
+
+def test_batch_subcommand_help_exits_zero():
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["batch", "--help"])
+    assert exc.value.code == 0
+
+
+def test_no_command_exits_nonzero():
+    parser = cli.build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args([])
+    assert exc.value.code != 0
+
+
+def test_dub_parses_url_and_flags_into_namespace():
+    parser = cli.build_parser()
+    args = parser.parse_args([
+        "dub", "https://youtu.be/xxxx", "--voice", "Minh Trang",
+        "--target", "en", "--source-lang", "zh-CN", "--skip-video",
+    ])
+    assert args.url == "https://youtu.be/xxxx"
+    assert args.voice == "Minh Trang"
+    assert args.target == "en"
+    assert args.skip_video is True
+    assert args.func is cli._cmd_dub
+
+
+# --------------------------------------------------------------------- #
+# Tham số sai -> exit 2 (không phải lỗi pipeline)
+
+def test_dub_missing_url_and_file_exits_2(monkeypatch, capsys):
+    parser = cli.build_parser()
+    args = parser.parse_args(["dub"])
+    monkeypatch.setattr(cli, "_validate_target", lambda k: MagicMock(key=k))
+    monkeypatch.setattr(cli, "_validate_voice", lambda *a, **k: None)
+    rc = cli._cmd_dub(args)
+    assert rc == 2
+    assert "Lỗi tham số" in capsys.readouterr().err
+
+
+def test_dub_unknown_target_exits_2(capsys):
+    parser = cli.build_parser()
+    args = parser.parse_args(["dub", "https://youtu.be/xxxx", "--target", "xx-not-real"])
+    rc = cli._cmd_dub(args)
+    assert rc == 2
+    assert "Lỗi tham số" in capsys.readouterr().err
+
+
+def test_dub_unknown_voice_exits_2_and_does_not_fall_back_silently(monkeypatch, capsys):
+    """Bug thật đã audit ở V22: `voices.resolve()` rơi ngầm về giọng khác khi
+    tên sai — CLI KHÔNG được kế thừa hành vi đó, phải báo lỗi rõ + thoát 2."""
+    parser = cli.build_parser()
+    args = parser.parse_args([
+        "dub", "https://youtu.be/xxxx", "--voice", "Giọng Không Tồn Tại"])
+
+    fake_voice = MagicMock()
+    fake_voice.name = "Minh Trang"
+    monkeypatch.setattr("autodub.speech.tts.voices.catalog", lambda *a, **k: [fake_voice])
+
+    rc = cli._cmd_dub(args)
+    err = capsys.readouterr().err
+    assert rc == 2
+    assert "Giọng Không Tồn Tại" in err
+    assert "Minh Trang" in err  # liệt kê giọng khả dụng để người dùng sửa ngay
+
+
+# --------------------------------------------------------------------- #
+# Đường thành công / lỗi pipeline (DubPipeline mock — không chạy thật)
+
+def test_dub_success_exits_0_and_prints_report(monkeypatch, capsys):
+    parser = cli.build_parser()
+    args = parser.parse_args(["dub", "https://youtu.be/xxxx"])
+
+    fake_result = DubResult(status="completed", work_dir="/tmp/x",
+                            report={"session_id": "abc"})
+    fake_pipeline = MagicMock()
+    fake_pipeline.run.return_value = fake_result
+    monkeypatch.setattr(cli, "DubPipeline", lambda *a, **k: fake_pipeline)
+
+    rc = cli._cmd_dub(args)
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["status"] == "completed"
+    assert out["report"]["session_id"] == "abc"
+
+
+def test_dub_non_completed_status_exits_1(monkeypatch):
+    parser = cli.build_parser()
+    args = parser.parse_args(["dub", "https://youtu.be/xxxx"])
+
+    fake_result = DubResult(status="credit_blocked", work_dir="/tmp/x", report={})
+    fake_pipeline = MagicMock()
+    fake_pipeline.run.return_value = fake_result
+    monkeypatch.setattr(cli, "DubPipeline", lambda *a, **k: fake_pipeline)
+
+    assert cli._cmd_dub(args) == 1
+
+
+def test_dub_pipeline_exception_exits_1(monkeypatch, capsys):
+    parser = cli.build_parser()
+    args = parser.parse_args(["dub", "https://youtu.be/xxxx"])
+
+    fake_pipeline = MagicMock()
+    fake_pipeline.run.side_effect = RuntimeError("mạng lỗi thật")
+    monkeypatch.setattr(cli, "DubPipeline", lambda *a, **k: fake_pipeline)
+
+    rc = cli._cmd_dub(args)
+    assert rc == 1
+    assert "mạng lỗi thật" in capsys.readouterr().err
+
+
+def test_dub_request_built_from_args(monkeypatch):
+    """DubRequest phải phản ánh đúng mọi cờ CLI — khoá field ánh xạ 1-1."""
+    parser = cli.build_parser()
+    args = parser.parse_args([
+        "dub", "https://youtu.be/xxxx", "--target", "en",
+        "--bg-mode", "duck", "--bg-duck-db", "-9", "--subtitle-mode", "burn",
+        "--resume-dir", "/tmp/resume",
+    ])
+
+    captured = {}
+
+    def fake_pipeline_cls(settings, progress=None):
+        captured["progress"] = progress
+        m = MagicMock()
+
+        def _run(req):
+            captured["req"] = req
+            return DubResult(status="completed", work_dir="/tmp/x", report={})
+        m.run.side_effect = _run
+        return m
+
+    monkeypatch.setattr(cli, "DubPipeline", fake_pipeline_cls)
+    cli._cmd_dub(args)
+
+    req = captured["req"]
+    assert req.target == "en"
+    assert req.bg_mode == "duck"
+    assert req.bg_duck_db == -9.0
+    assert req.subtitle_mode == "burn"
+    assert req.resume_dir == "/tmp/resume"
+
+
+# --------------------------------------------------------------------- #
+# batch
+
+def test_batch_reads_file_and_reports_summary(monkeypatch, tmp_path, capsys):
+    lines_file = tmp_path / "urls.txt"
+    lines_file.write_text("https://youtu.be/a\nhttps://youtu.be/b\n", encoding="utf-8")
+
+    parser = cli.build_parser()
+    args = parser.parse_args(["batch", "--file", str(lines_file)])
+
+    @dataclass
+    class _Summary:
+        total: int = 2
+        success: int = 2
+        failed: int = 0
+        skipped: int = 0
+
+    captured = {}
+
+    def fake_run_batch(lines, settings, req_template, observer=None,
+                       state_path=None, retry_done=False):
+        captured["lines"] = lines
+        return _Summary()
+
+    monkeypatch.setattr("autodub.batch.run_batch", fake_run_batch)
+    rc = cli._cmd_batch(args)
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out == {"total": 2, "success": 2, "failed": 0, "skipped": 0}
+    assert "https://youtu.be/a" in captured["lines"]
+
+
+def test_batch_with_failures_exits_1(monkeypatch, tmp_path):
+    lines_file = tmp_path / "urls.txt"
+    lines_file.write_text("https://youtu.be/a\n", encoding="utf-8")
+    parser = cli.build_parser()
+    args = parser.parse_args(["batch", "--file", str(lines_file)])
+
+    @dataclass
+    class _Summary:
+        total: int = 1
+        success: int = 0
+        failed: int = 1
+        skipped: int = 0
+
+    monkeypatch.setattr("autodub.batch.run_batch",
+                        lambda *a, **k: _Summary())
+    assert cli._cmd_batch(args) == 1
+
+
+def test_batch_unknown_voice_exits_2_before_touching_run_batch(monkeypatch, tmp_path):
+    lines_file = tmp_path / "urls.txt"
+    lines_file.write_text("https://youtu.be/a\n", encoding="utf-8")
+    parser = cli.build_parser()
+    args = parser.parse_args(["batch", "--file", str(lines_file), "--voice", "Sai Tên"])
+
+    fake_voice = MagicMock()
+    fake_voice.name = "Minh Trang"
+    monkeypatch.setattr("autodub.speech.tts.voices.catalog", lambda *a, **k: [fake_voice])
+    run_batch_mock = MagicMock()
+    monkeypatch.setattr("autodub.batch.run_batch", run_batch_mock)
+
+    assert cli._cmd_batch(args) == 2
+    run_batch_mock.assert_not_called()
+
+
+# --------------------------------------------------------------------- #
+# console-script wiring
+
+def test_console_script_registered_in_pyproject():
+    import pathlib
+    import tomllib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    data = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    assert data["project"]["scripts"]["voxdub"] == "autodub.cli:main"

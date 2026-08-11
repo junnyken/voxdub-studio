@@ -49,6 +49,10 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V19 | Bố cục phụ đề (ngắt dòng + karaoke) không tương thích ngôn ngữ không dấu-cách (Phase E — chủ dự án hỏi trực tiếp) | ✅ Xong (vi/en/zh) | Audit lộ 4 bug/gap thật: ngắt dòng SRT dùng `text.split()` (dấu cách) → cả câu tiếng Trung/Nhật không bao giờ ngắt, tràn khung hình; karaoke fallback cùng lỗi; ngưỡng ký tự/dòng không đổi theo ngôn ngữ dù CJK render rộng hơn; font đóng gói sẵn không phủ CJK/Thái (tofu). Đã sửa 3/4 (ngắt dòng theo ký tự cho ja/zh/th, karaoke fallback theo ký tự, ngưỡng riêng cho CJK 20 ký tự/dòng, thêm font Noto Sans SC thật cho zh) — chủ dự án đổi ý giữa chừng: **bỏ font Nhật/Thái, giữ Trung** (zh là ngôn ngữ NGUỒN có sẵn từ đầu), ưu tiên còn lại dồn cho vi/en; 20 test mới, 0 regression (759/763 pass) — xem TEST_LOG |
 | V20 | Bug suy giới tính giọng CapCut sai cho tiếng Anh (Phase E — audit theo yêu cầu "đa dạng giọng nam/nữ") | ✅ Xong | Chủ dự án hỏi về đa dạng giọng đọc vi/en — audit lộ bug thật: `_gender_of()` chỉ nhận diện đúng giọng nữ tiếng Việt (voice_type khớp 3 mã BV hoặc chứa "female" literal); catalog tiếng Anh ghi giới tính ngay trong TÊN hiển thị (không qua voice_type) bị bỏ sót — "Jenny"/"Energetic Famale"/"American Female"/"Dolly famle" đều bị gắn nhầm "male" mặc định, khiến bộ lọc "Nữ" trong Thư viện giọng đọc ẩn mất các giọng này. Đã sửa: đọc thêm tên hiển thị đầy đủ (không chỉ voice_type), bắt cả lỗi chính tả thật trong dữ liệu ("famale"/"famle"), thêm bảng tra riêng cho giọng thương hiệu không có tín hiệu chữ (Jenny = Microsoft Azure Neural, nữ, thông tin công khai). Đồng thời khảo sát thật nguồn giọng: VieNeu (offline, chính) có 120 giọng (70 nam/50 nữ, không có tag ngữ điệu/phong cách, chỉ tên); CapCut vi-VN 22 giọng (đa dạng phong cách qua mô tả), en-US 39 giọng sau sửa 17 nữ/22 nam (trước sửa bị lệch nặng do bug). 7 test mới, 0 regression (766/770 pass) — xem TEST_LOG |
 | V21 | 2 bug thật đã root-cause từ lâu nhưng chưa sửa: NLLB bỏ sót câu khi ASR nhiễu (V11), giọng CapCut trùng tên bị ẩn (V20) | ✅ Xong | **NLLB bỏ câu**: 1 segment nhiều câu, model dừng sớm khi gặp 1 câu nhiễu ASR → MẤT HOÀN TOÀN các câu sau, không lỗi không log — ảnh hưởng MỌI cặp ngôn ngữ dùng đường dịch local. Sửa: dịch từng câu riêng trong 1 lượt `translate_batch()` (không chung state decode) — early-stop chỉ mất đúng 1 câu, không kéo theo câu sau; verify thật bằng model NLLB thật, tái hiện đúng bug cũ rồi xác nhận đã hết qua đúng đường code production. **Giọng trùng tên**: "Trickster" (2 voice_type khác nhau, 1 bị catalog âm thầm loại bỏ) → đánh số phân biệt ("Trickster (2)") thay vì bỏ, cả 2 giọng chọn được. 9 test mới (2 skip nếu không có model NLLB thật cục bộ), 0 regression (770/775 pass) — xem TEST_LOG |
+| V22 | CLI headless cho pipeline dub (Phase F — nền tảng cho V23-V25) | ✅ Xong | `autodub/cli.py` mới — `voxdub dub`/`voxdub batch`, không đụng Qt/GUI trên toàn đường import (test khoá `PySide6`/`autodub_gui` không xuất hiện trong `sys.modules`); validate tên giọng tường minh thay vì rơi ngầm về giọng khác (khác hành vi GUI có chủ đích — xem Audit); `--json` phát ProgressEvent dạng NDJSON cho script hoá. Đăng ký `[project.scripts] voxdub` (console, không phải gui-scripts) — xem TEST_LOG |
+| V23 | Cổng chất lượng tự động đọc `quality_report.json` (Phase F) | 📋 Kế hoạch | Mini-spec đã viết, CHƯA triển khai — xem block V23 bên dưới |
+| V24 | Tự thử lại theo video trong batch + giám sát treo subprocess + log lỗi tập trung (Phase F, gộp theo lựa chọn chủ dự án) | 📋 Kế hoạch | Mini-spec đã viết, CHƯA triển khai — xem block V24 bên dưới |
+| V25 | Chế độ theo dõi thư mục/hàng đợi không người trực (Phase F) | 📋 Kế hoạch | Mini-spec đã viết, CHƯA triển khai — xem block V25 bên dưới |
 
 ## Tổng quan phase
 
@@ -1431,6 +1435,418 @@ Success Criteria:
 ```
 
 ---
+
+## Phase F — Tự động hoá vận hành không người giám sát (2026-08-12+)
+
+Mở ra sau khi chủ dự án yêu cầu "tìm những vấn đề còn tồn đọng + đọc tính
+năng tool rồi tiếp tục cải tiến phù hợp tự động hoá" — 1 agent audit toàn
+bộ `docs/TEST_LOG.md`/`docs/PLAN.md` (mọi mục "Remaining Limits") cùng đọc
+`autodub/pipeline.py`/`batch.py`/`editor.py`/`control_server/src/routes/`
+để đề xuất hướng nâng cấp khớp định hướng hiện tại (offline-first, chạy
+được không giám sát). Kết luận chính: pipeline core đã "GUI-ready" đúng như
+docstring của nó tự nhận (không `input()`, không `sys.exit`, progress qua
+callback, hủy qua `threading.Event`) nhưng KHÔNG có đường vào nào ngoài GUI
+PySide6 — mọi kịch bản tự động hoá thật (cron, watch-folder, CI, script
+hàng loạt) đều bị chặn ở bước đầu tiên vì phải khởi động Qt. Chủ dự án chọn
+ưu tiên **cả 4 mini-spec dưới đây** (nhóm E1/E3 độc lập được đánh dấu
+"Recommended", nhóm E2+E5+E6 gộp chung theo đúng lựa chọn của chủ dự án vì
+cùng chạm 1 chỗ — vòng lặp `_run_items()`/subprocess worker trong
+`batch.py`). **V22 (CLI) đã triển khai đầy đủ trong đợt này** vì là nền
+tảng bắt buộc — V23/V24/V25 dùng nó làm điểm vào, nên viết mini-spec kỹ
+thuật đầy đủ trước (đúng yêu cầu "kế hoạch nâng cấp phải xây theo
+MINI-SPEC"), triển khai ở đợt kế tiếp sau khi chủ dự án xác nhận.
+
+### V22 — CLI headless cho pipeline dub
+
+```
+V22 — CLI headless (nền tảng Phase F, E1)
+
+Context:
+- `autodub/pipeline.py` (docstring tự nhận "GUI-ready core"): không
+  `input()`, không `sys.exit`, lỗi raise thuần, tiến trình qua
+  `ProgressFn`/`ProgressEvent` (autodub/progress.py), hủy qua
+  `threading.Event`. `DubPipeline(settings, progress=fn, cancel_event=ev,
+  synth_cache=..., demucs_cache=..., whisper_cache=...).run(DubRequest(...))
+  -> DubResult(status, work_dir, report)`.
+- `autodub/batch.py::run_batch()` đã có sẵn: parse danh sách dòng
+  (`parse_lines`), resume qua `batch_state.json` (`retry_done`), prefetch
+  video kế tiếp, TTS/Demucs/Whisper cache dùng chung giữa các video.
+- Đường vào DUY NHẤT hiện có: `autodub_gui/app.py:main()` (PySide6,
+  `[project.gui-scripts]` trong pyproject.toml). KHÔNG có
+  `[project.scripts]` console nào — script tự động hoá không có cách gọi
+  pipeline mà không kéo theo Qt.
+- Audit import: `pipeline.py`/`batch.py` không import gì từ `autodub_gui`
+  hay `PySide6` (grep xác nhận) — lớp core đã tách sạch, chỉ thiếu lớp vỏ
+  CLI mỏng gọi vào.
+- **Hành vi cần audit kỹ trước khi viết CLI**: `voices.resolve(settings,
+  name, target)` (autodub/speech/tts/voices.py) CHỦ ĐÍCH rơi ngầm về giọng
+  khác khi tên không khớp danh mục (thứ tự: tên truyền vào → giọng mặc định
+  cấu hình → DEFAULT_VOICE → giọng đầu danh mục) — thiết kế đúng cho GUI
+  (không bao giờ "chết vì unknown voice" khi người dùng gõ nhầm, có picker
+  sửa ngay). Với CLI/cron, im lặng thay giọng là bẫy thật: gõ sai tên trong
+  script chạy định kỳ có thể tạo hàng loạt video sai giọng nhiều tuần không
+  ai biết. CLI KHÔNG được kế thừa hành vi rơi ngầm này.
+
+Goal:
+- Dub được 1 video/file hoặc 1 batch từ terminal (`voxdub dub ...` /
+  `voxdub batch ...`), không khởi động Qt, exit code + output máy đọc được
+  — làm nền cho V23 (quality gate đọc kết quả CLI), V24 (retry/watchdog bọc
+  quanh tiến trình CLI), V25 (watch-folder gọi CLI mỗi video mới).
+
+Constraints (Guardrails):
+1. Không đổi hành vi `pipeline.py`/`batch.py` hiện có — CLI chỉ là lớp vỏ
+   mỏng dựng `DubRequest`/gọi `DubPipeline.run()`/`run_batch()` có sẵn.
+2. Import module CLI KHÔNG được kéo theo `PySide6`/`autodub_gui` — khoá
+   bằng test kiểm `sys.modules` sau `import autodub.cli`.
+3. Tên giọng CLI phải validate tường minh trước khi chạy — lỗi rõ ràng
+   (exit code 2) nếu không khớp danh mục, KHÔNG dùng `voices.resolve()`
+   trực tiếp (hành vi rơi ngầm chỉ đúng cho GUI, xem Audit).
+4. Output: mặc định người đọc được (stderr cho tiến trình, stdout cho kết
+   quả cuối); `--json` chuyển sang NDJSON (1 dòng JSON/sự kiện) để script
+   hoá — không phá vỡ chế độ mặc định khi thêm cờ này.
+
+Scope:
+A. `autodub/cli.py` (mới) — argparse, 2 subcommand:
+   - `dub`: 1 URL hoặc `--file`, cờ khớp field của `DubRequest` (--voice,
+     --target, --source-lang, --bg-mode, --subtitle-mode, --output-dir,
+     --resume-dir, --skip-video).
+   - `batch`: `--file <danh sách dòng>` hoặc đọc từ stdin, cờ khớp
+     `run_batch()` (--retry-done, --state-path); in tiến trình từng video
+     qua `observer` có sẵn của `run_batch`.
+   - Voice validate qua `autodub.speech.tts.voices.catalog(settings,
+     target)` trước khi gọi pipeline — không qua `resolve()`.
+   - `--json`: bọc `ProgressFn`/`observer` in NDJSON thay vì text.
+B. `pyproject.toml` — thêm `[project.scripts] voxdub = "autodub.cli:main"`
+   (console_scripts thật — không kéo Qt như gui-scripts).
+C. Exit code: 0 = `DubResult.status == "completed"`/batch không lỗi nào;
+   1 = pipeline lỗi hoặc có video batch thất bại; 2 = lỗi tham số/giọng
+   không hợp lệ.
+D. `README.md` — thêm đoạn ngắn "Chạy không giao diện (CLI)".
+
+Audit Before Build: xem phần Context — đã audit xong `pipeline.py`
+(GUI-ready thật), `batch.py` (đã đủ hạ tầng resume/state), import graph
+(sạch, không lẫn Qt), và hành vi `voices.resolve()` (rơi ngầm chủ đích cho
+GUI, cần override cho CLI).
+
+Design Choice:
+- `argparse` (thư viện chuẩn) thay vì thêm dependency mới (click/typer) —
+  đúng nguyên tắc dự án "không thêm phụ thuộc khi không bắt buộc"; CLI chỉ
+  2 subcommand, argparse đủ.
+- Tiến trình ra `stderr`, kết quả cuối (JSON report hoặc exit summary) ra
+  `stdout` — giữ `stdout` sạch để pipe được (`voxdub dub ... | jq .`).
+- `--json` phát đúng shape `ProgressEvent` (step/status/detail/current/
+  total) làm dict — không tự chế định dạng mới, để V24/V25 parse lại được
+  ngay bằng cùng shape đã có trong `autodub/progress.py`.
+
+Test Plan:
+- Unit: parser dựng đúng `DubRequest`/tham số `run_batch` từ mọi cờ; exit
+  code đúng theo 3 trường hợp (thành công/lỗi pipeline/tham số sai); giọng
+  không hợp lệ → exit 2 kèm thông báo rõ (không rơi ngầm).
+- Cách ly: `import autodub.cli` xong, `"PySide6" not in sys.modules` và
+  `"autodub_gui" not in sys.modules`.
+- `--help` exit 0, có mô tả cả 2 subcommand.
+- KHÔNG live-verify 1 lượt dub thật qua CLI trong đợt này (cần mạng/GPU,
+  ngân sách thời gian phiên này ưu tiên cho việc viết đủ 4 mini-spec) — ghi
+  nhận là giới hạn còn lại, cùng loại "chưa live-verify" như 7/8 ngôn ngữ
+  của V17: hạ tầng đã đúng theo test cách ly + unit, nhưng đường thật
+  end-to-end qua CLI (khác API Python trực tiếp) chưa chạy thật 1 lần.
+
+Success Criteria:
+- `voxdub dub --help` / `voxdub batch --help` chạy được sau
+  `pip install -e .`, exit 0.
+- Toàn bộ test mới pass, 0 regression trên bộ test hiện có.
+- Không có `PySide6`/`autodub_gui` trong import graph của `autodub/cli.py`.
+```
+
+### V23 — Cổng chất lượng tự động đọc `quality_report.json`
+
+```
+V23 — Cổng chất lượng tự động (Phase F, E3) — CHƯA TRIỂN KHAI, mini-spec kế hoạch
+
+Context:
+- `DubPipeline._build_quality_report()` (autodub/pipeline.py:1579) đã tính
+  sẵn 1 báo cáo đầy đủ mỗi lượt chạy — `quality_report.json` trong
+  `data/`: `summary` (segments_ok/segments_shifted/segments_over_budget/
+  segments_speed_fallback/segments_postprocess_fallback/...) +
+  `per_segment` (chỉ câu có vấn đề, kèm text) + `translate_usage`.
+- Hiện tại báo cáo này CHỈ để người dùng tự mở xem trong Editor
+  (autodub/editor.py) — không có ngưỡng pass/fail, không có tín hiệu máy
+  đọc được. Batch/CLI (V22) coi mọi video có `status == "completed"` là
+  "xong", kể cả khi `quality_report.json` của nó có 40% câu lệch tốc
+  độ/tràn thời lượng — vận hành không giám sát (V24 retry, V25
+  watch-folder) cần phân biệt "chạy xong" khỏi "chạy xong VÀ đạt chất
+  lượng" để biết video nào cần người xem lại tay.
+
+Goal:
+- Sau mỗi lượt dub, có 1 tín hiệu pass/fail dựa trên `quality_report.json`
+  đã có sẵn (không tính lại số liệu mới) — dùng được cả trong CLI (exit
+  code riêng) lẫn batch (đánh dấu trong `batch_state.json`).
+
+Constraints (Guardrails):
+1. KHÔNG đổi cách `_build_quality_report()` tính số liệu — cổng chất lượng
+   chỉ ĐỌC báo cáo đã có, áp ngưỡng, không tính lại.
+2. Ngưỡng mặc định phải BẢO THỦ (thà báo "cần xem lại" oan còn hơn bỏ sót
+   video lỗi thật) và cấu hình được qua `Settings` (không hardcode) — dự án
+   chưa có dữ liệu thật về ngưỡng "chấp nhận được" cho từng loại vấn đề,
+   nên mặc định ban đầu cần chủ dự án duyệt lại sau khi thấy số liệu thật
+   trên vài chục video.
+3. Không chặn pipeline dừng lại vì fail — cổng chất lượng là TÍN HIỆU sau
+   khi đã chạy xong, không phải điều kiện chặn giữa chừng (khác từ chối
+   render).
+
+Scope:
+A. `autodub/quality_gate.py` (mới) — hàm thuần `evaluate(report: dict,
+   thresholds: QualityThresholds) -> QualityVerdict` (pass/warn/fail +
+   danh sách lý do fail cụ thể, trỏ lại đúng field trong `summary`).
+   `QualityThresholds` dataclass: max tỉ lệ `segments_over_budget`, max
+   `segments_speed_fallback`, max `segments_postprocess_fallback`, max
+   `max_shift_s`. Đọc mặc định từ `Settings` (thêm field mới, có giá trị
+   mặc định bảo thủ).
+B. CLI (V22) — `voxdub dub`/`voxdub batch` thêm cờ `--quality-gate` (tắt
+   mặc định lượt đầu, BẬT mặc định khi cờ này có mặt): video fail → exit
+   code riêng (3, phân biệt với lỗi pipeline=1) trong `dub`; trong `batch`,
+   ghi thêm field `quality` (pass/warn/fail + lý do) vào entry tương ứng
+   trong `batch_state.json` — KHÔNG đổi field `status` hiện có
+   (success/failed) để không phá vỡ logic resume của `run_batch()`.
+C. Tests: verdict đúng cho báo cáo sạch/báo cáo có vấn đề (fixture dựng
+   tay từ shape thật của `_build_quality_report()`, không cần chạy pipeline
+   thật); ngưỡng cấu hình qua Settings override đúng; CLI exit code 3 khi
+   fail; batch_state.json có field `quality` không phá field `status` cũ
+   (test resume vẫn đọc đúng `status` như trước — 0 regression).
+
+Audit Before Build (cần làm THẬT trước khi code, chưa làm trong đợt này):
+- Chạy quality gate (ngưỡng nháp) trên `quality_report.json` thật của vài
+  video đã dub trong phiên trước (nếu còn giữ ở `output/`) để hiệu chỉnh
+  ngưỡng mặc định bằng số liệu thật thay vì đoán — đây là lý do mini-spec
+  này CHƯA triển khai ngay, cần 1 vòng audit số liệu thật trước khi chốt
+  Constraint 2.
+
+Design Choice:
+- Hàm thuần (`evaluate()`, không I/O) tách khỏi CLI để V24 (retry logic)
+  và V25 (watch-folder) gọi lại được mà không phải qua subprocess/CLI —
+  cùng pattern với `translate_hint.py`/`media/timing.py` (module tính toán
+  thuần, lớp gọi ở ngoài quyết định làm gì với kết quả).
+
+Test Plan:
+- Unit thuần trên fixture `quality_report.json` (sạch/có vấn đề ở từng
+  field riêng lẻ) — không cần chạy pipeline thật.
+- Regression: `batch_state.json` cũ (không có field `quality`) vẫn đọc
+  được bởi `run_batch()` — field mới là additive, không bắt buộc.
+
+Success Criteria:
+- `evaluate()` phân loại đúng theo ngưỡng cấu hình, có lý do cụ thể theo
+  từng field (không chỉ "fail" trơn).
+- CLI/batch phát tín hiệu pass/fail máy đọc được mà không đổi hành vi
+  resume/exit code hiện có khi cờ `--quality-gate` KHÔNG được bật.
+```
+
+### V24 — Tự thử lại theo video trong batch + giám sát treo subprocess + log lỗi tập trung
+
+```
+V24 — Batch resilience: retry + watchdog + failures.jsonl (Phase F, E2+E5+E6 gộp) — CHƯA TRIỂN KHAI, mini-spec kế hoạch
+
+Context (đã audit `batch.py` + `translate_local.py::run_local_worker`):
+- `batch.py::_run_items()` HIỆN TẠI: 1 video lỗi → `except Exception` bắt
+  lại, ghi `status="failed"` + `error` vào `batch_state.json`, GHI NHỚ
+  `work_dir` dở dang (`item.ref["work_dir"]`), rồi CHUYỂN NGAY sang video
+  kế tiếp — không thử lại trong cùng lượt chạy. Người dùng phải tự nhận ra
+  batch có video fail, tự chạy lại `run_batch()` với đúng danh sách cũ để
+  nó resume đúng `work_dir` đã lưu (`resume_dir` trong `DubRequest`). Đây
+  LÀ resume THỦ CÔNG đã có sẵn (đúng, hoạt động) — cái THIẾU thật là: (a)
+  không phân biệt lỗi TẠM THỜI (mất mạng, rate-limit SaaS — thử lại có thể
+  qua) khỏi lỗi VĨNH VIỄN (giọng không tồn tại, file hỏng — thử lại vô ích)
+  nên không tự động thử lại được an toàn; (b) không có giới hạn số lần thử.
+- `translate_local.py::run_local_worker()` (dùng subprocess NLLB local):
+  đọc `proc.stdout` bằng vòng lặp CHẶN (`for line in proc.stdout:`) KHÔNG
+  timeout — nếu worker treo giữa chừng (model kẹt, deadlock hiếm), tiến
+  trình gọi nó (cả pipeline) treo VÔ THỜI HẠN, không timeout, không log
+  cảnh báo. Cùng dạng ở các worker subprocess khác (Whisper/VieNeu/
+  Paraformer/Demucs — audit sơ bộ thấy `transcriber.py` CÓ `proc.wait(
+  timeout=7200)` ở 1 chỗ nhưng không phải mọi điểm đọc stdout đều có
+  timeout tương đương).
+- KHÔNG có log lỗi tập trung: mỗi lỗi chỉ nằm rải rác trong
+  `entry["error"]` của `batch_state.json` (1 dòng, cắt 200 ký tự,
+  `str(e)[:200]`) — không có nơi tổng hợp lỗi qua nhiều lượt batch để thấy
+  pattern (vd "80% lỗi tuần này là timeout Demucs" chỉ thấy được nếu đọc
+  tay từng batch_state.json).
+
+Goal:
+- Batch tự thử lại video lỗi TẠM THỜI trong cùng lượt chạy (giới hạn số
+  lần, có backoff), không treo vô thời hạn khi 1 subprocess worker bị kẹt,
+  và có 1 nơi duy nhất tổng hợp mọi lỗi qua các lượt batch để nhìn ra
+  pattern.
+
+Constraints (Guardrails):
+1. KHÔNG tự thử lại lỗi rõ ràng VĨNH VIỄN (voice không hợp lệ, file nguồn
+   không đọc được, ConfigError thiếu API key) — thử lại vô ích, chỉ tốn
+   thời gian/tài nguyên. Cần phân loại lỗi theo EXCEPTION TYPE đã có sẵn
+   trong code (vd `ConfigError` = vĩnh viễn, lỗi mạng/timeout = tạm thời)
+   thay vì đoán qua nội dung message.
+2. Watchdog KHÔNG được đổi logic worker (`translate_local_worker.py` và
+   tương tự) — chỉ bọc thêm timeout ở TẦNG GỌI (subprocess), giữ nguyên
+   contract stdin/stdout hiện có, đúng nguyên tắc đã ghi trong CLAUDE.md
+   ("mỗi engine nặng chạy trong venv con riêng qua subprocess" — không đổi
+   ranh giới này).
+3. `failures.jsonl` chỉ GHI THÊM (append-only), không đổi format
+   `batch_state.json` hiện có — 2 file độc lập, `batch_state.json` vẫn là
+   nguồn duy nhất cho logic resume (giữ đúng Constraint tương tự V23 với
+   `quality`).
+4. Giới hạn retry mặc định NHỎ (2-3 lần) + backoff — không biến 1 video
+   lỗi vĩnh viễn (đoán nhầm là tạm thời) thành vòng lặp tốn giờ máy.
+
+Scope:
+A. `autodub/errors.py` hoặc mở rộng exception hiện có — gắn nhãn
+   `transient: bool` cho các exception loại timeout/mạng (nếu chưa có class
+   riêng, bọc bằng 1 marker exception mới `TransientPipelineError` ném ra
+   từ đúng những chỗ lỗi mạng/timeout hiện đang raise Exception trần).
+B. `batch.py::_run_items()` — khi lỗi là transient VÀ chưa hết lượt thử,
+   resume ngay `work_dir` vừa lưu (dùng lại cơ chế `resume_dir` đã có,
+   KHÔNG viết lại pipeline logic) thay vì chuyển sang video kế; backoff
+   giữa các lần thử (thời gian chờ tăng dần, có giới hạn trần).
+C. `autodub/subprocess_watchdog.py` (mới) — hàm bọc `subprocess.Popen` +
+   đọc stdout theo dòng CÓ timeout tổng (không phải per-line — worker có
+   thể hợp lệ đứng im lâu giữa các dòng khi đang tính toán nặng, nhưng
+   TỔNG thời gian không phản hồi gì phải có trần); áp dụng cho
+   `run_local_worker()` (translate_local.py) trước — nơi đã audit xác nhận
+   thiếu — các worker khác (Whisper/VieNeu/Demucs) rà lại timeout hiện có,
+   thống nhất qua cùng 1 hàm dùng chung thay vì mỗi nơi tự viết timeout
+   riêng (rủi ro: các worker này CÓ chạy thật lâu hợp lệ với input nặng —
+   audit kỹ giá trị timeout hiện tại của từng worker trước khi đổi số, để
+   dành làm bước audit riêng khi triển khai, KHÔNG đoán số ở đây).
+D. `autodub/failures_log.py` (mới) — `append_failure(entry: dict, path:
+   str)`: ghi 1 dòng JSON/lỗi vào `failures.jsonl` cạnh `batch_state.json`
+   (video, lỗi, transient/permanent, số lần đã thử, timestamp — KHÔNG dùng
+   `datetime.now()`/thời gian hệ thống trong code lõi nếu cần test được
+   deterministic, truyền timestamp từ ngoài vào).
+E. Tests: phân loại transient/permanent đúng theo exception type (không
+   đoán qua string message — dễ vỡ khi đổi ngôn ngữ lỗi); retry dừng đúng
+   giới hạn; watchdog cắt được 1 subprocess giả lập treo (test dùng script
+   giả ngủ vô hạn, không cần model NLLB thật); `failures.jsonl` ghi đúng
+   định dạng, append không ghi đè.
+
+Audit Before Build (cần làm THẬT trước khi code, chưa làm trong đợt này):
+- Rà lại TOÀN BỘ điểm gọi subprocess trong autodub/speech/ + autodub/media/
+  (không chỉ translate_local.py) để liệt kê chính xác nơi nào ĐÃ có
+  timeout, nơi nào chưa, và giá trị timeout hợp lý cho từng loại việc
+  (dịch 1 câu ngắn khác hẳn Demucs tách nhạc 1 video dài) — bảng audit này
+  là điều kiện để chốt Design Choice cụ thể cho watchdog, chưa làm trong
+  đợt viết mini-spec này.
+
+Design Choice:
+- Retry TÁI DÙNG cơ chế resume đã có (`resume_dir`) thay vì viết logic
+  chạy lại riêng — tôn trọng nguyên tắc "artifact trung gian cache trên
+  đĩa, pipeline resume-safe" đã ghi trong CLAUDE.md, tránh 2 đường resume
+  song song (thủ công qua re-paste batch vs tự động qua V24) dễ lệch nhau.
+- `failures.jsonl` tách khỏi `batch_state.json` (không gộp field) — giữ
+  đúng nguyên tắc V23 (file mới additive, không đổi contract file cũ mà
+  logic resume đang phụ thuộc).
+
+Test Plan:
+- Unit: phân loại lỗi, giới hạn retry, backoff tăng dần, watchdog cắt
+  subprocess treo giả lập, format `failures.jsonl`.
+- Regression: batch KHÔNG bật cờ retry mới vẫn chạy đúng y hệt hành vi
+  hiện tại (1 lần thử/video, không đổi mặc định nếu retry là tính năng
+  opt-in — cần quyết định lúc triển khai: mặc định BẬT hay opt-in, để dành
+  hỏi chủ dự án trước khi code vì ảnh hưởng trực tiếp thời gian chạy batch
+  mặc định).
+
+Success Criteria:
+- Video lỗi transient tự phục hồi trong cùng lượt batch (không cần người
+  dùng tự chạy lại) trong giới hạn số lần thử.
+- Subprocess treo bị cắt trong thời gian hữu hạn, không còn "treo vô thời
+  hạn" như hiện trạng đã audit.
+- `failures.jsonl` tổng hợp đủ để trả lời "lỗi nào lặp lại nhiều nhất qua
+  các lượt batch" mà không cần đọc tay từng batch_state.json.
+```
+
+### V25 — Chế độ theo dõi thư mục/hàng đợi không người trực
+
+```
+V25 — Watch-folder / queue mode (Phase F, E4) — CHƯA TRIỂN KHAI, mini-spec kế hoạch
+
+Context:
+- Hiện tại MỌI cách chạy pipeline (GUI, batch dán danh sách, và CLI V22
+  mới) đều cần người khởi động lượt chạy. Không có cách nào để "thả video
+  vào 1 thư mục, tool tự nhận và dub" — đây là mẫu hình vận hành phổ biến
+  cho use-case doanh nghiệp/kênh nội dung đăng đều (vd: biên tập viên thả
+  file MP4 tải sẵn vào thư mục dùng chung, quay lại sau vài giờ lấy video
+  đã lồng tiếng) mà `batch.py` hiện tại không phục vụ được (`batch.py` chỉ
+  nhận danh sách CỐ ĐỊNH tại thời điểm gọi, không theo dõi thư mục LIÊN
+  TỤC).
+- Phụ thuộc trực tiếp: V22 (CLI, đã xong — watch-folder gọi `voxdub dub`/
+  logic tương đương cho mỗi file mới), V24 (retry/watchdog — 1 tiến trình
+  chạy liên tục nhiều giờ/ngày CÀNG cần watchdog để không bị 1 video kẹt
+  làm treo cả hàng đợi phía sau).
+
+Goal:
+- 1 tiến trình chạy nền, theo dõi 1 thư mục input — file video mới xuất
+  hiện tự động được đưa vào hàng đợi dub tuần tự, kết quả ra 1 thư mục
+  output tương ứng, không cần người bấm gì sau khi khởi động.
+
+Constraints (Guardrails):
+1. Chỉ xử lý file ĐÃ ghi xong (không đụng file đang được copy/tải dở) —
+   cần cơ chế phát hiện "file ổn định" (vd kích thước không đổi qua N giây
+   liên tiếp) trước khi đưa vào hàng đợi, tránh dub 1 file MP4 chưa ghi
+   xong (hỏng/thiếu dữ liệu).
+2. KHÔNG dub trùng 1 file 2 lần — cần trạng thái bền (đĩa, không chỉ RAM)
+   ghi nhớ file nào đã xử lý, sống sót qua việc tắt/bật lại tiến trình
+   watch (khác `batch_state.json` theo danh sách, đây theo THƯ MỤC).
+3. Đây là tiến trình DÀI HẠN (giờ/ngày) — PHẢI dùng watchdog của V24 cho
+   từng lượt dub bên trong, nếu không 1 video kẹt sẽ treo toàn bộ hàng đợi
+   vô thời hạn, mất hết lợi ích "không người trực". Không triển khai V25
+   trước V24 vì lý do này.
+4. Dừng sạch (Ctrl+C hoặc tín hiệu hệ thống) không làm hỏng file đang xử
+   lý dở — dùng lại `resume_dir` hiện có, không cần cơ chế mới.
+
+Scope:
+A. `autodub/watch_folder.py` (mới) — vòng lặp polling (không dùng
+   `inotify`/`watchdog` package ngoài trong bản đầu — polling đơn giản đủ
+   cho tần suất video mới thấp, tránh thêm dependency; nếu sau này cần độ
+   trễ thấp hơn, đó là quyết định nâng cấp riêng) quét thư mục input theo
+   chu kỳ cấu hình được, phát hiện file mới + ổn định (Constraint 1), đẩy
+   vào hàng đợi nội bộ.
+B. Trạng thái bền: `<output_dir>/_watch_state.json` — map file đã xử lý
+   (theo path + mtime + size làm khoá, tránh dub lại nếu file trùng tên
+   khác nội dung) → kết quả (thành công/thất bại, work_dir).
+C. CLI (V22) — subcommand `voxdub watch --input-dir ... --output-dir ...`,
+   dùng lại `DubRequest`/`DubPipeline` như `dub`, bọc watchdog (V24) cho
+   từng lượt, ghi log qua `failures_log.py` (V24) khi có lỗi.
+D. Tests: phát hiện file ổn định đúng (giả lập file đang lớn dần → chưa
+   đưa vào hàng đợi; file kích thước không đổi N giây → đưa vào); không xử
+   lý trùng file đã có trong state; dừng giữa chừng không hỏng trạng thái
+   (đọc lại được từ `_watch_state.json` sau restart).
+
+Audit Before Build:
+- Không có code hiện tại nào liên quan trực tiếp (tính năng hoàn toàn
+  mới) — audit cần làm là XÁC NHẬN LẠI với chủ dự án tần suất polling hợp
+  lý (bao nhiêu giây/phút) và ngưỡng "file ổn định" (bao nhiêu giây không
+  đổi kích thước) trước khi chốt Design Choice — đây là quyết định vận
+  hành thực tế (tuỳ tốc độ mạng/ổ đĩa nơi triển khai), không phải quyết
+  định kỹ thuật thuần tuý đoán được từ code.
+
+Design Choice:
+- Polling đơn giản (không thêm dependency `watchdog`/`inotify`) cho bản
+  đầu — đúng nguyên tắc dự án ưu tiên ít phụ thuộc, đổi sang event-based
+  chỉ khi có nhu cầu thật về độ trễ thấp.
+- Trạng thái theo THƯ MỤC (`_watch_state.json`, khoá theo path+mtime+size)
+  tách hẳn khỏi `batch_state.json` (khoá theo URL) — 2 mô hình vận hành
+  khác nhau (danh sách cố định vs luồng liên tục), không ép chung 1 state
+  file.
+
+Test Plan:
+- Unit: phát hiện ổn định, dedup theo path+mtime+size, state bền qua
+  restart giả lập (đọc/ghi lại đúng `_watch_state.json`).
+- KHÔNG chạy 1 tiến trình watch thật dài hạn trong test (không phù hợp CI)
+  — test bằng cách gọi trực tiếp các hàm thuần (phát hiện ổn định, dedup)
+  với dữ liệu giả lập, không cần vòng lặp polling thật chạy trong suite.
+
+Success Criteria:
+- File mới thả vào thư mục input, không cần thao tác thêm, xuất hiện ở
+  thư mục output sau khi dub xong (hoặc entry lỗi rõ ràng trong
+  `_watch_state.json`/`failures.jsonl` nếu thất bại).
+- Tắt/bật lại tiến trình watch không dub trùng file đã xử lý, không mất
+  dấu vết file đang xử lý dở khi tắt giữa chừng.
+```
 
 ## Remaining Limits / Follow-ups (ngoài phạm vi 10 mini-spec trên)
 

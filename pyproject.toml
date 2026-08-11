@@ -28,6 +28,12 @@ dev = ["pytest>=8.0.0"]
 [project.gui-scripts]
 autodub-gui = "autodub_gui.app:main"
 
+# mini-spec V22 (docs/PLAN.md, Phase F) — console script THẬT (không phải
+# gui-scripts) để chạy không cần Qt: nền tảng cho tự động hoá (cron/
+# watch-folder/CI).
+[project.scripts]
+voxdub = "autodub.cli:main"
+
 [tool.setuptools.packages.find]
 include = ["autodub*", "autodub_gui*"]
 

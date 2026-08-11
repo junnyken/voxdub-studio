@@ -2302,3 +2302,88 @@ hẳn, không ai chọn được dù tồn tại thật trong `Voice.json`.
 - Tách câu bằng regex dấu câu — câu không có dấu kết câu rõ ràng (transcript
   ASR thiếu dấu câu hoàn toàn) vẫn được coi là 1 câu duy nhất như trước,
   không có gì thay đổi/cải thiện cho trường hợp đó.
+
+## V22 — CLI headless cho pipeline dub (Phase F, mini-spec chi tiết ở PLAN.md)
+
+### Audit
+
+- `autodub/pipeline.py`/`autodub/batch.py`: xác nhận thật KHÔNG import gì
+  từ `autodub_gui`/`PySide6` (grep import graph) — đúng như docstring của
+  `pipeline.py` tự nhận ("GUI-ready core"). Đường vào DUY NHẤT trước V22 là
+  `autodub_gui/app.py:main()` (`[project.gui-scripts]`) — không có
+  `[project.scripts]` console nào trong `pyproject.toml`.
+- `autodub.speech.tts.voices.resolve(settings, name, target)` CHỦ ĐÍCH rơi
+  ngầm về giọng khác khi tên không khớp danh mục (đúng cho GUI — người
+  dùng thấy ngay, sửa lại bằng picker). Xác nhận đây LÀ thiết kế có chủ
+  đích (đọc docstring hàm), không phải bug — nhưng là bẫy thật cho CLI/
+  cron: gõ sai tên giọng trong script chạy định kỳ có thể âm thầm tạo
+  video sai giọng nhiều tuần không ai biết. CLI KHÔNG dùng `resolve()`,
+  validate tường minh trước khi gọi pipeline.
+- `translate_local.py::run_local_worker()` (dùng trong pipeline dịch local)
+  đọc `proc.stdout` bằng vòng lặp chặn KHÔNG timeout tổng — nếu worker
+  treo, tiến trình gọi treo vô thời hạn. Ghi nhận là giới hạn CHƯA sửa ở
+  V22 (đúng phạm vi — thuộc V24, xem PLAN.md).
+
+### Xây dựng
+
+- `autodub/cli.py` (mới) — `voxdub dub`/`voxdub batch`, lớp vỏ mỏng gọi
+  thẳng `DubPipeline.run()`/`run_batch()` có sẵn, không viết lại logic
+  pipeline. Validate `--target`/`--voice` tường minh (exit 2 nếu sai, liệt
+  kê giọng khả dụng) thay vì để rơi ngầm. `--json` phát tiến trình dạng
+  NDJSON đúng shape `ProgressEvent` ra stderr; kết quả cuối (JSON) ra
+  stdout. Exit code: 0 hoàn thành/batch không lỗi nào, 1 lỗi pipeline/có
+  video batch fail, 2 lỗi tham số.
+- `pyproject.toml` — thêm `[project.scripts] voxdub = "autodub.cli:main"`
+  (console script thật, không phải `gui-scripts` — không kéo Qt khi cài).
+
+### Verify
+
+- `tests/test_cli.py` (17 test mới): parse tham số đúng cho cả 2
+  subcommand; `--help` exit 0; thiếu URL/file exit 2; `--target` sai exit
+  2; **giọng sai exit 2 + liệt kê giọng khả dụng, KHÔNG rơi ngầm** (khoá
+  đúng hành vi khác `voices.resolve()`, xem Audit); `DubRequest` dựng đúng
+  từ mọi cờ CLI (pipeline mock, không chạy thật); exit code đúng cho cả 3
+  trường hợp (thành công/status khác completed/exception pipeline); batch
+  đọc file danh sách + báo cáo summary đúng, exit 1 khi có video fail,
+  KHÔNG gọi `run_batch()` khi giọng sai (validate trước khi chạm pipeline);
+  `[project.scripts]` khớp đúng trong `pyproject.toml`.
+- **Cách ly import (Constraint 2)**: test đầu chạy `import autodub.cli`
+  trong TIẾN TRÌNH CON riêng (subprocess) — không kiểm `sys.modules` trong
+  cùng tiến trình pytest, vì các file test khác (`test_editor.py`,
+  `test_fonts_app_only.py`...) tự import `autodub_gui`/`PySide6` trong lúc
+  pytest COLLECT toàn bộ file, gây dương tính giả nếu đo trong cùng tiến
+  trình (bug thật gặp phải khi viết test này, sửa ngay bằng subprocess).
+  Xác nhận subprocess sạch: `import autodub.cli` xong,
+  `'PySide6' not in sys.modules` và `'autodub_gui' not in sys.modules`.
+- **Live-verify thật qua console script**: môi trường sandbox trước đó
+  thiếu `numpy`/`pydub`/`PySide6`/`cryptography` (gói optional không cài
+  sẵn — không phải do V22 gây ra, đã xác nhận các file test bị lỗi
+  collection đều KHÔNG liên quan tới `cli.py`) khiến không chạy được toàn
+  bộ suite trực tiếp trên hệ thống; dựng 1 venv riêng
+  (`/tmp/voidmix-test-venv`), cài đủ dependency, `pip install -e . --no-deps`
+  rồi chạy THẬT: `voxdub --help`, `voxdub dub --help` (in đúng mô tả 2
+  subcommand), `voxdub dub` (thiếu URL) → in đúng thông báo lỗi tham số,
+  exit code 2 — xác nhận entry point `console_scripts` hoạt động thật, không
+  chỉ đúng khi gọi qua `python -m`.
+- `pytest tests/ -q` toàn bộ (venv đầy đủ dependency): **778 passed, 6
+  skipped, 0 failed** (775 pass ở V21 + 17 test CLI mới, trừ 1 test cách ly
+  đổi từ đo trực tiếp `sys.modules` sang subprocess không đổi số lượng ròng
+  theo cách tính khác — số test file thực tế +17, xem diff `test_cli.py`).
+
+### Remaining Limits (V22)
+
+- **Chưa live-verify 1 lượt dub THẬT end-to-end qua CLI** (cần mạng/GPU
+  thật, ngoài ngân sách thời gian đợt này — ưu tiên dồn cho việc viết đủ 4
+  mini-spec Phase F theo đúng yêu cầu "kế hoạch nâng cấp phải xây theo
+  MINI-SPEC" trước khi code). Đã live-verify được lớp WIRING (console
+  script, argparse, exit code) thật qua `voxdub` — chưa verify được lớp
+  PIPELINE thật chạy qua đường CLI (khác hẳn gọi API Python trực tiếp).
+  Cùng loại giới hạn như 7/8 ngôn ngữ "thử nghiệm" ở V17: hạ tầng đúng theo
+  test cách ly + mock, đường thật chưa chạy 1 lần.
+- V23 (cổng chất lượng)/V24 (retry + watchdog + failures.jsonl)/V25
+  (watch-folder) đã có mini-spec kỹ thuật đầy đủ trong `docs/PLAN.md` (Phase
+  F) nhưng CHƯA triển khai — chờ chủ dự án xác nhận trước khi code, đúng
+  quy trình audit→propose→confirm→execute đã dùng xuyên suốt các mini-spec
+  trước.
+- Watchdog cho subprocess treo (gap thật đã audit ở `run_local_worker()`)
+  CHƯA sửa trong V22 — thuộc đúng phạm vi V24, không mở rộng lấn sang V22.
