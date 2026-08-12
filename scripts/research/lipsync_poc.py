@@ -151,6 +151,19 @@ def step_benchmark_inference(video: str, audio: str, result_dir: str,
     log("(tiến trình MuseTalk in trực tiếp bên dưới — tải model + xử lý "
         "268 frame có thể mất vài phút, không phải bị treo)")
 
+    # Bug thật gặp khi live-verify (Windows): MuseTalk tự in ký tự CJK
+    # trang trí (「」trong "Total frame:「268」...") — khi stdout bị pipe
+    # redirect (như ở đây, để vừa stream vừa gom output) thay vì nối thẳng
+    # console, Python trên Windows rơi về codepage ANSI hệp (cp1252) thay vì
+    # console codepage, không mã hoá được ký tự đó → UnicodeEncodeError,
+    # bị try/except CHUNG của MuseTalk nuốt mất và báo nhầm thành
+    # "Error occurred during processing" dù việc xử lý AI đã THÀNH CÔNG.
+    # Ép UTF-8 cả 2 đầu (child qua PYTHONIOENCODING, parent qua encoding=)
+    # để không phụ thuộc codepage hệ thống nữa.
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
+
     started = time.monotonic()
     output_lines: list[str] = []
     with _VramPoller() as vram:
@@ -158,7 +171,8 @@ def step_benchmark_inference(video: str, audio: str, result_dir: str,
         # trước — người dùng không biết đang chạy hay bị treo) VÀ vẫn gom
         # lại để ghi report.json.
         proc = subprocess.Popen(cmd, cwd=REPO_DIR, stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True, bufsize=1)
+                                stderr=subprocess.STDOUT, text=True, bufsize=1,
+                                encoding="utf-8", errors="replace", env=env)
         for line in proc.stdout:
             print(line, end="", flush=True)
             output_lines.append(line)
