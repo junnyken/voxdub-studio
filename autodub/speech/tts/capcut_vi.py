@@ -222,12 +222,18 @@ class CapCutSynthesizer:
         text: str,
         output_path: str,
         target_duration: float | None = None,
+        style: str | None = None,
     ) -> TTSResult:
         """Đọc một câu ở tốc độ tự nhiên.
 
         ``target_duration`` nhận vào cho khớp giao diện engine rồi bỏ qua —
         giống VieNeu, việc co giãn thời lượng do VIDEO_SPEED/VOICE_SPEED lo
         đồng loạt sau bước TTS.
+
+        ``style`` (mini-spec V28, docs/PLAN.md Phase G): nhận vào cho khớp
+        giao diện `Synthesizer` rồi BỎ QUA CÓ CHỦ ĐÍCH — CapCut là API bên
+        thứ 3, không có tham số điều khiển giọng điệu (Constraint 4: chỉ
+        VieNeu mới thật sự áp style).
         """
         from autodub.media.audio import wav_duration_s
         from autodub.speech.tts import capcut_catalog

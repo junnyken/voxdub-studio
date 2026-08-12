@@ -2968,3 +2968,106 @@ việc dở), lần 2 tức thời (chấp nhận việc dở có thể chưa ho
   giả) — hạ tầng test model thật đã có sẵn từ V6/V21
   (`VOXDUB_TEST_NLLB_MODEL_DIR`), người có model cục bộ có thể tự chạy để
   xác nhận thêm.
+
+## V28 — Emotion/tone-aware voice tự động (Phase G)
+
+### Audit trước khi build
+
+- Đọc đầy đủ `vieneu_worker.py`'s vòng lặp phục vụ (không chỉ phần đã audit
+  ở lượt research ban đầu): worker THẬT SỰ đã parse 1 dict JSON per-request
+  từ stdin (`req = json.loads(line)`, có `req["text"]`/`req["out"]`) —
+  NHƯNG `style` bị hardcode về `args.style` (hằng số CLI lúc khởi động),
+  KHÔNG đọc từ `req`. Đây là 1 dòng sửa nhỏ (`req.get("style", args.style)`),
+  không phải giới hạn kiến trúc — kết luận LẠC QUAN HƠN dự đoán ban đầu của
+  mini-spec ("cần audit... có khả thi kỹ thuật hay cần khởi động lại
+  worker").
+- Xác nhận `tts.infer(text, voice, style, ...)` của model VieNeu nhận
+  `style` làm tham số INFERENCE THẬT mỗi lần gọi (không phải cấu hình 1 lần
+  lúc nạp model) — bằng chứng: dòng warm-up (`tts.infer("xin chào các bạn",
+  voice=args.voice, style=args.style)`) gọi y hệt cách gọi trong vòng lặp
+  phục vụ, cùng 1 hàm, không có bước "cấu hình lại model" riêng.
+- Xác nhận `Synthesizer` Protocol (`base.py`) dùng chung bởi CẢ VieNeu lẫn
+  CapCut (`_synth_for(seg).synthesize(...)` trong `pipeline.py` không biết
+  gì về engine cụ thể) — thêm `style` vào chữ ký chung, CapCut nhận nhưng
+  bỏ qua, thay vì rẽ nhánh if/else theo engine trong `pipeline.py`.
+- Kiểm tra `/analyze` (control_server) — xác nhận đây là lượt phân tích
+  CẤP VIDEO (lấy mẫu đầu-giữa-cuối, tối đa 400 dòng, sinh domain/pronouns/
+  glossary/style_notes DÙNG CHUNG cho cả video), KHÔNG PHẢI per-segment.
+  Muốn có tone per-segment từ LLM phải sửa `/translate` (endpoint dịch
+  THẬT SỰ mọi câu) — đây là contract ĐANG CHẠY SẢN XUẤT, sửa response
+  schema/prompt của nó cần audit + test cẩn thận hơn nhiều so với phần còn
+  lại của V28 (rủi ro ảnh hưởng luồng dịch chính đang phục vụ người dùng
+  thật). Quyết định: KHÔNG làm trong đợt này, ghi rõ là Remaining Limit —
+  xem bên dưới.
+
+### Xây dựng
+
+- `autodub/text/tone_heuristic.py` (mới) — `guess_tone(text) ->
+  "neutral"|"excited"|"serious"` (dấu "!", từ khoá cảm thán/cảnh báo, chữ
+  hoa toàn bộ đủ dài) + `tone_to_vieneu_style(tone)` (map sang ĐÚNG 3 giá
+  trị `--style` thật của VieNeu — không bịa thêm).
+- `autodub/speech/tts/vieneu_worker.py` — đọc `style` từ `req` per-request,
+  validate đúng 3 giá trị hợp lệ (giá trị lạ rơi về `args.style`, không
+  crash worker đang phục vụ vì 1 request sai).
+- `autodub/speech/tts/vieneu_vi.py` — `render()`/`_render()`/`synthesize()`
+  nhận thêm `style: str | None = None`, chỉ gửi field `"style"` trong
+  request khi có giá trị (không có = hành vi y hệt trước V28).
+- `autodub/speech/tts/capcut_vi.py` — `synthesize()` nhận `style` cho khớp
+  Protocol chung rồi BỎ QUA CÓ CHỦ ĐÍCH (Constraint 4 — CapCut là API bên
+  thứ 3, không có tham số điều khiển giọng điệu).
+- `autodub/speech/tts/base.py` — `Synthesizer` Protocol thêm `style: str |
+  None = None`.
+- `autodub/pipeline.py::_apply_emotion_styles()` — gọi sau khi dịch xong,
+  trước TTS, TUỲ CHỌN (`settings.emotion_voice_enabled`, mặc định TẮT). Tra
+  catalog theo `seg.get("voice") or run_voice` — bỏ qua nếu tìm thấy đúng
+  entry có `source == "capcut"`; ghi `seg["style"]` cho phần còn lại
+  (VieNeu HOẶC giọng không tra cứu được — mặc định xử lý như VieNeu, an
+  toàn hơn bỏ sót). Tương thích V26: đọc đúng `seg["voice"]` do diarization
+  gán (nếu có) trước khi tra catalog, không phải chỉ giọng mặc định video.
+- `_synthesize_segments()` — truyền `style=seg.get("style")` vào
+  `.synthesize()`.
+- Settings: `emotion_voice_enabled` + field GUI `EMOTION_VOICE_ENABLED`
+  (CHECK, trang Giọng đọc).
+
+### Verify
+
+- `tests/test_tone_heuristic.py` (13 test): mapping tone đúng theo dấu
+  câu/từ khoá/chữ hoa; ưu tiên "serious" khi có cả 2 tín hiệu; câu quá
+  ngắn không suy đoán bừa; `tone_to_vieneu_style()` chỉ trả về 3 giá trị
+  worker thật hỗ trợ, giá trị lạ rơi về "tu_nhien" an toàn.
+- `tests/test_vieneu_style_per_segment.py` (3 test) — **live-verify THẬT
+  qua worker giả subprocess thật** (không mock `Popen`, đúng giao thức
+  ready-handshake + serve loop của worker thật): không truyền style → field
+  "style" KHÔNG có trong request (0 regression); truyền style → gửi đúng
+  tới worker; **2 câu liên tiếp style KHÁC NHAU → mỗi request mang đúng
+  style riêng, không bị worker "nhớ" style câu trước** (khoá đúng tuyên bố
+  "per-segment thật", không phải per-run).
+- `tests/test_pipeline_emotion_voice.py` (5 test): tắt cờ (mặc định) → 0
+  regression; bật cờ → gán đúng style theo tone cho từng câu; giọng CapCut
+  bị bỏ qua (Constraint 4); segment có `seg["voice"]` riêng (từ diarization
+  V26) → tra ĐÚNG giọng đó chứ không phải giọng mặc định video; giọng
+  không tìm thấy trong catalog vẫn được gán (mặc định coi là VieNeu, an
+  toàn hơn bỏ sót).
+- `pytest tests/ -q` toàn bộ (venv đầy đủ dependency): **926 passed, 6
+  skipped, 0 failed** (905 pass sau V26/V27 + 21 test V28 mới).
+
+### Remaining Limits (V28)
+
+- **Đường tín hiệu SaaS/LLM per-segment CHƯA nối** (Scope A của mini-spec —
+  mở rộng `buildAnalysisPrompt`/`/translate` để LLM trả `tone` mỗi câu).
+  Lý do: đây là contract ĐANG CHẠY SẢN XUẤT (mọi lượt dịch SaaS thật đi qua
+  `/translate`), sửa response schema/prompt cần 1 vòng audit + test kỹ hơn
+  nhiều để không phá luồng dịch chính đang phục vụ người dùng thật — quyết
+  định hoãn có chủ đích, không phải bỏ sót. Interface phía Python
+  (`_apply_emotion_styles()`) đã thiết kế đủ chỗ để nối thêm nguồn tín hiệu
+  LLM sau này (ưu tiên LLM khi có, fallback heuristic khi không) mà không
+  phải viết lại tầng TTS đã xong.
+- **Chỉ có heuristic văn bản (dấu câu/từ khoá)** — độ chính xác thấp hơn
+  hẳn phân tích ngữ nghĩa thật, không suy đoán được mỉa mai/ẩn ý/ngữ cảnh
+  trước-sau. Đã gắn nhãn "thử nghiệm" trong mô tả GUI, không giả vờ ngang
+  hàng AI thật.
+- CHƯA live-verify CHẤT LƯỢNG ÂM THANH thật (2 style có nghe khác nhau rõ
+  ràng hay không) — cần model VieNeu thật (không có trong sandbox này) để
+  render + so sánh waveform/pitch. Đã live-verify được lớp WIRING (request
+  đúng style tới worker thật) — chưa live-verify được lớp CHẤT LƯỢNG cảm
+  nhận được.

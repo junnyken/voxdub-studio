@@ -169,14 +169,21 @@ class _VieNeuWorker:
 
     # --- synthesis --------------------------------------------------------
 
-    def render(self, text: str, output_path: str) -> float:
+    def render(self, text: str, output_path: str, style: str | None = None) -> float:
         """Render text to WAV and return the actual duration in seconds.
 
         The worker reports duration in its JSON response — we use that
         directly instead of re-reading the WAV file with pydub (A1 fix).
+
+        ``style`` (mini-spec V28, docs/PLAN.md Phase G): style VieNeu riêng
+        cho CÂU NÀY, khác style mặc định của cả lượt chạy worker (``--style``
+        lúc khởi động). ``None`` (mặc định) giữ hành vi trước V28 — worker
+        tự dùng style khởi động của nó khi request không gửi field này.
         """
         self.ensure()
-        req = {"text": text, "out": output_path}
+        req: dict = {"text": text, "out": output_path}
+        if style:
+            req["style"] = style
         try:
             self._proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
             self._proc.stdin.flush()
@@ -191,7 +198,7 @@ class _VieNeuWorker:
                            "— restarting once...")
             self._restarted = True
             self.close()
-            return self.render(text, output_path)
+            return self.render(text, output_path, style=style)
         if not resp.get("ok"):
             raise RuntimeError(f"VieNeu synthesis failed: {resp.get('error')}")
         self._restarted = False
@@ -295,7 +302,7 @@ class VieNeuSynthesizer:
 
     # --- synthesis --------------------------------------------------------
 
-    def _render(self, text: str, output_path: str) -> float:
+    def _render(self, text: str, output_path: str, style: str | None = None) -> float:
         """Render text to WAV via a free worker; returns actual duration (s)."""
         output_path = os.path.abspath(output_path)
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -308,7 +315,7 @@ class VieNeuSynthesizer:
                 "Không còn luồng VieNeu nào rảnh (worker chết hoặc kẹt) — "
                 "thử chạy lại; nếu lặp lại, giảm VIENEU_MAX_WORKERS")
         try:
-            return w.render(text, output_path)
+            return w.render(text, output_path, style=style)
         finally:
             self._free.put(w)
 
@@ -317,6 +324,7 @@ class VieNeuSynthesizer:
         text: str,
         output_path: str,
         target_duration: float | None = None,
+        style: str | None = None,
     ) -> TTSResult:
         """Render at natural pace, always.
 
@@ -324,6 +332,10 @@ class VieNeuSynthesizer:
         slows the picture, VOICE_SPEED is applied to every clip uniformly
         after TTS). ``target_duration`` is accepted for engine-interface
         compatibility and ignored.
+
+        ``style`` (mini-spec V28, docs/PLAN.md Phase G): style VieNeu riêng
+        cho câu này (``"tu_nhien"``/``"tin_tuc"``/``"doc_truyen"``) —
+        ``None`` giữ style mặc định của cả lượt chạy (0 regression).
 
         Duration comes directly from the worker response — no extra disk read.
         """
@@ -337,7 +349,7 @@ class VieNeuSynthesizer:
             return write_silence(output_path)
 
         # A1 fix: duration trả thẳng từ worker JSON, không đọc lại file WAV.
-        actual_duration = self._render(text, output_path)
+        actual_duration = self._render(text, output_path, style=style)
 
         return TTSResult(
             path=output_path,

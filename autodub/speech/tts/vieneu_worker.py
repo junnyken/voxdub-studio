@@ -390,7 +390,15 @@ def main() -> None:
             continue
         try:
             req = json.loads(line)
-            audio = tts.infer(req["text"], voice=args.voice, style=args.style,
+            # mini-spec V28 (docs/PLAN.md, Phase G) — style PER-REQUEST tuỳ
+            # chọn (mặc định về --style của cả lượt chạy nếu request không
+            # gửi, giữ đúng hành vi trước V28). Chỉ nhận đúng 3 giá trị
+            # worker thật hỗ trợ — style lạ rơi về mặc định thay vì lỗi
+            # (client gửi sai không được làm chết cả worker đang phục vụ).
+            req_style = req.get("style") or args.style
+            if req_style not in ("tu_nhien", "tin_tuc", "doc_truyen"):
+                req_style = args.style
+            audio = tts.infer(req["text"], voice=args.voice, style=req_style,
                               silence_p=0.0)
             audio = trim_edges(audio)
             sf.write(req["out"], audio, tts.sample_rate)

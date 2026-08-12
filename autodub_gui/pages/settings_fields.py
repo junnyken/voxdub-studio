@@ -115,6 +115,13 @@ FIELDS: tuple[Field, ...] = (
           "giọng đọc riêng. Cần cài thêm một lần (py "
           "scripts/setup_diarization.py) — chưa cài thì bật cũng không có "
           "tác dụng, video vẫn đọc bằng 1 giọng như trước."),
+    Field("EMOTION_VOICE_ENABLED", CHECK, "Tự đổi giọng điệu theo cảm xúc",
+          TAB_VOICE, "Phong cách", "false",
+          "Câu cảm thán/nghiêm túc được đọc khác câu bình thường thay vì "
+          "1 giọng điệu cố định cho cả video. Chỉ có tác dụng với giọng "
+          "VieNeu (giọng CapCut không đổi được). Đường nhận diện cảm xúc "
+          "hiện dựa dấu câu/từ khoá đơn giản — chưa phải phân tích ngữ "
+          "nghĩa AI đầy đủ."),
     Field("DEFAULT_SOURCE_LANG", COMBO, "Ngôn ngữ gốc mặc định", TAB_BASIC,
           "Nghe và chép lời video gốc", "zh-CN",
           "Ngôn ngữ được chọn sẵn mỗi khi bạn tạo dự án mới.",

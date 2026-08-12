@@ -559,6 +559,7 @@ class DubPipeline:
                     "bước lâu nhất, tiến độ hiện ở khung bên trái...")
         seg_dir = ensure_dir(data_path(work_dir, "segments", create_dir=True))
         self._ensure_render_mode(work_dir, seg_dir)
+        self._apply_emotion_styles(segments, target, req.voice)
         tts_results = self._synthesize_segments(target, req.voice, segments,
                                                 seg_dir, synth=tts_synth)
         # Free the TTS workers' VRAM before the NVENC video encode — unless a
@@ -965,6 +966,44 @@ class DubPipeline:
             logger.warning(
                 f"Diarization lỗi ({e}) — dùng 1 giọng cho toàn video như "
                 "bình thường (không ảnh hưởng phần còn lại của lượt dub).")
+
+    def _apply_emotion_styles(self, segments: list[dict], target: TargetLang,
+                              run_voice: str | None) -> None:
+        """Tự đổi giọng điệu đọc theo cảm xúc từng câu — mini-spec V28
+        (docs/PLAN.md, Phase G). TUỲ CHỌN, mặc định TẮT (0 regression khi
+        không bật).
+
+        Đường tín hiệu THẬT ở đợt này CHỈ có heuristic văn bản local
+        (Constraint 2 — đường LLM/SaaS per-segment CHƯA nối, xem "Remaining
+        Limits" mục V28 trong docs/TEST_LOG.md). Chỉ áp cho giọng VieNeu
+        (Constraint 4) — giọng CapCut (``source == "capcut"``) bị bỏ qua,
+        `capcut_vi.py::synthesize()` cũng tự bỏ qua tham số này nếu lỡ nhận
+        được, đây là lớp phòng thủ THÊM để không tính toán tone vô ích.
+        """
+        settings = self.settings
+        if not settings.emotion_voice_enabled:
+            return
+
+        from autodub.speech.tts import voices as voice_catalog
+        from autodub.text.tone_heuristic import guess_tone, tone_to_vieneu_style
+
+        catalog_by_name = {v.name: v for v in voice_catalog.catalog(settings, target)}
+        text_field = target.text_field
+        applied = 0
+        for seg in segments:
+            voice_name = str(seg.get("voice") or run_voice or "").strip()
+            entry = catalog_by_name.get(voice_name)
+            # Giọng không rõ nguồn (không tìm thấy trong catalog) hoặc
+            # nguồn CapCut -> bỏ qua, không suy đoán.
+            if entry is not None and entry.source == "capcut":
+                continue
+            tone = guess_tone(str(seg.get(text_field, "")))
+            seg["style"] = tone_to_vieneu_style(tone)
+            applied += 1
+        if applied:
+            logger.info(
+                f"Giọng điệu: đã tự gán style theo cảm xúc cho {applied}/"
+                f"{len(segments)} câu (heuristic văn bản, xem Cài đặt).")
 
     def _setup_hold(
         self, segments: list[dict], target: TargetLang, work_dir: str,
@@ -1470,6 +1509,12 @@ class DubPipeline:
                 # Engines always render at natural pace now — timing is
                 # handled globally by VIDEO_SPEED/VOICE_SPEED, never per clip.
                 target_duration=None,
+                # mini-spec V28 (docs/PLAN.md, Phase G) — style riêng cho
+                # câu này nếu _apply_emotion_styles() đã gán; None (mặc
+                # định) khi tính năng tắt hoặc engine không phải VieNeu —
+                # mọi Synthesizer đều nhận tham số này (CapCut bỏ qua có
+                # chủ đích, xem capcut_vi.py::synthesize).
+                style=seg.get("style"),
             ).to_dict()
 
         try:

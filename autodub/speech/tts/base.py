@@ -49,5 +49,6 @@ class Synthesizer(Protocol):
         text: str,
         output_path: str,
         target_duration: float | None = None,
+        style: str | None = None,
     ) -> TTSResult:
         ...

@@ -136,6 +136,14 @@ class Settings:
     diarization_enabled: bool = False
     diarization_venv_python: str = ""  # mặc định: <app>/.venv-diar/Scripts/python.exe
     diarization_model_dir: str = ""    # mặc định: <app>/models/diarization
+
+    # mini-spec V28 (docs/PLAN.md, Phase G) — giọng đọc tự đổi giọng điệu
+    # theo cảm xúc từng câu (chỉ áp cho VieNeu, xem Constraint 4). Mặc định
+    # TẮT. Đường tín hiệu THẬT ở đợt này CHỈ có heuristic văn bản local
+    # (autodub/text/tone_heuristic.py) — đường LLM/SaaS (buildAnalysisPrompt
+    # per-segment) CHƯA nối, xem "Remaining Limits" mục V28 trong
+    # docs/TEST_LOG.md.
+    emotion_voice_enabled: bool = False
     asr_num_threads: int = 4
     # Beam size của Whisper (1–10). 5 là mặc định của thư viện — giữ nguyên
     # chất lượng. Máy CPU yếu có thể hạ (vd 1) để nhanh gấp 2–3 lần, đổi lại
@@ -380,6 +388,7 @@ class Settings:
             diarization_enabled=env_bool("DIARIZATION_ENABLED", "false"),
             diarization_venv_python=env("DIARIZATION_VENV_PYTHON"),
             diarization_model_dir=env("DIARIZATION_MODEL_DIR"),
+            emotion_voice_enabled=env_bool("EMOTION_VOICE_ENABLED", "false"),
             asr_num_threads=max(1, min(16, env_int("ASR_NUM_THREADS", "4"))),
             whisper_beam_size=max(1, min(10, env_int("WHISPER_BEAM_SIZE", "5"))),
             vieneu_venv_python=env("VIENEU_VENV_PYTHON"),
