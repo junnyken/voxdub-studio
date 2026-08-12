@@ -237,7 +237,14 @@ def step_download_weights() -> None:
         return
     log("tải model weights thật (~5-6GB tổng — HuggingFace + Google Drive + "
         "pytorch.org, có thể mất nhiều phút tuỳ mạng) ...")
-    _pip_install("-U", "huggingface_hub[cli]", "gdown")
+    # Bug thật gặp khi live-verify: "-U" (không ép trần version) kéo
+    # huggingface_hub lên bản 1.x mới nhất, XUNG ĐỘT với ràng buộc
+    # `transformers==4.39.2` (từ requirements.txt MuseTalk) đòi
+    # huggingface-hub<1.0 — pip cảnh báo đỏ (không chặn NGAY bước tải, nhưng
+    # có thể vỡ lúc `scripts/inference.py` import `transformers.WhisperModel`
+    # ở Scope B). Ghim đúng dải version thoả cả 2 phía: có `[cli]` (từ 0.20)
+    # và dưới 1.0 (theo transformers).
+    _pip_install("huggingface_hub[cli]<1.0,>=0.20.0", "gdown")
 
     for d in ("musetalk", "musetalkV15", "syncnet", "dwpose",
              "face-parse-bisent", "sd-vae", "whisper"):
