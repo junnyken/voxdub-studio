@@ -156,11 +156,26 @@ def step_benchmark_inference(video: str, audio: str, result_dir: str,
 def step_consent_check(video: str, result_dir: str, ffmpeg_bin: str) -> dict:
     """Scope C — tách frame bằng đúng lệnh MuseTalk dùng nội bộ, gọi THẲNG
     `get_landmark_and_bbox()` thật của MuseTalk để đếm % frame không phát
-    hiện được khuôn mặt nào."""
+    hiện được khuôn mặt nào.
+
+    Bug thật gặp khi live-verify: `musetalk/utils/preprocessing.py` mở
+    config DWPose bằng đường dẫn TƯƠNG ĐỐI (`./musetalk/utils/dwpose/...`)
+    ngay ở CẤP MODULE (chạy lúc import, không phải lúc gọi hàm) — đường dẫn
+    đó chỉ đúng khi thư mục làm việc hiện tại LÀ `REPO_DIR`. Tiến trình chạy
+    `lipsync_poc.py` có cwd là chỗ người dùng gõ lệnh (vd D:\\voidmix), không
+    phải REPO_DIR — phải đổi cwd tạm thời trước khi import, trả lại ngay sau
+    (không ảnh hưởng các bước khác vì mọi tham số đường dẫn khác trong file
+    này đều đã là ĐƯỜNG DẪN TUYỆT ĐỐI, xem `main()`).
+    """
     sys.path.insert(0, REPO_DIR)
-    from musetalk.utils.preprocessing import (  # noqa: PLC0415
-        coord_placeholder, get_landmark_and_bbox,
-    )
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(REPO_DIR)
+        from musetalk.utils.preprocessing import (  # noqa: PLC0415
+            coord_placeholder, get_landmark_and_bbox,
+        )
+    finally:
+        os.chdir(original_cwd)
 
     frame_dir = os.path.join(result_dir, "frames_for_face_audit")
     os.makedirs(frame_dir, exist_ok=True)
@@ -228,6 +243,14 @@ def main() -> None:
     args = parser.parse_args()
 
     _require_repo()
+    # Bug thật gặp khi live-verify: người dùng gõ đường dẫn TƯƠNG ĐỐI (vd
+    # "scripts\\research\\...\\yongen.mp4", tính từ chỗ gõ lệnh) — nhưng
+    # Scope B ghi đường dẫn này vào 1 file YAML rồi MuseTalk đọc lại với cwd
+    # KHÁC (REPO_DIR), nên đường dẫn tương đối bị hiểu sai, MuseTalk báo lỗi
+    # không thấy file (exit code 1). Ép về TUYỆT ĐỐI ngay từ đầu, dùng xuyên
+    # suốt mọi bước — không còn phụ thuộc cwd của bất kỳ tiến trình con nào.
+    args.video = os.path.abspath(args.video)
+    args.audio = os.path.abspath(args.audio)
     if not os.path.isfile(args.video):
         raise SystemExit(f"!! không thấy video: {args.video}")
     if not os.path.isfile(args.audio):
@@ -238,13 +261,34 @@ def main() -> None:
     os.makedirs(result_dir, exist_ok=True)
 
     log(f"=== PoC lip-sync — mẫu «{args.label}» ===")
-    report = {
-        "label": args.label, "video": args.video, "audio": args.audio,
-        "benchmark": step_benchmark_inference(args.video, args.audio, result_dir, ffmpeg_bin),
-    }
-    report["consent_check"] = step_consent_check(args.video, result_dir, ffmpeg_bin)
-    report["watermark"] = step_watermark(
-        report["benchmark"].get("output_video"), result_dir, ffmpeg_bin)
+    report = {"label": args.label, "video": args.video, "audio": args.audio}
+
+    # Mỗi bước tách try/except riêng — 1 bước lỗi KHÔNG được làm mất kết quả
+    # (hoặc chẩn đoán lỗi) của 2 bước còn lại. Bug thật đã gặp: Scope C lỗi
+    # làm cả script dừng NGANG, mất luôn report.json (kể cả log lỗi thật của
+    # Scope B) — người dùng phải chạy lại từ đầu chỉ để xem lại lỗi cũ.
+    try:
+        report["benchmark"] = step_benchmark_inference(
+            args.video, args.audio, result_dir, ffmpeg_bin)
+        if not report["benchmark"]["ok"]:
+            log("--- stderr đầy đủ của MuseTalk inference (để chẩn đoán) ---")
+            log(report["benchmark"]["stderr_tail"])
+    except Exception as e:  # noqa: BLE001 — PoC: ghi lại lỗi, không để chết cả script
+        log(f"!! Scope B (benchmark) lỗi ngoài dự kiến: {e}")
+        report["benchmark"] = {"ok": False, "error": str(e)}
+
+    try:
+        report["consent_check"] = step_consent_check(args.video, result_dir, ffmpeg_bin)
+    except Exception as e:  # noqa: BLE001
+        log(f"!! Scope C (consent-check) lỗi ngoài dự kiến: {e}")
+        report["consent_check"] = {"ok": False, "error": str(e)}
+
+    try:
+        report["watermark"] = step_watermark(
+            report["benchmark"].get("output_video"), result_dir, ffmpeg_bin)
+    except Exception as e:  # noqa: BLE001
+        log(f"!! Scope D (watermark) lỗi ngoài dự kiến: {e}")
+        report["watermark"] = {"ok": False, "error": str(e)}
 
     report_path = os.path.join(result_dir, "report.json")
     with open(report_path, "w", encoding="utf-8") as f:
