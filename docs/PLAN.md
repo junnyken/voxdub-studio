@@ -53,6 +53,12 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V23 | Cổng chất lượng tự động đọc `quality_report.json` (Phase F) | ✅ Xong | `autodub/quality_gate.py` (hàm thuần) + ngưỡng cấu hình qua Settings (mặc định bảo thủ, CHƯA hiệu chỉnh bằng dữ liệu thật — xem TEST_LOG); CLI `--quality-gate` (dub: exit 3 nếu fail; batch: field `quality` thêm vào batch_state.json, không đổi `status`); mặc định TẮT (0 regression khi không dùng cờ). 15 test mới, 0 regression (793/799 pass) — xem TEST_LOG |
 | V24 | Tự thử lại theo video trong batch + giám sát treo subprocess + log lỗi tập trung (Phase F, gộp theo lựa chọn chủ dự án) | ✅ Xong (4/4 subprocess đã vá) | Audit thật tìm 4 điểm `for line in proc.stdout:`/`proc.stdout.read()` chặn vô thời hạn (translate_local/Whisper/Paraformer/voice_downloader) + 2 điểm ĐÃ ĐÚNG sẵn (VieNeu/Demucs) — `subprocess_watchdog.py` tổng quát hoá 2 kiểu đọc (theo dòng + đọc 1 khối), áp dụng cho **cả 4/4 điểm** đã audit (đợt 1: `run_local_worker()`; đợt 2: Whisper/Paraformer/voice_downloader — xem TEST_LOG "Re-audit"). `batch_retry.py` phân loại transient/permanent theo exception type (tái dùng luật `saas_retry.py` V16), tự thử lại video lỗi tạm thời trong `batch.py` (mặc định TẮT, resume đúng work_dir cũ). `failures_log.py` ghi `failures.jsonl` LUÔN bật, không đổi `batch_state.json`. CLI `--retry-transient`/`--max-retries`. 47 test mới tổng cộng, 0 regression (867/873 pass) — xem TEST_LOG |
 | V25 | Chế độ theo dõi thư mục/hàng đợi không người trực (Phase F) | ✅ Xong | `autodub/watch_folder.py` — polling đơn giản (không thêm dependency), `StabilityTracker` (kích thước không đổi N giây), `WatchState` bền theo path+mtime+size (tách `batch_state.json`), tự loại file bookkeeping (state/failures/batch_state) khỏi input dù input=output trùng thư mục. CLI `voxdub watch --input-dir ...`, dùng lại DubPipeline + watchdog/failures_log của V24. **Ctrl+C**: đợt 1 chỉ dừng sạch giữa 2 lượt poll; đợt 2 (Re-audit) đóng nốt gap — sửa nhầm lẫn thật (SIGINT handler tuỳ biến KHÔNG raise nên video đang dub KHÔNG bị cắt ngang, chỉ chờ xong rồi mới dừng — không phải "mất resume" như lo ban đầu) + thêm bấm Ctrl+C LẦN 2 thoát ngay (exit 130) + `process_file()` ghi `work_dir` dở trước khi lỗi lan ra (phòng thủ cho trường hợp gọi trực tiếp không qua CLI). **Live-verify thật (2 đợt)**: đợt 1 bắt lỗi timestamp rỗng trong failures.jsonl; đợt 2 live-verify double-Ctrl+C thật qua subprocess thật (pipeline giả chạy chậm) — xác nhận đúng: lần 1 chờ, lần 2 exit 130 ngay lập tức. 39 test mới tổng cộng, 0 regression (867/873 pass) — xem TEST_LOG |
+| V26 | Diarization tự động (đa giọng nói) (Phase G) | 📋 Kế hoạch | Mini-spec đã viết, CHƯA triển khai — xem block V26 bên dưới |
+| V27 | Sửa bug glossary không hoạt động trên nhánh dịch local NLLB (Phase G) | 📋 Kế hoạch | Mini-spec đã viết, CHƯA triển khai — xem block V27 bên dưới |
+| V28 | Emotion/tone-aware voice tự động (Phase G) | 📋 Kế hoạch | Mini-spec đã viết, CHƯA triển khai — xem block V28 bên dưới |
+| V29 | Lộ rõ AI review dịch ra quality_report.json + GUI (Phase G) | 📋 Kế hoạch | Mini-spec đã viết, CHƯA triển khai — xem block V29 bên dưới |
+| V30 | Audit khả thi Lip-sync (Phase G, KHÔNG cam kết build) | 📋 Kế hoạch | Mini-spec đã viết — phạm vi CHỈ audit + ép quyết định, không build — xem block V30 bên dưới |
+| V31 | Translation-as-a-Service API cho developer bên thứ 3 (Phase G) | 📋 Kế hoạch | Mini-spec đã viết, CHƯA triển khai — xem block V31 bên dưới |
 | V26 | Multi-speaker diarization + gán giọng tự động theo người nói (Phase G) | 📋 Đề xuất, chưa triển khai | Mini-spec đầy đủ, chờ chủ dự án xác nhận trước khi build — xem Phase G |
 | V27 | Glossary / khoá thuật ngữ nhất quán qua nhiều video (Phase G) | 📋 Đề xuất, chưa triển khai | Mini-spec đầy đủ, chờ chủ dự án xác nhận trước khi build — xem Phase G |
 | V28 | Developer API cho control_server (Phase G) | 📋 Đề xuất, chưa triển khai | Mini-spec đầy đủ, chờ chủ dự án xác nhận trước khi build — xem Phase G |
@@ -1853,414 +1859,601 @@ Success Criteria:
   dấu vết file đang xử lý dở khi tắt giữa chừng.
 ```
 
-## Phase G — Đóng gap thị trường 2026 (nâng cấp cạnh tranh)
+## Phase G — Đóng gap cạnh tranh thị trường 2026 + mở hướng phát triển mới (2026-08-12+)
 
-Mở ra sau khi chủ dự án yêu cầu đối chiếu VoxDub với 10 công cụ AI dubbing dẫn đầu
-(ElevenLabs Dubbing Studio, HeyGen, Rask AI, Sync Labs, CapCut, Papercup, Deepdub,
-Descript, Murf, Dubverse — khảo sát 2025-2026) và xây plan nâng cấp theo đúng khuôn
-MINI-SPEC. **V26-V28** là tính năng MỚI khớp trực tiếp triết lý offline-first + tận
-dụng hạ tầng đã có (voice-cloning V11, prompt pipeline dịch V18, auth/credit
-control_server V0/V1). **V29-V30** là RESEARCH SPIKE (không phải build) cho 2 tính
-năng thị trường coi là chuẩn 2026 nhưng đối lập trực tiếp nguyên tắc kiến trúc hiện
-tại (GPU-optional, venv nhẹ) — cần số liệu thật trước khi chủ dự án quyết định có mở
-mini-spec build hay không, đúng tinh thần "audit trước khi build" mà chính playbook
-đã áp dụng nhất quán (V9 PoC hẹp → V12 đóng gap; V8 PoC tầng engine → V11 đóng gap).
+Mở ra sau khi chủ dự án đưa research thị trường trực tiếp (so sánh ElevenLabs,
+HeyGen, Rask, CapCut, Murf, Deepdub, Sync Labs, Papercup, Dubverse, Maestra) và
+yêu cầu "đưa hướng tốt nhất cho tool hoàn chỉnh hơn". 9 gap cạnh tranh được liệt
+kê: lip-sync, diarization đa giọng, emotion/tone transfer, real-time/live dubbing,
+developer API, human-in-the-loop QA, glossary lock, multi-user workspace, độ phủ
+ngôn ngữ. Trước khi viết mini-spec, đã audit thật (không đoán) 4 khả năng hiện có
+(xem "Audit Before Build" chung bên dưới) — kết quả đổi hẳn cách ước lượng độ khó
+so với nhìn từ ngoài vào.
 
-**Tất cả 5 mini-spec dưới đây đang ở trạng thái ĐỀ XUẤT — chưa triển khai.** Khác
-Phase F (V22 được viết VÀ triển khai luôn trong cùng 1 đợt vì là nền tảng bắt buộc),
-Phase G dừng ở bước viết mini-spec đầy đủ, chờ chủ dự án xác nhận thứ tự ưu tiên
-trước khi bắt tay code — đúng quy trình "Cách dùng tài liệu này" mục 1 của chính file
-này.
+**Phân loại theo audit + xác nhận chủ dự án:**
+- **Tier 1 — khớp kiến trúc hiện có, không phá guardrail nào, build ngay** (V26-V29):
+  diarization, sửa bug glossary, emotion/tone-aware voice, lộ rõ AI review dịch.
+  Cả 4 đều tận dụng được cơ chế ĐÃ CÓ SẴN trong code (per-segment voice override,
+  quality_report.json của V23) — không phải xây từ số 0.
+- **Tier 2 — audit trước, CHƯA cam kết build** (V30): lip-sync — đúng tiền lệ V5
+  (giữ boxblur thay AI inpainting vì "quá lớn cho 1 mini-spec"), cộng thêm rủi ro
+  đạo đức thật (deepfake khuôn mặt) mà README/LICENSE mới chỉ cảnh báo chính sách,
+  chưa có kiểm soát kỹ thuật nào.
+- **Tier 3 — phá guardrail hiện có hoặc đổi định vị chiến lược, chủ dự án đã chọn
+  đào sâu 1 hướng** (V31): Developer API — audit thật lộ ra "full hosted Dub API"
+  (như Sync Labs/Murf) là ĐẦU TƯ HẠ TẦNG GPU + đa tenant hoàn toàn mới (ASR/TTS
+  hiện 100% chạy trên máy người dùng, KHÔNG có server nào làm thay) — quy mô lớn
+  hơn hẳn 1 mini-spec. Chủ dự án chọn phạm vi hẹp hơn, khả thi ngay: chỉ mở phần
+  ĐÃ 100% server-side sẵn (dịch thuật) qua API key, không đụng ASR/TTS/video.
+  **Multi-user collaborative workspace** và **Real-time/live dubbing** bị loại
+  khỏi phạm vi Phase G — ghi nhận cần quyết định chủ dự án riêng (xem "Remaining
+  Limits" cuối Phase G), KHÔNG viết mini-spec cho 2 hướng này ở đợt này.
+- **Độ phủ ngôn ngữ**: không phải gap kỹ thuật mới — tiếp tục đúng mô hình audit
+  Voice.json + mở rộng có kiểm chứng đã dùng ở V17, không cần mini-spec riêng.
 
-**Chủ động loại khỏi phạm vi (lệch định vị sản phẩm, không mở mini-spec)**:
-- **Real-time/live dubbing** (Deepdub Live, Maestra Live) — VoxDub là công cụ
-  batch/offline có chủ đích; dubbing trực tiếp là bài toán hạ tầng streaming hoàn
-  toàn khác (độ trễ thấp, không cache-theo-đĩa được), không tận dụng được gì từ 25
-  mini-spec đã có.
-- **Multi-user collaborative workspace** (Murf Enterprise) — đối lập trực tiếp mô
-  hình cache-theo-đĩa/single-user đã cố định xuyên suốt roadmap (xem README §5); đổi
-  sang server-side collaborative editing là đổi kiến trúc gốc, không phải tính năng
-  thêm vào được.
-- **Mở rộng ngôn ngữ đích lên 100+** — không phải lợi thế cạnh tranh của VoxDub
-  (thắng nhờ đầu tư SÂU cho tiếng Việt qua VieNeu local + LANGUAGE_RULES riêng, không
-  phải PHỦ RỘNG như HeyGen/ElevenLabs). V17 (10 ngôn ngữ, 7/8 chưa live-verify) nên
-  đóng nốt trước khi nghĩ tới mở rộng thêm — xem mục "Nợ kỹ thuật" trong audit đính
-  kèm.
-- **Human-in-the-loop QA kiểu Papercup** (linguist review thủ công mọi dự án) — lệch
-  mô hình vận hành tự động hoá/1-người-dùng của VoxDub. Ghi nhận: đường B (SaaS
-  3-pass analyze→translate→review) đã có bước `review` tự động BẰNG AI — có thể coi
-  là bản "nhẹ" của cùng ý tưởng, không cần mini-spec riêng.
+### Audit Before Build chung (áp dụng cho V26/V27/V28/V31 — làm 1 lần, dùng chung)
 
----
+- **Diarization**: không venv nào hiện có (`.venv-whisper`/`.venv-vieneu`/
+  `.venv-asr`/`.venv-translate-mt`) cài torch — xác nhận qua từng
+  `scripts/setup_*.py`. Chỉ `.venv-gpu` có torch+CUDA (dùng cho Demucs GPU/cuBLAS
+  Whisper), nhưng venv này CHỈ tồn tại trên máy có NVIDIA GPU đã chạy cài đặt GPU
+  — không phải venv phổ quát. `asr_whisper_worker.py` output chỉ
+  `{"word","start","end"}` — không có tín hiệu người nói. **Kết luận**:
+  pyannote.audio (hoặc tương đương) cần venv HOÀN TOÀN MỚI (`.venv-diar`), không
+  "đi nhờ" được venv nào sạch cho máy CPU-only.
+- **Cơ chế multi-voice per-segment ĐÃ CÓ SẴN**: `pipeline.py` (bước tổng hợp TTS)
+  đọc `seg["voice"]` tuỳ chọn cho từng câu, dùng bởi `editor.py::set_segment_voice`
+  qua GUI (`editor_page.py`, gán TAY). V26/V28 chỉ cần TỰ ĐỘNG ĐIỀN field này
+  (diarization → speaker→voice; emotion → style) — không viết lại tầng TTS.
+- **Glossary + NLLB**: `ctranslate2.Translator.translate_batch()`'s `target_prefix`
+  (dùng trong `translate_local_worker.py` hiện tại) CHỈ ép token ngôn ngữ đích ở
+  đầu chuỗi — không có API lexical-constraint/vocabulary-biasing để ép 1 từ giữa
+  câu. NLLB không nhận prompt như LLM — cơ chế `build_user_context_block` (chèn
+  glossary vào prompt, dùng cho nhánh SaaS) không áp dụng được cho NLLB. **Kết
+  luận**: cơ chế khả thi DUY NHẤT cho nhánh local là hậu xử lý tìm-thay-thế.
+- **Emotion signal**: `--style` của VieNeu là tham số inference THẬT (không phải
+  chuẩn hoá text) nhưng hiện là 1 giá trị CỐ ĐỊNH cho toàn bộ lượt chạy worker
+  (không phải per-request). Không có tín hiệu cảm xúc per-segment nào tồn tại sẵn
+  — `buildAnalysisPrompt` (control_server) chỉ trả kết quả CẤP VIDEO. Không có
+  audio-prosody (pitch/RMS) nào trong code hiện tại (`pydub` không expose pitch).
+- **API developer (control_server)**: identity 100% device-fingerprint
+  (`device_id.py`, `Device.js`) — không có API key/org nào. `CreditLedger` khoá
+  theo fingerprint. Dịch thuật (`ai-gateway.service.js`) là phần DUY NHẤT chạy
+  100% server-side thật; cloud-render (V12) chỉ có Demucs, CPU-only (không cấp
+  GPU trong `docker-compose.yml`), 1 worker replica xử lý TUẦN TỰ — không sẵn
+  sàng cho tải đa tenant. ASR/TTS KHÔNG có đường server-side nào.
 
-### V26 — Multi-speaker diarization + gán giọng tự động theo người nói
+### V26 — Diarization tự động (đa giọng nói)
 
 ```
-V26 — Multi-speaker diarization (Phase G)
+V26 — Diarization tự động, tận dụng cơ chế multi-voice per-segment có sẵn (Phase G)
 
 Context:
-- `autodub/pipeline.py` hiện giả định 1 giọng nói xuyên suốt 1 video — người dùng
-  chọn 1 giọng TTS áp cho toàn bộ transcript, bất kể video gốc có bao nhiêu người nói.
-- ASR hiện tại (Whisper/Paraformer) trả transcript theo đoạn thời gian (segment),
-  KHÔNG gắn nhãn người nói — đây là gap kỹ thuật cụ thể cần lấp trước khi làm được
-  multi-voice, không phải chỉ thiếu UI.
-- Thị trường 2026 (Rask AI, Dubverse) coi tách giọng nói tự động + gán giọng riêng
-  từng người là tính năng chuẩn, không còn cao cấp.
-- VoxDub đã có sẵn hạ tầng tầng dưới: voice-cloning (VieNeu), voices.catalog()
-  target-aware (V11), kiến trúc TARGETS pluggable (V8/V11) — thiếu đúng 1 tầng: phát
-  hiện + gán nhãn người nói trước khi TTS.
+- ASR hiện tại (Whisper/Paraformer) chỉ trả text+timing, KHÔNG có tín hiệu người
+  nói — xác nhận qua audit `asr_whisper_worker.py`.
+- `pipeline.py` ĐÃ đọc `seg["voice"]` tuỳ chọn (đa giọng per-segment) — cơ chế
+  TTS multi-voice đã tồn tại, hiện chỉ gán được TAY qua editor
+  (`editor.py::set_segment_voice`, GUI `editor_page.py`).
+- Không venv nào có torch trừ `.venv-gpu` (chỉ máy có NVIDIA GPU) — pyannote.audio
+  cần venv MỚI hoàn toàn, không đi nhờ được (xem "Audit Before Build" chung).
 
 Goal:
-- Video có ≥2 người nói được tự động tách giọng theo từng người, mỗi người được
-  clone/gán 1 giọng TTS RIÊNG, giữ khớp đúng người nói qua toàn bộ video — không cần
-  người dùng tự đánh dấu tay.
+- Video nhiều người nói tự động được gán giọng khác nhau, không cần người dùng
+  tự click từng câu trong editor.
 
 Constraints (Guardrails):
-1. Diarization PHẢI chạy 100% local — không gửi audio ra ngoài máy người dùng (mở
-   rộng đúng nguyên tắc offline-first của V5/V6/V25 sang engine ML mới này).
-2. Model diarization (vd pyannote.audio) chạy trong venv con riêng qua subprocess —
-   đúng nguyên tắc cố định của dự án (mỗi engine nặng = venv riêng, giữ nhẹ bundle
-   PyInstaller), KHÔNG import trực tiếp vào core hay venv chính.
-3. KHÔNG đổi hành vi mặc định khi video chỉ 1 người nói — pipeline single-voice hiện
-   tại PHẢI là đường mặc định không đổi, diarization chỉ kích hoạt khi người dùng bật
-   cờ mới, tránh phá vỡ 25 mini-spec đã live-verify trên đường single-voice.
-4. GPU-optional — chạy được CPU (chậm hơn) như mọi engine khác trong dự án
-   (Whisper/Demucs đều có CPU fallback) — không được yêu cầu GPU bắt buộc.
-5. Không thêm queue/broker — nếu sau này chạy qua cloud render (V12), tái dùng đúng
-   model MongoDB RenderJob polling đã có, không mở kiến trúc mới.
+1. Chạy 100% local (offline-first) — không gửi audio ra ngoài máy.
+2. KHÔNG bắt buộc — pipeline phải degrade trung thực nếu chưa cài `.venv-diar`
+   (giống Paraformer lỗi → fallback Whisper có log rõ) — không giả vờ có mà gán
+   giọng bừa.
+3. Venv riêng `.venv-diar`, theo đúng nguyên tắc "mỗi engine nặng chạy trong venv
+   con riêng" (CLAUDE.md) — không nhét torch vào venv chính, không giả định
+   `.venv-gpu` luôn tồn tại (chỉ máy NVIDIA mới có).
+4. Số giọng phát hiện được > số giọng khả dụng trong catalog → xử lý rõ ràng
+   (round-robin có log), không crash.
+5. Cài đặt TUỲ CHỌN (opt-in qua `.bat` riêng, giống Paraformer/Douyin) — không
+   bundle mặc định (tăng kích thước cài đặt, không phải ai cũng cần đa giọng).
 
 Scope:
-A. `autodub/speech/diarize_worker.py` (mới) — subprocess con trong `.venv-diarize`
-   riêng, nhận audio path, trả JSON `[{start, end, speaker_id}]` qua stdout, đúng
-   khuôn các worker hiện có (`demucs_worker.py`, `asr_paraformer_worker.py`).
-B. `scripts/setup_diarize.py` (mới) — cài `.venv-diarize` (pyannote.audio + torch
-   CPU/GPU tuỳ máy), đúng khuôn `setup_whisper.py`/`setup_paraformer.py` — người dùng
-   tự cài qua .bat riêng, KHÔNG đóng gói sẵn trong exe.
-C. `autodub/pipeline.py` — thêm bước TUỲ CHỌN (sau ASR, trước dịch): map mỗi segment
-   ASR sang `speaker_id` từ kết quả diarize (khớp theo khoảng thời gian overlap lớn
-   nhất).
-D. `autodub/speech/tts/voice_assign.py` (mới) — mỗi `speaker_id` phát hiện được gán 1
-   giọng TTS khác nhau: mặc định round-robin qua danh sách giọng cùng target-language
-   (voices.catalog), cho phép override tay từng speaker trong GUI.
-E. GUI: bước mới "Xem trước người nói" giữa ASR và chọn giọng — liệt kê N speaker
-   phát hiện được kèm đoạn audio mẫu, cho chọn giọng riêng từng người (tái dùng UI
-   pattern voice-picker đã có ở style_dialog.py/editor.py).
-F. CLI: `voxdub dub --multi-speaker` (dùng gán tự động round-robin, không có UI để
-   override tay — batch/watch-folder không tương tác được).
+A. `scripts/setup_diarization.py` + `Cai dat Diarization.bat` — cài `.venv-diar`
+   (pyannote.audio + torch CPU, hoặc GPU nếu máy có card đồ hoạ), theo đúng mẫu
+   `setup_paraformer.py`.
+B. `autodub/speech/diarize_worker.py` (mới) — worker chuẩn (giống
+   `asr_paraformer_worker.py`): nhận audio path, trả JSON stream
+   `{"segment": true, "start", "end", "speaker_label"}`.
+C. `autodub/speech/diarization.py` (mới) — driver gọi worker qua subprocess,
+   dùng `autodub.subprocess_watchdog` NGAY TỪ ĐẦU (không lặp lại bug đã sửa ở
+   V24 cho các worker khác); map kết quả diarization vào ASR segments theo %
+   overlap thời gian lớn nhất.
+D. `autodub/pipeline.py` — bước mới (opt-in qua `settings.diarization_enabled`,
+   mặc định TẮT) sau ASR, trước dịch: gán `seg["speaker_label"]`, map
+   speaker_label → tên giọng qua round-robin trên `voices.catalog()` đã có,
+   ghi vào `seg["voice"]` (TÁI DÙNG cơ chế có sẵn, không viết lại TTS logic).
+E. GUI: bước mới "Xem trước người nói" giữa ASR và chọn giọng — liệt kê N
+   speaker phát hiện được kèm đoạn audio mẫu, cho đổi giọng theo TỪNG SPEAKER
+   (không phải đổi tay từng câu) — mở rộng `editor_panels.py`, tái dùng UI
+   pattern voice-picker đã có ở `style_dialog.py`/`editor.py`.
+F. CLI: `voxdub dub --multi-speaker` (dùng gán tự động round-robin, không có
+   UI để override tay — batch/watch-folder không tương tác được).
+G. Tests: driver diarization (worker giả, theo đúng cách đã làm cho
+   `run_local_worker()`/Whisper/Paraformer ở V24); mapping speaker→voice round-
+   robin; fallback khi `.venv-diar` chưa cài (giữ hành vi single-voice cũ,
+   không crash, có test khoá 0-regression).
 
-Audit Before Build:
-- Xác nhận license `pyannote.audio` (thường cần HuggingFace token + chấp nhận user
-  agreement cho pretrained model) — KHÔNG giả định miễn phí hoàn toàn tuỳ model chọn,
-  kiểm tra cụ thể trước khi chọn, tài liệu hoá rõ trong HUONG_DAN_CAI_DAT.md nếu cần
-  đăng ký tài khoản.
-- Đo benchmark CPU-only trên cấu hình tối thiểu đã công bố (8GB RAM) trước khi cam
-  kết — không suy đoán, cần số liệu thật (pyannote có thể nặng hơn Whisper/Demucs).
-- Đọc lại `pipeline.py::run()` để tìm đúng điểm chèn bước diarize mà không phá cache
-  resume-safe hiện có.
+Audit Before Build: đã làm (xem mục chung đầu Phase G). Còn thiếu khi bắt tay
+build:
+- Audit định dạng thật `voices.catalog()` trả về để viết round-robin đúng
+  (không đoán trước cấu trúc).
+- Xác nhận license `pyannote.audio` (thường cần HuggingFace token + chấp nhận
+  user agreement cho pretrained model) — KHÔNG giả định miễn phí hoàn toàn tuỳ
+  model chọn, kiểm tra cụ thể trước khi chọn, tài liệu hoá rõ trong
+  `HUONG_DAN_CAI_DAT.md` nếu cần đăng ký tài khoản.
+- Đo benchmark CPU-only trên cấu hình tối thiểu đã công bố (8GB RAM) trước khi
+  cam kết — pyannote có thể nặng hơn Whisper/Demucs, không suy đoán.
 
 Design Choice:
-- pyannote.audio (open-source, phổ biến nhất cho diarization local) thay vì API cloud
-  (AssemblyAI, Deepgram) — bắt buộc theo Constraint 1.
-- Round-robin gán giọng mặc định (không dùng AI đoán giới tính/tuổi để tự "match" giọng
-  hợp) — giữ đơn giản cho v1, tránh over-engineering khi chưa có dữ liệu người dùng
-  thật đánh giá; GUI override tay đã đủ giải quyết nhu cầu thật.
+- Venv riêng, cài optional — không ép mọi người dùng tải thêm torch (~1-2GB) nếu
+  không cần đa giọng.
+- Map diarization → voice bằng ROUND-ROBIN trên catalog hiện có (KHÔNG tự động
+  "tìm giọng giống nhất với người nói thật" — quá phức tạp, để dành mini-spec
+  riêng nếu cần "voice matching" thông minh hơn sau này).
+- Gán segment cho speaker có % overlap thời gian LỚN NHẤT — đơn giản, đủ dùng
+  cho phần lớn video 2-4 người nói không chồng tiếng nhiều; KHÔNG cam kết chất
+  lượng ở video nhiều người/giọng chồng lấn nặng.
 
 Test Plan:
-- Unit: map segment→speaker theo overlap giả lập; round-robin gán đúng số speaker;
-  subprocess trả JSON đúng schema (mock).
-- Cách ly: `diarize_worker.py` không import vào core `pipeline.py` (chỉ qua
-  subprocess, giống Demucs/Paraformer worker).
-- Live-verify (bắt buộc trước khi đóng spec): 1 video thật ≥2 người nói rõ ràng
-  (không chồng lấn) → xác nhận số speaker đúng, mỗi speaker gán giọng khác nhau nghe
-  phân biệt được.
-- Giới hạn ghi nhận trước: giọng nói CHỒNG LẤN (overlapping speech) — pyannote hỗ trợ
-  nhưng độ chính xác thấp hơn nhiều, KHÔNG cam kết xử lý tốt ở v1.
+- Unit: mapping overlap→speaker đúng với input giả; round-robin gán voice đúng
+  số giọng có sẵn; degrade an toàn khi thiếu `.venv-diar` (y hệt hành vi cũ).
+- Live-verify (nếu môi trường có mạng, không cần GPU — pyannote hỗ trợ CPU chậm
+  hơn): tải pyannote.audio thật, chạy trên 1 đoạn audio 2 người nói thật, xác
+  nhận diarization thật phân biệt đúng 2 khoảng giọng — đúng nguyên tắc "mở
+  rộng có kiểm chứng" của dự án (V4/V11).
+- KHÔNG cam kết chất lượng ở video >4 người nói/giọng chồng lấn nhiều (ghi nhận
+  rõ, ngoài phạm vi live-verify ban đầu).
 
 Success Criteria:
-- Video 2-3 người nói không chồng lấn: tách đúng ≥90% thời lượng theo speaker đúng,
-  mỗi người 1 giọng khác nhau nghe rõ ràng qua toàn video.
-- Video 1 người nói (mặc định, không bật cờ): hành vi giống hệt trước V26, 0
-  regression trên bộ test hiện có (867+).
+- Video 2-3 người nói, bật diarization → xuất video có giọng khác nhau đúng
+  người nói (live-verify ít nhất 1 video thật 2 giọng).
+- Không bật diarization (mặc định) → hành vi Y HỆT hiện tại, 0 regression.
+- `.venv-diar` chưa cài → pipeline chạy bình thường single-voice, log rõ ràng
+  "chưa cài diarization, dùng giọng đơn" (không âm thầm bỏ qua).
 ```
 
-### V27 — Glossary / khoá thuật ngữ nhất quán qua nhiều video
+### V27 — Sửa bug glossary không hoạt động trên nhánh dịch local NLLB
 
 ```
-V27 — Glossary (Phase G)
+V27 — Glossary chỉ hoạt động ở nhánh SaaS, nhánh local NLLB âm thầm bỏ qua (bug thật, Phase G)
 
 Context:
-- 3 đường dịch hiện có: A (thủ công), B (SaaS, LLM prompt-based Gemini, 3-pass
-  analyze→translate→review), C (local NLLB-200, seq2seq trực tiếp — KHÔNG nhận
-  prompt/free-text instruction).
-- V18 đã xây LANGUAGE_RULES riêng theo ngôn ngữ, tiêm vào prompt của đường B — hạ
-  tầng "tiêm chỉ dẫn vào prompt dịch" đã có sẵn, đường B là nơi glossary khả thi nhất
-  về kỹ thuật.
-- Đường C (NLLB) là model seq2seq cố định, KHÔNG nhận free-text instruction —
-  glossary trên đường này không làm bằng prompt injection như đường B được, cần cách
-  khác (tìm-thay-thế hậu kỳ).
-- Rask AI dùng glossary để khoá tên riêng/thuật ngữ thương hiệu nhất quán qua nhiều
-  video — đúng nỗi đau khách hàng doanh nghiệp dịch series/nhiều video cùng 1 sản
-  phẩm.
+- Audit xác nhận: `translate_glossary` (Settings) CHỈ được enforce ở nhánh SaaS
+  (`translate_hint.py::build_user_context_block`, chèn vào prompt LLM) —
+  nhánh local NLLB (`translate_local_worker.py`) KHÔNG BAO GIỜ đọc glossary,
+  âm thầm bỏ qua. Đây là BUG THẬT (không phải thiếu tính năng): người dùng đặt
+  glossary tưởng áp dụng mọi bản dịch, thực ra chỉ áp dụng khi dùng SaaS.
+- Audit kỹ thuật: `ctranslate2`'s `target_prefix` (đang dùng trong
+  `translate_local_worker.py`) chỉ ép TOKEN NGÔN NGỮ ĐÍCH ở đầu chuỗi, KHÔNG có
+  cơ chế lexical-constraint để ép 1 từ giữa câu. NLLB không nhận prompt như LLM
+  — cơ chế `build_user_context_block` KHÔNG áp dụng được cho NLLB.
+- Cơ chế khả thi DUY NHẤT: hậu xử lý tìm-thay-thế (tìm thuật ngữ nguồn trong câu
+  gốc, ép thuật ngữ đích cố định vào bản dịch NLLB).
 
 Goal:
-- Người dùng định nghĩa 1 danh sách thuật ngữ (nguồn→đích) áp dụng nhất quán cho mọi
-  video dùng cùng 1 profile — ít nhất đầy đủ trên đường B (SaaS), xử lý TRUNG THỰC
-  cho đường C thay vì giả vờ hỗ trợ ngang hàng.
+- Glossary người dùng đặt được áp dụng NHẤT QUÁN ở CẢ 2 nhánh dịch (SaaS và
+  local NLLB), không chỉ 1 nhánh như hiện tại.
 
-Constraints (Guardrails):
-1. KHÔNG thêm cổng phân biệt local/SaaS thứ 2 — glossary là 1 THAM SỐ đưa vào pipeline
-   dịch hiện có (path A/B/C đều nhận, xử lý khác nhau theo khả năng thật của từng
-   path), không phải tính năng chỉ bật được qua toggle SaaS riêng.
-2. Đường C (NLLB) KHÔNG được giả vờ hỗ trợ glossary như đường B — phải nói rõ trong
-   UI/docs: local chỉ áp dụng tìm-thay-thế hậu kỳ (case-insensitive + word-boundary),
-   không đảm bảo ngữ pháp tự nhiên quanh từ bị thay (khác đường B, LLM tự nhiên hoá
-   câu quanh thuật ngữ khoá).
-3. Không phá 3-pass hiện có của đường B — glossary tiêm vào ĐÚNG bước
-   `buildAnalysisPrompt()`/`translate` đã có (đúng pattern V18), không thêm pass thứ 4.
-4. Danh sách glossary lưu local (file JSON cạnh project) — KHÔNG bắt buộc tài
-   khoản/server để DÙNG, kể cả khi áp cho đường B (chỉ cần server để gọi dịch, không
-   cần để lưu glossary).
+Constraints (Guardrails — BUG FIX, áp theo đúng chuẩn "sửa triệt để + test lại"):
+1. KHÔNG đổi hành vi nhánh SaaS đã đúng (`build_user_context_block` giữ nguyên).
+2. Thừa nhận rõ giới hạn kỹ thuật: tìm-thay-thế văn bản KHÔNG hoàn hảo (không xử
+   lý được biến cách/chia động từ/thứ tự từ khác nhau giữa 2 ngôn ngữ) — Success
+   Criteria KHÔNG yêu cầu "hoàn hảo", chỉ yêu cầu "thuật ngữ xuất hiện đúng,
+   không còn bị bỏ qua 100% như hiện tại".
+3. Không match nhầm giữa-từ (vd glossary "AI" không được thay bên trong
+   "SAIGON") — dùng ranh giới từ khi tìm-thay-thế.
+4. Áp dụng SAU khi NLLB dịch xong (hậu xử lý), KHÔNG đổi luồng gọi model — giữ
+   nguyên rủi ro thấp cho `run_local_worker()` (vừa làm cứng cáp ở V24, không
+   mở rộng phạm vi rủi ro của worker).
 
 Scope:
-A. `autodub/text/glossary.py` (mới) — load/validate cặp (nguồn, đích, ghi_chú tuỳ
-   chọn) từ JSON; hàm `apply_local(text, glossary)` (find & replace word-boundary,
-   path C) và `to_prompt_block(glossary)` (sinh đoạn text tiêm vào prompt, path B).
-B. `control_server` — endpoint `/translate`/`/analyze` (đã nhận `targetLang` từ V15)
-   nhận thêm field TUỲ CHỌN `glossary: [{source, target}]`, tiêm vào đúng vị trí
-   `buildAnalysisPrompt()` cạnh `LANGUAGE_RULES` (V18) — default rỗng, không phá
-   request cũ không gửi glossary.
-C. `autodub/text/translate_local.py` (path C) — sau khi NLLB dịch xong, chạy
-   `glossary.apply_local()` hậu kỳ; GUI cảnh báo rõ "chế độ local: thuật ngữ được thay
-   trực tiếp, có thể không tự nhiên về ngữ pháp" khi glossary không rỗng.
-D. GUI: trang mới "Thuật ngữ" (giống trang Voice Library) — thêm/sửa/xoá cặp thuật
-   ngữ, lưu theo project hoặc profile dùng chung nhiều video (tái dùng khái niệm
-   preset đã có ở style_dialog).
-E. CLI: `voxdub dub --glossary path/to/glossary.json`.
+A. `autodub/text/translate_glossary_apply.py` (mới) — hàm THUẦN
+   `apply_glossary(source_text, translated_text, glossary_pairs) -> str`: tìm
+   từng cặp (nguồn, đích), nếu thuật ngữ nguồn xuất hiện trong `source_text`
+   (ranh giới từ, không phân biệt hoa/thường) mà thuật ngữ đích CHƯA có sẵn
+   trong `translated_text`, chèn/thay thế bảo thủ.
+B. `autodub/text/translate_local.py::translate_segments_local()` — sau khi
+   nhận kết quả từ `run_local_worker()`, áp `apply_glossary()` cho từng segment
+   nếu `settings.translate_glossary` không rỗng.
+C. Audit CHÍNH XÁC format thật của `settings.translate_glossary` (text nhiều
+   dòng người dùng nhập qua GUI, ký tự phân tách nguồn/đích) — CHƯA audit ở
+   lượt research ban đầu, bắt buộc làm trước khi code phần parse.
+D. Tests: glossary áp đúng khi thuật ngữ nguồn xuất hiện; KHÔNG match nhầm giữa
+   từ; không đổi câu nếu thuật ngữ đích đã có sẵn (tránh thay 2 lần); glossary
+   rỗng → hành vi y hệt trước (0 regression); nhánh SaaS không bị ảnh hưởng.
 
-Audit Before Build:
-- Đọc lại đúng vị trí `buildAnalysisPrompt()` trong `control_server` (đã audit ở V18)
-  để xác nhận điểm tiêm glossary không xung đột thứ tự với LANGUAGE_RULES.
-- Kiểm tra `translate_local.py` hiện có hàm hậu xử lý text nào chưa, tránh viết trùng
-  logic tìm-thay-thế nếu đã có sẵn ở đâu đó.
+Audit Before Build: đã xác nhận `target_prefix` không dùng được cho mục đích
+này (xem "Audit Before Build" chung). CẦN audit thêm format thật của
+`settings.translate_glossary` trước khi viết `apply_glossary()` — chưa làm ở
+lượt research ban đầu.
 
 Design Choice:
-- Post-process find & replace cho path C (không cố ép NLLB tôn trọng glossary qua
-  constrained decoding) — đúng độ phức tạp phù hợp 1 mini-spec, minh bạch giới hạn
-  thay vì cam kết quá tay.
-- Glossary là data đơn giản (cặp source/target) — không dùng NLP phức tạp
-  (lemmatization, fuzzy match) ở v1, match chính xác + word-boundary đủ cho tên
-  riêng/thương hiệu (trường hợp dùng chính của tính năng này).
+- Hậu xử lý tìm-thay-thế thay vì sửa model/decode — đơn giản, rủi ro thấp,
+  khớp đúng giới hạn kỹ thuật thật của ctranslate2 (không có API tốt hơn).
+- Regex có ranh giới từ (`\b`) cho ngôn ngữ có khoảng trắng (Latin); CJK cần xử
+  lý khác (không có "ranh giới từ" rõ ràng — đúng bài học V19: `\s*` không
+  `\s+`, ký tự không khoảng trắng) — thuật toán CJK cụ thể để dành audit khi
+  bắt tay build, không đoán trước.
 
 Test Plan:
-- Unit: `apply_local()` thay đúng, không thay nhầm substring trong từ khác
-  (word-boundary); `to_prompt_block()` sinh đúng định dạng; endpoint nhận/không nhận
-  field `glossary` đều không lỗi (backward-compatible).
-- Live-verify: 1 lượt dịch SaaS thật với glossary chứa ≥1 tên riêng → xác nhận bản
-  dịch giữ đúng tên đó (không bị LLM tự dịch nghĩa).
+- Unit thuần trên `apply_glossary()` — không cần chạy NLLB thật.
+- Integration: 1 lượt dịch local NLLB thật (dùng lại hạ tầng test đã có ở
+  V6/V21 — model qua `VOXDUB_TEST_NLLB_MODEL_DIR`) với glossary thật, xác nhận
+  thuật ngữ xuất hiện đúng trong bản dịch — nếu môi trường có model.
 
 Success Criteria:
-- Cùng 1 glossary áp cho 2 video khác nhau → thuật ngữ chung xuất hiện nhất quán ở cả
-  2 bản dịch (đường B).
-- Request không gửi `glossary` (client cũ) vẫn chạy đúng như trước V27, 0 regression.
+- Cùng 1 glossary, dịch qua CẢ 2 nhánh (SaaS + local) đều thấy thuật ngữ xuất
+  hiện đúng (trước đây chỉ SaaS).
+- 0 regression nhánh SaaS.
+- Test khoá rõ giới hạn: không match nhầm giữa từ, không thay 2 lần.
 ```
 
-### V28 — Developer API cho control_server
+### V28 — Emotion/tone-aware voice tự động
 
 ```
-V28 — Developer API (Phase G)
+V28 — Emotion/tone-aware voice, tận dụng cơ chế per-segment voice có sẵn (Phase G)
 
 Context:
-- `control_server` đã có: model Mongoose + billing thật (V0/V1), Docker hoá + health
-  endpoint (V7), 3+ endpoint dịch (`/translate`,`/analyze`,`/review`,
-  `/translate-subtitle` từ V14/V15), auth qua `saas_client` (thiết bị fingerprint,
-  không tài khoản người dùng — nguyên tắc V10 Guardrail 2), atomic credit debit qua
-  `findOneAndUpdate` (V1 Constraint 2).
-- Thị trường: Sync Labs, Murf, Rask Pro đều có Developer API cho bên thứ 3 tích hợp —
-  mô hình "infrastructure" tách biệt với "creator suite" (CapCut/HeyGen).
-- VoxDub hiện là desktop app đóng — chưa có đường nào cho lập trình viên bên ngoài
-  gọi trực tiếp vào pipeline dịch/TTS đã build.
+- VieNeu worker CÓ tham số `--style` thật (tu_nhien/tin_tuc/doc_truyen) — ảnh
+  hưởng thật tới inference (không phải chuẩn hoá text), NHƯNG là 1 giá trị DUY
+  NHẤT cho toàn bộ lượt chạy worker, không đổi theo từng câu.
+- Cơ chế per-segment voice override (`seg["voice"]`) đã có (dùng chung với
+  V26) — nhưng chưa có field per-segment STYLE tương ứng, và chưa có TÍN HIỆU
+  nào để tự động quyết định câu nào cần giọng điệu gì.
+- Audit: `buildAnalysisPrompt` (control_server) hiện chỉ trả kết quả CẤP VIDEO
+  (summary/domain/pronouns/glossary/style_notes) — CHƯA BAO GIỜ hỏi LLM gắn
+  nhãn cảm xúc THEO TỪNG CÂU.
+- Không có audio-based (pitch/RMS) signal nào trong code hiện tại (`pydub`
+  không expose pitch); thêm phân tích âm điệu gốc cần dependency mới.
 
 Goal:
-- Bên thứ 3 (không phải app desktop VoxDub) gọi được các endpoint dịch/TTS hiện có
-  qua API key riêng, tính phí theo đúng hệ Vox credit đã có — không xây lại
-  billing/credit từ đầu.
+- Giọng đọc thay đổi sắc thái theo cảm xúc TỪNG CÂU thay vì 1 style cố định
+  toàn video — bắt kịp hướng "Emotive TTS" của đối thủ (Deepdub).
 
 Constraints (Guardrails):
-1. KHÔNG thêm cổng phân biệt local/SaaS thứ 2 trong DESKTOP APP —
-   `saas_client.is_configured()` vẫn là cổng duy nhất phía client. Developer API là 1
-   ĐƯỜNG VÀO MỚI ở phía `control_server` (server-side), không đụng quyết định kiến
-   trúc này của desktop app.
-2. KHÔNG thêm MongoDB transaction/replica-set — API key auth chỉ thêm 1 lớp xác thực
-   trước handler cũ, luồng debit credit vẫn dùng nguyên `findOneAndUpdate` atomic
-   single-node đã có.
-3. KHÔNG thêm Redis/broker — nếu API cho submit cloud-render job (V12) sau này, vẫn
-   dùng đúng MongoDB `RenderJob` polling hiện có, không mở hàng đợi riêng.
-4. Không tài khoản người dùng cá nhân kiểu OAuth — API key gắn với 1
-   "project"/tổ chức (giữ đúng tinh thần V10 Guardrail 2: không thu thập identity cá
-   nhân ngoài thứ cần thiết để tính phí).
-5. Rate limit BẮT BUỘC theo API key (khác desktop app vốn 1 người dùng/1 fingerprint)
-   — bảo vệ chi phí Gemini/CapCut backend khỏi lạm dụng qua tự động hoá quy mô lớn.
+1. CHỈ hoạt động khi có nguồn tín hiệu cảm xúc đáng tin — KHÔNG suy đoán cảm
+   xúc bừa nếu không có tín hiệu (đúng nguyên tắc "không suy đoán capability
+   khi thiếu evidence" — CLAUDE.md).
+2. Nhánh SaaS (có LLM phân tích) và nhánh local-only (không LLM) PHẢI có 2
+   đường xử lý RÕ RÀNG KHÁC NHAU, không giả vờ tương đương:
+   - SaaS: mở rộng `buildAnalysisPrompt` gắn nhãn cảm xúc mỗi câu (không cần
+     dependency mới, chỉ đổi prompt/schema).
+   - Local-only: heuristic đơn giản dựa văn bản (dấu câu "!"/"?", chữ hoa toàn
+     bộ, từ khoá cảm thán) — ĐỘ CHÍNH XÁC THẤP HƠN HẲN, gắn nhãn "thử nghiệm",
+     có thể tắt riêng.
+3. KHÔNG thêm dependency audio-processing mới (vd librosa) trong V28 — phạm vi
+   CHỈ dùng tín hiệu VĂN BẢN (LLM hoặc heuristic); audio-prosody-based là
+   NÂNG CẤP TIẾP THEO, không gộp vào đây.
+4. Chỉ áp dụng cho VieNeu (giọng có `--style` thật) — CapCut TTS (giọng ngoài,
+   không có knob emotion) KHÔNG áp style, giữ nguyên hành vi hiện tại.
 
 Scope:
-A. `control_server/src/models/ApiKey.js` (mới) — schema: key hash (KHÔNG lưu
-   plaintext), project name, credit balance RIÊNG (tách khỏi credit desktop-app của
-   cùng chủ tài khoản, tránh nhầm lẫn 2 kênh dùng chung 1 pool khó audit).
-B. Middleware `authApiKey` — xác thực header `Authorization: Bearer <key>`, thay
-   fingerprint check của desktop client, gắn vào ĐÚNG route dịch đã có qua 1 router
-   riêng `/v1/api/*` (không đổi route desktop app `/v1/ai/*` hiện có).
-C. Rate limit (in-memory hoặc Mongo-backed counter theo cửa sổ thời gian — KHÔNG
-   Redis, theo Constraint 3) theo API key.
-D. `docs/API.md` — thêm phần "Developer API": auth, endpoint, rate limit, ví dụ curl.
-E. Website: trang quản lý API key tối thiểu (tạo/thu hồi key, xem credit riêng) — tái
-   dùng layout trang Cài đặt/Account đã có.
+A. `control_server/src/prompts/translate.js` — mở rộng `buildAnalysisPrompt`/
+   schema JSON để LLM trả thêm field `tone` mỗi segment (enum nhỏ:
+   "neutral"/"excited"/"sad"/"serious" — ánh xạ được sang 3 style VieNeu hiện
+   có, KHÔNG bịa style mới ngoài những gì VieNeu thật hỗ trợ).
+B. `autodub/text/translate_hint.py` (hoặc module tương đương) — heuristic
+   local-only (dấu câu/từ khoá) khi KHÔNG có SaaS, đặt cờ nguồn tín hiệu
+   ("llm"/"heuristic") để GUI hiển thị đúng mức độ tin cậy.
+C. `autodub/pipeline.py` — map `tone` → style VieNeu, ghi vào field style
+   override cấp segment (mới, cạnh `seg["voice"]`), CHỈ áp dụng khi giọng đang
+   dùng là VieNeu.
+D. `autodub/speech/tts/vieneu_vi.py`/`vieneu_worker.py` — nhận style
+   PER-SEGMENT thay vì chỉ per-run (hiện `--style` là tham số khởi động worker
+   1 lần — audit kỹ giao thức worker trước khi đổi, xem "Audit Before Build").
+E. Settings: cờ bật/tắt (mặc định TẮT — 0 regression khi không dùng, đúng mọi
+   mini-spec Phase F/G khác).
+F. Tests: mapping tone→style đúng; heuristic văn bản (câu có "!"/"?"/chữ hoa)
+   cho đúng nhãn thô; giọng CapCut không bị áp style (giữ nguyên); tắt cờ →
+   hành vi y hệt cũ.
 
-Audit Before Build:
-- Đọc kỹ luồng `saas_client.py` + route handler hiện tại để xác nhận điểm chèn
-  middleware mới không phá luồng desktop-app cũ (2 đường auth chạy song song, không
-  thay thế nhau).
-- Kiểm tra `docs/API.md` hiện có (V1) để giữ đúng convention endpoint/response shape
-  đã document, chỉ thêm không đổi.
+Audit Before Build: đã xác nhận `--style` là tham số khởi động 1 lần của
+worker (xem "Audit Before Build" chung). CẦN audit lại giao thức
+`vieneu_worker.py` ĐẦY ĐỦ (không chỉ CLI arg) để biết đổi sang per-segment có
+khả thi kỹ thuật hay cần khởi động lại worker mỗi lần đổi style (chi phí hiệu
+năng thật, có thể phải cache theo style thay vì đổi liên tục) — CHƯA làm ở
+lượt research ban đầu.
 
 Design Choice:
-- API key riêng biệt hoàn toàn với credit desktop-app (2 pool Vox riêng) — đơn giản
-  hơn cho audit tài chính, tránh 1 kênh "trợ cấp ngầm" cho kênh kia; đánh đổi: chủ dự
-  án cần nạp/quản lý credit 2 nơi, chấp nhận được vì đối tượng Developer API (doanh
-  nghiệp) khác hẳn người dùng desktop cá nhân.
-- Rate limit đếm trong Mongo (tái dùng infra polling quen thuộc từ V12) thay vì thêm
-  Redis — đúng Constraint 3, đủ cho quy mô "chưa có tải thật" hiện tại (nhất quán với
-  nguyên tắc tránh over-engineering đã áp dụng từ V12).
+- Ưu tiên nguồn tín hiệu LLM (SaaS) khi có — chính xác hơn hẳn heuristic văn
+  bản thuần.
+- Heuristic local-only là "tốt hơn không có gì" chứ không giả vờ ngang hàng
+  LLM — gắn nhãn rõ trong GUI ("thử nghiệm, dựa dấu câu").
+- KHÔNG động vào audio-prosody (pitch/RMS) trong V28 — giữ phạm vi hẹp, để
+  dành mini-spec riêng nếu cần chính xác hơn.
 
 Test Plan:
-- Unit: middleware từ chối đúng key sai/hết hạn/hết credit; rate-limit đếm đúng theo
-  cửa sổ thời gian; route `/v1/api/*` không ảnh hưởng `/v1/ai/*` (chạy song song cả 2
-  bộ test cũ + mới).
-- Live-verify: 1 lượt gọi `/v1/api/translate` thật bằng curl với API key thật → nhận
-  đúng response, credit trừ đúng trong Mongo (đối chiếu qua log/Compass).
+- Unit: mapping tone→style, heuristic text-based, cờ tắt/bật.
+- Live-verify: NẾU giao thức worker cho phép đổi style theo từng câu mà không
+  phải khởi động lại toàn bộ — verify thật 1 đoạn có câu "vui" và câu "nghiêm
+  túc" ra 2 kiểu đọc khác nhau ĐO ĐƯỢC (RMS/waveform khác nhau, không chỉ nghe
+  bằng tai).
 
 Success Criteria:
-- API key hợp lệ gọi được endpoint dịch, nhận response đúng schema đã document.
-- Desktop app cũ (đường `/v1/ai/*`, auth fingerprint) không regression — 84+ test
-  control_server hiện có vẫn pass nguyên.
+- Video có SaaS bật + có câu cảm thán rõ ràng → giọng đọc câu đó khác câu
+  bình thường (verify qua tín hiệu audio đo được).
+- Tắt cờ (mặc định) → 0 regression.
+- Giọng CapCut không bị ảnh hưởng bởi tính năng này.
 ```
 
-### V29 — Nghiên cứu khả thi Lip-sync (research spike, KHÔNG build)
+### V29 — Lộ rõ AI review dịch ra quality_report.json + GUI
 
 ```
-V29 — Lip-sync feasibility spike (Phase G)
+V29 — Lộ rõ trace của translate_review.py, đóng góp phần cho "human-in-the-loop QA" (Phase G)
 
 Context:
-- Ghép video hiện tại (`autodub/media/`) chỉ thay track audio, giữ nguyên track
-  hình — không đồng bộ khẩu hình theo giọng mới.
-- Gần như mọi đối thủ lớn (ElevenLabs, HeyGen, Rask, CapCut, Murf, Deepdub) đã coi
-  lip-sync là chuẩn hoặc add-on phổ biến — xu hướng 2026 rõ ràng, rủi ro cạnh tranh
-  thật nếu bỏ qua lâu dài.
-- NHƯNG: mọi model lip-sync chất lượng thị trường (Wav2Lip, SadTalker, hoặc tương
-  đương model HeyGen/Sync Labs dùng) là model thị giác máy tính NẶNG, cần GPU thật —
-  không có CPU fallback thực dụng (khác Whisper/Demucs/pyannote vốn có đường CPU chậm
-  nhưng chạy được) — đối lập trực tiếp nguyên tắc "GPU-optional" mà toàn bộ 25
-  mini-spec trước tuân thủ.
-- Đây KHÔNG phải mini-spec build — là research spike xác định RÕ chi phí/khả thi
-  trước khi cam kết, đúng tinh thần "audit trước khi build" của chính playbook (vd V9
-  PoC hẹp trước khi V12 đóng gap).
+- `translate_review.py` đã TỰ ĐỘNG chạy (mặc định bật), phát hiện + sửa câu có
+  vấn đề (vượt ngân sách ký tự, còn sót chữ Hán, quá ngắn so với gốc) — NHƯNG
+  kết quả review (câu nào bị flag, lý do gì, có sửa được không) KHÔNG được ghi
+  lại ở đâu cả sau khi xong — chỉ tồn tại tạm thời trong bộ nhớ lúc chạy.
+- `quality_report.json` (V23) tính lại vấn đề ĐỘC LẬP từ timing/budget — không
+  biết gì về việc `translate_review` đã từng flag + sửa (hoặc thử sửa mà KHÔNG
+  sửa được).
+- Gap thật giữa những gì hệ thống ĐÃ LÀM (review tự động) và những gì NGƯỜI
+  DÙNG THẤY ĐƯỢC (không gì cả) — hướng gần nhất tới "human-in-the-loop QA" của
+  đối thủ (Papercup), dù VoxDub chưa có bước NGƯỜI THẬT xem — V29 là bước lộ rõ
+  AI-QA trước, làm nền cho bước người thật sau nếu cần (mini-spec riêng).
 
 Goal:
-- Có đủ số liệu thật (benchmark tốc độ/chất lượng trên phần cứng tối thiểu VÀ khuyến
-  nghị đã công bố trong README) để chủ dự án QUYẾT ĐỊNH có mở mini-spec build lip-sync
-  thật hay không — spike này KHÔNG tự quyết thay.
+- Người dùng (và cổng chất lượng V23) thấy được CHÍNH XÁC review pass đã làm
+  gì — câu nào bị nghi vấn, đã tự sửa hay vẫn còn vấn đề sau khi sửa.
 
 Constraints (Guardrails):
-1. Đây LÀ research/PoC, KHÔNG đổi hành vi mặc định pipeline hiện có — không merge vào
-   `pipeline.py` chính, chỉ 1 script/notebook thử nghiệm độc lập trong
-   `scripts/research/`.
-2. Nếu prototype cần thư viện mới (torch phiên bản khác, model weights lớn) — PHẢI cô
-   lập trong venv con riêng (`.venv-lipsync-research`), không đụng `requirements.txt`
-   chính.
-3. Không tải/host model weights lớn (GB) trong repo — nếu cần, tài liệu hoá cách tự
-   tải giống các `scripts/setup_*.py` khác.
-4. Không cam kết deadline/effort cụ thể cho việc build thật ở cuối spike — output là
-   SỐ LIỆU + KHUYẾN NGHỊ, không phải lời hứa triển khai.
+1. KHÔNG đổi logic review đã đúng (`review_translations()` giữ nguyên hành vi
+   sửa dịch) — chỉ THÊM việc ghi lại kết quả.
+2. Field mới trong `quality_report.json` phải ADDITIVE (không đổi field cũ đã
+   có từ V23 — `evaluate()`/`QualityThresholds` không cần biết field mới này,
+   giữ đúng nguyên tắc tách biệt của V23).
+3. Không lộ trace review cho câu KHÔNG bị flag (review pass chỉ đụng câu có vấn
+   đề — `quality_report.json` chỉ nên liệt kê câu có review-trace).
 
 Scope:
-A. Khảo sát 2-3 model lip-sync open-source khả dụng tự host (Wav2Lip, SadTalker, hoặc
-   bản mới hơn tại thời điểm làm) — so sánh LICENSE kỹ (một số model nghiên cứu cấm
-   dùng thương mại, PHẢI kiểm tra trước khi chọn).
-B. Benchmark thật trên phần cứng tối thiểu ĐÃ CÔNG BỐ trong README (8GB RAM, không
-   bắt buộc GPU) VÀ trên phần cứng có GPU tầm trung — đo: thời gian xử lý/phút video,
-   VRAM cần thiết, chất lượng khớp hình chủ quan (video mẫu output đính kèm để chủ dự
-   án tự đánh giá).
-C. Đánh giá tác động kiến trúc nếu build thật: có phá triết lý "onedir nhẹ, venv con
-   nhỏ gọn" không (model lip-sync thường vài trăm MB tới vài GB); có cần đổi luồng
-   "che chữ gốc"/ghép video hiện tại không.
-D. Báo cáo kết luận: khả thi hay không, effort ước tính (theo skill `task-et` của dự
-   án), rủi ro/đánh đổi chính — KHÔNG kèm code production.
+A. `autodub/text/translate_review.py::review_translations()` — trả thêm 1
+   danh sách trace (`[{"id", "reason", "before", "after", "improved": bool}]`)
+   bên cạnh kết quả dịch đã sửa (KHÔNG đổi return type theo cách phá vỡ caller
+   cũ — audit kỹ chữ ký hàm trước khi đổi, xem "Audit Before Build").
+B. `autodub/pipeline.py` — lưu trace này, truyền vào `_build_quality_report()`,
+   thêm field mới `translate_review` (danh sách trace) vào `quality_report.json`.
+C. GUI (`autodub_gui/pages/quality_page.py`/`editor_panels.py`) — thêm cột/nhãn
+   "AI đã tự sửa" cho câu có trace, click xem before/after.
+D. CLI (`autodub/cli.py`, tận dụng `--quality-gate` V23) — verdict có thể tham
+   chiếu số câu đã được AI review sửa, KHÔNG bắt buộc đổi ngưỡng pass/fail
+   (chỉ thêm thông tin).
+E. Tests: trace ghi đúng before/after; câu không bị flag không có trace;
+   `quality_report.json` field mới additive (test cũ V23 vẫn pass y hệt — 0
+   regression); GUI hiện đúng (nếu test headless được).
 
-Audit Before Build: Không áp dụng theo nghĩa thường (đây chính là spec audit) — cần
-đọc lại `autodub/media/` (luồng ghép video hiện tại) để biết chính xác điểm nào
-lip-sync sẽ chèn vào nếu làm thật.
+Audit Before Build: cần đọc lại chữ ký hàm `review_translations()` ĐẦY ĐỦ
+(không chỉ phần đã audit) để biết đổi return type có phá vỡ caller nào khác
+không (`pipeline.py` là caller chính đã xác nhận, cần xác nhận không còn caller
+khác) — CHƯA làm ở lượt research ban đầu.
+
+Design Choice:
+- Trace tách khỏi luồng sửa dịch chính (thêm, không thay) — review vẫn hoạt
+  động y hệt kể cả nếu ghi trace lỗi (không được làm hỏng luồng dịch chính vì
+  1 tính năng quan sát).
 
 Test Plan:
-- Không unit test (không phải code production). "Test" = benchmark có số liệu thật +
-  video mẫu, không phải ước lượng.
+- Unit: trace đúng cấu trúc, additive vào `quality_report.json`, không phá
+  test V23 cũ.
+- Regression: chạy lại toàn bộ `tests/test_quality_gate.py` xác nhận 0 đổi
+  hành vi.
 
 Success Criteria:
-- Báo cáo có: (a) model đề xuất + lý do, (b) số liệu benchmark thật trên ≥2 cấu hình
-  phần cứng, (c) khuyến nghị go/no-go rõ ràng kèm effort ước tính, (d) danh sách rủi
-  ro kiến trúc nếu go.
+- `quality_report.json` của 1 video có câu bị review sửa → thấy rõ field
+  `translate_review` liệt kê đúng câu đó kèm before/after.
+- Video không có câu nào bị flag → field rỗng/không có, không gây nhiễu.
+- 0 regression V23.
 ```
 
-### V30 — Nghiên cứu khả thi Emotion/Tone-transfer TTS (research spike, KHÔNG build)
+### V30 — Audit khả thi Lip-sync (KHÔNG cam kết build)
 
 ```
-V30 — Emotion-TTS feasibility spike (Phase G)
+V30 — Audit lip-sync: chi phí thật, lựa chọn model, quyết định chính sách bắt buộc (Phase G)
 
 Context:
-- TTS hiện tại (VieNeu local, CapCut cloud) chỉ clone TIMBRE giọng (âm sắc) qua mẫu
-  WAV 5-10s — không có cơ chế giữ/truyền tải SẮC THÁI CẢM XÚC của giọng gốc (nhấn
-  nhá, tốc độ, cường độ theo cảm xúc từng câu).
-- Deepdub (eTTS) là ví dụ thị trường rõ nhất cho hướng này — TTS "đọc" cảm xúc cả
-  cảnh quay, tự điều chỉnh tone/pitch/pacing.
-- VieNeu (ONNX, model đã train sẵn) khác hẳn kiến trúc CapCut (API cloud không chính
-  thức, không kiểm soát được) — 2 hướng nghiên cứu khả thi khác nhau hoàn toàn, cần
-  tách riêng đánh giá.
+- Lip-sync gần như là tính năng chuẩn ở mọi đối thủ lớn (ElevenLabs, HeyGen,
+  Rask, CapCut, Murf, Deepdub) — gap cạnh tranh LỚN NHẤT còn lại theo research
+  thị trường của chủ dự án.
+- KHÔNG có bằng chứng VoxDub từng loại trừ tường minh tính năng này (đã đọc kỹ
+  ARCH/PRD/PLAN/CLAUDE — không thấy nhắc tới) — nhưng cũng CHƯA từng audit khả
+  thi kỹ thuật.
+- Tiền lệ trực tiếp: V5 (che chữ gốc) đã CHỦ ĐỘNG KHÔNG dùng AI inpainting
+  (LaMa/ProPainter) vì "quá lớn cho 1 mini-spec" — lip-sync còn nặng hơn nhiều
+  (video diffusion/GAN theo khung hình, không phải ảnh tĩnh).
+- Rủi ro đạo đức thật: sửa khuôn mặt người trong video là vùng giáp ranh
+  deepfake — README/LICENSE hiện chỉ có CẢNH BÁO CHÍNH SÁCH ("xin đừng dùng để
+  giả mạo"), KHÔNG có kiểm soát kỹ thuật nào (rate-limit, watermark, consent
+  check) — xác nhận bởi chủ dự án.
 
 Goal:
-- Xác định có cách nào thêm tín hiệu cảm xúc vào 1 trong 2 engine TTS hiện có (ưu
-  tiên VieNeu vì tự chủ, local) mà không phải xây lại toàn bộ tầng TTS từ đầu — hoặc
-  kết luận rõ ràng "cần model mới hoàn toàn, ngoài phạm vi mở rộng engine hiện tại".
+- Có ĐỦ DỮ LIỆU THẬT (chi phí compute, chất lượng model mã nguồn mở khả dụng,
+  rủi ro pháp lý/đạo đức cụ thể) để chủ dự án ra quyết định CÓ/KHÔNG build
+  lip-sync — mini-spec này KHÔNG build gì, chỉ audit + ép ra quyết định.
 
 Constraints (Guardrails):
-1. Research spike, không đổi hành vi TTS mặc định — giống V29, chỉ prototype cô lập.
-2. Không giả định VieNeu (model ONNX đã train sẵn, không phải dự án tự train) có khả
-   năng nhận thêm điều kiện cảm xúc — PHẢI audit kiến trúc inference thật trước khi
-   kết luận khả thi hay không, không suy đoán.
-3. Nếu kết luận cần model mới — không tự ý chọn/tải model thay chủ dự án, chỉ đề xuất
-   kèm đánh đổi (license, kích thước, yêu cầu phần cứng).
+1. KHÔNG viết code sản xuất trong mini-spec này — chỉ nghiên cứu + thử nghiệm
+   nhỏ (đo đạc, không phải tính năng).
+2. Nghiên cứu PHẢI đo bằng số liệu THẬT (VRAM cần, thời gian xử lý/phút video,
+   chất lượng thật trên video mẫu) — không lấy số liệu quảng cáo của công cụ
+   khác làm chuẩn.
+3. PHẢI đưa ra danh sách quyết định chính sách CỤ THỂ (không phải chung chung
+   "cần cẩn thận") mà chủ dự án cần trả lời TRƯỚC KHI bất kỳ ai bắt tay build.
 
-Scope:
-A. Audit kiến trúc inference hiện tại của VieNeu
-   (`autodub/speech/tts/vieneu_worker.py` + model input signature) — xác định model
-   có nhận input điều kiện nào ngoài text+voice-embedding hay không (vd emotion
-   embedding, prosody token).
-B. Khảo sát hướng khả thi cho CapCut (engine cloud, không kiểm soát source) — do là
-   API bên thứ 3, khả năng CAO là không mở rộng được, cần xác nhận rõ qua tài liệu API
-   công khai (nếu có) trước khi kết luận.
-C. Nếu VieNeu có khe hở kỹ thuật (vd nhận prosody hint) — thử nghiệm nhỏ đo khác biệt
-   output khi thay đổi tham số đó, có/không cảm nhận được khác biệt cảm xúc.
-D. Báo cáo kết luận: khả thi trong kiến trúc hiện tại / cần model mới / không khả thi
-   với CapCut — kèm effort ước tính nếu có hướng khả thi.
+Scope (đây là RESEARCH, không phải code Scope A-F như mini-spec khác):
+A. Khảo sát model mã nguồn mở khả dụng offline: Wav2Lip (nhẹ, chất lượng thấp,
+   khung hình crop miệng nhỏ), SadTalker, VideoRetalking, MuseTalk hoặc tương
+   đương mới hơn tại thời điểm làm — so sánh giấy phép kỹ (một số model nghiên
+   cứu CẤM dùng thương mại, PHẢI kiểm tra trước khi chọn, không phải mọi model
+   lip-sync mã nguồn mở cho phép dùng thương mại), yêu cầu phần cứng, chất
+   lượng thật trên video mẫu tiếng Việt/Trung.
+B. Đo THẬT trên phần cứng TỐI THIỂU đã công bố trong README (8GB RAM, không
+   bắt buộc GPU) VÀ trên phần cứng có GPU tầm trung (nếu sandbox không có GPU
+   thật, ghi rõ giới hạn — không giả vờ đo được khi không có phần cứng): VRAM
+   tối thiểu, thời gian xử lý 1 phút video 1080p, chất lượng ở góc nghiêng/che
+   khuất mặt (tình huống thật của video thị trường, không phải mặt thẳng
+   studio). Mọi prototype/thử nghiệm cô lập trong `scripts/research/` + venv
+   con riêng (`.venv-lipsync-research` nếu cần) — KHÔNG merge vào
+   `pipeline.py` chính, không đụng `requirements.txt` chính, không tải/host
+   model weights lớn (GB) trong repo (tài liệu hoá cách tự tải giống các
+   `scripts/setup_*.py` khác nếu cần dùng tiếp).
+C. Liệt kê quyết định chính sách BẮT BUỘC chủ dự án phải trả lời trước khi
+   build: (a) có cần consent-check kỹ thuật không (vd chặn nếu phát hiện mặt
+   người nổi tiếng/công chúng qua nhận diện)? (b) có bắt buộc watermark video
+   đã lip-sync không? (c) tính năng có giới hạn theo gói/Vox trả phí để tránh
+   lạm dụng hàng loạt không? (d) venv riêng `.venv-lipsync` GPU-only có chấp
+   nhận được không (tính năng sẽ KHÔNG chạy được trên máy không có GPU mạnh —
+   bất đối xứng lớn so với mọi tính năng khác của VoxDub vốn có đường CPU
+   fallback)?
+D. Báo cáo cuối: bảng so sánh chi phí/lợi ích, khuyến nghị build/không
+   build/build-giới-hạn (vd chỉ mặt thẳng, chỉ video ngắn), và nếu build thì
+   ước lượng mức độ 1 mini-spec riêng có đủ hay cần chia nhiều phase (giống
+   Phase C/D đã chia V8→V11, V9→V12 trước đây).
 
-Audit Before Build: Đây là chính spec audit — không có bước trước.
+Audit Before Build: N/A (chính mini-spec NÀY là audit).
 
-Test Plan:
-- Không unit test. "Test" = so sánh output audio có/không tham số thử nghiệm (nếu tìm
-  được khe hở), nghe chủ quan + waveform/pitch-contour so sánh (đo được, không chỉ
-  cảm tính).
+Design Choice: N/A (không quyết định kiến trúc — mini-spec kế tiếp sau khi có
+quyết định của chủ dự án mới quyết định kiến trúc, nếu được duyệt build).
+
+Test Plan: N/A — "Test" của mini-spec này là ĐỘ TIN CẬY của số liệu đo được
+(đo trên phần cứng thật, không suy đoán).
 
 Success Criteria:
-- Kết luận RÕ RÀNG 1 trong 3 hướng (khả thi trong kiến trúc hiện tại / cần model mới
-  / không khả thi qua CapCut), có bằng chứng audit code + (nếu có) thử nghiệm nhỏ đi
-  kèm, không phải suy đoán.
+- Có bảng so sánh ≥2 model mã nguồn mở THẬT, đo được (không phải liệt kê tên
+  suông).
+- Có danh sách quyết định chính sách rõ ràng, đủ cụ thể để chủ dự án trả lời
+  Có/Không cho từng mục (không phải câu hỏi mở).
+- Có khuyến nghị rõ ràng (build/không build/build giới hạn) kèm lý do — KHÔNG
+  lấp lửng.
 ```
+
+### V31 — Translation-as-a-Service API cho developer bên thứ 3
+
+```
+V31 — API dịch thuật cho bên thứ 3, phạm vi hẹp có chủ đích (Phase G)
+
+Context:
+- Audit control_server: identity hiện tại 100% theo device-fingerprint
+  (`device_id.py`, `Device.js` schema) — KHÔNG có khái niệm API key/tổ chức
+  nào. Billing (`CreditLedger`) khoá theo fingerprint, không theo org.
+- Phần DỊCH THUẬT (không phải ASR/TTS/video) đã 100% chạy server-side thật
+  (`ai-gateway.service.js` gọi LLM thật) — đây là phần DUY NHẤT trong toàn hệ
+  thống sẵn sàng mở cho bên thứ 3 mà KHÔNG cần đầu tư hạ tầng GPU mới (khác
+  ASR/TTS/video hiện chỉ chạy trên máy người dùng, không có server nào làm
+  thay — xác nhận qua audit: cloud-render V12 chỉ có Demucs CPU-only, 1 worker
+  tuần tự, không sẵn sàng đa tenant).
+- Rate limiting đã có (`@fastify/rate-limit`) nhưng khoá theo IP/device-token,
+  không theo API key/tổ chức — cần lớp mới.
+- **Quyết định phạm vi đã chốt với chủ dự án**: CHỈ mở API dịch thuật, KHÔNG mở
+  ASR/TTS/video (đó là hướng "Full hosted Dub API" — quy mô đầu tư hạ tầng
+  khác hẳn, không nằm trong mini-spec này, cần quyết định đầu tư riêng nếu
+  theo đuổi sau này).
+
+Goal:
+- Developer bên thứ 3 gọi được 1 API dịch thuật thật (không qua desktop app
+  VoxDub) bằng API key riêng, tính phí theo tổ chức/API key (không lẫn với ví
+  Vox cá nhân của người dùng desktop).
+
+Constraints (Guardrails):
+1. KHÔNG đụng ASR/TTS/video — phạm vi CHỈ dịch thuật (tận dụng đúng phần đã
+   100% server-side).
+2. KHÔNG thay `saas_client.is_configured()` làm cổng chính cho app desktop —
+   API key là lớp identity THỨ 2, SONG SONG với device-fingerprint, không thay
+   thế (desktop app người dùng cuối vẫn dùng device-fingerprint như cũ, 0
+   regression).
+3. Billing tách biệt: `CreditLedger` hiện tại của người dùng desktop KHÔNG
+   được lẫn với usage của API key bên thứ 3 — cần model/collection MỚI, không
+   tái dùng thẳng Device/CreditLedger hiện có (rủi ro lẫn ví thật).
+4. Rate limit RIÊNG theo API key/tổ chức (không dùng chung bucket IP/device-
+   token hiện có — 1 API key gọi nhiều từ nhiều IP vẫn phải tính đúng 1 quota).
+5. KHÔNG thêm MongoDB transaction/replica-set (giữ đúng nguyên tắc atomic
+   single-node của V1) — billing theo API key vẫn dùng `findOneAndUpdate`
+   atomic, không đổi mô hình.
+6. KHÔNG thêm Redis/broker (giữ đúng nguyên tắc V12) — phạm vi V31 là API
+   ĐỒNG BỘ (request/response ngay, không phải job queue), câu hỏi Redis/broker
+   của V12 không áp dụng ở đây; nếu sau này cần queue cho khối lượng lớn, đó
+   là quyết định RIÊNG khi có tải thật.
+
+Scope:
+A. `control_server/src/models/ApiKey.js` (mới) — schema: key (hash, không lưu
+   plaintext), orgName, status, quota/usage counters, createdAt. Model RIÊNG,
+   không sửa `Device.js`.
+B. `control_server/src/middleware/apikey.middleware.js` (mới) — xác thực qua
+   header (vd `Authorization: Bearer vx_live_...`), SONG SONG với
+   `auth.middleware.js` hiện có (route nào dùng middleware nào tách rõ, không
+   gộp logic).
+C. `control_server/src/routes/api/v1/translate.js` (mới, namespace RIÊNG khỏi
+   route nội bộ hiện có) — endpoint public, tái dùng `ai-gateway.service.js`
+   (không viết lại logic gọi LLM), nhưng KHÔNG dùng lại prompt/schema nội bộ
+   dành cho luồng dub video (context/domain/pronouns của `translate.js` hiện
+   tại gắn với ngữ cảnh video) — cần 1 phiên bản prompt ĐƠN GIẢN HƠN cho dịch
+   văn bản độc lập (không có "video context").
+D. Rate limit + quota theo `apiKeyId` (không phải IP/device-token) — namespace
+   `@fastify/rate-limit` riêng cho route `/api/v1/*`.
+E. Billing: `ApiUsageLedger` (mới, TÁCH khỏi `CreditLedger`) — ghi mỗi lượt
+   gọi, đối chiếu quota.
+F. Tài liệu: `docs/API.md` mở rộng — endpoint public, cách lấy API key (thủ
+   công qua admin lúc đầu, chưa cần self-service portal — self-service là
+   mini-spec RIÊNG nếu nhu cầu thật xuất hiện).
+G. Tests: xác thực API key đúng/sai; rate-limit theo `apiKeyId` không lẫn với
+   device-token; billing ghi đúng, KHÔNG đụng `CreditLedger` của desktop;
+   endpoint dịch trả kết quả đúng (mock LLM call trong test, không gọi thật
+   tốn tiền).
+
+Audit Before Build: đã audit đủ (auth/billing/server-side-execution — xem
+"Audit Before Build" chung đầu Phase G). Cần audit THÊM khi build: chữ ký
+`ai-gateway.service.js` hiện có (có sẵn hàm dịch văn bản độc lập chưa gắn với
+luồng video hay phải viết mới hoàn toàn) — chưa làm ở lượt research ban đầu.
+
+Design Choice:
+- API key là lớp identity THỨ 2 hoàn toàn tách biệt (không sửa
+  `auth.middleware.js`/`Device.js`) — giữ đúng tinh thần "0 regression cho
+  luồng cũ" đã dùng xuyên suốt Phase F: hệ thống HOÀN TOÀN MỚI cộng thêm,
+  không sửa hệ thống cũ.
+- Billing tách `ApiUsageLedger` khỏi `CreditLedger` — tránh rủi ro thật: 1 lỗi
+  logic ở billing API bên thứ 3 KHÔNG được có khả năng ảnh hưởng ví Vox của
+  người dùng desktop cá nhân.
+
+Test Plan:
+- Unit: middleware xác thực, rate-limit theo key, billing ghi đúng ledger mới.
+- KHÔNG live-verify gọi LLM thật tốn phí trong mini-spec ban đầu (dùng mock) —
+  nếu chủ dự án muốn live-verify thật trước khi phát hành, đó là bước riêng
+  trước khi công bố API cho bên ngoài.
+
+Success Criteria:
+- Gọi API bằng API key hợp lệ → dịch đúng, trừ đúng quota trong
+  `ApiUsageLedger`.
+- Gọi bằng API key sai/hết quota → từ chối rõ ràng (401/429), không rơi vào
+  luồng device-fingerprint.
+- App desktop hiện có (device-fingerprint) hoàn toàn không bị ảnh hưởng — 0
+  regression toàn bộ test control_server hiện có.
+- `docs/API.md` đủ để 1 developer bên ngoài tự tích hợp mà không cần hỏi thêm.
+```
+
+### Remaining Limits / Follow-ups của Phase G
+
+- **Multi-user collaborative workspace** — TRỰC TIẾP mâu thuẫn với guardrail
+  "không có tài khoản người dùng theo thiết kế" (V10 Guardrail 2) — không spec
+  ở đợt này, cần chủ dự án quyết định có muốn lật lại guardrail đó không trước
+  khi mở cuộc thảo luận kỹ thuật.
+- **Real-time/live dubbing** — kiến trúc HOÀN TOÀN KHÁC (streaming ASR/MT/TTS
+  độ trễ thấp) so với batch/offline hiện tại — gần như 1 sản phẩm thứ 2, không
+  phải nâng cấp. Không spec ở đợt này, cần quyết định đầu tư riêng nếu theo
+  đuổi.
+- **Full hosted Dub API** (ASR+TTS+video trên hạ tầng VoxDub, đúng tham vọng
+  Sync Labs/Murf) — audit xác nhận đây là đầu tư hạ tầng GPU + đa tenant từ
+  đầu, quy mô lớn hơn nhiều 1 mini-spec. V31 chỉ mở phần dịch thuật (đã 100%
+  server-side sẵn) — nếu muốn full hosted dub sau này, đó là quyết định đầu tư
+  riêng, không phải mở rộng dần từ V31.
+- **Độ phủ ngôn ngữ** — không phải gap kỹ thuật mới, tiếp tục đúng mô hình audit
+  Voice.json + mở rộng có kiểm chứng của V17 khi có nhu cầu thị trường cụ thể.
 
 ## Remaining Limits / Follow-ups (ngoài phạm vi 10 mini-spec trên)
 
