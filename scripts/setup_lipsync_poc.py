@@ -275,8 +275,11 @@ def step_download_weights() -> None:
                                   "79999_iter.pth")
     if not os.path.isfile(face_parse_pth):
         log("tải face-parse-bisent qua Google Drive (gdown) ...")
+        # Bug thật gặp khi live-verify: bản gdown mới (cài không ghim
+        # version) đã bỏ cờ "--id" của download_weights.sh gốc (MuseTalk) —
+        # giờ nhận file ID/URL làm tham số VỊ TRÍ thẳng, không có cờ.
         subprocess.run([VENV_PY, "-m", "gdown",
-                        "--id", "154JgKpzCPW82qINcVieuPH3fZ2e0P812",
+                        "154JgKpzCPW82qINcVieuPH3fZ2e0P812",
                         "-O", face_parse_pth], check=True)
 
     resnet_pth = os.path.join(MODELS_DIR, "face-parse-bisent",
