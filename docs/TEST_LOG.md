@@ -3632,3 +3632,111 @@ có GPU riêng.
   khác hẳn, face recognition + cơ sở dữ liệu, ngoài phạm vi PoC này, có thể
   cần dịch vụ bên thứ 3 riêng nếu chính sách consent-check cuối cùng của
   V32b yêu cầu tới mức đó — ghi lại làm đầu vào cho V32b).
+
+## V32a — Re-audit: live-verify thật trên máy chủ dự án (2026-08-13)
+
+Chủ dự án (có GPU NVIDIA riêng) tự chạy 2 script trên máy cá nhân, không
+phải sandbox — đúng kế hoạch đã ghi ở Remaining Limits phía trên. Máy live-
+verify: **NVIDIA T1200 Laptop GPU, 4096MiB VRAM**, Windows, Python mặc định
+3.14 (không phải 3.10), i5-11500H.
+
+### 8 bug thật tìm+sửa qua live-verify từng bước (không giấu — mọi bug đều
+### do CODE của mini-spec này, không phải "máy người dùng có vấn đề")
+
+1. **`setup_lipsync_poc.py` tạo venv bằng Python mặc định của máy (3.14)**
+   — torch==2.0.1 (MuseTalk pin cứng) không có wheel cho Python quá mới,
+   `pip install` chết ngay "No matching distribution". Sửa:
+   `step_check_python()` tự tìm `py -3.10` cụ thể, tự xoá-tạo-lại venv nếu
+   phát hiện venv cũ sai bản Python.
+2. **`huggingface_hub[cli]` cài với `-U`** (không ép trần version) kéo lên
+   bản 1.x mới nhất, xung đột `transformers==4.39.2` (đòi
+   `huggingface-hub<1.0`) — pip cảnh báo đỏ, rủi ro vỡ lúc import
+   `transformers.WhisperModel`. Sửa: ghim `huggingface_hub[cli]<1.0,>=0.20.0`.
+3. **`gdown --id <ID>` dùng cú pháp cũ** — bản gdown mới nhất (không ghim
+   version) đã bỏ cờ `--id`, nhận ID/URL làm tham số vị trí. Sửa: bỏ cờ
+   `--id`, truyền ID trực tiếp.
+4. **`import autodub.resources` kéo theo TOÀN BỘ dependency nặng của
+   VoxDub** (`autodub/__init__.py` luôn chạy trước theo quy tắc package
+   Python, tự import `autodub.config` cần `python-dotenv`,
+   `autodub.pipeline` cần `pydub`/`faster-whisper`/...) — không có trong
+   Python trần chạy script cài đặt. Sửa: bỏ hẳn import, dùng thẳng
+   `PROJECT_ROOT` đã có sẵn (tương đương `app_root()` khi không đóng gói
+   PyInstaller).
+5. **Đường dẫn video/audio tương đối bị hiểu sai khi tiến trình con đổi
+   cwd** — 2 chỗ: (a) Scope B ghi nguyên văn đường dẫn tương đối vào YAML
+   rồi MuseTalk đọc lại với `cwd=REPO_DIR` khác hẳn, inference chết ngay
+   "exit code 1"; (b) `musetalk/utils/preprocessing.py` tự mở config
+   DWPose bằng đường dẫn tương đối NGAY LÚC IMPORT, chỉ đúng khi
+   `cwd=REPO_DIR`. Sửa: ép `os.path.abspath()` cho video/audio đầu
+   `main()`, dùng xuyên suốt; `os.chdir(REPO_DIR)` tạm thời quanh đúng câu
+   import đó (try/finally trả lại cwd).
+6. **Tự ghép chuỗi YAML bằng f-string vỡ với đường dẫn Windows** — dấu
+   `\` trong đường dẫn tuyệt đối bị hiểu nhầm thành ký tự escape trong
+   chuỗi ngoặc kép (`\s` không hợp lệ), `OmegaConf`/PyYAML báo
+   `ScannerError`. Sửa: dùng `yaml.safe_dump()` thay tự ghép chuỗi.
+7. **Thiếu `--use_float16`** — chạy fp32 mặc định tốn gấp đôi VRAM so với
+   cấu hình cộng đồng đã biết chạy được trên card 4GB (V30: "RTX 3050 Ti
+   4GB, fp16"). VRAM đo được đỉnh 3931/4096MB (96%) rồi MuseTalk tự bắt
+   exception giữa chừng (rất có thể CUDA OOM), tự nuốt lỗi và báo "thành
+   công giả" (mã thoát 0 — xem bug #8). Sửa: thêm `--use_float16` +
+   `--batch_size 4` (từ mặc định 8) — sau khi sửa, benchmark THÀNH CÔNG
+   THẬT, nhanh hơn ~7 lần (187s cho lượt gần-thành-công, 794s cho lượt
+   thành công hoàn chỉnh — chênh lệch vì lượt sau chạy hết cả bước mux
+   audio/video mà lượt gần-thành-công chưa tới).
+8. **Mã thoát của MuseTalk không đáng tin** — đọc thẳng mã nguồn
+   `scripts/inference.py` xác nhận nó bọc TOÀN BỘ xử lý trong
+   `try/except Exception as e: print("Error occurred during processing:",
+   e)`, không `sys.exit()`/raise lại — luôn thoát mã 0 dù lỗi thật xảy ra
+   giữa chừng. Sửa: chỉ coi "ok" khi ĐỦ 3 điều — mã thoát 0, KHÔNG có chuỗi
+   lỗi đặc trưng đó trong output, VÀ file video kết quả thật sự tồn tại.
+   Phát hiện thêm 1 lớp của bug này: khi output bị pipe-redirect (để vừa
+   stream vừa gom log), MuseTalk tự in ký tự CJK trang trí
+   (`"Total frame:「268」..."`) gặp `UnicodeEncodeError` vì Windows rơi về
+   codepage ANSI hẹp thay vì console codepage thật cho stream bị redirect
+   — lỗi ĐÓ bị nuốt và báo nhầm thành "lỗi xử lý" dù AI đã xử lý xong hoàn
+   toàn. Sửa: ép UTF-8 cả 2 đầu (`PYTHONIOENCODING=utf-8`/`PYTHONUTF8=1`
+   cho tiến trình con, `encoding="utf-8"` cho phía cha đọc lại).
+
+Bonus (không phải bug chặn, nhưng sửa cho hoàn chỉnh Scope D): **watermark
+chữ đè lỗi "Fontconfig error"** — ffmpeg Windows không có fontconfig mặc
+định nên `drawtext` không tự dò được font. Sửa: trỏ thẳng `fontfile=` tới
+font có sẵn trong repo (`fonts/BarlowCondensed-Regular.ttf`, đã dùng cho
+phụ đề burn-in), escape đúng dấu `:` ổ đĩa Windows theo cú pháp filter
+ffmpeg — verify thật bằng lệnh ffmpeg độc lập trước khi đưa vào script.
+
+### Số liệu benchmark thật — mẫu 1/3: mặt thẳng (video mẫu MuseTalk)
+
+Video mẫu chính chủ MuseTalk (`data/video/yongen.mp4` + `data/audio/
+yongen.wav`, 268 frame @ 25fps ≈ 10.7 giây) — CHƯA phải video/audio thật
+của VoxDub (Constraint 6 đòi ≥3 mẫu VoxDub thật: mặt thẳng/góc nghiêng/
+nhiều người; mẫu này chỉ để verify pipeline cài đặt chạy đúng trước khi
+tốn thời gian với dữ liệu thật).
+
+| Chỉ số | Giá trị thật đo được |
+|---|---|
+| Thời gian xử lý | 794 giây (~13.2 phút) cho ~10.7 giây video |
+| VRAM đỉnh | 3929MB / 4096MB (~96% — rất sát trần card 4GB) |
+| Face-detection (consent-check) | 268/268 frame (100%), 0 frame thiếu mặt |
+| Watermark metadata | Thành công, chi phí ~0.3s |
+| Watermark chữ đè | Thành công sau fix font, chi phí ~3s |
+
+**CHƯA có đánh giá chất lượng bằng mắt** (khẩu hình có tự nhiên/khớp âm
+không) — chủ dự án đang xem video kết quả, sẽ ghi bổ sung sau.
+
+### Remaining Limits (Re-audit V32a 2026-08-13)
+
+- **Chỉ mới 1/3 mẫu bắt buộc** (Constraint 6: mặt thẳng/góc nghiêng/nhiều
+  người) — mới xong mặt thẳng, dùng video mẫu MuseTalk chứ chưa phải dữ
+  liệu VoxDub thật. Cần chạy tiếp ≥2 mẫu nữa (góc nghiêng, nhiều người)
+  bằng video/audio thật từ 1 dự án VoxDub đã dub để có bảng benchmark đầy
+  đủ theo đúng Success Criteria của mini-spec.
+- **CHƯA có đánh giá chất lượng chủ quan** (khẩu hình tự nhiên/khớp âm hay
+  không) — số liệu benchmark chỉ trả lời được "chạy được", không trả lời
+  "đáng dùng không".
+- VRAM 96% trên card 4GB là RẤT SÁT TRẦN — video dài hơn/nhiều khuôn mặt
+  hơn có khả năng thật sự OOM ngay cả với fp16+batch_size=4, cần thử thêm
+  với video dài hơn 10.7 giây để biết giới hạn thật.
+- 8 bug sửa được đều là bug MÔI TRƯỜNG/TÍCH HỢP (Python version, dependency
+  conflict, path handling, encoding) — chưa phát hiện bug nào ở tầng LOGIC
+  benchmark/consent-check/watermark tự viết, nhưng cũng chưa test đủ đa
+  dạng để loại trừ hoàn toàn.
