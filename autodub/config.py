@@ -128,6 +128,14 @@ class Settings:
     asr_engine: str = "whisper"
     asr_venv_python: str = ""       # mặc định: <app>/.venv-asr/Scripts/python.exe
     paraformer_model_dir: str = ""  # mặc định: <app>/models/paraformer-zh
+
+    # mini-spec V26 (docs/PLAN.md, Phase G) — diarization đa giọng nói, TUỲ
+    # CHỌN (mặc định TẮT, cài qua scripts/setup_diarization.py giống
+    # Paraformer) — venv riêng .venv-diar (pyannote.audio + torch), không
+    # đóng gói mặc định.
+    diarization_enabled: bool = False
+    diarization_venv_python: str = ""  # mặc định: <app>/.venv-diar/Scripts/python.exe
+    diarization_model_dir: str = ""    # mặc định: <app>/models/diarization
     asr_num_threads: int = 4
     # Beam size của Whisper (1–10). 5 là mặc định của thư viện — giữ nguyên
     # chất lượng. Máy CPU yếu có thể hạ (vd 1) để nhanh gấp 2–3 lần, đổi lại
@@ -369,6 +377,9 @@ class Settings:
                                ("whisper", "paraformer"), "whisper"),
             asr_venv_python=env("ASR_VENV_PYTHON"),
             paraformer_model_dir=env("PARAFORMER_MODEL_DIR"),
+            diarization_enabled=env_bool("DIARIZATION_ENABLED", "false"),
+            diarization_venv_python=env("DIARIZATION_VENV_PYTHON"),
+            diarization_model_dir=env("DIARIZATION_MODEL_DIR"),
             asr_num_threads=max(1, min(16, env_int("ASR_NUM_THREADS", "4"))),
             whisper_beam_size=max(1, min(10, env_int("WHISPER_BEAM_SIZE", "5"))),
             vieneu_venv_python=env("VIENEU_VENV_PYTHON"),
@@ -535,6 +546,27 @@ class Settings:
         """venv ASR và dấu hiệu cài đặt xong đều có mặt hay chưa."""
         return (os.path.isfile(self.asr_venv_python_path())
                 and os.path.isfile(os.path.join(self.paraformer_model_dir_path(),
+                                                "installed_ok.json")))
+
+    def diarization_venv_python_path(self) -> str:
+        """Trình thông dịch Python của venv dành riêng cho diarization."""
+        if self.diarization_venv_python:
+            return self.diarization_venv_python
+        exe = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+        return os.path.join(app_root(), ".venv-diar", *exe.split("/"))
+
+    def diarization_model_dir_path(self) -> str:
+        """Thư mục cache model diarization (pyannote pipeline)."""
+        if self.diarization_model_dir:
+            return self.diarization_model_dir
+        return os.path.join(app_root(), "models", "diarization")
+
+    def diarization_configured(self) -> bool:
+        """venv diarization và dấu hiệu cài đặt xong đều có mặt hay chưa —
+        pipeline dùng cờ này để degrade trung thực khi chưa cài (V26
+        Constraint 2), không phải chỉ dựa vào `diarization_enabled`."""
+        return (os.path.isfile(self.diarization_venv_python_path())
+                and os.path.isfile(os.path.join(self.diarization_model_dir_path(),
                                                 "installed_ok.json")))
 
     def whisper_venv_python_path(self) -> str:

@@ -145,3 +145,45 @@ def test_multi_sentence_segment_with_noisy_asr_no_longer_drops_second_sentence()
             "Câu thứ 2 của segment bị bỏ sót — đúng bug V11 chưa sửa")
     finally:
         monkeypatch.undo()
+
+
+# --------------------------------------------------------------------- #
+# mini-spec V27 (docs/PLAN.md, Phase G) — glossary trước đây bị bỏ qua âm
+# thầm trên nhánh local NLLB. Test bằng run_local_worker() giả (không cần
+# model NLLB thật) — chỉ khoá đúng chỗ WIRING: translate_segments_local()
+# phải đọc settings.translate_glossary và áp nó, không phải bỏ qua như cũ.
+
+def test_translate_segments_local_applies_glossary(monkeypatch):
+    from autodub.text.translate_local import translate_segments_local
+
+    settings = Settings()
+    settings.translate_glossary = "AI = Trí Tuệ Nhân Tạo"
+    monkeypatch.setattr(
+        "autodub.text.translate_local.run_local_worker",
+        lambda items, src, tgt, settings, reporter=None: {
+            item_id: "We use AI a lot." for item_id, _ in items})
+
+    segments = [{"id": 1, "text": "Chúng tôi dùng AI nhiều."}]
+    target = get_target("en")
+    result = translate_segments_local(segments, target, "vi-VN", settings)
+
+    assert "Trí Tuệ Nhân Tạo" in result[0][target.text_field]
+
+
+def test_translate_segments_local_empty_glossary_no_regression(monkeypatch):
+    """settings.translate_glossary rỗng (mặc định) -> hành vi Y HỆT trước
+    V27, không đụng gì tới bản dịch."""
+    from autodub.text.translate_local import translate_segments_local
+
+    settings = Settings()
+    assert settings.translate_glossary == ""
+    monkeypatch.setattr(
+        "autodub.text.translate_local.run_local_worker",
+        lambda items, src, tgt, settings, reporter=None: {
+            item_id: "We use AI a lot." for item_id, _ in items})
+
+    segments = [{"id": 1, "text": "Chúng tôi dùng AI nhiều."}]
+    target = get_target("en")
+    result = translate_segments_local(segments, target, "vi-VN", settings)
+
+    assert result[0][target.text_field] == "We use AI a lot."

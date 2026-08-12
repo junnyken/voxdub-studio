@@ -109,6 +109,12 @@ FIELDS: tuple[Field, ...] = (
           "Nghe và chép lời video gốc", "auto",
           "Mức càng cao nghe càng đúng nhưng chạy lâu hơn và tải về nặng hơn.",
           options=consts.WHISPER_MODELS),
+    Field("DIARIZATION_ENABLED", CHECK, "Tự tách giọng theo người nói",
+          TAB_BASIC, "Nghe và chép lời video gốc", "false",
+          "Video có nhiều người nói: tự động nhận diện và gán mỗi người 1 "
+          "giọng đọc riêng. Cần cài thêm một lần (py "
+          "scripts/setup_diarization.py) — chưa cài thì bật cũng không có "
+          "tác dụng, video vẫn đọc bằng 1 giọng như trước."),
     Field("DEFAULT_SOURCE_LANG", COMBO, "Ngôn ngữ gốc mặc định", TAB_BASIC,
           "Nghe và chép lời video gốc", "zh-CN",
           "Ngôn ngữ được chọn sẵn mỗi khi bạn tạo dự án mới.",

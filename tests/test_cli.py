@@ -205,6 +205,43 @@ def test_dub_request_built_from_args(monkeypatch):
 
 
 # --------------------------------------------------------------------- #
+# mini-spec V26 (Phase G) — --multi-speaker bật diarization_enabled
+
+def test_multi_speaker_flag_enables_diarization(monkeypatch):
+    parser = cli.build_parser()
+    args = parser.parse_args(["dub", "https://youtu.be/xxxx", "--multi-speaker"])
+
+    captured = {}
+
+    def fake_pipeline_cls(settings, progress=None):
+        captured["diarization_enabled"] = settings.diarization_enabled
+        m = MagicMock()
+        m.run.return_value = DubResult(status="completed", work_dir="/tmp/x", report={})
+        return m
+
+    monkeypatch.setattr(cli, "DubPipeline", fake_pipeline_cls)
+    cli._cmd_dub(args)
+    assert captured["diarization_enabled"] is True
+
+
+def test_multi_speaker_flag_off_by_default(monkeypatch):
+    parser = cli.build_parser()
+    args = parser.parse_args(["dub", "https://youtu.be/xxxx"])
+
+    captured = {}
+
+    def fake_pipeline_cls(settings, progress=None):
+        captured["diarization_enabled"] = settings.diarization_enabled
+        m = MagicMock()
+        m.run.return_value = DubResult(status="completed", work_dir="/tmp/x", report={})
+        return m
+
+    monkeypatch.setattr(cli, "DubPipeline", fake_pipeline_cls)
+    cli._cmd_dub(args)
+    assert captured["diarization_enabled"] is False
+
+
+# --------------------------------------------------------------------- #
 # batch
 
 def test_batch_reads_file_and_reports_summary(monkeypatch, tmp_path, capsys):

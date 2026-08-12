@@ -87,6 +87,11 @@ def _add_dub_request_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--quality-gate", action="store_true",
                         help="Đọc quality_report.json sau khi chạy xong, áp "
                              "ngưỡng pass/warn/fail (mini-spec V23)")
+    parser.add_argument("--multi-speaker", action="store_true",
+                        help="Tự tách giọng theo người nói, gán mỗi người 1 "
+                             "giọng riêng (mini-spec V26 — cần cài trước qua "
+                             "scripts/setup_diarization.py; gán tự động "
+                             "round-robin, không có UI để chọn tay)")
 
 
 def _progress_fn(as_json: bool):
@@ -117,6 +122,8 @@ def _load_quality_report(work_dir: str) -> dict:
 
 def _cmd_dub(args: argparse.Namespace) -> int:
     settings = Settings.load()
+    if args.multi_speaker:
+        settings.diarization_enabled = True
     try:
         target = _validate_target(args.target)
         _validate_voice(args.voice, target, settings)
@@ -200,6 +207,8 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     from autodub.batch import STATE_FILENAME, run_batch
 
     settings = Settings.load()
+    if args.multi_speaker:
+        settings.diarization_enabled = True
     try:
         target = _validate_target(args.target)
         _validate_voice(args.voice, target, settings)

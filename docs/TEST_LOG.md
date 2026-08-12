@@ -2800,3 +2800,171 @@ việc dở), lần 2 tức thời (chấp nhận việc dở có thể chưa ho
   rõ "video đang dở có thể chưa hoàn tất" trước khi bấm lần 2, đây là lựa
   chọn có ý thức đánh đổi tốc độ thoát lấy việc bỏ qua dọn dẹp, không phải
   sơ suất.
+
+## V26 — Diarization tự động (đa giọng nói) (Phase G)
+
+### Audit trước khi build
+
+- Xác nhận lại: không venv nào (`.venv-whisper`/`.venv-vieneu`/`.venv-asr`/
+  `.venv-translate-mt`) có torch — `.venv-diar` phải là venv hoàn toàn mới.
+- `pipeline.py` (bước tổng hợp TTS, `_synthesize_segments`) đã đọc
+  `seg["voice"]` tuỳ chọn từ trước — `_synth_for(seg)` tự resolve + tạo/tái
+  dùng synthesizer phụ cho từng giọng khác `run_voice`. Xác nhận: chỉ cần
+  ghi đúng TÊN GIỌNG hợp lệ (có trong `voices.catalog()`) vào field này,
+  không cần đụng gì tới tầng TTS.
+- Network + `pip install pyannote.audio` hoạt động thật trong sandbox này
+  (đã thử cài thật, ~2GB kéo theo torch, thành công, `pyannote.audio 4.0.7`
+  import được). NHƯNG: `pyannote/speaker-diarization-3.1` (model pretrained
+  chính) là **gated model** trên HuggingFace Hub — cần tài khoản + bấm
+  "Agree and access repository" + access token thật mới tải được. Sandbox
+  này không có `HF_TOKEN`/`HUGGINGFACE_TOKEN` nào — xác nhận đây là giới
+  hạn THẬT của môi trường phát triển, không phải giả định.
+
+### Xây dựng
+
+- `autodub/speech/diarize_worker.py` (mới) — worker chuẩn (giống
+  `asr_paraformer_worker.py`): CLI `--audio`/`--model-dir`/`--hf-token`,
+  chạy `pyannote.audio.Pipeline` 1 lượt trên cả file, phát JSON theo dòng
+  `{"segment": true, "start", "end", "speaker"}` rồi `{"done": true,
+  "num_speakers"}`. Không có bước "ready" riêng (khác Whisper) — toàn bộ
+  audio xử lý xong mới có dòng đầu tiên, đúng bản chất pyannote (không
+  streaming được).
+- `autodub/speech/diarization.py` (mới) — driver dùng
+  `autodub.subprocess_watchdog.WatchedLineReader` **NGAY TỪ ĐẦU** (không
+  lặp lại bug đã sửa ở V24 cho 4 worker khác — timeout tổng 1800s cho cả
+  file, bảo thủ có chủ đích, chưa benchmark thật). `assign_speakers()` map
+  ASR segment → speaker theo % overlap thời gian LỚN NHẤT.
+- `autodub/speech/tts/voice_assign.py` (mới) — `assign_voices_round_robin()`
+  (số speaker > số giọng khả dụng → vòng lại, không crash) +
+  `apply_segment_voices()` (ghi `seg["voice"]`, TÁI DÙNG cơ chế multi-voice
+  per-segment có sẵn).
+- `autodub/pipeline.py::DubPipeline._apply_diarization()` — gọi ngay sau
+  ASR, TUỲ CHỌN (`settings.diarization_enabled`, mặc định TẮT). Degrade
+  TRUNG THỰC 3 lớp: (1) cờ tắt → no-op; (2) `.venv-diar` chưa cài → log rõ,
+  giữ 1 giọng; (3) `DiarizationError` giữa chừng (worker treo/lỗi thật) →
+  bắt gọn, log rõ, KHÔNG làm hỏng cả lượt dub, rơi về 1 giọng toàn video.
+- `scripts/setup_diarization.py` (mới) — theo đúng khuôn
+  `setup_paraformer.py`: tạo `.venv-diar`, cài `pyannote.audio`, smoke test
+  nạp model thật (yêu cầu `--hf-token`, dừng rõ ràng kèm hướng dẫn nếu
+  thiếu), bật `DIARIZATION_ENABLED=true` trong `.env`.
+- CLI: `voxdub dub --multi-speaker` / `voxdub batch --multi-speaker` (bật
+  `settings.diarization_enabled` cho lượt chạy đó).
+- GUI: field `DIARIZATION_ENABLED` (CHECK) trong trang Cài đặt — mức tối
+  thiểu (bật/tắt); panel "Xem trước người nói" (chọn giọng riêng từng
+  speaker qua UI) CHƯA làm — xem Remaining Limits.
+- Settings: `diarization_enabled`/`diarization_venv_python`/
+  `diarization_model_dir` + path helpers + `diarization_configured()`.
+
+### Verify
+
+- `tests/test_voice_assign.py` (6 test): round-robin đủ giọng/thiếu giọng
+  (vòng lại); danh mục rỗng → lỗi rõ ràng; `apply_segment_voices()` ghi
+  đúng field, giữ nguyên segment không có `speaker_label` (0 regression).
+- `tests/test_diarization.py` (8 test): parse segment từ worker giả THẬT
+  (subprocess thật, không mock `Popen`); lỗi worker → `DiarizationError`
+  đúng message; **worker treo → raise trong thời gian hữu hạn** (khoá đúng
+  watchdog áp dụng NGAY TỪ ĐẦU, không lặp lại bug V24); `assign_speakers()`
+  chọn đúng overlap lớn nhất, segment không overlap giữ nguyên.
+- `tests/test_pipeline_diarization.py` (5 test): gọi thẳng
+  `DubPipeline._apply_diarization()` — tắt cờ (mặc định) không đụng gì (0
+  regression); bật cờ nhưng chưa cài → degrade + log rõ; `DiarizationError`
+  giữa chừng → không crash, rơi về 1 giọng; thành công → gán đúng 2 giọng
+  khác nhau cho 2 speaker; không phát hiện speaker nào → giữ nguyên.
+- `tests/test_cli.py` (+2 test): `--multi-speaker` bật đúng
+  `settings.diarization_enabled`; mặc định tắt.
+- `tests/test_settings_fields.py`: field `DIARIZATION_ENABLED` mới không
+  phá completeness check (15/15 pass).
+- **Live-verify thật (2 phần)**: (1) cài THẬT `pyannote.audio` vào 1 venv
+  sạch trong sandbox — thành công, xác nhận `setup_diarization.py`'s bước
+  `step_install()` hoạt động đúng trên hạ tầng thật, không giả định; (2)
+  `voxdub dub --help` xác nhận `--multi-speaker` xuất hiện đúng qua console
+  script thật.
+- `pytest tests/ -q` toàn bộ (venv đầy đủ dependency): **905 passed, 6
+  skipped, 0 failed** (867 pass trước Phase G + 24 test V26 + phần V27 gộp
+  chung lượt chạy cuối, xem mục V27 bên dưới cho tách riêng).
+
+### Remaining Limits (V26)
+
+- **CHƯA live-verify diarization THẬT trên audio 2 người nói** — giới hạn
+  xác nhận thật của môi trường phát triển (gated model + không có HF
+  token), đúng như mini-spec đã lường trước ("Live-verify nếu môi trường có
+  mạng" — có mạng nhưng thiếu token). Người triển khai thật (có tài khoản
+  HuggingFace) cần tự chạy `scripts/setup_diarization.py --hf-token ...`
+  rồi live-verify trên 1 video thật trước khi coi tính năng đã kiểm chứng
+  đầy đủ.
+- **GUI chỉ có cờ bật/tắt tối thiểu** — panel "Xem trước người nói" (liệt
+  kê speaker phát hiện được kèm audio mẫu, đổi giọng tay từng người) mô tả
+  trong Scope E của mini-spec CHƯA làm — cần UI work riêng, GUI không test
+  headless được sâu như logic thuần. Ghi nhận làm follow-up khi có nhu cầu
+  thật.
+- Timeout diarization (1800s cho cả file) và ngưỡng overlap-matching chưa
+  benchmark bằng video thật — bảo thủ có chủ đích, cùng loại giới hạn "chưa
+  hiệu chỉnh bằng dữ liệu thật" như mọi ngưỡng số khác trong Phase F/G.
+- Video giọng nói CHỒNG LẤN nhiều (overlapping speech) không cam kết chất
+  lượng — đã ghi rõ trong mini-spec, pyannote hỗ trợ nhưng độ chính xác
+  thấp hơn hẳn.
+
+## V27 — Sửa bug glossary không hoạt động trên nhánh dịch local NLLB (Phase G)
+
+### Audit trước khi build
+
+- Xác nhận định dạng thật `settings.translate_glossary`: chuỗi nhiều dòng,
+  mỗi dòng `"gốc = dịch"` (comment trong `config.py`), dùng trực tiếp làm
+  TEXT THÔ chèn vào prompt LLM ở nhánh SaaS (`translate_hint.py::
+  build_user_context_block`) — không có parsing thành cặp có cấu trúc ở
+  nhánh đó (LLM tự đọc hiểu định dạng).
+- `run_local_worker()`/`translate_local_worker.py` xác nhận: không đọc
+  `settings.translate_glossary` ở BẤT KỲ đâu — grep xác nhận 0 tham chiếu.
+- `ctranslate2.Translator.translate_batch()`'s `target_prefix` (đang dùng
+  để ép ngôn ngữ đích) xác nhận KHÔNG có cơ chế lexical-constraint — chỉ ép
+  được token đầu chuỗi, không ép được 1 từ giữa câu. Cơ chế khả thi DUY
+  NHẤT: hậu xử lý tìm-thay-thế.
+- Kiểm tra `subtitle_translate.py` (V14, luồng dịch phụ đề rời riêng) —
+  xác nhận KHÔNG tham chiếu glossary ở đâu cả (kể cả nhánh SaaS của chính
+  nó) — đây không phải "nhánh thứ 3 bị bỏ sót", glossary chưa từng được nối
+  vào V14 từ đầu, ngoài phạm vi bug fix này (V14 là tính năng riêng, tách
+  biệt có chủ đích theo Guardrail 1 của chính V14).
+
+### Xây dựng
+
+- `autodub/text/translate_glossary_apply.py` (mới) — `parse_glossary()`
+  (parse "gốc = dịch" mỗi dòng, dòng lỗi định dạng bị bỏ qua chứ không làm
+  hỏng cả danh sách) + `apply_glossary()` (tìm-thay-thế có ranh giới từ cho
+  Latin, chèn thêm cho CJK vì không có khái niệm ranh giới từ rõ ràng —
+  đúng bài học V19).
+- `autodub/text/translate_local.py::translate_segments_local()` — sau khi
+  nhận kết quả từ `run_local_worker()`, parse + áp glossary cho từng
+  segment nếu `settings.translate_glossary` không rỗng.
+
+### Verify
+
+- `tests/test_translate_glossary_apply.py` (15 test): parse đúng/bỏ qua
+  dòng lỗi/dòng rỗng; áp đúng khi thuật ngữ nguồn còn nguyên văn trong bản
+  dịch (NLLB giữ nguyên tên riêng); KHÔNG match nhầm giữa-từ ("AI" không
+  match trong "Saigon"); KHÔNG thay 2 lần khi NLLB tình cờ đã dịch đúng;
+  thuật ngữ bị dịch thành từ khác vẫn được CHÈN THÊM (không mất hẳn); CJK
+  chèn thêm thay vì dùng `\b`. **Bắt được 1 bug thật khi viết test**: điều
+  kiện "thuật ngữ nguồn có mặt trong câu gốc" ban đầu viết case-SENSITIVE
+  trong khi bước thay thế lại case-INSENSITIVE — glossary viết hoa
+  ("AI") bỏ lỡ hoàn toàn câu gốc viết thường ("dùng ai để...") vì check
+  đầu vào fail trước khi tới bước thay thế. Sửa: check đầu vào cũng
+  case-insensitive, khớp đúng hành vi thay thế.
+- `tests/test_translate_local.py` (+2 test): `translate_segments_local()`
+  áp đúng glossary khi có (dùng `run_local_worker()` giả, không cần model
+  NLLB thật); glossary rỗng (mặc định) → hành vi Y HỆT trước V27, 0
+  regression.
+- `pytest tests/ -q` toàn bộ (venv đầy đủ dependency, cùng lượt chạy với
+  V26): **905 passed, 6 skipped, 0 failed** (888 pass sau V26 + 17 test
+  V27 mới).
+
+### Remaining Limits (V27)
+
+- Tìm-thay-thế văn bản KHÔNG xử lý biến cách/chia động từ/thứ tự từ khác
+  nhau giữa 2 ngôn ngữ — chỉ đảm bảo thuật ngữ XUẤT HIỆN đúng, không đảm
+  bảo ngữ pháp tự nhiên quanh nó (khác nhánh SaaS, LLM tự nhiên hoá câu
+  quanh thuật ngữ khoá) — giới hạn kỹ thuật thật đã ghi rõ trong mini-spec,
+  không phải bỏ sót.
+- Chưa live-verify bằng model NLLB thật (chỉ verify qua `run_local_worker()`
+  giả) — hạ tầng test model thật đã có sẵn từ V6/V21
+  (`VOXDUB_TEST_NLLB_MODEL_DIR`), người có model cục bộ có thể tự chạy để
+  xác nhận thêm.

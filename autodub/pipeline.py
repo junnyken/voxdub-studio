@@ -450,6 +450,8 @@ class DubPipeline:
                 "nhạc, hoặc chọn sai ngôn ngữ gốc). Kiểm tra lại ngôn ngữ "
                 "nguồn trong tab Lồng tiếng.")
 
+        self._apply_diarization(segments, audio_path, target)
+
         # Real per-clip time window (until the next line starts) — drives the
         # translation character budget and the TTS target duration.
         from autodub.text.translate_hint import annotate_slots
@@ -911,6 +913,58 @@ class DubPipeline:
         if target.key == "vi":
             return self.settings.vi_output_dir()
         return os.path.join(self.settings.output_dir, target.key.upper())
+
+    def _apply_diarization(self, segments: list[dict], audio_path: str,
+                           target: TargetLang) -> None:
+        """Tự tách giọng theo người nói + gán mỗi người 1 giọng TTS riêng —
+        mini-spec V26 (docs/PLAN.md, Phase G). TUỲ CHỌN, mặc định TẮT (0
+        regression khi không bật) — Design Choice: tái dùng cơ chế multi-
+        voice per-segment (``seg["voice"]``) đã có sẵn từ trước V26, không
+        viết lại tầng TTS.
+
+        Degrade TRUNG THỰC nếu diarization chưa cài hoặc lỗi thật giữa
+        chừng (Constraint 2) — không bao giờ để lỗi ở đây làm hỏng cả lượt
+        dub, chỉ rơi về đúng hành vi 1-giọng-toàn-video như trước V26.
+        """
+        settings = self.settings
+        if not settings.diarization_enabled:
+            return
+        if not settings.diarization_configured():
+            logger.info(
+                "Diarization đang bật nhưng chưa cài (.venv-diar) — dùng 1 "
+                "giọng cho toàn video. Cài qua scripts/setup_diarization.py.")
+            return
+
+        from autodub.speech.diarization import (
+            DiarizationError, assign_speakers, diarize,
+        )
+        from autodub.speech.tts import voices as voice_catalog
+        from autodub.speech.tts.voice_assign import (
+            apply_segment_voices, assign_voices_round_robin,
+        )
+
+        try:
+            self._reporter.emit("asr", "progress",
+                                detail="Đang tách giọng theo người nói...")
+            diar_segments = diarize(audio_path, settings)
+            assign_speakers(segments, diar_segments)
+            speaker_labels = sorted({
+                seg["speaker_label"] for seg in segments
+                if seg.get("speaker_label")})
+            if not speaker_labels:
+                logger.info("Diarization: không tách được người nói nào "
+                           "(video có thể chỉ 1 người nói) — giữ 1 giọng.")
+                return
+            available = [v.name for v in voice_catalog.catalog(settings, target)]
+            voice_map = assign_voices_round_robin(speaker_labels, available)
+            apply_segment_voices(segments, voice_map)
+            logger.info(
+                f"Diarization: {len(speaker_labels)} người nói phát hiện "
+                f"được, đã gán giọng riêng cho từng người.")
+        except DiarizationError as e:
+            logger.warning(
+                f"Diarization lỗi ({e}) — dùng 1 giọng cho toàn video như "
+                "bình thường (không ảnh hưởng phần còn lại của lượt dub).")
 
     def _setup_hold(
         self, segments: list[dict], target: TargetLang, work_dir: str,

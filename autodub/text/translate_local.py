@@ -215,8 +215,22 @@ def translate_segments_local(
     items = [(s.get("id"), s.get("text", "")) for s in segments]
     by_id = run_local_worker(items, src, tgt, settings, reporter)
 
+    # mini-spec V27 (docs/PLAN.md, Phase G) — bug thật: glossary
+    # (`settings.translate_glossary`) trước đây CHỈ được enforce ở nhánh
+    # SaaS (translate_hint.py::build_user_context_block, chèn vào prompt
+    # LLM) — nhánh local NLLB không nhận prompt (seq2seq thuần) nên âm thầm
+    # bỏ qua glossary hoàn toàn. Áp hậu xử lý tìm-thay-thế (cơ chế khả thi
+    # DUY NHẤT cho NLLB — ctranslate2 không có API lexical-constraint, xem
+    # translate_glossary_apply.py). Glossary rỗng -> parse_glossary() trả
+    # [] -> apply_glossary() là no-op, hành vi y hệt trước V27.
+    from autodub.text.translate_glossary_apply import apply_glossary, parse_glossary
+    glossary_pairs = parse_glossary(getattr(settings, "translate_glossary", "") or "")
+
     merged = []
     for seg in segments:
         text = by_id.get(seg.get("id"), "")
-        merged.append({**seg, target.text_field: ensure_terminal_punct(text)})
+        text = ensure_terminal_punct(text)
+        if glossary_pairs:
+            text = apply_glossary(seg.get("text", ""), text, glossary_pairs)
+        merged.append({**seg, target.text_field: text})
     return merged
