@@ -264,12 +264,22 @@ def step_watermark(input_video: str, result_dir: str, ffmpeg_bin: str) -> dict:
     if not input_video or not os.path.isfile(input_video):
         return {"ok": False, "reason": "không có video output từ Scope B để thử watermark"}
 
+    # Bug thật gặp khi live-verify: drawtext không có "fontfile=" thì tự dò
+    # font qua fontconfig — bản ffmpeg Windows (kể cả full-build) thường
+    # KHÔNG có fontconfig.conf mặc định, lỗi "Cannot load default config
+    # file". Dùng thẳng 1 font đã có sẵn trong repo (fonts/, dùng cho phụ đề
+    # burn-in) thay vì phụ thuộc cấu hình hệ thống. Đường dẫn Windows cần tự
+    # escape dấu ":" (ổ đĩa) cho đúng cú pháp filter của ffmpeg.
+    font_path = os.path.join(PROJECT_ROOT, "fonts", "BarlowCondensed-Regular.ttf")
+    font_arg = font_path.replace("\\", "/").replace(":", "\\:")
+
     visible_out = os.path.join(result_dir, "watermarked_visible.mp4")
     started = time.monotonic()
     proc = subprocess.run([
         ffmpeg_bin, "-v", "error", "-y", "-i", input_video,
-        "-vf", "drawtext=text='VoxDub AI':fontcolor=white@0.7:fontsize=18:"
-               "x=w-tw-10:y=h-th-10:box=1:boxcolor=black@0.4",
+        "-vf", f"drawtext=fontfile='{font_arg}':text='VoxDub AI':"
+               "fontcolor=white@0.7:fontsize=18:x=w-tw-10:y=h-th-10:"
+               "box=1:boxcolor=black@0.4",
         "-codec:a", "copy", visible_out,
     ], capture_output=True, text=True)
     out["visible_overlay"] = {
