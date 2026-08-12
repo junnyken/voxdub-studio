@@ -17,9 +17,17 @@ import zipfile
 from pathlib import Path
 
 from autodub.config import Settings
+from autodub.subprocess_watchdog import SubprocessTimeoutError, read_all_with_timeout
 from autodub.utils import app_root, setup_logging
 
 logger = setup_logging("autodub.voice_downloader")
+
+# mini-spec V24 (docs/PLAN.md, Phase F, đợt 2) — cùng bug đã sửa ở 3 nơi
+# khác: `proc.stdout.read()` trần không timeout, worker treo làm pipeline
+# treo vô thời hạn (khác `for line in proc.stdout:` — đây đọc TOÀN BỘ 1
+# lượt vì worker chỉ ghi đúng 1 khối JSON kết quả). Khớp đúng timeout tổng
+# đã có sẵn (`proc.wait(timeout=3600)`) — 1 giờ cho tối đa 120 giọng.
+_ENROLL_READ_TIMEOUT_S = 3600
 
 # URL voices.zip trên GitHub release — chỉ dùng khi thư mục voices/ trống
 # (bản đóng gói exe, hoặc người dùng tải mã nguồn dạng zip thiếu thư mục).
@@ -210,9 +218,9 @@ def _run_enroll_worker(settings: Settings, batch_file: str,
 
     # Đọc stdout trực tiếp (worker chỉ ghi đúng một dòng JSON kết quả rồi thoát)
     try:
-        stdout = proc.stdout.read()
+        stdout = read_all_with_timeout(proc, _ENROLL_READ_TIMEOUT_S)
         proc.wait(timeout=3600)
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired, SubprocessTimeoutError):
         proc.kill()
         proc.wait()
         return {"ok": False, "error": "Timeout sau 1 giờ chờ enroll"}

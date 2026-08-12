@@ -12,6 +12,8 @@ import os
 import threading
 import time
 
+import pytest
+
 from autodub.pipeline import DubRequest
 from autodub.watch_folder import (
     StabilityTracker, WatchState, discover_ready_files, file_key,
@@ -180,7 +182,9 @@ class FakePipeline:
     def run(self, req):
         self.seen.append(req)
         self.last_work_dir = req.resume_dir or f"wd_{os.path.basename(req.file_path)}"
-        if isinstance(self.outcome, Exception):
+        # BaseException (không chỉ Exception) — cho phép test KeyboardInterrupt,
+        # vốn KHÔNG kế thừa từ Exception.
+        if isinstance(self.outcome, BaseException):
             raise self.outcome
         return type("R", (), {
             "status": "completed", "work_dir": self.last_work_dir,
@@ -214,6 +218,26 @@ def test_process_file_records_failure_without_crashing(tmp_path):
 
     assert entry["status"] == "failed"
     assert "lỗi thật" in entry["error"]
+
+
+def test_process_file_saves_work_dir_on_keyboard_interrupt_and_reraises(tmp_path):
+    """Lớp phòng thủ THÊM cho trường hợp gọi process_file() trực tiếp
+    (không qua CLI — không có SIGINT handler tuỳ biến, Ctrl+C khi đó raise
+    KeyboardInterrupt THẬT theo mặc định của Python): work_dir đã tạo được
+    phải được ghi lại TRƯỚC KHI lỗi lan ra ngoài, và KeyboardInterrupt vẫn
+    phải lan tiếp (không được nuốt — người dùng bấm Ctrl+C phải thấy tác
+    dụng ngay, không phải bị "nuốt" im lặng)."""
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"data")
+    pipe = FakePipeline(KeyboardInterrupt())
+    state = WatchState(str(tmp_path / "_watch_state.json"))
+
+    with pytest.raises(KeyboardInterrupt):
+        process_file(str(video), pipe, _req_template(tmp_path), state)
+
+    entry = state.get(file_key(str(video)))
+    assert entry["status"] == "processing"  # chưa xong — resume được ở lượt sau
+    assert entry["work_dir"] == pipe.last_work_dir
 
 
 def test_process_file_writes_failures_log(tmp_path):

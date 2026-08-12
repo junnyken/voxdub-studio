@@ -8,11 +8,21 @@ from collections import deque
 from autodub.config import Settings
 from autodub.languages import WHISPER_LANG_MAP
 from autodub.resources import GPU_LOCK
+from autodub.subprocess_watchdog import SubprocessTimeoutError, WatchedLineReader
 from autodub.utils import bundled_file, gpu_venv_dir, save_json_atomic, setup_logging
 
 logger = setup_logging("autodub.transcriber")
 
 _WHISPER_WORKER_SCRIPT = bundled_file("autodub", "speech", "asr_whisper_worker.py")
+
+# mini-spec V24 (docs/PLAN.md, Phase F, đợt 2 — đóng nốt gap đã audit) —
+# cùng bug đã sửa ở translate_local.py: `for line in proc.stdout:` không
+# timeout, worker treo (model kẹt, deadlock hiếm) làm pipeline treo vô thời
+# hạn. Whisper model lớn hơn nhiều NLLB (large-v3 ~3GB) và `proc.wait(
+# timeout=7200)` sẵn có cho biết khối lượng việc dự kiến (video dài) —
+# giá trị dưới đây CHỦ ĐÍCH bảo thủ, chưa benchmark phần cứng thật.
+_WHISPER_READY_TIMEOUT_S = 600      # nạp model từ đĩa (có thể lớn)
+_WHISPER_SEGMENT_TIMEOUT_S = 600    # giữa 2 đoạn nhận dạng liên tiếp
 
 
 def _enable_cuda_dlls() -> bool:
@@ -262,9 +272,16 @@ def _transcribe_whisper_subprocess(
             pass
 
     threading.Thread(target=_drain, daemon=True).start()
+    reader = WatchedLineReader(proc)
 
     # Đọc {"ready": true} trước khi gửi request
-    ready_line = proc.stdout.readline().strip()
+    try:
+        ready_line = reader.readline(_WHISPER_READY_TIMEOUT_S).strip()
+    except SubprocessTimeoutError as e:
+        proc.kill()
+        raise RuntimeError(
+            f"Whisper worker không phản hồi trong {_WHISPER_READY_TIMEOUT_S}s "
+            "khi nạp model — coi như treo.\n" + "\n".join(stderr_tail)) from e
     try:
         ready = json.loads(ready_line)
     except (json.JSONDecodeError, ValueError):
@@ -289,7 +306,10 @@ def _transcribe_whisper_subprocess(
     segments: list[dict] = []
     done = False
     try:
-        for line in proc.stdout:
+        while True:
+            line = reader.readline(_WHISPER_SEGMENT_TIMEOUT_S)
+            if not line:
+                break
             line = line.strip()
             if not line or not line.startswith("{"):
                 continue
@@ -324,6 +344,12 @@ def _transcribe_whisper_subprocess(
                         f"Ngôn ngữ: {lang} "
                         f"({msg.get('language_prob', 0):.0%})")
         proc.wait(timeout=7200)
+    except SubprocessTimeoutError as e:
+        proc.kill()
+        raise RuntimeError(
+            f"Whisper worker không phản hồi trong {_WHISPER_SEGMENT_TIMEOUT_S}s "
+            f"giữa lúc nhận dạng — coi như treo (đã nhận dạng được "
+            f"{len(segments)} đoạn trước đó).\n" + "\n".join(stderr_tail)) from e
     finally:
         if proc.poll() is None:
             proc.kill()

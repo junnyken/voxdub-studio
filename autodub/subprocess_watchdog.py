@@ -16,12 +16,20 @@ mục V24) rà mọi điểm gọi subprocess trong autodub/speech/ + autodub/me
   ``autodub/speech/paraformer_transcriber.py``,
   ``autodub/speech/tts/voice_downloader.py``).
 
-Module này TỔNG QUÁT HOÁ kiểu đã đúng thành 1 hàm dùng chung, áp dụng
-trước cho ``run_local_worker()`` (Scope C của mini-spec — nơi đã audit từ
-V21 và có bug thật liên quan). 3 điểm còn lại xác nhận CÙNG loại gap thật
-nhưng CHƯA sửa trong đợt này — ghi trong "Remaining Limits" mục V24, để
-audit riêng giá trị timeout hợp lý cho từng loại việc (Whisper/Paraformer/
-tải giọng nặng hơn nhiều so với dịch 1 câu) thay vì đoán số ở đây.
+Module này TỔNG QUÁT HOÁ kiểu đã đúng thành 1 hàm dùng chung, áp dụng đầu
+tiên cho ``run_local_worker()`` (V24 — nơi đã audit từ V21 và có bug thật
+liên quan), rồi áp dụng nốt cho 3 điểm còn lại ở đợt kế tiếp:
+``transcriber.py`` (worker Whisper, streaming theo dòng — dùng
+``read_lines_with_timeout``), ``paraformer_transcriber.py`` (streaming
+theo dòng, không có bước "ready" riêng — cùng hàm), và
+``voice_downloader.py`` (đọc TOÀN BỘ stdout 1 lượt bằng ``.read()`` chứ
+KHÔNG streaming theo dòng — dùng ``read_all_with_timeout`` riêng cho kiểu
+này). Giá trị timeout mỗi nơi CHỦ ĐÍCH bảo thủ (mục tiêu: biến "treo vô
+hạn" thành "treo có trần", không phải tối ưu tốc độ phát hiện), tham chiếu
+theo timeout tổng đã có sẵn ở mỗi nơi (vd Whisper vốn đã có
+``proc.wait(timeout=7200)`` — cho biết khối lượng việc dự kiến lớn tới
+đâu) — CHƯA benchmark thật trên phần cứng thật, xem TEST_LOG mục V24 phần
+Re-audit.
 """
 from __future__ import annotations
 
@@ -87,3 +95,26 @@ def read_lines_with_timeout(proc: subprocess.Popen, timeout: float) -> Iterator[
         if not line:
             return
         yield line
+
+
+def read_all_with_timeout(proc: subprocess.Popen, timeout: float) -> str:
+    """Thay thế ``proc.stdout.read()`` (đọc TOÀN BỘ tới EOF, 1 lượt — dùng
+    khi worker chỉ ghi đúng 1 khối kết quả rồi thoát, không phải giao thức
+    theo dòng) — cùng lỗi cần tránh: ``.read()`` trần chặn vô thời hạn nếu
+    worker treo mà không đóng stdout. Chạy `.read()` trong 1 luồng nền, chờ
+    kết quả CÓ TIMEOUT qua hàng đợi.
+    """
+    result: "queue.Queue[str]" = queue.Queue()
+
+    def _read() -> None:
+        try:
+            result.put(proc.stdout.read())
+        except (OSError, ValueError):
+            result.put("")
+
+    threading.Thread(target=_read, daemon=True).start()
+    try:
+        return result.get(timeout=timeout)
+    except queue.Empty:
+        raise SubprocessTimeoutError(
+            f"Subprocess không phản hồi trong {timeout:.0f}s — coi như treo.")

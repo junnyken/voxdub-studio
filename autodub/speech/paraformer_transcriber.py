@@ -16,11 +16,19 @@ import threading
 from collections import deque
 
 from autodub.config import Settings
+from autodub.subprocess_watchdog import SubprocessTimeoutError, WatchedLineReader
 from autodub.utils import bundled_file, setup_logging
 
 logger = setup_logging("autodub.paraformer")
 
 _WORKER_SCRIPT = bundled_file("autodub", "speech", "asr_paraformer_worker.py")
+
+# mini-spec V24 (docs/PLAN.md, Phase F, đợt 2) — cùng bug đã sửa ở
+# translate_local.py/transcriber.py: đọc stdout không timeout, worker treo
+# làm pipeline treo vô thời hạn. Không có bước "ready" riêng (worker phát
+# thẳng segment) nên chỉ 1 hằng số; tham chiếu `proc.wait(timeout=600)`
+# sẵn có (10 phút) — chưa benchmark phần cứng thật.
+_PARAFORMER_SEGMENT_TIMEOUT_S = 300
 
 
 def transcribe_paraformer(audio_path: str, settings: Settings) -> list[dict]:
@@ -59,11 +67,15 @@ def transcribe_paraformer(audio_path: str, settings: Settings) -> list[dict]:
             pass
 
     threading.Thread(target=_drain, daemon=True).start()
+    reader = WatchedLineReader(proc)
 
     segments: list[dict] = []
     done = False
     try:
-        for line in proc.stdout:
+        while True:
+            line = reader.readline(_PARAFORMER_SEGMENT_TIMEOUT_S)
+            if not line:
+                break
             line = line.strip()
             if not line or not line.startswith("{"):
                 continue
@@ -90,6 +102,13 @@ def transcribe_paraformer(audio_path: str, settings: Settings) -> list[dict]:
         # Thời lượng phụ thuộc độ dài video — chờ tiến trình kết thúc hẳn
         # (stdout đã EOF nên wait không thể treo vô hạn vì pipe đầy).
         proc.wait(timeout=600)
+    except SubprocessTimeoutError as e:
+        proc.kill()
+        raise RuntimeError(
+            f"Paraformer worker không phản hồi trong "
+            f"{_PARAFORMER_SEGMENT_TIMEOUT_S}s giữa lúc nhận dạng — coi như "
+            f"treo (đã nhận dạng được {len(segments)} đoạn trước đó).\n"
+            + "\n".join(stderr_tail)) from e
     finally:
         if proc.poll() is None:
             proc.kill()

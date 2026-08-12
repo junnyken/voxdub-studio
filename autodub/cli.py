@@ -293,8 +293,20 @@ def _cmd_watch(args: argparse.Namespace) -> int:
     stop_event = threading.Event()
 
     def _handle_sigint(signum, frame):
-        print("\nĐang dừng theo dõi (chờ hết lượt quét hiện tại)...",
-             file=sys.stderr)
+        # Handler tuỳ biến CHỈ đặt cờ, không raise KeyboardInterrupt — vì
+        # vậy 1 lượt pipeline.run() đang dở KHÔNG bị cắt ngang, nó chạy tiếp
+        # tới khi xong hẳn rồi watch_forever() mới dừng ở lượt kiểm cờ kế
+        # tiếp (an toàn, không mất tiến trình dở dang, nhưng không tức thời
+        # — có thể phải chờ đúng bằng thời gian dub xong video hiện tại).
+        # Bấm Ctrl+C LẦN 2 (trong lúc đang chờ) thoát ngay lập tức — không
+        # cần đợi hết video hiện tại nếu người dùng thật sự muốn dừng gấp.
+        if stop_event.is_set():
+            print("\nThoát ngay (bấm lần 2) — video đang dở có thể chưa "
+                 "hoàn tất, lần chạy watch kế tiếp sẽ tự nhận ra và xử lý "
+                 "tiếp.", file=sys.stderr)
+            os._exit(130)  # 128+SIGINT, quy ước exit code chuẩn cho Ctrl+C
+        print("\nĐang dừng theo dõi (chờ xong video đang dub — bấm Ctrl+C "
+             "lần nữa để thoát ngay)...", file=sys.stderr)
         stop_event.set()
 
     signal.signal(signal.SIGINT, _handle_sigint)

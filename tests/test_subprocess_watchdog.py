@@ -12,7 +12,8 @@ import time
 import pytest
 
 from autodub.subprocess_watchdog import (
-    SubprocessTimeoutError, WatchedLineReader, read_lines_with_timeout,
+    SubprocessTimeoutError, WatchedLineReader, read_all_with_timeout,
+    read_lines_with_timeout,
 )
 
 
@@ -66,4 +67,32 @@ def test_blank_lines_pass_through_not_mistaken_for_stream_closed():
     proc = _spawn("print(); print('x')")
     lines = list(read_lines_with_timeout(proc, timeout=5.0))
     assert lines == ["\n", "x\n"]
+    proc.wait(timeout=5)
+
+
+# --------------------------------------------------------------------- #
+# read_all_with_timeout — cho worker phát 1 khối kết quả rồi thoát (không
+# streaming theo dòng), vd autodub/speech/tts/voice_downloader.py.
+
+def test_read_all_returns_full_output_when_worker_responds_promptly():
+    proc = _spawn("print('dong 1'); print('dong 2')")
+    output = read_all_with_timeout(proc, timeout=5.0)
+    assert output == "dong 1\ndong 2\n"
+    proc.wait(timeout=5)
+
+
+def test_read_all_raises_timeout_error_when_worker_hangs():
+    proc = _spawn("import time; time.sleep(60)")
+    start = time.monotonic()
+    with pytest.raises(SubprocessTimeoutError):
+        read_all_with_timeout(proc, timeout=0.3)
+    elapsed = time.monotonic() - start
+    assert elapsed < 5.0
+    proc.kill()
+    proc.wait(timeout=5)
+
+
+def test_read_all_returns_empty_string_when_no_output():
+    proc = _spawn("pass")
+    assert read_all_with_timeout(proc, timeout=5.0) == ""
     proc.wait(timeout=5)

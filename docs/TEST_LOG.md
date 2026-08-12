@@ -2682,3 +2682,114 @@ Rà TOÀN BỘ điểm gọi subprocess trong `autodub/speech/` + `autodub/media
   CHƯA xác nhận với chủ dự án theo đúng "Audit Before Build" của mini-spec
   (ghi rõ đây là quyết định vận hành thực tế, tuỳ tốc độ mạng/ổ đĩa nơi
   triển khai) — cấu hình được qua cờ CLI nên chỉnh lại không cần sửa code.
+
+## Re-audit — đóng nốt 2 giới hạn còn lại của V24/V25 (chủ dự án yêu cầu)
+
+Theo đúng quy trình "Re-audit" ở mục "Cách dùng tài liệu này" cuối file
+này: rà lại Remaining Limits của V24/V25, phân loại — cả 2 mục dưới đây
+thuộc loại (a) "sửa được ngay, ít rủi ro" → sửa luôn trong đợt này.
+
+### 1. 3/4 điểm subprocess-treo còn lại (V24)
+
+**Sửa**: áp `subprocess_watchdog.py` cho cả 3 điểm còn lại, đúng kỹ thuật
+audit đã ghi ở V24 (không đoán số ngoài phạm vi đã audit):
+
+- `autodub/speech/transcriber.py` (worker Whisper) — dùng
+  `WatchedLineReader` cho cả bước "ready" (nạp model, 600s) lẫn streaming
+  từng đoạn (600s/đoạn) — tham chiếu `proc.wait(timeout=7200)` sẵn có (khối
+  lượng việc dự kiến: video dài).
+- `autodub/speech/paraformer_transcriber.py` — cùng kỹ thuật, không có bước
+  "ready" riêng (worker phát thẳng segment), 1 hằng số (300s/dòng) — tham
+  chiếu `proc.wait(timeout=600)` sẵn có.
+- `autodub/speech/tts/voice_downloader.py` (`_run_enroll_worker`) — kiểu
+  ĐỌC KHÁC hẳn (không streaming theo dòng, worker chỉ ghi ĐÚNG 1 khối JSON
+  kết quả rồi thoát qua `proc.stdout.read()`) — thêm hàm mới
+  `read_all_with_timeout()` vào `subprocess_watchdog.py` (chạy `.read()`
+  trong luồng nền, chờ CÓ TIMEOUT qua hàng đợi) thay vì tổng quát hoá nhầm
+  bằng kiểu theo dòng; khớp đúng timeout tổng sẵn có (3600s cho tối đa 120
+  giọng).
+
+**Verify**: 3 test file mới, mỗi file dùng 1 worker giả THẬT (script Python
+nhỏ, đúng giao thức JSON của worker thật, không mock `Popen`) — theo đúng
+cách đã làm cho `run_local_worker()` ở đợt 1:
+- `tests/test_transcriber_watchdog.py` (3 test): hoạt động bình thường qua
+  đường watchdog mới (0 regression); treo lúc nạp model → lỗi rõ trong thời
+  gian hữu hạn; treo giữa lúc nhận dạng (sau khi đã có 1 đoạn) → lỗi rõ
+  kèm số đoạn đã nhận dạng được.
+- `tests/test_paraformer_watchdog.py` (3 test): hoạt động bình thường;
+  treo ngay từ đầu (không phát dòng nào); treo giữa chừng.
+- `tests/test_voice_downloader_watchdog.py` (2 test): hoạt động bình
+  thường; treo trước khi ghi kết quả → trả đúng `{"ok": False, "error":
+  "Timeout..."}` (giữ nguyên hợp đồng lỗi cũ, chỉ khác NGUYÊN NHÂN timeout
+  giờ bắt được thay vì treo vô hạn).
+- `tests/test_subprocess_watchdog.py` (+3 test): `read_all_with_timeout()`
+  — đọc đúng khi worker phản hồi nhanh; raise trong thời gian hữu hạn khi
+  treo (subprocess Python thật ngủ 60s, phát hiện <5s); trả rỗng khi worker
+  không in gì.
+- `pytest tests/ -q` toàn bộ (venv đầy đủ dependency): **867 passed, 6
+  skipped, 0 failed** (855 pass trước đợt này + 12 test mới).
+
+**Kết quả**: cả 4/4 điểm subprocess-treo đã audit ở V24 nay đều có trần —
+không còn điểm nào "treo vô thời hạn" đã biết trong `autodub/speech/`.
+
+### 2. Ctrl+C giữa lúc pipeline đang chạy dở (V25)
+
+**Phát hiện lại khi audit sâu hơn**: mô tả ban đầu ở V25 ("Ctrl+C giữa lúc
+pipeline đang chạy có thể không resume đúng vì `KeyboardInterrupt` không
+kế thừa `Exception`") dựa trên giả định SAI — `cli.py::_cmd_watch` tự cài
+1 SIGINT handler TUỲ BIẾN (`signal.signal(signal.SIGINT, _handle_sigint)`)
+chỉ ĐẶT CỜ `stop_event`, KHÔNG raise `KeyboardInterrupt`. Nghĩa là hành vi
+THẬT không phải "ngắt nửa chừng làm mất work_dir" — mà là "video đang dub
+chạy TIẾP tới khi xong hẳn, watch_forever() chỉ dừng nhận việc MỚI ở lượt
+kiểm cờ kế tiếp". An toàn (không mất gì) nhưng CÓ vấn đề UX thật: người
+dùng bấm Ctrl+C có thể phải chờ rất lâu (bằng đúng thời gian dub xong video
+hiện tại) mà không có cách nào thoát ngay.
+
+**Sửa** (2 phần, cả phòng thủ lẫn UX):
+- `autodub/watch_folder.py::process_file()` — thêm nhánh
+  `except KeyboardInterrupt:` (tách khỏi `except Exception:` vì
+  `KeyboardInterrupt` kế thừa `BaseException`, không phải `Exception`) ghi
+  lại `work_dir` đã có (trạng thái "processing", chưa "success"/"failed")
+  RỒI `raise` tiếp — không nuốt tín hiệu ngắt. Đây là lớp phòng thủ cho
+  trường hợp hàm này được gọi TRỰC TIẾP (không qua CLI, không có handler
+  tuỳ biến — khi đó Ctrl+C raise `KeyboardInterrupt` THẬT theo mặc định của
+  Python).
+- `cli.py::_cmd_watch` — sửa thông báo cho đúng thực tế ("chờ xong video
+  đang dub" thay vì "chờ hết lượt quét"), thêm cơ chế bấm Ctrl+C LẦN 2
+  (trong lúc đang chờ) thoát NGAY qua `os._exit(130)` (130 = quy ước exit
+  code chuẩn cho SIGINT) — mẫu hình phổ biến ở CLI tool khác (docker
+  compose, npm...).
+
+**Verify**:
+- `tests/test_watch_folder.py` (+1 test): `process_file()` với pipeline
+  giả raise `KeyboardInterrupt` — ghi đúng `work_dir`/status "processing"
+  VÀO STATE trước khi lỗi lan ra, và `KeyboardInterrupt` vẫn lan tiếp (test
+  bắt bằng `pytest.raises`, không bị nuốt).
+- **Live-verify THẬT** (không mock, quan trọng nhất cho phần UX): dựng 1
+  driver script thật chạy `cli.main(["watch", ...])` với 1 `DubPipeline`
+  giả CHỦ Ý CHẠY CHẬM (`time.sleep(20)`) để mô phỏng 1 video dub lâu, chạy
+  như tiến trình con thật, gửi tín hiệu `SIGINT` thật qua `kill -INT` (không
+  phải gọi hàm Python) — xác nhận đúng: **SIGINT lần 1** → in "Đang dừng
+  theo dõi... bấm Ctrl+C lần nữa để thoát ngay", tiến trình CÒN SỐNG (xác
+  nhận bằng `ps -p`, đúng như thiết kế: không cắt ngang video đang dub);
+  **SIGINT lần 2** → in "Thoát ngay", tiến trình thoát NGAY LẬP TỨC
+  (`wait` xác nhận `Exit 130`, không phải bị `timeout` cắt ngang).
+- `pytest tests/ -q` toàn bộ: đã tính trong tổng 867 passed ở trên (bao
+  gồm cả sửa này).
+
+**Kết quả**: giới hạn ban đầu được sửa đúng bản chất thật (không phải bản
+chất giả định sai lúc đầu) — Ctrl+C giờ có 2 mức: lần 1 an toàn (đợi xong
+việc dở), lần 2 tức thời (chấp nhận việc dở có thể chưa hoàn tất, tự resume
+ở lượt watch kế tiếp nhờ `process_file()` đã ghi `work_dir`).
+
+### Remaining Limits còn lại sau Re-audit
+
+- Giá trị timeout mới (Whisper 600s/600s, Paraformer 300s, voice_downloader
+  3600s) đều CHƯA benchmark phần cứng thật — cùng loại giới hạn "bảo thủ có
+  chủ đích, chưa hiệu chỉnh" như mọi ngưỡng số khác trong Phase F (V23
+  ngưỡng chất lượng, V24 backoff/max_retries, V25 poll interval).
+- Double-Ctrl+C dùng `os._exit()` (bỏ qua mọi cleanup Python bình thường:
+  `finally`, context manager, atexit) có chủ đích — người dùng đã được báo
+  rõ "video đang dở có thể chưa hoàn tất" trước khi bấm lần 2, đây là lựa
+  chọn có ý thức đánh đổi tốc độ thoát lấy việc bỏ qua dọn dẹp, không phải
+  sơ suất.

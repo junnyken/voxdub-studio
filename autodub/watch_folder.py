@@ -150,9 +150,18 @@ def process_file(
 
     Đánh dấu "processing" TRƯỚC khi chạy — nếu lượt sau phát hiện lại đúng
     file này (còn "processing", tiến trình cũ có thể đã bị dừng đột ngột)
-    thì resume đúng ``work_dir`` đã ghi thay vì dub lại từ đầu (Constraint 4
-    — chỉ đúng với lỗi PIPELINE THẬT bắt được ở đây; ngắt bằng tín hiệu hệ
-    thống giữa lúc pipeline đang chạy là giới hạn còn lại, xem TEST_LOG).
+    thì resume đúng ``work_dir`` đã ghi thay vì dub lại từ đầu (Constraint 4).
+
+    Bắt CẢ ``KeyboardInterrupt`` (không chỉ ``Exception``) — CLI (V25) cài
+    handler SIGINT riêng chỉ đặt cờ dừng chứ không raise, nên trong thực tế
+    Ctrl+C không cắt ngang 1 lượt ``pipeline.run()`` đang chạy (nó chạy tiếp
+    tới khi xong hẳn mới dừng vòng lặp — an toàn nhưng không tức thời, xem
+    ``watch_forever``); nhánh này là lớp phòng thủ THÊM cho trường hợp hàm
+    này được gọi trực tiếp (không qua CLI, không có handler tuỳ biến — Ctrl+
+    C khi đó raise ``KeyboardInterrupt`` THẬT theo hành vi mặc định của
+    Python) hoặc bị dừng bởi tín hiệu khác tương đương — ghi lại đúng
+    ``work_dir`` đã có TRƯỚC KHI để lỗi lan ra ngoài, resume đúng chỗ ở lượt
+    sau thay vì dub lại từ đầu.
     """
     key = file_key(path)
     prior = state.get(key) or {}
@@ -183,6 +192,13 @@ def process_file(
             "work_dir": result.work_dir,
             "error": None if ok else f"Pipeline dừng ở trạng thái {result.status}",
         }
+    except KeyboardInterrupt:
+        # Ghi lại NGAY work_dir đã tạo được (nếu có) rồi để tín hiệu ngắt
+        # lan tiếp — không được nuốt Ctrl+C ở đây (người dùng bấm lần 2 để
+        # thoát ngay phải có tác dụng, xem cli.py::_cmd_watch).
+        work_dir = getattr(pipeline, "last_work_dir", "") or resume_dir or ""
+        state.record(key, {"status": "processing", "work_dir": work_dir})
+        raise
     except Exception as e:  # noqa: BLE001 — lỗi thật của 1 file, không được giết cả vòng theo dõi
         work_dir = getattr(pipeline, "last_work_dir", "") or resume_dir or ""
         error_msg = str(e)[:200]
