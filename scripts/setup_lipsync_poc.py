@@ -314,6 +314,12 @@ def step_download_weights() -> None:
 def step_check_ffmpeg() -> None:
     """MuseTalk cần ffmpeg — VoxDub đã có sẵn (bin/ffmpeg.exe hoặc PATH),
     dùng lại chứ không cài riêng (đỡ 1 bộ cài trùng)."""
+    # Bug thật gặp khi live-verify: chạy `py scripts\setup_lipsync_poc.py`
+    # thì sys.path[0] là thư mục CHỨA SCRIPT (scripts/), không phải project
+    # root — "import autodub" chết với ModuleNotFoundError nếu không tự
+    # thêm PROJECT_ROOT vào sys.path trước (đúng bug đã sửa ở
+    # lipsync_poc.py::_resolve_ffmpeg(), quên áp dụng ở đây).
+    sys.path.insert(0, PROJECT_ROOT)
     from autodub.resources import app_root  # noqa: PLC0415
 
     local_ffmpeg = os.path.join(app_root(), "bin", "ffmpeg.exe")
