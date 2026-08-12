@@ -137,6 +137,15 @@ def step_benchmark_inference(video: str, audio: str, result_dir: str,
         "--unet_config", unet_cfg,
         "--version", "v15",
         "--ffmpeg_path", os.path.dirname(ffmpeg_bin) or ".",
+        # Bug thật gặp khi live-verify: THIẾU "--use_float16" khiến chạy ở
+        # fp32 mặc định — tốn gấp đôi VRAM so với cấu hình cộng đồng đã
+        # test chạy được trên card 4GB (xem docs/TEST_LOG.md/PLAN.md mục
+        # V30: "RTX 3050 Ti 4GB laptop, fp16"). VRAM đo được lên tới
+        # 3931/4096MB (96%) rồi MuseTalk tự bắt exception giữa chừng (rất
+        # có thể CUDA OOM) — thêm cờ này + hạ batch_size (mặc định 8) để
+        # có biên an toàn hơn cho card 4GB.
+        "--use_float16",
+        "--batch_size", "4",
     ]
     log(f"chạy MuseTalk inference thật: {' '.join(cmd)}")
     log("(tiến trình MuseTalk in trực tiếp bên dưới — tải model + xử lý "
