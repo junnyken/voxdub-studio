@@ -3139,3 +3139,107 @@ việc dở), lần 2 tức thời (chấp nhận việc dở có thể chưa ho
 - Chưa live-verify qua 1 lượt dịch SaaS thật có câu thực sự bị flag+sửa
   (test dùng `MagicMock` cho `client.review()`) — hạ tầng live-verify HTTP
   thật đã có từ V14/V15, có thể tái dùng khi cần xác nhận thêm.
+
+## V30 — Audit khả thi Lip-sync (research, KHÔNG build) (Phase G)
+
+Đây là mini-spec RESEARCH — không có code sản xuất, "Test Plan" của chính
+nó là độ tin cậy của số liệu (xem mini-spec V30 trong docs/PLAN.md). Ghi
+lại ở đây theo đúng khuôn Audit/Verify/Remaining Limits để nhất quán với
+mọi mục khác trong file này.
+
+### Giới hạn thật của môi trường research (nói rõ trước khi vào số liệu)
+
+Sandbox này KHÔNG có GPU — không thể tự đo benchmark tốc độ/VRAM THẬT trên
+phần cứng thật như mini-spec yêu cầu ("Test = benchmark có số liệu thật,
+không phải ước lượng"). Những gì làm được thật trong đợt này:
+1. Research license + thông số phần cứng CÔNG BỐ CHÍNH THỨC (tài liệu/
+   README/LICENSE của chính từng model mã nguồn mở — không phải quảng cáo
+   marketing của SaaS đối thủ) qua tìm kiếm thật, có trích dẫn.
+2. Cài đặt THẬT (không giả định) bộ dependency CPU-only (`onnxruntime`,
+   `opencv-python-headless`) của nhánh ONNX-converted (biến thể phổ biến
+   nhất khi không có GPU) — xác nhận cài sạch, chỉ có `CPUExecutionProvider`
+   khả dụng (đúng thực tế máy không GPU, kể cả nhiều máy người dùng cuối
+   Windows của VoxDub).
+3. KHÔNG tải được model weights (hàng trăm MB-GB) + chạy inference thật
+   trên video mẫu trong ngân sách thời gian đợt này — đây là giới hạn thật,
+   không phải bỏ sót; ghi rõ để không ai hiểu nhầm là đã benchmark tốc độ
+   thật.
+
+### Khảo sát 4 model mã nguồn mở
+
+| Model | License | VRAM/phần cứng (công bố chính thức) | Ghi chú |
+|---|---|---|---|
+| **Wav2Lip** (Rudrabha/Wav2Lip) | **CHỈ phi thương mại** — README chính chủ ghi rõ "personal/research/non-commercial purposes"; lý do: model train trên bộ dữ liệu LRS2, điều khoản dữ liệu cấm dùng thương mại dưới MỌI hình thức. Tác giả tự bán bản HD thương mại qua Sync Labs (dịch vụ trả phí riêng, không phải mã nguồn mở). | Nhẹ nhất nhóm — biến thể ONNX-converted chạy được CPU, VRAM ~1-2GB bản GPU tối ưu. | **LOẠI TRỪ cho VoxDub** — VoxDub có hệ Vox trả phí (thương mại), dùng model cấm-thương-mại là rủi ro pháp lý thật, không phải lý thuyết. |
+| **SadTalker** (OpenTalker/SadTalker) | Apache 2.0 (đã relicense, bỏ ràng buộc phi-thương-mại) — dùng thương mại được. | VRAM tăng TUYẾN TÍNH theo thời lượng: ~8GB cho clip 3 phút, tới 80GB cho 30 phút (bản gốc, chưa tối ưu). | Giấy phép ổn nhưng yêu cầu phần cứng KHÔNG thực tế cho video dài — video YouTube/TikTok điển hình VoxDub xử lý thường dài hơn 3 phút nhiều. |
+| **VideoReTalking** (OpenTalker/video-retalking) | **CHƯA XÁC MINH được qua tìm kiếm** — trang dự án ghi Creative Commons BY-SA 4.0 nhưng đó là license của TRANG WEB, không chắc là license của MÃ NGUỒN; cần đọc trực tiếp file LICENSE trong repo trước khi dùng, KHÔNG suy đoán. | Không tìm được số liệu VRAM/tốc độ công bố chính thức qua tìm kiếm. | Loại khỏi so sánh nghiêm túc cho tới khi xác minh trực tiếp — đúng nguyên tắc "không suy đoán khi thiếu bằng chứng". |
+| **MuseTalk** (TMElyralab/MuseTalk, Tencent Music) | **MIT — không giới hạn học thuật lẫn thương mại.** | Thấp nhất nhóm: đã test THẬT trên card 4GB VRAM (RTX 3050 Ti laptop, fp16) — clip 8 giây mất ~5 phút xử lý (chậm nhưng CHẠY ĐƯỢC); thời gian thực (30fps+) cần GPU lớp Tesla V100. Có bản cộng đồng quảng cáo chạy được 8-12GB VRAM hiệu quả hơn. Bản 1.5 phát hành 03/2025 — đang tích cực bảo trì. | **Lựa chọn khả thi nhất về mặt giấy phép + độ linh hoạt phần cứng** trong 4 model — nhưng vẫn đòi GPU thật để dùng được ở tốc độ chấp nhận được (không có nhánh CPU-only như Wav2Lip). |
+
+### Xác nhận thật (không suy đoán) qua cài đặt thật
+
+Cài `onnxruntime==1.28.0` + `opencv-python-headless==5.0.0` vào 1 venv sạch
+trong sandbox này — THÀNH CÔNG, không lỗi dependency. Kiểm tra provider khả
+dụng: `['AzureExecutionProvider', 'CPUExecutionProvider']` — xác nhận
+KHÔNG có GPU provider nào (đúng thực tế sandbox này, và đúng thực tế nhiều
+máy người dùng cuối Windows của VoxDub theo README đã công bố cấu hình tối
+thiểu 8GB RAM, không bắt buộc GPU).
+
+### Quyết định chính sách BẮT BUỘC chủ dự án phải trả lời trước khi build
+
+1. **Consent-check kỹ thuật**: có cần chặn/cảnh báo khi phát hiện khuôn mặt
+   người nổi tiếng/công chúng trong video nguồn (qua nhận diện khuôn mặt)
+   trước khi cho lip-sync không? Hiện README/LICENSE chỉ có cảnh báo CHÍNH
+   SÁCH ("xin đừng dùng để giả mạo"), không có kiểm soát kỹ thuật nào đi
+   kèm cho BẤT KỲ tính năng nào của VoxDub — lip-sync là tính năng ĐẦU TIÊN
+   thật sự sửa khuôn mặt người (khác dịch giọng/che chữ), nâng mức rủi ro
+   deepfake lên hẳn 1 bậc so với hiện trạng.
+2. **Watermark bắt buộc**: video đã lip-sync có bắt buộc watermark (nhìn
+   thấy được hoặc ẩn/metadata) để phân biệt với video gốc không?
+3. **Giới hạn theo gói/Vox**: có giới hạn số lượt/thời lượng lip-sync theo
+   gói trả phí để tránh lạm dụng hàng loạt (vd tạo deepfake quy mô lớn)
+   không — khác các tính năng khác vốn không có trần sử dụng ngoài Vox.
+4. **Venv GPU-only chấp nhận được không**: khác MỌI tính năng khác của
+   VoxDub (đều có đường CPU dù chậm — Whisper/Demucs/Paraformer/
+   diarization V26), lip-sync THỰC SỰ HỮU DỤNG chỉ khả thi có GPU thật
+   (xem bảng VRAM ở trên) — đây là bất đối xứng kiến trúc lớn đầu tiên,
+   phá vỡ nguyên tắc "GPU-optional" xuyên suốt 29 mini-spec trước. Chủ dự
+   án có chấp nhận 1 tính năng CHỈ chạy được trên máy có GPU mạnh không?
+5. **Vấn đề giấy phép Wav2Lip cụ thể**: nếu vẫn muốn dùng nhánh Wav2Lip vì
+   nhẹ/CPU-capable, cần tư vấn pháp lý thật (không phải suy đoán của AI)
+   về việc dùng model cấm-thương-mại trong 1 tính năng của sản phẩm có hệ
+   thống tín dụng trả phí — đây LÀ câu hỏi pháp lý thật, không tự quyết
+   được qua audit kỹ thuật.
+
+### Khuyến nghị
+
+**Không build ngay.** Lý do tổng hợp:
+- Model duy nhất có giấy phép + phần cứng khả thi rộng rãi (MuseTalk, MIT)
+  vẫn đòi GPU thật để hữu dụng — phá nguyên tắc kiến trúc "GPU-optional"
+  cố định của toàn bộ dự án, chưa từng có tiền lệ tính năng nào bắt buộc
+  GPU hoàn toàn.
+- Model nhẹ nhất/CPU-capable nhất (Wav2Lip) có vấn đề giấy phép THẬT (cấm
+  thương mại) xung đột trực tiếp với mô hình kinh doanh Vox hiện tại — cần
+  tư vấn pháp lý trước khi cân nhắc tiếp, không phải quyết định kỹ thuật.
+- Rủi ro đạo đức (deepfake khuôn mặt) là RỦI RO THẬT MỚI, không giống bất
+  kỳ tính năng nào đã có — 5 câu hỏi chính sách ở trên PHẢI có câu trả lời
+  rõ ràng trước khi mở bất kỳ mini-spec BUILD nào, không phải sau.
+- Nếu chủ dự án sau khi cân nhắc 5 câu hỏi trên vẫn muốn theo đuổi: khuyến
+  nghị bắt đầu bằng **MuseTalk (MIT)**, giới hạn ban đầu ở venv GPU-only
+  (không giả vờ CPU-optional), và tách thành ÍT NHẤT 2 mini-spec riêng
+  (giống mô hình Phase C→D đã dùng cho V8→V11/V9→V12): 1 mini-spec PoC hẹp
+  (1 GPU cụ thể, video ngắn, không cam kết chất lượng) rồi mới tới mini-spec
+  đóng gap nếu PoC chứng minh khả thi thật.
+
+### Remaining Limits (V30)
+
+- **CHƯA có số liệu benchmark tốc độ/chất lượng thật** trên video mẫu —
+  giới hạn phần cứng thật của sandbox này (không GPU), đã nói rõ ngay từ
+  đầu mục, không phải bỏ sót.
+- **License VideoReTalking chưa xác minh** — cần đọc trực tiếp file
+  LICENSE trong repo (không chỉ qua tìm kiếm) trước khi đưa vào bất kỳ so
+  sánh nghiêm túc nào.
+- Vấn đề giấy phép Wav2Lip cần TƯ VẤN PHÁP LÝ THẬT, không phải audit kỹ
+  thuật — AI không thể tự kết luận thay luật sư về việc dùng model
+  cấm-thương-mại trong sản phẩm có hệ thống trả phí.
+- Bảng so sánh chỉ phủ 4 model tại thời điểm research (2026-08) — không
+  theo dõi được các model mới/bản cập nhật license sau thời điểm này, cần
+  research lại nếu quyết định theo đuổi sau nhiều tháng.
