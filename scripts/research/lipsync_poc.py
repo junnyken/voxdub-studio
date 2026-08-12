@@ -139,15 +139,27 @@ def step_benchmark_inference(video: str, audio: str, result_dir: str,
         "--ffmpeg_path", os.path.dirname(ffmpeg_bin) or ".",
     ]
     log(f"chạy MuseTalk inference thật: {' '.join(cmd)}")
+    log("(tiến trình MuseTalk in trực tiếp bên dưới — tải model + xử lý "
+        "268 frame có thể mất vài phút, không phải bị treo)")
 
     started = time.monotonic()
+    output_lines: list[str] = []
     with _VramPoller() as vram:
-        proc = subprocess.run(cmd, cwd=REPO_DIR, capture_output=True, text=True)
+        # stream trực tiếp ra console (không capture_output im lặng như
+        # trước — người dùng không biết đang chạy hay bị treo) VÀ vẫn gom
+        # lại để ghi report.json.
+        proc = subprocess.Popen(cmd, cwd=REPO_DIR, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, bufsize=1)
+        for line in proc.stdout:
+            print(line, end="", flush=True)
+            output_lines.append(line)
+        proc.wait()
     elapsed_s = time.monotonic() - started
+    full_output = "".join(output_lines)
 
     ok = proc.returncode == 0
     if not ok:
-        log(f"!! inference LỖI (mã {proc.returncode}) — xem stderr trong report.json")
+        log(f"!! inference LỖI (mã {proc.returncode})")
 
     output_video = None
     if ok:
@@ -159,7 +171,7 @@ def step_benchmark_inference(video: str, audio: str, result_dir: str,
         "ok": ok, "task_name": task_name, "elapsed_seconds": round(elapsed_s, 1),
         "vram_peak_mb": vram.peak_mb, "output_video": output_video,
         "returncode": proc.returncode,
-        "stderr_tail": proc.stderr[-2000:] if not ok else "",
+        "stderr_tail": full_output[-2000:] if not ok else "",
     }
 
 
@@ -281,8 +293,8 @@ def main() -> None:
         report["benchmark"] = step_benchmark_inference(
             args.video, args.audio, result_dir, ffmpeg_bin)
         if not report["benchmark"]["ok"]:
-            log("--- stderr đầy đủ của MuseTalk inference (để chẩn đoán) ---")
-            log(report["benchmark"]["stderr_tail"])
+            log("!! benchmark lỗi — output đầy đủ đã in ở trên (live), cũng "
+                "lưu lại trong report.json để gửi lại khi cần chẩn đoán.")
     except Exception as e:  # noqa: BLE001 — PoC: ghi lại lỗi, không để chết cả script
         log(f"!! Scope B (benchmark) lỗi ngoài dự kiến: {e}")
         report["benchmark"] = {"ok": False, "error": str(e)}
