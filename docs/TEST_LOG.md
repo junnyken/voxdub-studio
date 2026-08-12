@@ -3243,3 +3243,115 @@ thiểu 8GB RAM, không bắt buộc GPU).
 - Bảng so sánh chỉ phủ 4 model tại thời điểm research (2026-08) — không
   theo dõi được các model mới/bản cập nhật license sau thời điểm này, cần
   research lại nếu quyết định theo đuổi sau nhiều tháng.
+
+## V31 — Translation-as-a-Service API cho developer bên thứ 3 (Phase G)
+
+### Audit trước khi build
+
+- Xác nhận `gateway.translateSubtitleBatch({items, sourceFlores,
+  targetFlores, sourceName, targetName})` (control_server, đã có từ V14) —
+  KHÔNG gắn "video context" (domain/pronouns/glossary) như luồng dub chính,
+  đúng nhu cầu "phiên bản prompt đơn giản hơn" mà mini-spec dự tính XÂY MỚI
+  — thực ra ĐÃ TỒN TẠI SẴN, tái dùng thẳng, không viết prompt mới.
+- Đọc đầy đủ route `/v1/ai/translate-subtitle` (dùng đúng hàm gateway trên)
+  làm mẫu: validate trần segments/chars, gọi gateway, xử lý lỗi
+  `AI_UNAVAILABLE`. Route `/api/v1/translate` mới mô phỏng ĐÚNG cấu trúc
+  này (Audit Before Build của mini-spec: "tái dùng ai-gateway.service.js,
+  không viết lại logic gọi LLM" — xác nhận đúng, không cần viết lại).
+- Đọc `admin.middleware.js`/`worker-auth.middleware.js` (2 kiểu xác thực
+  static-secret khác `auth.middleware.js` JWT-based) — API key gần với
+  kiểu static-secret hơn (nhiều secret khác nhau, tra theo hash, không cần
+  JWT/thời hạn) — không sao chép machine y hệt cái nào, thiết kế riêng phù
+  hợp (tra DB theo hash, không so sánh 1-1 timing-safe với 1 secret).
+- Đọc `credit.service.js::charge()` — kỹ thuật atomic
+  `findOneAndUpdate({điều kiện đủ số dư}, {$inc}, {new:true})` — tái dùng
+  Y HỆT cho `consumeQuota()` (Constraint 5: không transaction/replica-set).
+- **Phát hiện thật lúc audit**: `/v1/admin/keys` đã tồn tại nhưng là
+  `ActivationKey` (mã kích hoạt Vox) — HOÀN TOÀN KHÁC "API key developer"
+  của V31. Đặt tên route mới `/v1/admin/api-keys` (không phải `/keys`) để
+  tránh nhầm lẫn 2 khái niệm — nếu không audit kỹ điểm này trước khi code
+  sẽ dễ đặt tên trùng gây nhầm lẫn nghiêm trọng.
+
+### Xây dựng
+
+- `src/models/ApiKey.js` (mới) — `keyHash` (SHA-256, KHÔNG lưu plaintext),
+  `keyPrefix` (hiển thị UI), `quota`/`usageCount` (bộ đếm nhanh, cùng vai
+  trò `Device.balance`). TÁCH HẲN `Device.js` (Constraint 3).
+- `src/models/ApiUsageLedger.js` (mới) — mỗi lượt gọi 1 dòng bất biến,
+  TÁCH HẲN `CreditLedger.js`.
+- `src/services/api-key.service.js` (mới) — `generateApiKey()` (dạng
+  `vx_live_<48 hex>`), `hashApiKey()`, `createApiKey()`, `findByPlaintext()`
+  (tra theo hash, không phải so sánh timing-unsafe), `consumeQuota()`
+  (atomic `findOneAndUpdate`, raise `QuotaExceededError` nếu hết quota/key
+  revoked).
+- `src/middleware/apikey.middleware.js` (mới) — `requireApiKey`, gắn
+  `request.apiKey`, SONG SONG `auth.middleware.js` (không sửa file đó).
+- `src/routes/api-v1.js` (mới) — `POST /translate`: validate trần
+  segments/chars (dùng chung config với `/translate-subtitle`), PRE-CHECK
+  quota nhanh (đọc, không atomic — tránh gọi model tốn tiền khi đã rõ hết
+  quota) → gọi `gateway.translateSubtitleBatch()` → `consumeQuota()` atomic
+  THẬT SỰ chặn (xử lý đúng race giữa request song song) → trả kết quả.
+- `src/routes/admin.js` — thêm `GET/POST /api-keys` + `DELETE /api-keys/:id`
+  (namespace riêng, không đụng `/keys` cũ) — audit log mọi hành động tạo/
+  thu hồi, đúng nguyên tắc "mọi hành động đổi tiền/quyền đều ghi AuditLog"
+  đã ghi ở đầu file `admin.js`.
+- `src/app.js` — đăng ký `/api/v1` (route mới) SAU `/internal/jobs`, KHÔNG
+  đụng thứ tự/cấu hình các route cũ.
+- `docs/API.md` — mục `/api/v1` mới + 3 dòng bảng `/v1/admin`.
+
+### Verify
+
+- `tests/api-key-service.test.js` (8 test): sinh key đúng định dạng, không
+  trùng; hash xác định; `createApiKey()` không lưu plaintext; tìm đúng/sai
+  key; `consumeQuota()` tăng đúng, raise khi hết quota/key revoked; **10
+  request `consumeQuota()` CHẠY SONG SONG THẬT trên key quota=5 → đúng
+  CHÍNH XÁC 5 lượt thành công, `usageCount` cuối = 5** (khoá đúng tính
+  atomic dưới race condition thật, không phải giả lập).
+- `tests/api-v1-route.test.js` (9 test, HTTP thật qua `fastify.inject`,
+  mock `gateway.translateSubtitleBatch`): thiếu/sai/revoked key → đúng mã
+  lỗi; key hợp lệ → dịch đúng, quota trừ đúng, ghi `ApiUsageLedger`; hết
+  quota → 429, **gateway KHÔNG được gọi** (xác nhận bằng
+  `fn.mock.callCount()`, đúng thiết kế "kiểm trước khi tốn tiền model");
+  **billing KHÔNG đụng `Device.balance`/`CreditLedger`** của desktop app
+  (test tạo Device thật, gọi API key thật, xác nhận Device không đổi gì);
+  validate schema; **device token (JWT app desktop) KHÔNG dùng được cho
+  `/api/v1`** (401 — xác nhận 2 hệ auth tách biệt hoàn toàn, không lẫn).
+- `tests/admin-api-keys-route.test.js` (5 test, HTTP thật): thiếu admin
+  token → 401; tạo key → plaintext chỉ trả 1 lần, DB không lưu plaintext;
+  danh sách không lộ `keyHash`; thu hồi → key thật sự không dùng được nữa
+  ở `/api/v1/translate` (test gọi CẢ 2 route thật, không chỉ kiểm DB).
+- `npm test` toàn bộ (Node test runner + MongoDB in-memory thật, không
+  mock DB): **189 tests, 188 passed, 1 skipped, 0 failed** (168 pass trước
+  V31 + 21 test mới — con số baseline 167 pass đã xác nhận lại bằng cách
+  chạy `npm test` THẬT trước khi bắt đầu code V31, không giả định).
+- **Live-verify THẬT qua HTTP thật** (không chỉ `fastify.inject` trong
+  test) — dựng script khởi động `build()` thật + kết nối MongoDB THẬT
+  (in-memory server thật, không mock mongoose) + `app.listen()` thật trên
+  cổng 3999, rồi gọi `curl` thật từ ngoài tiến trình Node: (1) tạo API key
+  qua admin — nhận đúng `vx_live_...` thật; (2) gọi `/api/v1/translate`
+  không key → `401` thật; (3) gọi với key thật → đi xuyên suốt auth +
+  validate + quota precheck tới tận `ai-gateway.service.js`, dừng đúng ở
+  `NO_PROVIDER` (không có AI provider cấu hình trong DB test — đúng dự
+  kiến, XÁC NHẬN toàn bộ đường ống hoạt động thật, không phải giả định
+  route "chắc chạy được"); (4) liệt kê key qua admin — không lộ `keyHash`
+  thật; (5) thu hồi — `403` thật ngay sau đó khi gọi lại translate.
+
+### Remaining Limits (V31)
+
+- **Chưa live-verify dịch THẬT thành công** (cần AI provider key thật —
+  Gemini/OpenAI/OpenRouter — không có trong môi trường sandbox này) — đã
+  live-verify được TOÀN BỘ đường ống TRỪ bước gọi model thật (dừng đúng ở
+  `NO_PROVIDER`, không phải lỗi route/auth/quota).
+- **Chưa có self-service portal** — đúng phạm vi đã chốt trong mini-spec
+  ("thủ công qua admin lúc đầu"), self-service là mini-spec RIÊNG nếu nhu
+  cầu thật xuất hiện.
+- Rate-limit Fastify per-route (`config.rateLimit`) dùng chung
+  `keyGenerator` toàn cục (`app.js`, cắt 32 ký tự cuối Bearer token) — tự
+  nhiên tách được API key khỏi device token do khác định dạng/độ dài,
+  nhưng KHÔNG có namespace rate-limit RIÊNG cho `/api/v1/*` như bản nháp
+  ban đầu hình dung — chặn THẬT SỰ (quota cứng) nằm ở `ApiKey.quota`, tầng
+  rate-limit chỉ là lớp chống burst bổ sung, không phải cơ chế chính.
+- Chưa có endpoint cho developer tự xem usage/quota của chính mình (chỉ
+  admin xem được qua `/v1/admin/api-keys`) — response `/api/v1/translate`
+  CÓ trả `quota`/`usageCount` mỗi lượt gọi nên developer vẫn theo dõi được
+  gián tiếp, nhưng chưa có `GET /api/v1/me` riêng.

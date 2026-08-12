@@ -88,6 +88,11 @@ async function build(opts = {}) {
   // kết quả) — KHÔNG dưới /v1, xác thực bằng WORKER_INTERNAL_TOKEN riêng
   // (worker-auth.middleware.js), không lộ ra client thiết bị/website.
   await app.register(require('./routes/internal-jobs'), { prefix: '/internal/jobs' })
+  // Mini-spec V31 (docs/PLAN.md, Phase G): API dịch thuật công khai cho
+  // developer bên thứ 3 — namespace RIÊNG /api/v1 (khác /v1/ai của app
+  // desktop), xác thực bằng API key (apikey.middleware.js), KHÔNG đụng
+  // saas_client.is_configured()/Device/CreditLedger của app desktop.
+  await app.register(require('./routes/api-v1'), { prefix: '/api/v1' })
 
   // Website tĩnh (nếu đã build). SPA: đường dẫn lạ ngoài /v1 trả index.html.
   const hasWeb = opts.web !== false && fs.existsSync(path.join(WEB_DIST, 'index.html'))

@@ -14,6 +14,7 @@ const AiProvider = require('../models/AiProvider')
 const UsageLog = require('../models/UsageLog')
 const AuditLog = require('../models/AuditLog')
 const CreditLedger = require('../models/CreditLedger')
+const ApiKey = require('../models/ApiKey')
 
 const credit = require('../services/credit.service')
 const config = require('../services/config.service')
@@ -21,6 +22,7 @@ const activation = require('../services/activation.service')
 const gateway = require('../services/ai-gateway.service')
 const audit = require('../services/audit.service')
 const holdService = require('../services/hold.service')
+const { createApiKey } = require('../services/api-key.service')
 const { encrypt } = require('../utils/crypto')
 
 module.exports = async function adminRoutes(fastify) {
@@ -590,6 +592,62 @@ module.exports = async function adminRoutes(fastify) {
       AuditLog.countDocuments(filter),
     ])
     return { total, page: Number(page), data }
+  })
+
+  // -------------------------------------------- API key developer (V31) --
+  // Đặt tên "/api-keys" (khác "/keys" ở trên — đó là ActivationKey, mã kích
+  // hoạt Vox, KHÔNG liên quan) để tránh nhầm 2 khái niệm hoàn toàn khác
+  // nhau. Mini-spec V31 (docs/PLAN.md, Phase G) — "thủ công qua admin lúc
+  // đầu, chưa cần self-service portal".
+  fastify.get('/api-keys', async (request) => {
+    const { status = '', page = 1, limit = 20 } = request.query
+    const filter = {}
+    if (status) filter.status = status
+    const skip = (Math.max(1, Number(page)) - 1) * Number(limit)
+    const [data, total] = await Promise.all([
+      ApiKey.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit))
+        .select('-keyHash').lean(),
+      ApiKey.countDocuments(filter),
+    ])
+    return { total, page: Number(page), data }
+  })
+
+  /** Tạo API key mới — plaintext CHỈ trả về đúng 1 LẦN, không đọc lại được sau. */
+  fastify.post('/api-keys', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['orgName'],
+        properties: {
+          orgName: { type: 'string', minLength: 1, maxLength: 200 },
+          contactEmail: { type: 'string', maxLength: 200, default: '' },
+          quota: { type: 'integer', minimum: 1, default: 1000 },
+        },
+      },
+    },
+  }, async (request) => {
+    const { orgName, contactEmail = '', quota = 1000 } = request.body
+    const { plaintext, doc } = await createApiKey({
+      orgName, contactEmail, quota, createdIp: request.ip,
+    })
+    await audit.log({
+      action: 'admin.apikey.create',
+      target: String(doc._id),
+      after: { orgName, quota },
+      ip: request.ip,
+    })
+    return { ok: true, apiKey: plaintext, id: doc._id, keyPrefix: doc.keyPrefix }
+  })
+
+  fastify.delete('/api-keys/:id', async (request, reply) => {
+    const key = await ApiKey.findById(request.params.id)
+    if (!key) return reply.code(404).send({ code: 'NOT_FOUND' })
+    key.status = 'revoked'
+    await key.save()
+    await audit.log({
+      action: 'admin.apikey.revoke', target: String(key._id), ip: request.ip,
+    })
+    return { ok: true }
   })
 }
 

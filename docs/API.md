@@ -256,6 +256,39 @@ bộ vẫn trả `{success:true}` (giao dịch đã ghi ở PayOS, đối chiế
 | `GET /analytics/retention?weeks` | Cohort retention theo tuần đăng ký (V10, xem docs/PLAN.md) — `{weeks, cohorts: [{cohortWeek, cohortSize, retention:[{offsetWeeks,active,pct}]}]}`, dùng lại `Device.firstSeenAt`/`lastSeenAt`, không thu thập gì mới |
 | `GET /analytics/pipeline-funnel?days&staleHours` | Phễu hoàn thành/bỏ dở (V13, xem docs/PLAN.md) — `{days, staleHours, funnel:[{stage,count}], started, completed, failed, abandoned}`. `funnel` là 6 chặng `acquire→separate→asr→translate→tts→merge_video`, đếm số run PHÂN BIỆT đã từng đạt tới mỗi chặng. `abandoned` = ước lượng (`started` không cập nhật quá `staleHours` giờ, mặc định 6) — KHÔNG phải sự thật tuyệt đối, không có sự kiện "abandoned" tường minh. Nguồn: `PipelineEvent`, chỉ ghi từ client ở chế độ SaaS. |
 | `GET /audit-log?action&target&page&limit` | Nhật ký hành động |
+| `GET /api-keys?status&page&limit` | Danh sách API key developer bên thứ 3 (V31 — ẩn `keyHash`) |
+| `POST /api-keys` | `{orgName, contactEmail?, quota? (default 1000)}` — tạo key mới, trả `apiKey` PLAINTEXT đúng 1 LẦN (không đọc lại được sau) |
+| `DELETE /api-keys/:id` | Thu hồi key (`404` nếu không tồn tại) |
+
+## `/api/v1` — API dịch thuật công khai cho developer bên thứ 3 (mini-spec V31, docs/PLAN.md Phase G)
+
+Auth: header `Authorization: Bearer <apiKey>` (`vx_live_...`, cấp qua
+`POST /v1/admin/api-keys` — hiện chưa có self-service portal). Đây là lớp
+identity THỨ 2, SONG SONG với device-fingerprint của app desktop — hoàn
+toàn tách biệt, không đụng `/v1/ai/*`.
+
+**Phạm vi CHỦ ĐÍCH hẹp: CHỈ dịch văn bản** (tái dùng đúng luồng dịch phụ đề
+V14, không gắn "video context"). KHÔNG có ASR/TTS/video qua API này — hạ
+tầng đó chưa tồn tại server-side (xem "Audit Before Build" của V31 trong
+docs/PLAN.md: ASR/TTS hiện 100% chạy trên máy người dùng app desktop,
+không có server nào làm thay).
+
+Billing: mỗi API key có `quota`/`usageCount` riêng (KHÔNG dùng chung ví Vox
+với app desktop — `CreditLedger`/`Device` không bị đụng tới bởi API này).
+
+### `POST /translate`
+Body: `{sourceFlores, targetFlores (mã FLORES-200, vd "vie_Latn"), sourceName?, targetName?, items: [{id, text}]}`
+
+Response 200: `{segments: [{id, text}], quota, usageCount}`
+
+Lỗi:
+- `401 NO_API_KEY` / `401 BAD_API_KEY` — thiếu/sai API key
+- `403 API_KEY_REVOKED` — key đã bị admin thu hồi
+- `400 BATCH_TOO_LARGE` / `400 SEGMENT_TOO_LONG` — vượt trần cấu hình (dùng
+  chung `ai.max.segments.per.request`/`ai.max.chars.per.segment` với
+  `/v1/ai/translate-subtitle`)
+- `429 QUOTA_EXCEEDED` — hết quota, kèm `{quota, usageCount}`
+- `503 AI_UNAVAILABLE` — mô hình dịch tạm thời không phản hồi
 
 ## Model (`src/models/`) — dựng lại 2026-08-10, xem `docs/TEST_LOG.md` V0
 
@@ -263,3 +296,5 @@ bộ vẫn trả `{success:true}` (giao dịch đã ghi ở PayOS, đối chiế
 `AppConfig`, `UsageLog`, `AuditLog`, `JobResult` — field/enum/index chi tiết
 nằm trực tiếp trong từng file (comment giải thích lý do mỗi ràng buộc).
 `RenderJob` (V9→V12) và `PipelineEvent` (V13) thêm sau, cùng quy ước.
+`ApiKey`/`ApiUsageLedger` (V31, docs/PLAN.md Phase G) — API key developer
+bên thứ 3 + sổ cái lượt gọi, TÁCH HẲN khỏi `Device`/`CreditLedger`.
