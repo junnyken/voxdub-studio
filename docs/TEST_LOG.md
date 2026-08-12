@@ -3539,3 +3539,96 @@ Python nào cài sẵn (khác lượt build V26-V31 trước — có thể đã 
 `pip install -e ".[dev]" pydub numpy cryptography` mới chạy được
 `pytest tests/` đầy đủ. Ghi lại để phiên sau không nhầm "thiếu dependency"
 là bug thật của code.
+
+## V32a — PoC lip-sync MuseTalk: hạ tầng cài đặt + harness đo thật (Phase G)
+
+Chủ dự án đã trả lời đủ 5 câu hỏi chính sách của V30 (2026-08-12, xác nhận
+trực tiếp): CÓ consent-check, CÓ watermark, CÓ giới hạn theo gói/Vox, CHẤP
+NHẬN venv GPU-only, KHÔNG cần xét lại Wav2Lip (audit kỹ thuật AI đủ). Yêu
+cầu: chuẩn bị sẵn phần KHÔNG cần GPU của V32a để chủ dự án tự chạy trên máy
+có GPU riêng.
+
+### Nghiên cứu thật trước khi viết script (không suy đoán API/lệnh cài đặt)
+
+- Đọc trực tiếp `README.md`/`requirements.txt`/`download_weights.sh`/
+  `LICENSE` của repo `TMElyralab/MuseTalk` (qua `raw.githubusercontent.com`
+  thật, có trích dẫn) — xác nhận lại license MIT (khớp V30), lấy đúng lệnh
+  cài PyTorch 2.0.1 (cu118), bộ MMLab (`mmengine`/`mmcv==2.0.1`/
+  `mmdet==3.1.0`/`mmpose==1.1.0`), và danh sách model weights + nguồn tải
+  thật (HuggingFace: `TMElyralab/MuseTalk`, `stabilityai/sd-vae-ft-mse`,
+  `openai/whisper-tiny`, `yzd-v/DWPose`, `ByteDance/LatentSync`; Google
+  Drive: `face-parse-bisent`; pytorch.org: `resnet18`).
+- Đọc trực tiếp mã nguồn `musetalk/utils/preprocessing.py` và
+  `scripts/inference.py` (qua GitHub API + raw content thật, không đoán tên
+  hàm) — xác nhận API thật: `get_landmark_and_bbox(img_list)` trả về
+  `(coords_list, frames)`, frame không phát hiện được khuôn mặt được đánh
+  dấu bằng `coord_placeholder = (0.0,0.0,0.0,0.0)` — đây CHÍNH LÀ tín hiệu
+  consent-check (Scope C của mini-spec), dùng THẲNG hàm thật của MuseTalk
+  thay vì tự viết detector riêng (đúng nguyên tắc Playbook "không build
+  song song với engine đã có").
+- Lấy đúng SHA commit mới nhất qua GitHub API (`0a89dec45a0192b824e3cf4daf
+  96c239440c5ed8`, 2025-09-26) để ghim — PoC phải tái lập được, không clone
+  nhánh `main` trôi nổi.
+- Xác nhận môi trường sandbox này KHÔNG có GPU qua 2 cách: lệnh `nvidia-smi`
+  không tồn tại, và `python3 -c "import torch"` báo chưa cài — khớp đúng
+  giới hạn đã ghi ở V30, không phải lỗi mới.
+
+### Xây dựng
+
+- `scripts/setup_lipsync_poc.py` (mới) — script cài đặt resume-safe theo
+  đúng khuôn `scripts/setup_diarization.py` đã có: kiểm GPU THẬT trước tiên
+  (gate chặn cứng, đỡ phí ~15GB tải về nếu máy không có GPU) → tạo
+  `.venv-lipsync` → cài PyTorch 2.0.1 cu118 → clone MuseTalk (ghim commit) →
+  cài `requirements.txt` + bộ MMLab → tải weights thật (~5-6GB, qua
+  `huggingface_hub`/`gdown`/`urllib` trực tiếp trong Python, không phụ
+  thuộc bash để chạy được cả Windows) → kiểm ffmpeg (dùng lại đúng
+  `shutil.which("ffmpeg")`/`bin/ffmpeg.exe` mà `preflight.py` đã dùng, không
+  cài ffmpeg riêng trùng lặp). Ghi rõ trong docstring 2 rủi ro THẬT không
+  giấu: `mmcv` là extension biên dịch sẵn có thể lỗi trên tổ hợp Python/CUDA
+  lạ (cần Visual Studio Build Tools trên Windows nếu phải build từ mã
+  nguồn); `requirements.txt` của MuseTalk ghim `numpy==1.23.5` CŨ hơn
+  `numpy>=1.24` của `pyproject.toml` chính — đúng lý do venv phải tách hẳn.
+- `scripts/research/lipsync_poc.py` (mới) — harness đo 3 nhóm số liệu thật:
+  (B) benchmark — gọi `scripts/inference.py` THẬT của MuseTalk qua
+  subprocess (không viết lại logic inference), đo thời gian bằng
+  `time.monotonic()` + VRAM peak bằng poll `nvidia-smi` mỗi 0.5s trên luồng
+  nền trong lúc subprocess chạy; (C) consent-check — tách frame bằng đúng
+  lệnh ffmpeg MuseTalk dùng nội bộ rồi gọi thẳng `get_landmark_and_bbox()`
+  thật, tính % frame không phát hiện được khuôn mặt; (D) watermark — 2
+  phương án ffmpeg (overlay chữ nhìn thấy được / metadata ẩn), đo chi phí
+  thời gian xử lý thêm mỗi phương án. Ghi report JSON đầy đủ mỗi lượt chạy.
+- `.gitignore` — thêm `/scripts/research/musetalk_repo/` (mã nguồn MuseTalk
+  clone về, không phải submodule) và `/scripts/research/lipsync_poc_output/`
+  (report + video kết quả benchmark cá nhân từng máy) — `lipsync_poc.py`
+  (harness THẬT của VoxDub) vẫn được commit bình thường, chỉ 2 thư mục con
+  sinh ra lúc chạy mới bị loại.
+
+### Verify
+
+- `py_compile` cả 2 script — không lỗi cú pháp.
+- **CHƯA chạy được thật** — sandbox này không có GPU (Constraint 2 của
+  mini-spec V32a là gate chặn CỨNG, script tự dừng ở bước đầu nếu thiếu
+  GPU thay vì lãng phí thời gian cài ~15GB). Đây là giới hạn môi trường
+  thật giống hệt V30, không phải bỏ sót — chủ dự án cần tự chạy 2 script
+  này trên máy có GPU NVIDIA thật (khuyến nghị tối thiểu ~4GB VRAM, đúng số
+  liệu cộng đồng đã có từ V30) để có số liệu benchmark thật, sau đó viết
+  báo cáo Success Criteria của V32a (bảng benchmark ≥3 video mẫu, khuyến
+  nghị go/no-go cho V32b) vào đây.
+- Mọi lệnh cài đặt/tên hàm/tên gói trong 2 script đều lấy TRỰC TIẾP từ
+  README/mã nguồn thật của MuseTalk qua `raw.githubusercontent.com`/GitHub
+  API (không suy đoán) — nhưng CHƯA được verify bằng cách chạy thật trên
+  GPU, nên vẫn có khả năng lệch nhỏ nếu upstream đổi API trước khi ai đó
+  chạy (rủi ro thật của mọi dependency ngoài, không riêng gì lip-sync).
+
+### Remaining Limits (V32a)
+
+- **CHƯA có số liệu benchmark thật nào** — gate chặn GPU, xem trên. Đây là
+  phần việc LỚN NHẤT còn lại của V32a.
+- **CHƯA verify script cài đặt chạy trót lọt hết 6 bước** trên máy thật —
+  rủi ro thực tế nhất là bước MMLab (`mmcv`) nếu không có wheel dựng sẵn
+  khớp máy, đã ghi rõ trong docstring, không giấu.
+- Face-detection audit (Scope C) chỉ đo được TỶ LỆ phát hiện khuôn mặt —
+  KHÔNG giải bài toán nhận diện DANH TÍNH người nổi tiếng (đó là bài toán
+  khác hẳn, face recognition + cơ sở dữ liệu, ngoài phạm vi PoC này, có thể
+  cần dịch vụ bên thứ 3 riêng nếu chính sách consent-check cuối cùng của
+  V32b yêu cầu tới mức đó — ghi lại làm đầu vào cho V32b).

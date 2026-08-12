@@ -30,6 +30,14 @@ linkdouyin.txt
 # can commit) bi bo lot khoi git hoan toan, xem docs/TEST_LOG.md.
 /models/
 
+# PoC lip-sync (mini-spec V32a, docs/PLAN.md Phase G) — repo MuseTalk clone
+# ve THAT (khong phai submodule) + model weights (~5-6GB) + video/report ket
+# qua benchmark ca nhan tung may. scripts/research/lipsync_poc.py (harness
+# THAT cua VoxDub) VAN duoc commit binh thuong, chi rieng 2 thu muc con nay
+# bi loai.
+/scripts/research/musetalk_repo/
+/scripts/research/lipsync_poc_output/
+
 # Giong nguoi dung tu them (voices/preset_voices_vn/ VAN duoc commit)
 voices/custom/
 voices/*.wav
