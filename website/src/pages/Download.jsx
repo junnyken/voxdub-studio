@@ -4,7 +4,7 @@ import { Reveal } from '../components/motion'
 
 // Kho phát hành khớp với `Settings.update_repo` của app desktop — đổi ở đây
 // thì nhớ đổi cả bên đó, nếu không nút "Tải bản mới" trong app trỏ đi nơi khác.
-const RELEASE_URL = 'https://github.com/YOUR_GITHUB/your-releases/releases/latest'
+const RELEASE_URL = 'https://github.com/junnyken/voxdub-studio/releases/latest'
 
 const REQUIREMENTS = [
   ['Hệ điều hành', 'Windows 10 hoặc 11, 64-bit'],

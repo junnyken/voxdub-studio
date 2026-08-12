@@ -1,0 +1,44 @@
+name: Build & release VoxDub Studio (Windows)
+
+# Build thật trên runner Windows của GitHub (autodub_gui chỉ hỗ trợ Windows,
+# không cross-compile được từ Linux — xem scripts/build_exe.py).
+# Chạy khi push tag "v*" (vd v2.1.0), hoặc kích hoạt tay từ tab Actions.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # cần để action tạo GitHub Release + upload asset
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cài dependencies + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build (PyInstaller onedir + lắp ráp + smoke test)
+        run: python scripts/build_exe.py
+
+      - name: Nén dist/VoxDub thành zip phân phối
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          Compress-Archive -Path dist/VoxDub/* -DestinationPath "VoxDub-Studio-$ver-win64.zip"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: VoxDub-Studio-*-win64.zip
+          generate_release_notes: true

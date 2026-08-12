@@ -1901,9 +1901,16 @@ trực tiếp, không qua lớp auto-detect single-app như VAYS.
 **Dọn dẹp còn nợ**: 3 project rác trên VAYS (`voxdub-control-server`,
 `voxdub-studio`, `voxdub-server`, đều trạng thái lỗi) + 1 MongoDB managed
 (`voxdub-studio-db`) — không có API xoá qua MCP, chủ dự án cần tự xoá qua
-dashboard VAYS nếu muốn giải phóng hạn mức (đang dùng 3/10 dịch vụ). Repo
-mirror GitHub (`github.com/junnyken/voxdub-studio`, public) vẫn còn tồn tại —
-cân nhắc xoá hoặc chuyển private nếu không cần dùng tiếp cho VAYS.
+dashboard VAYS nếu muốn giải phóng hạn mức (đang dùng 3/10 dịch vụ).
+
+**Cập nhật 2026-08-12**: repo mirror `github.com/junnyken/voxdub-studio` **KHÔNG
+xoá** — chủ dự án chốt dùng repo này làm nơi phát hành chính thức (GitHub
+Releases) cho bản `.exe` desktop, thay cho placeholder `YOUR_GITHUB/your-releases`
+cũ trong `website/src/pages/Download.jsx`. Đã đồng bộ `update_repo` trong
+`autodub/config.py` (2 chỗ: dataclass default + `env("UPDATE_REPO", ...)`) trỏ
+cùng repo này để nút "Kiểm tra bản mới" trong app khớp với nút Tải xuống trên
+website. Repo hiện **chưa có release nào** — nút Tải xuống vẫn sẽ 404 cho tới
+khi có bản build thật được publish lên đó (xem mục kế tiếp về build Windows).
 
 ## V18 — Bộ quy tắc dịch riêng cho 8 ngôn ngữ đích mới + nâng cấp tiếng Việt (Phase E, 2026-08-12)
 
