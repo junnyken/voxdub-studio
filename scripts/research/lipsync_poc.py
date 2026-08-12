@@ -108,7 +108,7 @@ class _VramPoller:
 
 
 def step_benchmark_inference(video: str, audio: str, result_dir: str,
-                             ffmpeg_bin: str) -> dict:
+                             ffmpeg_bin: str, parsing_mode: str = "jaw") -> dict:
     """Scope B — chạy `scripts/inference.py` THẬT của MuseTalk, đo thời gian
     + VRAM peak. KHÔNG viết lại logic inference — chỉ gọi qua subprocess
     đúng như README chỉ dẫn."""
@@ -146,6 +146,7 @@ def step_benchmark_inference(video: str, audio: str, result_dir: str,
         # có biên an toàn hơn cho card 4GB.
         "--use_float16",
         "--batch_size", "4",
+        "--parsing_mode", parsing_mode,
     ]
     log(f"chạy MuseTalk inference thật: {' '.join(cmd)}")
     log("(tiến trình MuseTalk in trực tiếp bên dưới — tải model + xử lý "
@@ -311,6 +312,13 @@ def main() -> None:
                              "VoxDub thật, vd data/audio_vi_full.wav")
     parser.add_argument("--label", required=True,
                         help="Nhãn video mẫu, vd mat_thang/goc_nghieng/nhieu_nguoi")
+    parser.add_argument("--parsing-mode", default="jaw", choices=["jaw", "raw", "neck"],
+                        help="Chế độ pha trộn khuôn mặt của MuseTalk (mặc định "
+                             "'jaw' — GitHub issue #400 'black box in mouth', lỗi "
+                             "THẬT chưa có fix chính thức, xảy ra CẢ với khuôn mặt "
+                             "người thật lẫn hình vẽ — thử 'raw' (đơn giản hơn, "
+                             "không giãn nở/co hình học) để chẩn đoán xem lỗi có "
+                             "nằm ở logic riêng của chế độ 'jaw' không)")
     args = parser.parse_args()
 
     _require_repo()
@@ -332,7 +340,8 @@ def main() -> None:
     os.makedirs(result_dir, exist_ok=True)
 
     log(f"=== PoC lip-sync — mẫu «{args.label}» ===")
-    report = {"label": args.label, "video": args.video, "audio": args.audio}
+    report = {"label": args.label, "video": args.video, "audio": args.audio,
+              "parsing_mode": args.parsing_mode}
 
     # Mỗi bước tách try/except riêng — 1 bước lỗi KHÔNG được làm mất kết quả
     # (hoặc chẩn đoán lỗi) của 2 bước còn lại. Bug thật đã gặp: Scope C lỗi
@@ -340,7 +349,7 @@ def main() -> None:
     # Scope B) — người dùng phải chạy lại từ đầu chỉ để xem lại lỗi cũ.
     try:
         report["benchmark"] = step_benchmark_inference(
-            args.video, args.audio, result_dir, ffmpeg_bin)
+            args.video, args.audio, result_dir, ffmpeg_bin, args.parsing_mode)
         if not report["benchmark"]["ok"]:
             log("!! benchmark lỗi — output đầy đủ đã in ở trên (live), cũng "
                 "lưu lại trong report.json để gửi lại khi cần chẩn đoán.")
