@@ -3071,3 +3071,71 @@ việc dở), lần 2 tức thời (chấp nhận việc dở có thể chưa ho
   render + so sánh waveform/pitch. Đã live-verify được lớp WIRING (request
   đúng style tới worker thật) — chưa live-verify được lớp CHẤT LƯỢNG cảm
   nhận được.
+
+## V29 — Lộ rõ AI review dịch ra quality_report.json + GUI (Phase G)
+
+### Audit trước khi build
+
+- `grep` toàn repo xác nhận `review_translations()` chỉ có 1 lời gọi THẬT
+  (`pipeline.py:1139`) — lời gọi thứ 2 tìm thấy (`autodub_gui/app.py:716`)
+  chỉ là import trong danh sách "first-run health check" (kiểm tra module
+  còn import được sau đóng gói), không gọi hàm. An toàn đổi thêm tham số mà
+  không lo phá caller khác.
+- Đọc đầy đủ `review_translations()`: có 2 điểm `return` (bail-out khi
+  >35% câu bị cờ; return cuối sau khi build `fixed`) — cả 2 đều cần ghi
+  trace, không chỉ điểm cuối (video bị bail-out do quá nhiều câu vẫn nên
+  thấy được LÝ DO tại sao không có gì được sửa).
+- Xác nhận `_build_quality_report()` là `@staticmethod` — không tự đọc
+  được `self._last_review_trace`, cần truyền tường minh qua tham số mới
+  từ call site (đã sửa).
+
+### Xây dựng
+
+- `autodub/text/translate_review.py::review_translations()` — thêm tham số
+  TUỲ CHỌN `trace_out: list[dict] | None = None`; nếu là 1 list, hàm mới
+  `_append_trace()` ghi 1 entry MỖI câu bị cờ (`{"id", "reason", "before",
+  "after", "improved"}`) vào đó tại CẢ 2 điểm return — kể cả câu bail-out
+  (chưa từng gọi máy chủ) vẫn có trace với `improved=False`.
+- `autodub/pipeline.py` — thêm `self._last_review_trace: list[dict] = []`
+  (khởi tạo trong `__init__`, mặc định rỗng cho đường dịch tay không chạy
+  review); `_auto_translate()` truyền `trace_out=trace` rồi lưu vào
+  `self._last_review_trace` (side-channel cùng kiểu `self.last_work_dir`/
+  `self._telemetry_run_id` đã có).
+- `_build_quality_report()` — thêm tham số `review_trace: list[dict] |
+  None = None`, thêm field CẤP CAO MỚI `"translate_review": review_trace or
+  []` vào dict trả về — ADDITIVE, không đụng `"summary"`/`"per_segment"`.
+- `autodub_gui/pages/quality_page.py` — bảng mới "AI đã tự soát bản dịch
+  (N/M câu được sửa)" hiện SAU bảng "Câu cần xem lại" đã có, chỉ hiện khi
+  `translate_review` không rỗng; cột Câu/Lý do nghi vấn/Trước/Sau/Đã sửa.
+
+### Verify
+
+- `tests/test_translate_review_trace.py` (6 test): không truyền
+  `trace_out` (0 regression mọi caller cũ); trace ghi đúng khi server sửa
+  thành công; trace ghi `improved=False` khi server KHÔNG sửa được; không
+  có câu nào bị cờ → trace rỗng; **>35% câu bị cờ → bail-out sớm (không gọi
+  server) NHƯNG vẫn trace đủ 4/4 câu** (khoá đúng yêu cầu "cả 2 điểm
+  return đều ghi trace"); `translate_review=False` (tắt review) → trace
+  rỗng.
+- `tests/test_pipeline_quality_report_review_trace.py` (4 test):
+  `review_trace=None`/không truyền → field vẫn tồn tại, rỗng, không lỗi;
+  trace truyền vào lộ đúng ra field; `summary`/`per_segment` KHÔNG đổi khi
+  có/không có `review_trace` (khoá đúng tính additive, 0 regression V23).
+- `tests/test_quality_page_review_trace.py` (4 test, headless
+  `QT_QPA_PLATFORM=offscreen`, cùng khuôn `test_recognize_step_warning.py`
+  đã có): báo cáo không có field `translate_review` (video cũ trước V29)
+  → không lỗi, không thêm bảng (0 regression); trace rỗng → không thêm
+  bảng; bảng mới hiện đúng số dòng + cột "Đã sửa" đúng Có/Không; nhãn lý do
+  nghi vấn dịch sang tiếng Việt đúng.
+- `pytest tests/ -q` toàn bộ (venv đầy đủ dependency): **940 passed, 6
+  skipped, 0 failed** (926 pass sau V28 + 14 test V29 mới).
+
+### Remaining Limits (V29)
+
+- Bảng GUI chỉ hiện SAU KHI chọn dự án đã có `quality_report.json` — không
+  có cách xem trace "đang review" theo thời gian thực trong lúc pipeline
+  đang chạy (chỉ xem SAU khi xong, giống mọi phần khác của trang Báo cáo
+  chất lượng — không phải giới hạn riêng của V29).
+- Chưa live-verify qua 1 lượt dịch SaaS thật có câu thực sự bị flag+sửa
+  (test dùng `MagicMock` cho `client.review()`) — hạ tầng live-verify HTTP
+  thật đã có từ V14/V15, có thể tái dùng khi cần xác nhận thêm.

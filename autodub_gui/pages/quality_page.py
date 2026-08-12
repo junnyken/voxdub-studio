@@ -172,6 +172,10 @@ class QualityPage(BasePage):
         summary = self._current_report.get("summary", {})
         translate_usage = self._current_report.get("translate_usage", {})
         per_segment = self._current_report.get("per_segment", [])
+        # mini-spec V29 (docs/PLAN.md, Phase G) — trace của
+        # translate_review.py, trước đây tự động chạy nhưng kết quả
+        # "biến mất" sau khi xong, không ai thấy được nó đã làm gì.
+        review_trace = self._current_report.get("translate_review", [])
 
         # Thẻ tổng quan
         overview = self._build_overview(summary)
@@ -186,6 +190,11 @@ class QualityPage(BasePage):
         if per_segment:
             table = self._build_segment_table(per_segment)
             self._body_layout.insertWidget(self._body_layout.count() - 1, table)
+
+        # Bảng AI đã tự soát/sửa những câu nào (V29)
+        if review_trace:
+            review_table = self._build_review_table(review_trace)
+            self._body_layout.insertWidget(self._body_layout.count() - 1, review_table)
 
     def _build_overview(self, summary: dict) -> QWidget:
         card = Card(padding=tokens.SP_4, spacing=tokens.SP_3)
@@ -282,6 +291,44 @@ class QualityPage(BasePage):
                           if isinstance(start, (int, float)) else "—")
             values = (str(seg.get("id", "")), start_text,
                       ", ".join(issues) or "—", seg.get("text", ""))
+            for col, text in enumerate(values):
+                table.setItem(i, col, QTableWidgetItem(text))
+
+        table.resizeColumnsToContents()
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setMinimumHeight(_TABLE_MIN_H)
+        card.body.addWidget(table)
+        return card
+
+    def _build_review_table(self, review_trace: list[dict]) -> QWidget:
+        """Mini-spec V29 (docs/PLAN.md, Phase G) — lộ ra những gì bước rà
+        soát AI (translate_review.py) đã thật sự làm: câu nào bị nghi vấn,
+        AI có sửa được không, trước/sau ra sao. Trước V29 kết quả này chạy
+        xong rồi biến mất, không ai thấy được."""
+        card = Card(padding=tokens.SP_4, spacing=tokens.SP_2)
+        improved = sum(1 for r in review_trace if r.get("improved"))
+        card.add_header(f"AI đã tự soát bản dịch ({improved}/{len(review_trace)} "
+                        "câu được sửa)")
+
+        reason_labels = {"over_budget": "hơi dài so với chỗ trống",
+                         "cjk": "còn sót chữ Trung",
+                         "too_short": "nghi dịch sót ý"}
+
+        table = QTableWidget()
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(
+            ["Câu", "Lý do nghi vấn", "Trước", "Sau", "Đã sửa"])
+        table.setRowCount(len(review_trace))
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.verticalHeader().setVisible(False)
+
+        for i, entry in enumerate(review_trace):
+            reason = reason_labels.get(entry.get("reason"), entry.get("reason", ""))
+            improved_text = "Có" if entry.get("improved") else "Không"
+            values = (str(entry.get("id", "")), reason,
+                     entry.get("before", ""), entry.get("after", ""),
+                     improved_text)
             for col, text in enumerate(values):
                 table.setItem(i, col, QTableWidgetItem(text))
 

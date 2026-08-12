@@ -133,6 +133,11 @@ class DubPipeline:
         # logic pipeline). run_id được gán mỗi lượt trong run() bên dưới.
         self._telemetry_run_id: str | None = None
         self._telemetry_last_stage: str = ""
+        # mini-spec V29 (docs/PLAN.md, Phase G) — trace review dịch lượt
+        # gần nhất, đọc lại bởi _build_quality_report(). Mặc định rỗng —
+        # đường dịch TAY (không qua _auto_translate()) không bao giờ chạy
+        # review, quality_report.json khi đó không có field review.
+        self._last_review_trace: list[dict] = []
         from autodub import telemetry
         telemetry_listener = telemetry.make_progress_listener(self)
 
@@ -842,7 +847,8 @@ class DubPipeline:
         # trước khi quyết định đăng.
         quality = self._build_quality_report(target, segments,
                                              state.get("timing") or {},
-                                             settings)
+                                             settings,
+                                             review_trace=self._last_review_trace)
         quality_path = data_path(work_dir, "quality_report.json")
         with open(quality_path, "w", encoding="utf-8") as f:
             json.dump(quality, f, ensure_ascii=False, indent=2)
@@ -1136,8 +1142,16 @@ class DubPipeline:
         # lại đúng các câu đó. Hỏng thì giữ nguyên bản lượt đầu.
         try:
             from autodub.text.translate_review import review_translations
+            # mini-spec V29 (docs/PLAN.md, Phase G) — trace được LỘ RA
+            # (không đổi return type của review_translations(), chỉ THÊM
+            # kênh phụ qua trace_out) rồi lưu vào self để
+            # _build_quality_report() đọc lại — instance side-channel cùng
+            # kiểu self.last_work_dir/self._telemetry_run_id đã dùng.
+            trace: list[dict] = []
             result = review_translations(result, target, source_lang,
-                                         effective, run_id=run_id)
+                                         effective, run_id=run_id,
+                                         trace_out=trace)
+            self._last_review_trace = trace
         except PipelineCancelled:
             raise
         except Exception as e:
@@ -1676,12 +1690,19 @@ class DubPipeline:
 
     @staticmethod
     def _build_quality_report(target: TargetLang, segments: list[dict],
-                              timing_report, settings=None) -> dict:
+                              timing_report, settings=None,
+                              review_trace: list[dict] | None = None) -> dict:
         """quality_report.json — tổng hợp mọi vấn đề còn lại sau render.
 
         Nguồn: TimingReport của bước đặt timeline mềm + kiểm tra budget dịch.
         ``per_segment`` chỉ chứa các câu CÓ vấn đề (kèm text để tìm nhanh
         trong editor) — video sạch thì danh sách rỗng.
+
+        ``review_trace`` (mini-spec V29, docs/PLAN.md Phase G — TUỲ CHỌN,
+        ADDITIVE): trace của `translate_review.py::review_translations()`
+        cho video này (rỗng nếu không chạy review, vd đường dịch tay) — lộ
+        ra thành field `translate_review` cấp cao, KHÔNG đụng
+        `summary`/`per_segment` đã có từ V23.
         """
         from autodub.media.audio import FALLBACKS
         from autodub.text.translate_hint import effective_cps, payload_segment
@@ -1751,6 +1772,10 @@ class DubPipeline:
                      "VIDEO_SPEED rồi chạy lại. Câu 'over_budget_chars' nên "
                      "được rút gọn để đọc thong thả hơn."),
             "per_segment": per_segment,
+            # mini-spec V29 (docs/PLAN.md, Phase G) — trace review dịch tự
+            # động: câu nào bị nghi vấn, AI có sửa được không, before/after.
+            # Rỗng nếu review không chạy (đường dịch tay) — không gây nhiễu.
+            "translate_review": review_trace or [],
         }
 
     @staticmethod

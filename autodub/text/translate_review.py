@@ -45,6 +45,27 @@ def _chunk_job_id(run_id: str, chunk: list[dict]) -> str:
     return f"rv-{run_id or 'x'}-{h.hexdigest()[:16]}"
 
 
+def _append_trace(trace_out: list[dict] | None, segments: list[dict],
+                  target: TargetLang, flagged: list[tuple[int, str]],
+                  fixed: dict[int, str]) -> None:
+    """Ghi 1 entry cho MỖI câu bị cờ vào ``trace_out`` (nếu có) — kể cả câu
+    không sửa được (``improved=False``, ``after == before``). Mini-spec V29."""
+    if trace_out is None:
+        return
+    for idx, reason in flagged:
+        seg = segments[idx]
+        seg_id = int(seg["id"])
+        before = str(seg.get(target.text_field, ""))
+        after = fixed.get(seg_id, before)
+        trace_out.append({
+            "id": seg_id,
+            "reason": reason,
+            "before": before,
+            "after": after,
+            "improved": seg_id in fixed,
+        })
+
+
 def _flag(seg: dict, text_field: str, cps: float) -> str | None:
     """Lý do nghi vấn của một câu, hoặc None nếu ổn."""
     text = str(seg.get(text_field, "")).strip()
@@ -63,11 +84,19 @@ def _flag(seg: dict, text_field: str, cps: float) -> str | None:
 
 def review_translations(
     segments: list[dict], target: TargetLang, source_lang: str, settings,
-    run_id: str = "",
+    run_id: str = "", trace_out: list[dict] | None = None,
 ) -> list[dict]:
     """Soát + dịch lại các câu nghi vấn. Trả về danh sách câu (có thể mới).
 
     Không sửa tại chỗ — trả về bản sao khi có thay đổi.
+
+    ``trace_out`` (mini-spec V29, docs/PLAN.md Phase G — TUỲ CHỌN, KHÔNG
+    đổi hành vi/return type khi không truyền, 0 regression cho mọi caller
+    cũ): nếu là 1 ``list``, hàm APPEND vào đó 1 entry cho MỖI câu bị cờ
+    (``{"id", "reason", "before", "after", "improved"}``) — kể cả câu
+    KHÔNG sửa được (giữ nguyên bản đầu) — để caller (pipeline.py) lộ ra
+    ``quality_report.json`` những gì review pass ĐÃ THẬT SỰ làm, thay vì
+    kết quả biến mất sau khi hàm chạy xong.
     """
     if not getattr(settings, "translate_review", True):
         return segments
@@ -99,6 +128,7 @@ def review_translations(
             f"Soát lại bản dịch: {len(flagged)}/{len(segments)} câu cần xem "
             f"({breakdown}) — nhiều quá nên giữ nguyên bản dịch, không sửa "
             f"từng câu. Gợi ý: {hint}.")
+        _append_trace(trace_out, segments, target, flagged, {})
         return segments
 
     logger.info(f"Soát lại bản dịch: {len(flagged)} câu cần sửa "
@@ -162,6 +192,8 @@ def review_translations(
                     fixed[int(item["id"])] = text
                 except (KeyError, TypeError, ValueError):
                     continue
+
+    _append_trace(trace_out, segments, target, flagged, fixed)
 
     if not fixed:
         logger.info("Soát lại bản dịch: bản dịch lại không tốt hơn — giữ bản đầu")
