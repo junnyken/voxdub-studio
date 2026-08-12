@@ -112,10 +112,20 @@ def step_benchmark_inference(video: str, audio: str, result_dir: str,
     """Scope B — chạy `scripts/inference.py` THẬT của MuseTalk, đo thời gian
     + VRAM peak. KHÔNG viết lại logic inference — chỉ gọi qua subprocess
     đúng như README chỉ dẫn."""
+    # Bug thật gặp khi live-verify: tự ghép chuỗi YAML bằng f-string, đường
+    # dẫn tuyệt đối Windows có "\" bị hiểu nhầm thành ký tự escape trong
+    # chuỗi có ngoặc kép ("\s" không phải escape hợp lệ) — YAML parser của
+    # MuseTalk (OmegaConf) báo lỗi ScannerError, benchmark chết ngay từ đầu.
+    # Dùng thư viện yaml chuẩn (đã có sẵn trong .venv-lipsync, kéo theo bởi
+    # omegaconf — dependency của chính MuseTalk) để escape ĐÚNG mọi trường
+    # hợp, không tự ghép chuỗi nữa.
+    import yaml  # noqa: PLC0415
+
     config_path = os.path.join(result_dir, "task.yaml")
     task_name = os.path.splitext(os.path.basename(video))[0]
     with open(config_path, "w", encoding="utf-8") as f:
-        f.write(f'task_0:\n video_path: "{video}"\n audio_path: "{audio}"\n')
+        yaml.safe_dump({"task_0": {"video_path": video, "audio_path": audio}},
+                       f, allow_unicode=True)
 
     unet_path = os.path.join(REPO_DIR, "models", "musetalkV15", "unet.pth")
     unet_cfg = os.path.join(REPO_DIR, "models", "musetalkV15", "musetalk.json")
