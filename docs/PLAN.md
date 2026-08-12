@@ -59,6 +59,8 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V29 | Lộ rõ AI review dịch ra quality_report.json + GUI (Phase G) | ✅ Xong | Xác nhận `review_translations()` chỉ 1 caller thật (pipeline.py) — an toàn đổi thêm tham số. Trace additive qua `trace_out` (0 regression mọi caller không truyền), lưu qua instance side-channel `self._last_review_trace` (cùng kiểu `self.last_work_dir`), lộ ra field mới `translate_review` trong `quality_report.json` (additive, không đụng `summary`/`per_segment` của V23) + bảng "AI đã tự soát bản dịch" trong trang Báo cáo chất lượng. 14 test mới, 0 regression (940/946 pass) — xem TEST_LOG |
 | V30 | Audit khả thi Lip-sync (Phase G, KHÔNG cam kết build) | ✅ Xong (research) | Khảo sát thật 4 model mã nguồn mở (license + phần cứng công bố chính thức, có trích dẫn) + cài đặt thật bộ dependency CPU-only (thành công, xác nhận không có GPU provider — đúng thực tế sandbox lẫn nhiều máy người dùng cuối). **Kết quả**: Wav2Lip (nhẹ nhất/CPU-capable) có giấy phép CẤM THƯƠNG MẠI xung đột hệ Vox trả phí; SadTalker (Apache 2.0) cần VRAM phi thực tế cho video dài; VideoReTalking license chưa xác minh được; MuseTalk (MIT) khả thi nhất về giấy phép nhưng vẫn bắt buộc GPU thật để hữu dụng — phá nguyên tắc "GPU-optional" xuyên suốt dự án. **Khuyến nghị: KHÔNG build ngay** — 5 câu hỏi chính sách (consent/watermark/giới hạn gói/GPU-only/tư vấn pháp lý Wav2Lip) cần chủ dự án trả lời trước. Không có test code (đây là research spike đúng Test Plan N/A của mini-spec) — xem TEST_LOG |
 | V31 | Translation-as-a-Service API cho developer bên thứ 3 (Phase G) | ✅ Xong | `ApiKey`/`ApiUsageLedger` (mới, tách hẳn `Device`/`CreditLedger`) + `apikey.middleware.js` (lớp identity thứ 2 song song `auth.middleware.js`) + route `/api/v1/translate` (tái dùng `gateway.translateSubtitleBatch()` đã có từ V14, không viết prompt mới) + `/v1/admin/api-keys` (tạo/liệt kê/thu hồi thủ công). Quota atomic qua `findOneAndUpdate` (đúng Constraint 5 — không transaction/Redis), verify đúng dưới tải đồng thời thật (10 request song song, đúng 5 lượt qua với quota=5). **Re-audit 2026-08-12**: thêm `GET /api/v1/me` (developer tự xem quota/usage của chính mình mà không cần gọi `/translate` trước) — đóng gap cuối trong Remaining Limits. 21+2 = 23 test mới, 0 regression (204/205 pass npm test). **Live-verify thật qua HTTP thật** (không chỉ `fastify.inject`) — dựng server thật + MongoDB thật (in-memory), curl thật: tạo key → 401 khi thiếu key → key hợp lệ chạy xuyên suốt auth+quota-precheck tới tận AI gateway (dừng ở NO_PROVIDER vì không cấu hình provider, đúng như dự kiến) → liệt kê không lộ hash → thu hồi → 403 ngay sau đó — xem TEST_LOG |
+| V32a | PoC lip-sync MuseTalk — benchmark thật + thử nghiệm consent-check/watermark (Phase G, đóng gap V30) | 🔶 Mini-spec đã viết, **CHẶN THẬT: sandbox không có GPU** | Chủ dự án đã trả lời đủ 5 câu hỏi chính sách V30 (2026-08-12): CÓ consent-check, CÓ watermark, CÓ giới hạn theo gói, CHẤP NHẬN GPU-only, KHÔNG cần Wav2Lip (audit kỹ thuật AI đủ, không cần tư vấn pháp lý). Mini-spec PoC viết đầy đủ bên dưới — benchmark thật cần GPU thật (`nvidia-smi`/`torch.cuda.is_available()` xác nhận sandbox này không có), đây là gate chặn CỨNG giống V30, không phải bỏ sót |
+| V32b | Build lip-sync production (Phase G, đóng gap V32a — CHỈ mở khi V32a khuyến nghị "go") | ⏸️ Chờ kết quả V32a | Phạm vi/Design Choice cuối phụ thuộc số liệu benchmark thật của V32a — mini-spec khung đã viết bên dưới, sẽ tinh chỉnh cụ thể (ngưỡng chất lượng, giới hạn video hỗ trợ) sau khi có PoC thật |
 
 ## Tổng quan phase
 
@@ -2430,6 +2432,197 @@ Success Criteria:
 - App desktop hiện có (device-fingerprint) hoàn toàn không bị ảnh hưởng — 0
   regression toàn bộ test control_server hiện có.
 - `docs/API.md` đủ để 1 developer bên ngoài tự tích hợp mà không cần hỏi thêm.
+```
+
+### V32a — PoC lip-sync MuseTalk (đóng gap V30, benchmark thật)
+
+```
+V32a — PoC hẹp: benchmark MuseTalk thật + thử nghiệm consent-check/watermark (Phase G)
+
+Context:
+- V30 (audit, không build) đã khảo sát 4 model mã nguồn mở, chốt MuseTalk (MIT)
+  là lựa chọn DUY NHẤT khả thi cả về giấy phép lẫn phần cứng — Wav2Lip cấm
+  thương mại (loại), SadTalker cần VRAM phi thực tế cho video dài (loại thực
+  tế), VideoReTalking license chưa xác minh được (loại khỏi so sánh nghiêm
+  túc). Nhưng V30 KHÔNG có GPU trong sandbox nên chưa đo được benchmark thật
+  (Remaining Limit của V30) — đây chính là gap V32a đóng.
+- Chủ dự án đã trả lời đủ 5 câu hỏi chính sách của V30 (2026-08-12, xác nhận
+  trực tiếp): (1) CÓ cần consent-check kỹ thuật; (2) CÓ bắt buộc watermark;
+  (3) CÓ giới hạn theo gói/Vox; (4) CHẤP NHẬN venv GPU-only (phá nguyên tắc
+  "GPU-optional" lần đầu, có chủ đích); (5) KHÔNG cần xét lại Wav2Lip — dùng
+  MuseTalk, cần audit KỸ THUẬT của AI (không phải tư vấn pháp lý, vì không
+  dùng model có vấn đề pháp lý nữa).
+- Tiền lệ đúng mô hình PoC-trước-build đã dùng: V8→V11 (TTS đa ngôn ngữ),
+  V9→V12 (cloud rendering) — cả 2 đều PoC hẹp trước, đóng gap sau khi có số
+  liệu thật.
+
+Goal:
+- Có số liệu benchmark THẬT (VRAM, thời gian xử lý, tỷ lệ face-detection
+  thành công) đo trên GPU thật + video mẫu thật đa dạng góc mặt, ĐỦ để quyết
+  định V32b có đáng đầu tư không và phạm vi ban đầu nên giới hạn ra sao (vd
+  chỉ mặt thẳng trước). Đồng thời chứng minh khả thi kỹ thuật (không chỉ ý
+  tưởng) cho 2 yêu cầu chính sách đã chốt: consent-check (nhận diện khuôn
+  mặt) và watermark.
+
+Constraints (Guardrails):
+1. CHỈ MuseTalk — không khảo sát lại model khác (đã chốt xong ở V30, làm lại
+   là lãng phí).
+2. PHẢI chạy trên GPU THẬT. Môi trường hiện tại (2026-08-12, xác nhận qua
+   `nvidia-smi` không tìm thấy lệnh + `torch.cuda.is_available()` không có
+   torch cài) KHÔNG có GPU — đây là GATE CHẶN CỨNG của toàn bộ mini-spec
+   này, giống hệt giới hạn đã ghi ở V30. Ai thực thi mini-spec này PHẢI có
+   máy/instance có GPU rời thật (khuyến nghị tối thiểu class tương đương
+   RTX 3050 Ti 4GB đã có số liệu công khai từ cộng đồng MuseTalk, xem bảng
+   V30) trước khi bắt đầu Scope B.
+3. PoC cô lập HOÀN TOÀN: venv `.venv-lipsync` mới + script trong
+   `scripts/research/` — KHÔNG đụng `pipeline.py` chính, KHÔNG merge vào
+   `requirements.txt`/`pyproject.toml` chính, KHÔNG tải/host model weights
+   (GB) trong repo (tài liệu hoá cách tự tải, giống mọi `scripts/setup_*.py`
+   khác).
+4. Consent-check ở PoC này CHỈ cần chứng minh khả thi KỸ THUẬT của bước
+   face-detection (phát hiện CÓ khuôn mặt người trong khung hình, tin cậy
+   bao nhiêu %) — KHÔNG cần giải bài toán nhận diện DANH TÍNH người nổi
+   tiếng (đó là bài toán khác hẳn — face recognition + cơ sở dữ liệu người
+   nổi tiếng — ngoài phạm vi PoC này, ghi rõ thành phát hiện/khuyến nghị cho
+   V32b thay vì tự mở rộng phạm vi).
+5. Watermark ở PoC này CHỈ cần 1 phương án kỹ thuật khả thi (không cần chọn
+   phương án cuối) — đo chi phí thời gian xử lý thêm phát sinh.
+6. Video mẫu BẮT BUỘC đa dạng: ≥1 mặt thẳng (best case), ≥1 góc nghiêng/che
+   khuất một phần (tình huống thật của video thị trường VoxDub xử lý, không
+   phải mặt thẳng studio) — không được chỉ test best case rồi suy rộng.
+
+Scope:
+A. `.venv-lipsync` (mới, GPU-only) — cài MuseTalk + dependency theo đúng
+   hướng dẫn chính chủ repo (không tự chế bộ dependency khác).
+B. `scripts/research/lipsync_poc.py` — chạy MuseTalk trên ≥3 video mẫu (1
+   mặt thẳng, 1 góc nghiêng/che khuất, 1 nhiều người trong khung) dùng audio
+   ĐÃ DỊCH có sẵn từ 1 lượt pipeline VoxDub thật (không audio giả) — đo
+   THẬT: VRAM peak, thời gian xử lý/giây video, tỷ lệ frame face-detection
+   thành công/thất bại theo từng loại video mẫu.
+C. Audit trước: đọc code MuseTalk thật xem face-detection đã tích hợp sẵn
+   thư viện nào (không tự chọn lại nếu repo đã có pipeline detection riêng)
+   — dùng lại làm bước consent-check thử nghiệm (Constraint 4), đo độ tin
+   cậy phát hiện khuôn mặt trên chính 3 video mẫu ở Scope B.
+D. Thử nghiệm watermark: 1 phương án cụ thể (vd overlay góc dưới hoặc
+   metadata FFmpeg) áp lên video output của Scope B, đo chi phí thời gian
+   xử lý thêm.
+E. Báo cáo: bảng benchmark thật theo từng video mẫu, đánh giá mức độ hữu
+   dụng khi face-detection thất bại (bao nhiêu % frame, hành vi degrade nên
+   ra sao), khuyến nghị go/no-go rõ ràng cho V32b kèm phạm vi cụ thể nếu go
+   (vd "chỉ hỗ trợ video 1 khuôn mặt, góc gần thẳng trước").
+
+Audit Before Build:
+- Xác nhận GPU thật có sẵn TRƯỚC KHI bắt đầu Scope B (Constraint 2) — không
+  bắt đầu nếu chưa có, tránh lặp lại giới hạn của V30.
+- Đọc code MuseTalk thật (không suy đoán từ README) để biết face-detection
+  đã tích hợp sẵn hay cần thêm thư viện ngoài (Scope C).
+
+Design Choice: N/A cho kiến trúc production (đây vẫn là PoC có code thử
+nghiệm cô lập, không phải feature) — nhưng KHÁC V30 (chỉ liệt kê câu hỏi
+chính sách), V32a PHẢI chứng minh khả thi KỸ THUẬT thật cho consent-check
+và watermark, vì 2 điều này chủ dự án đã chốt CÓ, không còn là câu hỏi mở.
+
+Test Plan: "Test" là độ tin cậy số liệu đo thật trên GPU thật + ≥3 video mẫu
+đa dạng góc mặt (không phải unit test theo nghĩa thông thường, giống Test
+Plan N/A của V30).
+
+Success Criteria:
+- Có bảng benchmark THẬT (VRAM/thời gian xử lý/tỷ lệ face-detection thành
+  công) trên ≥3 video mẫu đa dạng, đo trên GPU thật.
+- Có bằng chứng khả thi kỹ thuật (không phải suy đoán) cho face-detection
+  (consent-check) và ≥1 phương án watermark hoạt động được.
+- Khuyến nghị go/no-go rõ ràng cho V32b, kèm phạm vi cụ thể nếu go.
+```
+
+### V32b — Build lip-sync production (đóng gap V32a)
+
+```
+V32b — Tính năng "Đồng bộ khẩu hình" sản xuất (Phase G, CHỈ mở nếu V32a khuyến nghị "go")
+
+Context:
+- Điều kiện tiên quyết: V32a phải hoàn thành với khuyến nghị "go" kèm số
+  liệu benchmark thật — mini-spec này KHÔNG được mở nếu V32a khuyến nghị
+  "không build" hoặc "build giới hạn hơn nữa" mà chưa đáp ứng được.
+- 5 quyết định chính sách đã CHỐT CỨNG (2026-08-12, không còn là câu hỏi mở
+  ở mini-spec này): consent-check kỹ thuật BẮT BUỘC; watermark BẮT BUỘC;
+  giới hạn theo gói/Vox BẮT BUỘC; venv GPU-only CHẤP NHẬN ĐƯỢC (tính năng
+  này sẽ KHÔNG chạy trên máy không có GPU mạnh — ngoại lệ kiến trúc đầu
+  tiên và duy nhất so với "GPU-optional" của mọi tính năng khác).
+- Phạm vi cụ thể (video hỗ trợ, ngưỡng chất lượng chấp nhận được) LẤY TỪ kết
+  quả thật của V32a — không tự đoán trước khi có số liệu.
+
+Goal:
+- Tính năng "Đồng bộ khẩu hình" hoạt động thật trong pipeline + GUI, đúng
+  phạm vi đã được V32a chứng minh khả thi, có đủ 3 lớp kiểm soát đã chốt
+  chính sách (consent-check, watermark, giới hạn gói).
+
+Constraints (Guardrails):
+1. Venv `.venv-lipsync` GPU-only, subprocess-isolated — cùng pattern mọi
+   engine nặng khác (`.venv-whisper`/`.venv-vieneu`/`.venv-asr`/`.venv-gpu`).
+2. KHÔNG giả vờ có đường CPU fallback — tính năng này CHỈ bật được khi phát
+   hiện GPU đủ mạnh, degrade trung thực (ẩn/khoá tuỳ chọn kèm giải thích rõ,
+   không phải lỗi mù mờ) khi không đủ điều kiện phần cứng.
+3. Consent-check PHẢI chạy TRƯỚC khi xử lý, không phải hậu kiểm — phát hiện
+   khuôn mặt không rõ/nhiều người/độ tin cậy thấp → cảnh báo hoặc chặn theo
+   đúng chính sách chốt ở V32a's face-detection findings (ngưỡng cụ thể lấy
+   từ số liệu PoC, không đoán).
+4. Watermark KHÔNG được tuỳ chọn tắt bởi người dùng cuối — đây là kiểm soát
+   đạo đức/pháp lý đã chốt CÓ, không phải tính năng thẩm mỹ.
+5. Giới hạn theo gói/Vox: chi phí compute GPU cao hơn HẲN mọi tính năng khác
+   (audio-only) — cần mô hình định giá Vox RIÊNG cho lip-sync (không dùng
+   chung đơn giá segment hiện có của dịch/TTS), chốt cùng chủ dự án trước
+   khi code phần billing.
+6. Phạm vi video hỗ trợ ban đầu giới hạn đúng những gì V32a đã CHỨNG MINH
+   khả thi (vd chỉ 1 khuôn mặt/góc gần thẳng) — không mở rộng thêm case
+   chưa benchmark chỉ vì "chắc cũng chạy được".
+
+Scope (khung ban đầu — tinh chỉnh cụ thể sau khi có số liệu V32a):
+A. `.venv-lipsync` production (khác `.venv-lipsync` research của V32a — venv
+   research KHÔNG tái sử dụng thẳng cho production, audit lại dependency
+   pin version trước khi promote).
+B. Stage mới trong `pipeline.py`, chạy SAU khi mix audio dubbed xong, TRƯỚC
+   mux video cuối cùng — nhận (video gốc, audio đã lồng tiếng) → face-detect
+   + consent-check → lip-sync theo khung hình → watermark → trả video đã
+   xử lý cho bước mux hiện có.
+C. `autodub_gui/` — toggle "Đồng bộ khẩu hình" (mặc định TẮT), kiểm tra GPU
+   trước khi cho bật (Constraint 2), hiển thị rõ thời gian xử lý ước tính sẽ
+   tăng đáng kể, cảnh báo watermark bắt buộc trước khi người dùng bấm chạy.
+D. `control_server/` — mô hình giá Vox riêng cho lip-sync (Constraint 5),
+   giới hạn lượt/thời lượng theo gói.
+E. Tests: unit (face-detection threshold logic, watermark áp dụng luôn luôn
+   không tắt được, degrade đúng khi thiếu GPU); integration (stage pipeline
+   mới chạy đúng thứ tự, không phá stage khác); regression (toàn bộ pipeline
+   KHÔNG bật lip-sync phải giữ nguyên 100% hành vi, đúng nguyên tắc mặc định
+   TẮT xuyên suốt Phase F/G).
+
+Audit Before Build: đọc kỹ báo cáo + số liệu thật của V32a trước khi viết
+Scope B chi tiết — ngưỡng face-detection, phạm vi video hỗ trợ, phương án
+watermark cuối cùng đều LẤY TỪ đó, không tự quyết lại.
+
+Design Choice: chưa chốt được đầy đủ trước khi có V32a — nguyên tắc chung
+đã rõ (venv GPU-only cô lập, stage cuối trước mux, degrade trung thực,
+watermark không tuỳ chọn), chi tiết kỹ thuật (model version, ngưỡng chất
+lượng, cấu trúc dữ liệu consent-check) chốt khi mở mini-spec này thật.
+
+Test Plan:
+- Unit: watermark luôn áp dụng (không có code path nào bỏ qua được);
+  face-detection threshold đúng theo số liệu V32a; degrade đúng khi thiếu
+  GPU (thông báo rõ, không crash mù mờ).
+- Integration: pipeline đầy đủ có bật lip-sync trên video mẫu, output hợp
+  lệ (mux thành công, có watermark).
+- Regression: KHÔNG bật lip-sync (mặc định) → 100% hành vi pipeline y hệt
+  trước mini-spec này.
+- Live verification: ≥3 video thật (đúng phạm vi V32a đã chứng minh khả
+  thi) qua GPU thật, đánh giá chất lượng khẩu hình bởi người thật (không tự
+  đánh giá bằng "chạy không lỗi" là đủ).
+
+Success Criteria:
+- Tính năng chạy được thật trên GPU thật, đúng phạm vi V32a đã benchmark,
+  có watermark + consent-check + giới hạn gói hoạt động đúng như chính sách
+  đã chốt.
+- 0 regression cho pipeline không bật lip-sync.
+- Chi phí Vox cho 1 lượt lip-sync phản ánh đúng chi phí compute GPU thật
+  (không lỗ, không đoán mò).
 ```
 
 ### Remaining Limits / Follow-ups của Phase G
