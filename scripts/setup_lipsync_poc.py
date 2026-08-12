@@ -313,16 +313,20 @@ def step_download_weights() -> None:
 
 def step_check_ffmpeg() -> None:
     """MuseTalk cần ffmpeg — VoxDub đã có sẵn (bin/ffmpeg.exe hoặc PATH),
-    dùng lại chứ không cài riêng (đỡ 1 bộ cài trùng)."""
-    # Bug thật gặp khi live-verify: chạy `py scripts\setup_lipsync_poc.py`
-    # thì sys.path[0] là thư mục CHỨA SCRIPT (scripts/), không phải project
-    # root — "import autodub" chết với ModuleNotFoundError nếu không tự
-    # thêm PROJECT_ROOT vào sys.path trước (đúng bug đã sửa ở
-    # lipsync_poc.py::_resolve_ffmpeg(), quên áp dụng ở đây).
-    sys.path.insert(0, PROJECT_ROOT)
-    from autodub.resources import app_root  # noqa: PLC0415
+    dùng lại chứ không cài riêng (đỡ 1 bộ cài trùng).
 
-    local_ffmpeg = os.path.join(app_root(), "bin", "ffmpeg.exe")
+    Bug thật gặp khi live-verify: TƯỞNG chỉ cần import 1 hàm nhỏ
+    (`app_root()`), nhưng `import autodub.<bất kỳ gì>` LUÔN chạy
+    `autodub/__init__.py` trước (quy tắc package của Python) — mà file đó
+    tự động kéo theo TOÀN BỘ dependency nặng của VoxDub (`autodub.config`
+    cần `python-dotenv`, `autodub.pipeline` cần `pydub`/`faster-whisper`/...),
+    những gói KHÔNG có trong Python trần chạy script cài đặt này (không
+    phải venv chính VoxDub, cũng không phải `.venv-lipsync`). Né import
+    hẳn — logic của `app_root()` (`autodub/utils.py`) khi KHÔNG đóng gói
+    PyInstaller (luôn đúng ở đây) chỉ đơn giản là thư mục cha của gói
+    `autodub`, tức CHÍNH LÀ `PROJECT_ROOT` đã có sẵn.
+    """
+    local_ffmpeg = os.path.join(PROJECT_ROOT, "bin", "ffmpeg.exe")
     ffmpeg_cmd = shutil.which("ffmpeg") or (
         local_ffmpeg if os.path.isfile(local_ffmpeg) else None)
     if not ffmpeg_cmd:

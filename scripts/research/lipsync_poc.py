@@ -64,10 +64,14 @@ def _require_repo() -> None:
 
 
 def _resolve_ffmpeg() -> str:
-    sys.path.insert(0, PROJECT_ROOT)
-    from autodub.resources import app_root  # noqa: PLC0415
-
-    local_ffmpeg = os.path.join(app_root(), "bin", "ffmpeg.exe")
+    # KHÔNG import autodub ở đây — "import autodub.<bất kỳ gì>" luôn chạy
+    # autodub/__init__.py trước, kéo theo toàn bộ dependency nặng của
+    # VoxDub (dotenv/pydub/faster-whisper/...) không có sẵn trong
+    # .venv-lipsync (bug thật đã gặp ở setup_lipsync_poc.py, xem
+    # docs/TEST_LOG.md mục V32a). PROJECT_ROOT ở đây đã tương đương
+    # app_root() khi không đóng gói PyInstaller (luôn đúng cho script
+    # nghiên cứu này).
+    local_ffmpeg = os.path.join(PROJECT_ROOT, "bin", "ffmpeg.exe")
     return shutil.which("ffmpeg") or (
         local_ffmpeg if os.path.isfile(local_ffmpeg) else "ffmpeg")
 
