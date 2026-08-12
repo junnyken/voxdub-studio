@@ -157,21 +157,37 @@ def step_benchmark_inference(video: str, audio: str, result_dir: str,
     elapsed_s = time.monotonic() - started
     full_output = "".join(output_lines)
 
-    ok = proc.returncode == 0
-    if not ok:
-        log(f"!! inference LỖI (mã {proc.returncode})")
+    # QUAN TRỌNG: mã thoát (returncode) của MuseTalk KHÔNG đáng tin để biết
+    # thành công hay thất bại — đọc thẳng mã nguồn `scripts/inference.py`
+    # xác nhận nó tự bắt MỌI exception trong lúc xử lý rồi chỉ IN RA
+    # ("Error occurred during processing: <lỗi>"), không hề gọi sys.exit()
+    # hay ném lại lỗi — tiến trình luôn thoát mã 0 dù có lỗi xảy ra giữa
+    # chừng (vd ffmpeg mux lỗi, CUDA OOM giữa batch...). Phải tự kiểm 2 điều
+    # khác: (a) chuỗi lỗi đặc trưng đó có xuất hiện trong output không, (b)
+    # file video kết quả có THẬT SỰ tồn tại không — chỉ "ok" khi cả 2 đều
+    # qua, không chỉ dựa mã thoát.
+    exit_ok = proc.returncode == 0
+    error_in_output = "Error occurred during processing:" in full_output
+    if not exit_ok:
+        log(f"!! inference LỖI (mã thoát {proc.returncode})")
+    elif error_in_output:
+        log("!! MuseTalk BÁO LỖI NỘI BỘ giữa chừng (tự bắt exception, mã "
+            "thoát vẫn là 0 — xem output ở trên để biết lỗi cụ thể)")
 
-    output_video = None
-    if ok:
-        candidates = glob.glob(os.path.join(result_dir, "v15", "*.mp4"))
-        candidates = [c for c in candidates if not c.endswith("_concat.mp4")]
-        output_video = candidates[0] if candidates else None
+    candidates = glob.glob(os.path.join(result_dir, "v15", "*.mp4"))
+    candidates = [c for c in candidates if not c.endswith("_concat.mp4")]
+    output_video = candidates[0] if candidates else None
+    ok = exit_ok and not error_in_output and output_video is not None
+    if exit_ok and not error_in_output and output_video is None:
+        log("!! mã thoát 0, không thấy lỗi nội bộ, NHƯNG cũng không thấy "
+            "file video kết quả — kiểm tra thủ công thư mục "
+            f"{os.path.join(result_dir, 'v15')}")
 
     return {
         "ok": ok, "task_name": task_name, "elapsed_seconds": round(elapsed_s, 1),
         "vram_peak_mb": vram.peak_mb, "output_video": output_video,
-        "returncode": proc.returncode,
-        "stderr_tail": full_output[-2000:] if not ok else "",
+        "returncode": proc.returncode, "error_in_output": error_in_output,
+        "stderr_tail": full_output[-3000:] if not ok else "",
     }
 
 
