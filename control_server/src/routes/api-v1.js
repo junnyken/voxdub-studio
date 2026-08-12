@@ -24,6 +24,23 @@ const ApiKey = require('../models/ApiKey')
 module.exports = async function apiV1Routes(fastify) {
   fastify.addHook('preHandler', requireApiKey)
 
+  // Đóng gap Remaining Limits ghi trong docs/TEST_LOG.md mục V31 — developer
+  // trước đây chỉ xem được quota/usage của MÌNH qua response của mỗi lượt
+  // /translate, không có cách xem NGOÀI 1 lượt gọi thật (vd trước khi gọi
+  // gì cả). KHÔNG lộ keyHash/orgName nội bộ khác — chỉ đúng thông tin của
+  // chính API key đang xác thực.
+  fastify.get('/me', async (request) => {
+    const { apiKey } = request
+    return {
+      orgName: apiKey.orgName,
+      status: apiKey.status,
+      quota: apiKey.quota,
+      usageCount: apiKey.usageCount,
+      remaining: Math.max(0, apiKey.quota - apiKey.usageCount),
+      lastUsedAt: apiKey.lastUsedAt,
+    }
+  })
+
   fastify.post('/translate', {
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     schema: {

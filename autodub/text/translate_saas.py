@@ -221,6 +221,10 @@ def translate_segments(
     cps = effective_cps(settings)
     context = _context_from_settings(settings)
     run_id = run_id_for(segments, target)
+    # V28 (docs/PLAN.md, Phase G): cùng cờ Cài đặt đã bật đường heuristic
+    # local-only (pipeline.py::_apply_emotion_styles) — khi có SaaS, ưu tiên
+    # tín hiệu LLM chính xác hơn hẳn (Design Choice của mini-spec).
+    emotion_tone = bool(getattr(settings, "emotion_voice_enabled", False))
 
     batch_size = max(1, min(100, int(getattr(settings, "translate_batch_size", 40))))
     batches = [segments[i:i + batch_size] for i in range(0, len(segments), batch_size)]
@@ -263,6 +267,7 @@ def translate_segments(
                     cps_budget=cps,
                     prev_context=_prev_context(segments, index * batch_size, target),
                     hold_id=HOLD.hold_id,
+                    emotion_tone=emotion_tone,
                 )
                 break
             except InsufficientCreditError as e:
@@ -322,21 +327,24 @@ def _merge(batch: list[dict], returned: list[dict], text_field: str) -> list[dic
     """Ghép bản dịch máy chủ trả về vào đúng câu gốc, theo ``id``.
 
     Máy chủ đã chuẩn hóa dấu câu và ghép theo id rồi, ở đây chỉ cần gắn lại
-    vào các câu đầy đủ (còn nguyên start/end/slot) của phía máy khách.
+    vào các câu đầy đủ (còn nguyên start/end/slot) của phía máy khách. Kèm
+    ``tone`` nếu máy chủ có trả (V28, chỉ khi lượt gọi bật ``emotion_tone``)
+    — đọc bởi ``pipeline.py::_apply_emotion_styles()``.
     """
     by_id = {}
     for item in returned:
         text = str(item.get(text_field, "") or "").strip()
         if text:
             try:
-                by_id[int(item.get("id"))] = text
+                by_id[int(item.get("id"))] = item
             except (TypeError, ValueError):
                 continue
 
     merged = []
     missing = []
     for seg in batch:
-        text = by_id.get(int(seg["id"]))
+        item = by_id.get(int(seg["id"]))
+        text = str(item.get(text_field, "")).strip() if item else ""
         if not text:
             # Máy chủ đã tính phí và cache lô này theo job_id — raise ở đây là
             # ngõ cụt: chạy lại nhận đúng kết quả thiếu đó, kẹt vô hạn trong
@@ -345,7 +353,10 @@ def _merge(batch: list[dict], returned: list[dict], text_field: str) -> list[dic
             missing.append(seg.get("id"))
             merged.append({**seg, text_field: str(seg.get("text", ""))})
             continue
-        merged.append({**seg, text_field: text})
+        out = {**seg, text_field: text}
+        if item.get("tone"):
+            out["tone"] = str(item["tone"])
+        merged.append(out)
 
     if missing:
         logger.warning(

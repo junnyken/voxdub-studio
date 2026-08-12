@@ -174,6 +174,10 @@ module.exports = async function aiRoutes(fastify) {
           // Mặc định "vi" — 0 regression cho client cũ không gửi field này.
           targetLang: { type: 'string', pattern: '^[a-z]{2,3}$', default: 'vi' },
           cpsBudget: { type: 'number', minimum: 4, maximum: 40, default: 12.5 },
+          // Mini-spec V28 (docs/PLAN.md, Phase G) — bật thì LLM gắn thêm
+          // `tone` mỗi câu (dùng chọn style VieNeu per-segment). Mặc định
+          // false — 0 regression cho client cũ không gửi field này.
+          emotionTone: { type: 'boolean', default: false },
           segments: {
             type: 'array',
             minItems: 1,
@@ -210,7 +214,7 @@ module.exports = async function aiRoutes(fastify) {
   }, async (request, reply) => {
     const { device } = request
     const { jobId, holdId, segments, sourceLang = 'zh-CN', targetLang = 'vi',
-      cpsBudget = 12.5 } = request.body
+      cpsBudget = 12.5, emotionTone = false } = request.body
 
     const cached = await replay(jobId, device.fingerprint)
     if (cached) return cached
@@ -277,6 +281,7 @@ module.exports = async function aiRoutes(fastify) {
         cpsBudget,
         prevContext: request.body.prevContext || [],
         maxRetries: cfg['ai.max.retries'],
+        emotionTone,
       })
       // Lưới cuối: câu nào còn chữ Hán thì dịch lại ngay, app không phải
       // biết chuyện này tồn tại.

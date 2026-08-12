@@ -276,6 +276,11 @@ không có server nào làm thay).
 Billing: mỗi API key có `quota`/`usageCount` riêng (KHÔNG dùng chung ví Vox
 với app desktop — `CreditLedger`/`Device` không bị đụng tới bởi API này).
 
+### `GET /me`
+Xem thông tin + quota của CHÍNH API key đang xác thực (không lộ key khác).
+
+Response 200: `{orgName, status, quota, usageCount, remaining, lastUsedAt}`
+
 ### `POST /translate`
 Body: `{sourceFlores, targetFlores (mã FLORES-200, vd "vie_Latn"), sourceName?, targetName?, items: [{id, text}]}`
 

@@ -281,18 +281,27 @@ async function callWithFallback(role, args) {
  * gấp đôi, đúng thứ đang bị chặn.
  */
 async function translateBatch({ segments, sourceLang, targetKey = 'vi', context,
-  cpsBudget, prevContext = [], maxRetries = 2, depth = 0 }) {
+  cpsBudget, prevContext = [], maxRetries = 2, depth = 0, emotionTone = false }) {
   const { field: targetField } = prompts.resolveTargetLang(targetKey)
   const system = prompts.buildTranslateSystemPrompt({
-    sourceLang, targetKey, context, cpsBudget,
+    sourceLang, targetKey, context, cpsBudget, emotionTone,
   })
   const user = prompts.buildTranslateUserPrompt({ segments, targetField, prevContext })
-  const schema = prompts.translateSchema(targetField)
+  const schema = prompts.translateSchema(targetField, { emotionTone })
 
   const { content, usage, provider } = await callWithFallback('translate',
     { system, user, schema, maxRetries })
   const returned = parseResponseSegments(content)
-  const { merged, missing } = mergeTranslations(segments, returned, targetField)
+  const { merged, missing } = mergeTranslations(
+    segments, returned, targetField, emotionTone ? ['tone'] : [])
+  // Phòng thủ thêm: mô hình lỡ trả nhãn ngoài enum (schema JSON không phải
+  // provider nào cũng ép cứng được) -> rơi về "neutral", KHÔNG để lọt giá
+  // trị lạ xuống pipeline.py::tone_to_vieneu_style() (dù hàm đó cũng đã tự
+  // rơi về an toàn, chặn ở đây sớm hơn và rõ ràng hơn).
+  if (emotionTone) {
+    const toneSet = new Set(prompts.TONE_VALUES)
+    merged.forEach((s) => { if (!toneSet.has(s.tone)) s.tone = 'neutral' })
+  }
 
   if (!missing.length) {
     return { segments: merged, usage, provider: provider.name, model: provider.model }
@@ -310,7 +319,7 @@ async function translateBatch({ segments, sourceLang, targetKey = 'vi', context,
 
   const results = await Promise.all(halves.map((half) => translateBatch({
     segments: half, sourceLang, targetKey, context, cpsBudget,
-    prevContext, maxRetries, depth: depth + 1,
+    prevContext, maxRetries, depth: depth + 1, emotionTone,
   }).catch(() => null)))
 
   const extra = []

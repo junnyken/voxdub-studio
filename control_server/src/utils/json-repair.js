@@ -118,14 +118,24 @@ function ensureTerminalPunct(text) {
  *
  * Trả về `{ merged, missing }` thay vì ném lỗi: lớp gọi cần biết THIẾU câu
  * nào để chia đôi lô rồi thử lại phần thiếu, chứ không phải vứt cả lô.
+ *
+ * `extraFields` (mini-spec V28, docs/PLAN.md Phase G): tên các trường KHÁC
+ * cũng cần copy nguyên văn từ `returned` sang câu đã ghép nếu có mặt (vd
+ * `tone`) — mặc định rỗng, giữ NGUYÊN hành vi/chữ ký cũ cho mọi lượt gọi 3
+ * tham số hiện có (`translateSubtitleBatch` — V14/V31), 0 regression.
  */
-function mergeTranslations(batch, returned, targetField) {
+function mergeTranslations(batch, returned, targetField, extraFields = []) {
   const byId = new Map()
+  const extrasOf = (item) => {
+    const extra = {}
+    for (const f of extraFields) if (item[f] !== undefined) extra[f] = item[f]
+    return extra
+  }
   for (const item of returned) {
     const text = String(item[targetField] || '').trim()
     if (item.id === undefined || item.id === null || !text) continue
     const n = Number(item.id)
-    byId.set(Number.isFinite(n) ? n : String(item.id), text)
+    byId.set(Number.isFinite(n) ? n : String(item.id), { text, extra: extrasOf(item) })
   }
 
   // Mô hình bỏ mất id nhưng trả đúng số câu, đúng thứ tự — chấp nhận và ghép
@@ -133,16 +143,18 @@ function mergeTranslations(batch, returned, targetField) {
   if (!byId.size && returned.length === batch.length) {
     batch.forEach((seg, i) => {
       const text = String(returned[i][targetField] || '').trim()
-      if (text) byId.set(Number(seg.id), text)
+      if (text) byId.set(Number(seg.id), { text, extra: extrasOf(returned[i]) })
     })
   }
 
   const merged = []
   const missing = []
   for (const seg of batch) {
-    const text = byId.get(Number(seg.id)) ?? byId.get(String(seg.id))
-    if (!text) { missing.push(seg.id); continue }
-    merged.push({ id: seg.id, [targetField]: ensureTerminalPunct(text) })
+    const found = byId.get(Number(seg.id)) ?? byId.get(String(seg.id))
+    if (!found) { missing.push(seg.id); continue }
+    merged.push({
+      id: seg.id, [targetField]: ensureTerminalPunct(found.text), ...found.extra,
+    })
   }
   return { merged, missing }
 }

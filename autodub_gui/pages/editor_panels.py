@@ -753,6 +753,7 @@ class VoicePanel(CollapsibleSection):
 
     preview_requested = Signal(str)      # tên giọng
     resynth_all_requested = Signal()
+    speakers_requested = Signal()
     changed = Signal()
 
     def __init__(self, parent: QWidget | None = None):
@@ -783,6 +784,17 @@ class VoicePanel(CollapsibleSection):
         self.speed.changed.connect(lambda _v: self.changed.emit())
         self.add_widget(self.speed)
 
+        # V26 Scope E: xem/đổi giọng theo TỪNG người nói mà diarization phát
+        # hiện được, thay vì phải mở popup giọng cho từng câu lẻ. Nút này ẩn
+        # khi dự án chưa bật diarization (nơi gọi kiểm tra trước khi hiện).
+        self.btn_speakers = GhostButton("Xem người nói")
+        self.btn_speakers.setToolTip(
+            "Xem danh sách người nói phát hiện được và đổi giọng theo từng "
+            "người nói.")
+        self.btn_speakers.clicked.connect(self.speakers_requested.emit)
+        self.btn_speakers.setVisible(False)
+        self.add_widget(self.btn_speakers)
+
         row = QHBoxLayout()
         row.setSpacing(tokens.SP_2)
         self.btn_resynth = PrimaryButton("Lưu tất cả và đọc lại")
@@ -803,6 +815,10 @@ class VoicePanel(CollapsibleSection):
             f"background: transparent;")
         self.add_widget(self.status)
         self._project_voice = ""
+
+    def set_speakers_available(self, available: bool) -> None:
+        """Hiện nút "Xem người nói" chỉ khi dự án đã bật diarization (V26)."""
+        self.btn_speakers.setVisible(available)
 
     def set_project_voice(self, name: str) -> None:
         """Ghi nhớ giọng video này đang dùng thật, để so khi người dùng đổi."""

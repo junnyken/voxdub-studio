@@ -240,6 +240,7 @@ class EditorPage(VoiceAndExportMixin, BasePage):
         self.voice_panel = VoicePanel()
         self.voice_panel.preview_requested.connect(self._preview_voice)
         self.voice_panel.resynth_all_requested.connect(self._save_all_and_resynth)
+        self.voice_panel.speakers_requested.connect(self._open_speaker_dialog)
         self.voice_panel.changed.connect(self._save_render_opts)
         self.background_panel = BackgroundPanel()
         self.background_panel.changed.connect(self._save_render_opts)
@@ -492,6 +493,12 @@ class EditorPage(VoiceAndExportMixin, BasePage):
         self.export_panel.subtitle.set_key(
             opts.get("subtitle_mode", settings.subtitle_mode))
         self.voice_panel.picker.reload(settings)
+        try:
+            from autodub.editor import list_speakers
+            has_speakers = bool(list_speakers(self._work_dir, self.target_key()))
+        except Exception:  # noqa: BLE001 — thiếu bản dịch thì coi như chưa có
+            has_speakers = False
+        self.voice_panel.set_speakers_available(has_speakers)
         # Giọng của dự án đã được pipeline ghim lại lúc chạy (tên thật, kể cả
         # khi người dùng để mặc định). Chưa có tên ghim trong render_opts thì
         # lấy tên trong report.json (pipeline luôn ghi); cả hai đều thiếu mới
@@ -733,6 +740,54 @@ class EditorPage(VoiceAndExportMixin, BasePage):
             else:
                 TOASTS.info(f"Câu {seg_id}: đã bỏ giọng riêng, "
                             "quay về giọng chung của dự án.")
+
+    def _open_speaker_dialog(self) -> None:
+        """Mở hộp thoại "Xem trước người nói" (V26 Scope E)."""
+        from autodub.editor import list_speakers
+        from autodub_gui.ui.speaker_dialog import SpeakerPreviewDialog
+
+        if not self._work_dir:
+            return
+        try:
+            speakers = list_speakers(self._work_dir, self.target_key())
+        except Exception as e:  # noqa: BLE001
+            TOASTS.warn(f"Không đọc được danh sách người nói: {e}")
+            return
+        if not speakers:
+            TOASTS.info("Dự án này chưa bật diarization nên chưa phát hiện "
+                        "người nói riêng.")
+            return
+        dialog = SpeakerPreviewDialog(speakers, self)
+        dialog.voice_changed.connect(self._on_speaker_voice_changed)
+        dialog.exec()
+
+    def _on_speaker_voice_changed(self, speaker_label: str, voice: str) -> None:
+        """Áp giọng mới cho MỌI câu của 1 người nói (V26 Scope E)."""
+        from autodub.editor import set_speaker_voice
+
+        if not self._work_dir:
+            return
+        try:
+            changed = set_speaker_voice(
+                self._work_dir, speaker_label, voice, self.target_key())
+        except Exception as e:  # noqa: BLE001
+            TOASTS.warn(f"Không lưu được giọng cho người nói: {e}")
+            return
+        if not changed:
+            return
+        for seg in self._segments:
+            if seg.get("speaker_label") != speaker_label:
+                continue
+            if voice:
+                seg["voice"] = voice
+            else:
+                seg.pop("voice", None)
+            self._dirty_ids.add(seg.get("id"))
+        self.subtitles.set_segments(self._segments,
+                                    self._state.target.text_field)
+        self._refresh_banner()
+        TOASTS.info(f"Đã đổi giọng cho {changed} câu. Bấm «Lưu tất cả và "
+                    "đọc lại» để áp dụng.")
 
     def _add_segment(self) -> None:
         """Chèn một câu mới ngay sau câu đang chọn."""

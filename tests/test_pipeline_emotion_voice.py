@@ -89,3 +89,74 @@ def test_unknown_voice_not_in_catalog_still_gets_style():
     segments = [{"id": 1, "text_vi": "Tuyệt vời!", "voice": "Tên Không Tồn Tại"}]
     pipeline._apply_emotion_styles(segments, get_target("vi"), "Tên Không Tồn Tại")
     assert segments[0]["style"] == "doc_truyen"
+
+
+# ------------------------------------------------- V28 re-audit: nguồn LLM --
+# Đóng "Remaining Limit" ghi trong docs/TEST_LOG.md — trước đây CHỈ có
+# heuristic văn bản local; giờ ưu tiên seg["tone"] do translate_saas.py gắn
+# từ máy chủ SaaS (Design Choice của mini-spec: LLM chính xác hơn heuristic).
+
+def test_prefers_llm_tone_over_heuristic_when_present(monkeypatch):
+    """seg["tone"] đã có (từ SaaS) -> dùng THẲNG, bỏ qua heuristic văn bản dù
+    văn bản có vẻ như một tone khác hẳn."""
+    pipeline = _pipeline()
+    pipeline.settings.emotion_voice_enabled = True
+    monkeypatch.setattr(
+        "autodub.speech.tts.voices.catalog",
+        lambda settings, target: [_FakeVoice("Minh Trang")])
+
+    # Văn bản trung tính (heuristic sẽ đoán "neutral"), nhưng LLM đã gắn
+    # "serious" — phải dùng đúng "serious" (tin_tuc), không phải "tu_nhien".
+    segments = [{"id": 1, "text_vi": "Hôm nay trời đẹp.", "tone": "serious"}]
+    pipeline._apply_emotion_styles(segments, get_target("vi"), "Minh Trang")
+
+    assert segments[0]["style"] == "tin_tuc"
+
+
+def test_falls_back_to_heuristic_when_llm_tone_absent(monkeypatch):
+    """Câu KHÔNG có seg["tone"] (local-only, hoặc SaaS không trả được câu
+    đó) -> vẫn dùng heuristic văn bản như cũ (0 regression)."""
+    pipeline = _pipeline()
+    pipeline.settings.emotion_voice_enabled = True
+    monkeypatch.setattr(
+        "autodub.speech.tts.voices.catalog",
+        lambda settings, target: [_FakeVoice("Minh Trang")])
+
+    segments = [{"id": 1, "text_vi": "Cảnh báo nguy hiểm."}]
+    pipeline._apply_emotion_styles(segments, get_target("vi"), "Minh Trang")
+
+    assert segments[0]["style"] == "tin_tuc"   # heuristic: "serious"
+
+
+def test_mixed_batch_some_segments_have_llm_tone_others_dont(monkeypatch):
+    """Một lô có câu có tone LLM và câu không — mỗi câu dùng đúng nguồn của
+    riêng nó, không lẫn lộn."""
+    pipeline = _pipeline()
+    pipeline.settings.emotion_voice_enabled = True
+    monkeypatch.setattr(
+        "autodub.speech.tts.voices.catalog",
+        lambda settings, target: [_FakeVoice("Minh Trang")])
+
+    segments = [
+        {"id": 1, "text_vi": "Bình thường thôi.", "tone": "excited"},  # LLM
+        {"id": 2, "text_vi": "Tuyệt vời quá!"},                        # heuristic
+    ]
+    pipeline._apply_emotion_styles(segments, get_target("vi"), "Minh Trang")
+
+    assert segments[0]["style"] == "doc_truyen"   # theo LLM, không phải heuristic
+    assert segments[1]["style"] == "doc_truyen"   # heuristic: "excited"
+
+
+def test_empty_llm_tone_string_falls_back_to_heuristic(monkeypatch):
+    """seg["tone"] rỗng/khoảng trắng (dữ liệu lạ) -> coi như KHÔNG có, rơi về
+    heuristic thay vì tra style rỗng."""
+    pipeline = _pipeline()
+    pipeline.settings.emotion_voice_enabled = True
+    monkeypatch.setattr(
+        "autodub.speech.tts.voices.catalog",
+        lambda settings, target: [_FakeVoice("Minh Trang")])
+
+    segments = [{"id": 1, "text_vi": "Cảnh báo nguy hiểm.", "tone": "  "}]
+    pipeline._apply_emotion_styles(segments, get_target("vi"), "Minh Trang")
+
+    assert segments[0]["style"] == "tin_tuc"

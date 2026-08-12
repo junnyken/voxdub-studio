@@ -156,3 +156,30 @@ test('device token (app desktop) KHÔNG dùng được cho /api/v1 (2 hệ auth 
   })
   assert.equal(res.statusCode, 401, 'device token không phải API key hợp lệ')
 })
+
+// --------------------------------------------------------------------- //
+// GET /me — đóng Remaining Limits V31 (developer tự xem quota của mình)
+
+test('GET /me trả đúng thông tin quota của chính API key đang dùng', async () => {
+  const { plaintext, doc } = await createApiKey({ orgName: 'Acme Corp', quota: 20 })
+  await ApiKey.updateOne({ _id: doc._id }, { $set: { usageCount: 3 } })
+
+  const res = await app.inject({
+    method: 'GET', url: '/api/v1/me',
+    headers: { authorization: `Bearer ${plaintext}` },
+  })
+
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.orgName, 'Acme Corp')
+  assert.equal(body.status, 'active')
+  assert.equal(body.quota, 20)
+  assert.equal(body.usageCount, 3)
+  assert.equal(body.remaining, 17)
+  assert.ok(!('keyHash' in body), 'không được lộ keyHash')
+})
+
+test('GET /me không có key -> 401, giống mọi route /api/v1 khác', async () => {
+  const res = await app.inject({ method: 'GET', url: '/api/v1/me' })
+  assert.equal(res.statusCode, 401)
+})

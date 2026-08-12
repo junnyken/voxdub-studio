@@ -237,6 +237,38 @@ test('id dạng chuỗi vẫn ghép được', () => {
   assert.equal(merged[0].text_vi, 'Năm.')
 })
 
+// --------------------------------------- mini-spec V28 — extraFields (tone) --
+
+test('extraFields rỗng (mặc định): không lộ trường thừa nào, giữ nguyên hành vi cũ', () => {
+  const { merged } = mergeTranslations(
+    [{ id: 1 }], [{ id: 1, text_vi: 'Chào', tone: 'excited' }], 'text_vi')
+  assert.deepEqual(Object.keys(merged[0]).sort(), ['id', 'text_vi'])
+})
+
+test('extraFields=["tone"]: copy đúng tone theo từng câu, ghép theo id', () => {
+  const { merged, missing } = mergeTranslations(
+    [{ id: 1 }, { id: 2 }],
+    [{ id: 2, text_vi: 'Hai', tone: 'serious' }, { id: 1, text_vi: 'Một', tone: 'excited' }],
+    'text_vi', ['tone'])
+  assert.equal(missing.length, 0)
+  assert.deepEqual(merged.find((m) => m.id === 1).tone, 'excited')
+  assert.deepEqual(merged.find((m) => m.id === 2).tone, 'serious')
+})
+
+test('extraFields=["tone"]: câu model không trả tone thì KHÔNG có field đó (không bịa)', () => {
+  const { merged } = mergeTranslations(
+    [{ id: 1 }], [{ id: 1, text_vi: 'Chào' }], 'text_vi', ['tone'])
+  assert.equal('tone' in merged[0], false)
+})
+
+test('extraFields=["tone"]: vẫn hoạt động đúng ở nhánh ghép-theo-vị-trí (model quên id)', () => {
+  const { merged } = mergeTranslations(
+    [{ id: 7 }, { id: 8 }],
+    [{ text_vi: 'Một', tone: 'neutral' }, { text_vi: 'Hai', tone: 'serious' }],
+    'text_vi', ['tone'])
+  assert.deepEqual(merged.map((m) => m.tone), ['neutral', 'serious'])
+})
+
 // -------------------------------------------------- bảo vệ mã đơn hàng ----
 
 test('orderView giấu keyCode khi không có token', () => {

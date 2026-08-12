@@ -979,12 +979,17 @@ class DubPipeline:
         (docs/PLAN.md, Phase G). TUỲ CHỌN, mặc định TẮT (0 regression khi
         không bật).
 
-        Đường tín hiệu THẬT ở đợt này CHỈ có heuristic văn bản local
-        (Constraint 2 — đường LLM/SaaS per-segment CHƯA nối, xem "Remaining
-        Limits" mục V28 trong docs/TEST_LOG.md). Chỉ áp cho giọng VieNeu
-        (Constraint 4) — giọng CapCut (``source == "capcut"``) bị bỏ qua,
-        `capcut_vi.py::synthesize()` cũng tự bỏ qua tham số này nếu lỡ nhận
-        được, đây là lớp phòng thủ THÊM để không tính toán tone vô ích.
+        Hai nguồn tín hiệu (Design Choice của mini-spec — ưu tiên LLM khi
+        có): nếu ``translate_saas.py`` đã gắn ``seg["tone"]`` từ lượt dịch
+        SaaS (server bật ``emotionTone`` cùng cờ Cài đặt này), dùng THẲNG giá
+        trị đó — chính xác hơn hẳn heuristic văn bản thuần vì LLM đọc hiểu cả
+        câu. Câu nào KHÔNG có tín hiệu LLM (local-only, hoặc SaaS không trả
+        được) rơi về heuristic văn bản cũ (dấu câu/từ khoá) — vẫn đúng
+        Constraint 2 (2 đường xử lý RÕ RÀNG KHÁC NHAU, không giả vờ ngang
+        hàng). Chỉ áp cho giọng VieNeu (Constraint 4) — giọng CapCut
+        (``source == "capcut"``) bị bỏ qua, `capcut_vi.py::synthesize()`
+        cũng tự bỏ qua tham số này nếu lỡ nhận được, đây là lớp phòng thủ
+        THÊM để không tính toán tone vô ích.
         """
         settings = self.settings
         if not settings.emotion_voice_enabled:
@@ -996,6 +1001,7 @@ class DubPipeline:
         catalog_by_name = {v.name: v for v in voice_catalog.catalog(settings, target)}
         text_field = target.text_field
         applied = 0
+        from_llm = 0
         for seg in segments:
             voice_name = str(seg.get("voice") or run_voice or "").strip()
             entry = catalog_by_name.get(voice_name)
@@ -1003,13 +1009,19 @@ class DubPipeline:
             # nguồn CapCut -> bỏ qua, không suy đoán.
             if entry is not None and entry.source == "capcut":
                 continue
-            tone = guess_tone(str(seg.get(text_field, "")))
+            llm_tone = str(seg.get("tone") or "").strip()
+            if llm_tone:
+                tone = llm_tone
+                from_llm += 1
+            else:
+                tone = guess_tone(str(seg.get(text_field, "")))
             seg["style"] = tone_to_vieneu_style(tone)
             applied += 1
         if applied:
             logger.info(
                 f"Giọng điệu: đã tự gán style theo cảm xúc cho {applied}/"
-                f"{len(segments)} câu (heuristic văn bản, xem Cài đặt).")
+                f"{len(segments)} câu ({from_llm} từ SaaS, "
+                f"{applied - from_llm} từ heuristic văn bản, xem Cài đặt).")
 
     def _setup_hold(
         self, segments: list[dict], target: TargetLang, work_dir: str,

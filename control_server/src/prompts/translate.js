@@ -432,10 +432,33 @@ function userContextBlock(ctx) {
     + lines.join('\n') + '\n\n'
 }
 
-function outputFormatBlock(targetField, targetName) {
+// mini-spec V28 (docs/PLAN.md, Phase G) — tín hiệu cảm xúc THEO TỪNG CÂU từ
+// LLM, opt-in qua `emotionTone` (mặc định false — 0 regression cho mọi lượt
+// gọi cũ không truyền cờ này). CHỈ 3 giá trị — khớp đúng 3 style VieNeu thật
+// đã map sẵn ở `autodub/text/tone_heuristic.py::_TONE_TO_STYLE` (đường
+// heuristic local-only), không bịa thêm nhãn "sad" như bản nháp đầu của
+// mini-spec vì không có style thứ 4 nào để ánh xạ tới.
+const TONE_VALUES = ['neutral', 'excited', 'serious']
+
+function toneInstructionBlock() {
+  return `
+
+### EMOTIONAL TONE PER SEGMENT (drives per-segment TTS voice style)
+For EACH segment, also classify the speaker's emotional delivery as EXACTLY one of: ${TONE_VALUES.map((t) => `"${t}"`).join(', ')}.
+- "excited": enthusiasm, hype, exclamation, strong reaction (positive or negative).
+- "serious": warning, urgency, grave/cautionary delivery.
+- "neutral": everything else — calm explanation, description, casual statement.
+This classification does NOT change the translation text itself — it is purely an extra signal read by the dubbing engine to pick a voice style.`
+}
+
+function outputFormatBlock(targetField, targetName, emotionTone = false) {
+  const toneField = emotionTone
+    ? ` and \`"tone"\` (one of ${TONE_VALUES.map((t) => `"${t}"`).join('/')} — see the EMOTIONAL TONE section below)`
+    : ''
+  const fieldCount = emotionTone ? 'THREE' : 'TWO'
   return `### OUTPUT FORMAT (STRICT)
 - Return EXACTLY ONE valid JSON object: {"segments": [...]} — same length, order and \`id\`s as the input.
-- Each output segment has EXACTLY two fields: \`id\` (copied from input) and \`"${targetField}"\` (the final ${targetName} translation of that segment's \`text\`). Do NOT repeat \`text\`, \`duration\` or any other input field.
+- Each output segment has EXACTLY ${fieldCount} fields: \`id\` (copied from input), \`"${targetField}"\` (the final ${targetName} translation of that segment's \`text\`)${toneField}. Do NOT repeat \`text\`, \`duration\` or any other input field.
 - Every \`"${targetField}"\` value MUST end with terminal punctuation: \`.\`, \`!\`, \`?\` or \`…\`. If the sentence has no natural ending mark, append a period. NEVER end on a comma, a dash, or nothing.
 - Output strictly valid JSON ONLY — DO NOT use markdown code blocks, fences, or introductory/ending commentary.`
 }
@@ -455,7 +478,7 @@ function resolveTargetLang(targetKey) {
  * còn nhận field/tên rời rạc có thể lệch nhau (bug thật đã sửa, mini-spec
  * V15, xem docs/PLAN.md và docs/TEST_LOG.md). */
 function buildTranslateSystemPrompt({ sourceLang, targetKey = 'vi',
-  context = {}, cpsBudget = DEFAULT_CPS }) {
+  context = {}, cpsBudget = DEFAULT_CPS, emotionTone = false }) {
   const domain = context.domain || 'general'
   const { field: targetField, name: targetName } = resolveTargetLang(targetKey)
   return `You are an expert translator specializing in ASR (Automatic Speech Recognition) transcripts for video dubbing.
@@ -463,7 +486,7 @@ Your task is to translate an ASR transcript from ${sourceLang} to ${targetName}.
 
 You will receive a JSON array of segments. Each segment contains: \`id\`, \`text\`, \`duration\` (seconds) and usually \`max_chars\`.
 
-${userContextBlock(context)}${outputFormatBlock(targetField, targetName)}
+${userContextBlock(context)}${outputFormatBlock(targetField, targetName, emotionTone)}${emotionTone ? toneInstructionBlock() : ''}
 
 ### STYLE & TRANSLATION RULES
 ${styleRules(targetKey, targetField, targetName, domain)}
@@ -519,8 +542,16 @@ function buildTranslateUserPrompt({ segments, targetField = 'text_vi', prevConte
     + JSON.stringify(segments)
 }
 
-/** Lược đồ ép đầu ra đúng `{"segments":[{id, <field>}]}`. */
-function translateSchema(targetField) {
+/** Lược đồ ép đầu ra đúng `{"segments":[{id, <field>}]}` — thêm `tone`
+ * (mini-spec V28) chỉ khi `emotionTone` bật, giữ contract cũ nguyên vẹn cho
+ * mọi lượt gọi không truyền cờ này. */
+function translateSchema(targetField, { emotionTone = false } = {}) {
+  const properties = { id: { type: 'integer' }, [targetField]: { type: 'string' } }
+  const required = ['id', targetField]
+  if (emotionTone) {
+    properties.tone = { type: 'string', enum: TONE_VALUES }
+    required.push('tone')
+  }
   return {
     type: 'object',
     properties: {
@@ -528,8 +559,8 @@ function translateSchema(targetField) {
         type: 'array',
         items: {
           type: 'object',
-          properties: { id: { type: 'integer' }, [targetField]: { type: 'string' } },
-          required: ['id', targetField],
+          properties,
+          required,
           additionalProperties: false,
         },
       },
@@ -686,6 +717,7 @@ const CONTENT_SCHEMA = {
 module.exports = {
   DEFAULT_CPS,
   LANGUAGE_RULES,
+  TONE_VALUES,
   resolveTargetLang,
   sanitizeContext,
   buildTranslateSystemPrompt,

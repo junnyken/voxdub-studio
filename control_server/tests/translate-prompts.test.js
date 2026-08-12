@@ -108,6 +108,46 @@ test('translateSchema: field theo đúng target, không hardcode text_vi', () =>
   assert.ok(!schema.properties.segments.items.properties.text_vi)
 });
 
+// ----------------------------------------------- mini-spec V28 (Phase G) --
+// Tín hiệu cảm xúc per-segment từ LLM, opt-in qua `emotionTone` — mặc định
+// TẮT phải giữ NGUYÊN contract cũ (0 regression), bật lên mới thêm field
+// `tone` vào schema + prompt.
+
+test('V28: translateSchema mặc định (emotionTone tắt) KHÔNG có field tone — 0 regression', () => {
+  const schema = prompts.translateSchema('text_vi')
+  assert.ok(!schema.properties.segments.items.properties.tone)
+  assert.deepEqual(schema.properties.segments.items.required, ['id', 'text_vi'])
+});
+
+test('V28: translateSchema bật emotionTone -> thêm field tone bắt buộc, đúng enum 3 giá trị', () => {
+  const schema = prompts.translateSchema('text_vi', { emotionTone: true })
+  const toneProp = schema.properties.segments.items.properties.tone
+  assert.ok(toneProp)
+  assert.deepEqual(toneProp.enum, ['neutral', 'excited', 'serious'])
+  assert.ok(schema.properties.segments.items.required.includes('tone'))
+});
+
+test('V28: buildTranslateSystemPrompt mặc định KHÔNG nhắc tới tone (0 regression)', () => {
+  const system = prompts.buildTranslateSystemPrompt({
+    sourceLang: 'zh-CN', targetKey: 'vi', context: {}, cpsBudget: 12.5,
+  })
+  assert.doesNotMatch(system, /EMOTIONAL TONE/)
+  assert.match(system, /EXACTLY TWO fields/)
+});
+
+test('V28: buildTranslateSystemPrompt bật emotionTone -> có hướng dẫn phân loại tone, đúng 3 nhãn', () => {
+  const system = prompts.buildTranslateSystemPrompt({
+    sourceLang: 'zh-CN', targetKey: 'vi', context: {}, cpsBudget: 12.5, emotionTone: true,
+  })
+  assert.match(system, /EMOTIONAL TONE PER SEGMENT/)
+  assert.match(system, /EXACTLY THREE fields/)
+  assert.match(system, /"neutral", "excited", "serious"/)
+});
+
+test('V28: TONE_VALUES export đúng 3 giá trị khớp autodub/text/tone_heuristic.py', () => {
+  assert.deepEqual(prompts.TONE_VALUES, ['neutral', 'excited', 'serious'])
+});
+
 // --------------------------------------------------------------- buildAnalysisPrompt --
 
 test('buildAnalysisPrompt target=vi: ví dụ domain/pronouns bằng tiếng Việt (0 regression)', () => {

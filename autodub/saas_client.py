@@ -476,7 +476,8 @@ class SaasClient:
                   target_lang: str = "vi",
                   context: dict | None = None, cps_budget: float = 12.5,
                   prev_context: list[dict] | None = None,
-                  hold_id: str | None = None) -> dict:
+                  hold_id: str | None = None,
+                  emotion_tone: bool = False) -> dict:
         """Dịch một lô câu.
 
         ``segments``: ``[{"id", "text", "duration", "max_chars"}]``.
@@ -484,7 +485,10 @@ class SaasClient:
         vd "vi"/"en") — mini-spec V15 (docs/PLAN.md): TRƯỚC ĐÂY thiếu tham số
         này, máy chủ luôn dịch sang tiếng Việt bất kể đang lồng tiếng ngôn
         ngữ nào (bug thật, xem docs/TEST_LOG.md).
-        Trả về ``{"segments": [{"id", "text_<target_lang>"}], "creditCharged", "balanceAfter"}``.
+        ``emotion_tone`` (mini-spec V28, Phase G): bật thì mỗi câu trả về
+        thêm ``"tone"`` (đọc để chọn style VieNeu per-segment) — mặc định
+        TẮT, giữ nguyên contract cũ cho mọi lượt gọi khác.
+        Trả về ``{"segments": [{"id", "text_<target_lang>"[, "tone"]}], "creditCharged", "balanceAfter"}``.
         """
         payload = {
             "jobId": job_id,
@@ -499,6 +503,8 @@ class SaasClient:
             payload["prevContext"] = prev_context
         if hold_id:
             payload["holdId"] = hold_id
+        if emotion_tone:
+            payload["emotionTone"] = True
         data = self._request("POST", "/v1/ai/translate", json_body=payload)
         self._note_usage(data)
         return data

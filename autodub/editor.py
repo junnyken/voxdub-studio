@@ -231,6 +231,89 @@ def set_segment_voice(work_dir: str, seg_id: int, voice: str,
     return True
 
 
+def list_speakers(work_dir: str, target_key: str = "vi") -> list[dict]:
+    """Người nói phát hiện được bởi diarization (V26, docs/PLAN.md Phase G)
+    — nhóm segment theo ``seg["speaker_label"]``, cho GUI hiện panel "Xem
+    trước người nói" (mini-spec V26 Scope E).
+
+    Trả về ``[{"speaker_label", "segment_count", "sample_text", "voice"}]``
+    sắp theo `speaker_label`; `voice` là giọng ĐANG gán cho phần LỚN NHẤT
+    segment của người nói đó (rỗng nếu segment chưa có `seg["voice"]` nào —
+    trước khi người dùng chọn tay, hoặc diarization chưa gán round-robin).
+    Trả về danh sách RỖNG nếu dự án chưa bật diarization (không có
+    `speaker_label` nào) — không phải lỗi.
+    """
+    target = get_target(target_key)
+    path = _transcript_path(work_dir, target)
+    if not os.path.exists(path):
+        raise EditorError(f"Chưa có bản dịch trong dự án này "
+                          f"({target.transcript_name})")
+    with open(path, encoding="utf-8") as f:
+        segments = json.load(f)
+
+    by_speaker: dict[str, list[dict]] = {}
+    for seg in segments:
+        label = seg.get("speaker_label")
+        if label:
+            by_speaker.setdefault(label, []).append(seg)
+
+    result = []
+    for label in sorted(by_speaker):
+        segs = by_speaker[label]
+        voices = [s.get("voice", "") for s in segs if s.get("voice")]
+        # Giọng phổ biến nhất trong nhóm — round-robin của V26 gán CÙNG 1
+        # giọng cho mọi segment của 1 speaker nên thường đồng nhất, nhưng
+        # người dùng có thể đã sửa tay lẻ tẻ vài câu trước đó.
+        common_voice = max(set(voices), key=voices.count) if voices else ""
+        sample = str(segs[0].get(target.text_field, segs[0].get("text", "")))[:80]
+        result.append({
+            "speaker_label": label,
+            "segment_count": len(segs),
+            "sample_text": sample,
+            "voice": common_voice,
+        })
+    return result
+
+
+def set_speaker_voice(work_dir: str, speaker_label: str, voice: str,
+                      target_key: str = "vi") -> int:
+    """Gán 1 giọng cho MỌI segment của 1 người nói (V26 Scope E — đổi giọng
+    theo TỪNG SPEAKER thay vì đổi tay từng câu). Tái dùng đúng quy tắc của
+    `set_segment_voice()` cho từng segment.
+
+    Trả về số segment THẬT SỰ đổi (0 nếu không tìm thấy speaker hoặc không
+    câu nào đổi giá trị).
+    """
+    target = get_target(target_key)
+    path = _transcript_path(work_dir, target)
+    if not os.path.exists(path):
+        raise EditorError(f"Chưa có bản dịch trong dự án này "
+                          f"({target.transcript_name})")
+    with open(path, encoding="utf-8") as f:
+        segments = json.load(f)
+
+    voice = (voice or "").strip()
+    changed = 0
+    for seg in segments:
+        if seg.get("speaker_label") != speaker_label:
+            continue
+        if voice:
+            if str(seg.get("voice", "")) == voice:
+                continue
+            seg["voice"] = voice
+        else:
+            if "voice" not in seg:
+                continue
+            seg.pop("voice")
+        changed += 1
+
+    if changed:
+        save_json_atomic(segments, path)
+        logger.info(f"Người nói {speaker_label}: giọng = "
+                    f"{voice or '(giọng chung)'} ({changed} câu)")
+    return changed
+
+
 def _stale_derived_paths(work_dir: str, target: TargetLang, seg_id: int) -> list[str]:
     """Files that no longer match a re-synthesized segment and must be removed.
 

@@ -3355,3 +3355,187 @@ thiểu 8GB RAM, không bắt buộc GPU).
   admin xem được qua `/v1/admin/api-keys`) — response `/api/v1/translate`
   CÓ trả `quota`/`usageCount` mỗi lượt gọi nên developer vẫn theo dõi được
   gián tiếp, nhưng chưa có `GET /api/v1/me` riêng.
+
+## Re-audit (2026-08-12) — đóng 3 Remaining Limits thật khả thi (V26/V28/V31)
+
+Trước khi sửa: kiểm tra môi trường xem có credential/tài nguyên THẬT mới
+xuất hiện từ lượt build V26→V31 không (HF token cho pyannote.audio, API key
+AI provider thật cho Gemini/OpenAI/OpenRouter, model NLLB cache sẵn) —
+KHÔNG có gì mới (`control_server/.env` vẫn chỉ giá trị placeholder/test,
+không có `*_HF_TOKEN`/`GEMINI_*`/`OPENAI_*`/`OPENROUTER_*`, không tìm thấy
+cache NLLB nào trên máy). Vì vậy KHÔNG cố "fake" live-verify các giới hạn
+cần credential thật (diarization THẬT trên audio 2 người nói, dịch SaaS
+THẬT qua model thật) — 2 giới hạn đó VẪN CÒN nguyên, ghi lại trung thực bên
+dưới thay vì giả vờ đã xong. 3 giới hạn CÒN LẠI dưới đây là loại KHÔNG cần
+credential ngoài (thuần logic/wiring) nên sửa được thật trong lượt này.
+
+### V31 — thêm `GET /api/v1/me`
+
+Đóng đúng gap cuối cùng ghi trong Remaining Limits (V31) ở trên: developer
+trước đây chỉ biết quota/usage của mình GIÁN TIẾP qua response mỗi lượt gọi
+`/translate` — không có cách xem TRƯỚC khi gọi gì cả.
+
+- `control_server/src/routes/api-v1.js` — route mới `GET /me` (cùng
+  `preHandler: requireApiKey` với `/translate`), trả
+  `{orgName, status, quota, usageCount, remaining, lastUsedAt}` của CHÍNH
+  API key đang xác thực — không lộ `keyHash` hay dữ liệu API key khác.
+- `docs/API.md` — thêm mục `GET /me`.
+- `control_server/tests/api-v1-route.test.js` (+2 test): trả đúng thông tin
+  quota (kèm khẳng định KHÔNG có `keyHash` trong response); không có key →
+  401 giống mọi route `/api/v1` khác.
+- `node --test tests/api-v1-route.test.js`: 10/10 pass (8 cũ + 2 mới).
+
+### V26 — panel GUI "Xem trước người nói"
+
+Đóng gap "GUI chỉ có cờ bật/tắt tối thiểu" — Scope E của mini-spec (đổi
+giọng theo TỪNG người nói thay vì phải mở popup giọng cho từng câu lẻ).
+
+- `autodub/editor.py` — 2 hàm THUẦN mới (test được không cần Qt, cùng nguyên
+  tắc pure-function-first của `set_segment_voice()` đã có):
+  `list_speakers(work_dir, target_key)` (nhóm segment theo
+  `seg["speaker_label"]`, trả `[{speaker_label, segment_count, sample_text,
+  voice}]`, `voice` là giọng phổ biến nhất đã gán cho speaker đó, rỗng nếu
+  chưa gán; danh sách RỖNG — không lỗi — nếu dự án chưa bật diarization) và
+  `set_speaker_voice(work_dir, speaker_label, voice, target_key)` (gán 1
+  giọng cho MỌI segment của 1 người nói, tái dùng đúng quy tắc ghi đĩa của
+  `set_segment_voice()`, trả về số segment thật sự đổi).
+- `autodub_gui/ui/speaker_dialog.py` (mới) — `SpeakerPreviewDialog`: hộp
+  thoại thuần hiển thị + phát tín hiệu (`voice_changed(speaker_label,
+  voice)`), KHÔNG tự ghi đĩa — mỗi người nói hiện tên thân thiện ("Người nói
+  1" thay vì "SPEAKER_00"), số câu, câu mẫu, và `VoicePicker` (widget dùng
+  chung với mục "Giọng đọc" chính của Trình chỉnh sửa).
+- `autodub_gui/pages/editor_panels.py` (`VoicePanel`) — nút "Xem người nói"
+  mới (ẩn mặc định, chỉ hiện khi dự án có diarization — Constraint "không
+  suy đoán capability khi thiếu evidence").
+- `autodub_gui/pages/editor_page.py` — `set_speakers_available()` gọi mỗi
+  lần nạp dự án (kiểm `list_speakers()` có rỗng không); `_open_speaker_dialog()`
+  mở hộp thoại; `_on_speaker_voice_changed()` gọi `set_speaker_voice()`, cập
+  nhật bản sao segment trong bộ nhớ + `_dirty_ids` + dựng lại danh sách phụ
+  đề — cùng khuôn với `_on_segment_voice_changed()` (per-segment) đã có.
+
+**Verify:**
+- `tests/test_editor_speakers.py` (8 test, mới): nhóm đúng theo speaker;
+  câu không có `speaker_label` không tính vào speaker nào; danh sách rỗng
+  khi chưa bật diarization (không lỗi); thiếu transcript → `EditorError`;
+  đổi giọng CHỈ ảnh hưởng đúng speaker đó; chuỗi rỗng → bỏ override, quay về
+  giọng chung; gán ĐÚNG giọng đã có → 0 thay đổi (không ghi file thừa);
+  speaker lạ → 0 thay đổi.
+- `pytest tests/ -q` toàn bộ (venv đầy đủ dependency, dựng mới trong lượt
+  này vì sandbox không có sẵn — xem "Ghi chú môi trường" cuối file): **948
+  passed, 6 skipped, 0 failed** (940 pass trước re-audit + 8 test mới).
+  Chạy với `QT_QPA_PLATFORM=offscreen` (bắt buộc cho mọi test PySide6
+  headless, cùng quy ước `test_quality_page_review_trace.py` đã có) — xác
+  nhận GUI mới (`editor_page.py`/`editor_panels.py`/`speaker_dialog.py`)
+  import và chạy được thật với PySide6 thật, không chỉ `py_compile`.
+- **CHƯA live-verify bằng mắt/tai qua ứng dụng chạy thật** (cần môi trường
+  có màn hình + dự án đã diarization thật — 2 giới hạn cộng dồn của sandbox
+  này) — chỉ verify được ở tầng logic + import GUI thật.
+
+### V28 — nối tín hiệu tone từ LLM (Scope A của mini-spec)
+
+Đóng gap lớn nhất còn lại: trước đây `_apply_emotion_styles()` CHỈ có
+heuristic văn bản local; giờ ưu tiên tín hiệu LLM khi SaaS bật, đúng Design
+Choice gốc của mini-spec — **KHÔNG đụng `buildAnalysisPrompt`** (hàm đó là
+phân tích CẤP VIDEO — summary/domain/pronouns/glossary — không phải per-
+segment) mà đụng đúng chỗ per-segment thật sự tồn tại:
+`buildTranslateSystemPrompt`/`translateSchema` (dùng bởi `translateBatch`,
+route dịch dub pipeline `/v1/ai/translate`) — ghi rõ đây là 1 sai lệch nhỏ
+có chủ đích so với chữ trong bản nháp mini-spec, chọn đúng cơ chế kỹ thuật
+thật thay vì làm đúng-tên-hàm-nhưng-sai-chỗ.
+
+- `control_server/src/prompts/translate.js` — `TONE_VALUES = ["neutral",
+  "excited", "serious"]` (CHỈ 3 giá trị, không phải 4 như ví dụ "sad" trong
+  bản nháp đầu mini-spec — khớp ĐÚNG 3 style VieNeu thật đã map sẵn ở
+  `autodub/text/tone_heuristic.py::_TONE_TO_STYLE`, không bịa nhãn không có
+  chỗ ánh xạ). `translateSchema(field, {emotionTone})` và
+  `buildTranslateSystemPrompt({..., emotionTone})` — cờ TẮT (mặc định) giữ
+  NGUYÊN schema/prompt cũ 100%, bật lên mới thêm field `tone` bắt buộc +
+  đoạn hướng dẫn phân loại cảm xúc.
+- `control_server/src/utils/json-repair.js::mergeTranslations` — thêm tham
+  số thứ 4 `extraFields` (mặc định `[]`, 0 regression cho 2 lời gọi hiện có)
+  để copy nguyên văn field phụ (vd `tone`) từ response model sang segment đã
+  ghép, ở CẢ 2 nhánh ghép (theo id, và ghép-theo-vị-trí khi model quên id).
+- `control_server/src/services/ai-gateway.service.js::translateBatch` —
+  tham số `emotionTone` (mặc định false), truyền xuống prompt/schema/merge
+  VÀ xuống lời gọi đệ quy khi phải chia đôi lô (thiếu câu) — có test khoá
+  riêng vì đây là chỗ dễ quên nhất. Model trả nhãn ngoài enum (schema JSON
+  không phải provider nào cũng ép cứng được) hoặc quên field `tone` ở 1 câu
+  → tự sửa về `"neutral"`, không để lọt giá trị lạ xuống Python.
+- `control_server/src/routes/ai.js` (`POST /v1/ai/translate`) — thêm
+  `emotionTone: {type: "boolean", default: false}` vào body schema, truyền
+  xuống `gateway.translateBatch()`. Biết trước và KHÔNG sửa trong lượt này:
+  `fixCjkLeftovers()` (lưới cuối vá chữ Hán sót) không yêu cầu lại `tone` khi
+  vá 1 câu — do dùng spread `{...s, ...}` nên giữ NGUYÊN `tone` cũ của câu
+  đó dù chữ vừa bị dịch lại, có thể lệch nhẹ (edge case hiếm, CJK-leftover
+  đã hiếm + lệch tone 1 câu không phải regression nghiêm trọng, ghi rõ thay
+  vì im lặng). Cache idempotency theo `jobId` (nội dung câu, KHÔNG gồm cờ
+  `emotionTone`) cũng có edge case tương tự: đổi cờ Cài đặt giữa 2 lần chạy
+  CÙNG transcript có thể nhận lại response cache cũ thiếu `tone` — edge case
+  hẹp, không sửa trong lượt này (đòi hỏi đổi ngữ nghĩa cache/billing
+  idempotency rộng hơn phạm vi fix này).
+- `autodub/saas_client.py::translate()` — tham số `emotion_tone: bool =
+  False`, gửi `payload["emotionTone"] = True` chỉ khi bật (không gửi field
+  khi tắt, giữ payload cũ y nguyên).
+- `autodub/text/translate_saas.py` — `translate_segments()` gửi
+  `emotion_tone=settings.emotion_voice_enabled` (CÙNG cờ Cài đặt đã bật
+  đường heuristic — không phải cờ mới); `_merge()` copy `item["tone"]` vào
+  segment đã ghép nếu máy chủ có trả, bỏ qua nếu không (không bịa).
+- `autodub/pipeline.py::_apply_emotion_styles()` — ưu tiên `seg["tone"]`
+  (đã gắn từ lượt dịch SaaS) khi có mặt và không rỗng; rơi về heuristic văn
+  bản cũ khi không có — đúng Design Choice "ưu tiên LLM, heuristic là dự
+  phòng" và Constraint 2 ("2 đường xử lý RÕ RÀNG KHÁC NHAU"). Log giờ tách
+  rõ bao nhiêu câu theo nguồn nào (`"N từ SaaS, M từ heuristic"`).
+
+**Verify:**
+- `control_server/tests/translate-prompts.test.js` (+6 test): schema/prompt
+  mặc định KHÔNG có `tone` (0 regression); bật `emotionTone` → schema có
+  đúng field `tone` bắt buộc + enum 3 giá trị, prompt có đúng hướng dẫn +
+  "EXACTLY THREE fields"; `TONE_VALUES` khớp đúng 3 giá trị phía Python.
+- `control_server/tests/utils.test.js` (+4 test): `mergeTranslations` với
+  `extraFields=[]` (mặc định) không lộ field thừa; `extraFields=["tone"]`
+  copy đúng theo từng câu (cả ghép theo id lẫn ghép theo vị trí); câu model
+  không trả tone thì KHÔNG có field đó (không bịa).
+- `control_server/tests/ai-gateway-emotion-tone.test.js` (5 test, MỚI —
+  gọi `translateBatch()` THẬT, chỉ mock lớp gọi HTTP ra ngoài `axios.post` +
+  dùng MongoDB thật trong bộ nhớ cho `AiProvider`, đúng ranh giới mock của
+  các test khác trong repo — không mock chính hàm đang kiểm): cờ tắt → cả
+  request gửi lên VÀ response đều không có `tone`; cờ bật → tone đúng theo
+  từng câu; model trả nhãn ngoài enum → tự sửa "neutral"; model quên tone 1
+  câu → tự rơi "neutral"; **lô phải chia đôi (thiếu câu) → cờ `emotionTone`
+  vẫn được giữ đúng ở lời gọi đệ quy cho lô con** (test khoá riêng đúng chỗ
+  dễ quên nhất khi thêm tham số mới vào hàm đệ quy).
+- `node --test`: **205 tests, 204 pass, 1 skipped, 0 failed** (191 trước
+  re-audit + 15 test mới: 2 V31 + 6+4+5 tổng của utils/prompts/gateway V28,
+  trừ 2 trùng đếm với V31 ở trên).
+- `tests/test_pipeline_emotion_voice.py` (+4 test): `seg["tone"]` có mặt →
+  dùng THẲNG (bỏ qua heuristic dù văn bản gợi ý tone khác hẳn); không có →
+  rơi về heuristic (0 regression); lô hỗn hợp (1 câu có tone LLM, 1 câu
+  không) → mỗi câu đúng nguồn riêng, không lẫn; `tone` rỗng/khoảng trắng
+  (dữ liệu lạ) → coi như không có, không tra style rỗng.
+- `tests/test_translate_saas_emotion_tone.py` (7 test, mới):
+  `translate_segments()` gửi đúng `emotion_tone` theo `settings
+  .emotion_voice_enabled` (cả 2 chiều bật/tắt); tone từ server tới đúng
+  segment cuối cùng; tắt cờ → không có field tone (0 regression); `_merge()`
+  copy đúng tone khi có, bỏ qua khi không, không bịa cho câu server không
+  dịch được.
+- `pytest tests/ -q` toàn bộ: **959 passed, 6 skipped, 0 failed** (948 pass
+  sau phần V26/V31 ở trên + 11 test V28 mới: 4 pipeline + 7 translate_saas).
+
+**Remaining Limits còn lại sau re-audit này (thật sự cần credential/hạ tầng
+ngoài, không phải bỏ sót):**
+- Diarization THẬT (V26) và dịch SaaS THẬT qua model thật (V28/V31) — vẫn
+  cần HF token / AI provider key thật tương ứng, sandbox này không có.
+- `/v1/ai/translate` (route dub pipeline, KHÁC route `/api/v1/translate`
+  của V31) chưa có test HTTP-level nào trong toàn bộ repo — không phải gap
+  do V28 gây ra (đã xác nhận bằng grep trước khi build: 0 test file nào
+  tham chiếu route này qua `fastify.inject`) — ghi nhận là nợ kỹ thuật CÓ
+  SẴN, ngoài phạm vi fix Remaining Limits của lượt này.
+- Panel "Xem trước người nói" (V26) chưa live-verify bằng mắt qua ứng dụng
+  chạy thật (xem mục V26 ở trên) — chỉ verify logic + import GUI thật.
+
+**Ghi chú môi trường:** sandbox lượt re-audit này ban đầu KHÔNG có venv
+Python nào cài sẵn (khác lượt build V26-V31 trước — có thể đã bị dọn giữa
+2 phiên làm việc) — dựng lại `python3 -m venv .venv-test` rồi cài đủ
+`pip install -e ".[dev]" pydub numpy cryptography` mới chạy được
+`pytest tests/` đầy đủ. Ghi lại để phiên sau không nhầm "thiếu dependency"
+là bug thật của code.
