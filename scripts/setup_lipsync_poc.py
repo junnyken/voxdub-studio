@@ -13,16 +13,24 @@ thiểu đã có số liệu cộng đồng chạy được: ~4GB VRAM (vd RTX 3
 chậm nhưng chạy được. Không có GPU NVIDIA → script dừng ngay ở bước đầu,
 không phí thời gian cài ~10-15GB dependency + model weights.
 
+MuseTalk (README chính chủ) khuyến nghị CHÍNH XÁC Python 3.10 — bản mới hơn
+(3.12/3.13/3.14) KHÔNG cài được torch==2.0.1 (bị pin cứng, không có wheel).
+Script tự tìm Python 3.10 riêng trên máy qua launcher `py -3.10` (Windows)
+nếu Python mặc định không phải 3.10 — không cần tự lo trước, nhưng máy PHẢI
+có sẵn 1 bản Python 3.10 đã cài (xem bước 2 bên dưới nếu chưa có).
+
 Các bước resume-safe — chạy lại script sẽ bỏ qua phần đã xong:
   1. Kiểm tra GPU NVIDIA thật (nvidia-smi) — DỪNG NGAY nếu không có.
-  2. Tạo virtualenv .venv-lipsync
-  3. Cài PyTorch 2.0.1 (bản CUDA 11.8, đúng pin của MuseTalk) + requirements.txt
-  4. Cài bộ MMLab (mmengine/mmcv/mmdet/mmpose — dùng cho DWPose face-keypoint,
+  2. Kiểm tra/tìm Python 3.10 (torch==2.0.1 không cài được ở Python mới hơn)
+     — DỪNG kèm hướng dẫn cài nếu máy chưa có Python 3.10 nào.
+  3. Tạo virtualenv .venv-lipsync (bằng đúng Python 3.10 tìm được ở bước 2)
+  4. Cài PyTorch 2.0.1 (bản CUDA 11.8, đúng pin của MuseTalk) + requirements.txt
+  5. Cài bộ MMLab (mmengine/mmcv/mmdet/mmpose — dùng cho DWPose face-keypoint,
      đây CŨNG là bước dùng lại được cho consent-check face-detection ở Scope C)
-  5. Clone mã nguồn MuseTalk (ghim đúng 1 commit cụ thể để tái lập được, xem
+  6. Clone mã nguồn MuseTalk (ghim đúng 1 commit cụ thể để tái lập được, xem
      MUSETALK_COMMIT bên dưới) vào scripts/research/musetalk_repo/ — KHÔNG
      commit vào git (xem .gitignore)
-  6. Tải model weights thật (~5-6GB, nhiều nguồn: HuggingFace + Google Drive +
+  7. Tải model weights thật (~5-6GB, nhiều nguồn: HuggingFace + Google Drive +
      pytorch.org) vào scripts/research/musetalk_repo/models/
 
 Sau khi xong, chạy: py scripts/research/lipsync_poc.py --video <đường dẫn>
@@ -75,6 +83,47 @@ def log(msg: str) -> None:
     print(f"[setup-lipsync-poc] {msg}", flush=True)
 
 
+def _find_py310() -> str | None:
+    """Tìm 1 bản Python 3.10 CỤ THỂ trên máy — torch==2.0.1 (MuseTalk pin
+    cứng) không có wheel cho Python quá mới (xác nhận thật: lỗi "No matching
+    distribution found for torch==2.0.1" khi tạo venv bằng Python 3.14).
+    Ưu tiên `py -3.10` (launcher chuẩn của Windows, tìm được cả khi 3.10
+    không phải bản mặc định), sau đó `python3.10` (Linux/Mac)."""
+    candidates = ([["py", "-3.10"]] if os.name == "nt" else []) + [["python3.10"]]
+    for cmd in candidates:
+        if not shutil.which(cmd[0]):
+            continue
+        probe = subprocess.run([*cmd, "-c", "import sys; print(sys.executable)"],
+                               capture_output=True, text=True)
+        if probe.returncode == 0 and probe.stdout.strip():
+            return probe.stdout.strip()
+    return None
+
+
+def step_check_python() -> str:
+    """MuseTalk (README) khuyến nghị CHÍNH XÁC Python 3.10 — GATE trước khi
+    tạo venv, tránh lặp lại lỗi thật đã gặp (venv tạo bằng Python 3.14 khiến
+    bước cài torch==2.0.1 chết ngay với "No matching distribution"). Trả về
+    đường dẫn Python 3.10 sẽ dùng để tạo `.venv-lipsync`."""
+    if sys.version_info[:2] == (3, 10):
+        return sys.executable
+    log(f"Python đang chạy script này ({sys.version.split()[0]}) không phải "
+        "3.10 — torch==2.0.1 (MuseTalk pin cứng) không có bản cài cho "
+        "version này. Tìm Python 3.10 riêng trên máy ...")
+    found = _find_py310()
+    if not found:
+        raise SystemExit(
+            "!! Không tìm thấy Python 3.10 trên máy. MuseTalk BẮT BUỘC "
+            "đúng Python 3.10 (KHÔNG chạy được bản mới hơn như 3.12/3.13/"
+            "3.14).\nCài Python 3.10 tại: "
+            "https://www.python.org/downloads/release/python-31011/ "
+            "(mục 'Windows installer (64-bit)', nhớ tick 'Add python.exe "
+            "to PATH' lúc cài) rồi chạy lại:\n"
+            "  py -3.10 scripts\\setup_lipsync_poc.py")
+    log(f"tìm thấy Python 3.10: {found}")
+    return found
+
+
 def step_check_gpu() -> None:
     """Constraint 2 của mini-spec V32a — GATE CHẶN CỨNG, kiểm TRƯỚC khi cài
     bất cứ gì (đỡ phí ~15GB tải về + thời gian nếu máy không có GPU)."""
@@ -105,12 +154,20 @@ def step_check_gpu() -> None:
             "có thể fail vì hết bộ nhớ (OOM), không phải lỗi cài đặt.")
 
 
-def step_venv() -> None:
+def step_venv(py310: str) -> None:
     if os.path.isfile(VENV_PY):
-        log("venv .venv-lipsync đã có — bỏ qua")
-        return
-    log("tạo virtualenv .venv-lipsync ...")
-    subprocess.run([sys.executable, "-m", "venv", VENV_DIR], check=True)
+        probe = subprocess.run(
+            [VENV_PY, "-c", "import sys; print(sys.version_info[:2])"],
+            capture_output=True, text=True)
+        if probe.returncode == 0 and probe.stdout.strip() == "(3, 10)":
+            log("venv .venv-lipsync đã có, đúng Python 3.10 — bỏ qua")
+            return
+        log("venv .venv-lipsync đã có nhưng SAI bản Python (không phải "
+            "3.10, chắc chắn sẽ lỗi cài torch) — xoá và tạo lại đúng bằng "
+            "Python 3.10 ...")
+        shutil.rmtree(VENV_DIR, ignore_errors=True)
+    log(f"tạo virtualenv .venv-lipsync bằng {py310} (Python 3.10) ...")
+    subprocess.run([py310, "-m", "venv", VENV_DIR], check=True)
 
 
 def _pip_install(*args: str) -> None:
@@ -265,7 +322,8 @@ def main() -> None:
     log("Cài đặt PoC Lip-sync (MuseTalk) — mini-spec V32a, docs/PLAN.md Phase G")
     log("Đây là môi trường THỬ NGHIỆM cô lập, KHÔNG phải tính năng sản phẩm.")
     step_check_gpu()
-    step_venv()
+    py310 = step_check_python()
+    step_venv(py310)
     step_torch()
     step_clone_repo()
     step_install_requirements()
