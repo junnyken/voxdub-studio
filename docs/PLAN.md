@@ -62,6 +62,9 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V32a | PoC lip-sync MuseTalk — benchmark thật + thử nghiệm consent-check/watermark (Phase G, đóng gap V30) | 🔶 **Live-verify thành công 1/3 mẫu** trên máy chủ dự án (NVIDIA T1200 4GB) — còn thiếu góc nghiêng + nhiều người | Chủ dự án đã trả lời đủ 5 câu hỏi chính sách V30 (2026-08-12): CÓ consent-check, CÓ watermark, CÓ giới hạn theo gói, CHẤP NHẬN GPU-only, KHÔNG cần Wav2Lip. `scripts/setup_lipsync_poc.py` + `scripts/research/lipsync_poc.py` viết xong, cài đặt + chạy thật trên máy chủ dự án (không phải sandbox — sandbox không có GPU). Sau 8 vòng sửa lỗi thật trong lúc live-verify (Python 3.10 pin, huggingface_hub version, gdown cú pháp mới, autodub import kéo dependency nặng, đường dẫn tương đối vỡ khi đổi cwd, YAML escape ký tự Windows, thiếu `--use_float16` gây OOM VRAM, UnicodeEncodeError khi pipe-redirect stdout) — **mẫu mặt thẳng (video mẫu MuseTalk) chạy trót lọt hoàn toàn**: 794s (~13.2 phút) cho ~10.7s video 268 frame, VRAM đỉnh 3929/4096MB (~96%, rất sát trần card 4GB), consent-check 268/268 frame nhận diện khuôn mặt (100%), watermark metadata thành công, watermark chữ đè thành công sau khi trỏ đúng font có sẵn trong repo. CHƯA chạy mẫu góc nghiêng/nhiều người (Constraint 6) và chưa có đánh giá chất lượng bằng mắt — xem TEST_LOG |
 | V32b | Build lip-sync production (Phase G, đóng gap V32a — CHỈ mở khi V32a khuyến nghị "go") | ⏸️ Chờ kết quả V32a | Phạm vi/Design Choice cuối phụ thuộc số liệu benchmark thật của V32a — mini-spec khung đã viết bên dưới, sẽ tinh chỉnh cụ thể (ngưỡng chất lượng, giới hạn video hỗ trợ) sau khi có PoC thật |
 | V33 | AI tự đề xuất giọng đọc phù hợp theo nội dung video (Phase G, chủ dự án yêu cầu 2026-08-13) | ✅ Xong (bản "sau khi lồng tiếng xong", đúng chốt Design Choice) | Agent audit xác nhận luồng wizard "Tạo dự án" chỉ cấu hình, không có tín hiệu phân tích lúc chọn giọng — chốt xây bản đề xuất Ở TRÌNH CHỈNH SỬA (sau khi xuất, dùng `video_context.json` đã mở khóa). `voice_hint` additive trong `ANALYSIS_SCHEMA` (chỉ 3 style thật của VieNeu, khớp `VOICE_STYLE_VALUES`) → `autodub/speech/tts/voice_recommend.py::recommend_voices()` (giới tính là bộ lọc cứng, style chỉ dùng 2 giá trị đáng tin tin_tuc/doc_truyen — không suy đoán khi catalog thiếu dữ liệu, đúng Constraint 2) → `autodub/editor.py::suggest_voice()` (hàm thuần, đọc file qua `securestore.read_json_secure(key=None)`, còn khóa/thiếu/hỏng đều trả None chứ không xin lại khóa máy chủ) → khối "AI đề xuất giọng" trong `VoicePanel` (Trình chỉnh sửa), tái dùng đúng luồng đổi giọng thủ công đã có. 4+11+7+5 = 27 test mới, 0 regression (986/992 pass Python, 208/209 pass Node) — xem TEST_LOG |
+| V34a | PoC hạ tầng API lồng tiếng đầy đủ (Phase G, đóng gap V31 — mở rộng dịch-thôi thành ASR+dịch+TTS+video) | 📝 Mini-spec đã viết, chưa build | Agent audit xác nhận: `render_worker` (V9/V12) CHỈ có Demucs, không import `autodub` — container thiếu hoàn toàn ASR/TTS/pipeline engine, phải xây MỚI. Nhưng `autodub/cli.py` (V22) đã là engine headless không phụ thuộc Qt, gọi được thẳng từ 1 worker server. Job-queue pattern (RenderJob/claim-heartbeat-complete-fail qua `X-Worker-Token`) tổng quát hoá được, dùng lại nguyên si. Billing/lưu trữ/GPU server-side đều CHƯA có tiền lệ nào (billing hiện chỉ theo lượt gọi hoặc giá cố định, không có "theo phút video"; lưu trữ 200MB/node hiện tại chỉ đủ audio; 0 cấu hình GPU server trong docker-compose) — rủi ro cao hơn cả V9 gốc, cần PoC hẹp trước — xem mini-spec đầy đủ bên dưới |
+| V34b | Build production API lồng tiếng đầy đủ (Phase G, đóng gap V34a — CHỈ mở khi V34a khuyến nghị "go") | ⏸️ Chờ kết quả V34a | Billing theo phút video + giới hạn lưu trữ production + GPU provisioning multi-tenant — chi tiết cụ thể phụ thuộc số liệu benchmark thật của V34a, xem mini-spec khung bên dưới |
+| V35 | Nâng chất lượng nhân bản giọng (voice cloning) (Phase G, chủ dự án yêu cầu 2026-08-13) | 📝 Mini-spec đã viết, chưa build (2 bug thật đã sửa riêng ngoài mini-spec) | Audit phát hiện 2 bug thật đã sửa ngay (198633a): ngưỡng thời lượng tối thiểu sai lệch ~40 lần (chặn <25ms nhưng báo "cần ≥ 1 giây"); README mô tả bước nhập transcript KHÔNG tồn tại trong code (kiến trúc zero-shot, không cần transcript). Gap còn lại cho mini-spec: không có kiểm tra nhiễu/cắt tiếng/im lặng trước khi học, trần 8 giây bị cắt ÂM THẦM không báo, không có điểm số tin cậy trước khi lưu — xem mini-spec đầy đủ bên dưới |
 
 ## Tổng quan phase
 
@@ -2769,6 +2772,293 @@ Success Criteria:
 - Không có SaaS hoặc phân tích lỗi → KHÔNG hiện gợi ý giả, trải nghiệm
   chọn giọng thủ công y hệt trước mini-spec này (0 regression).
 - Không phát sinh thêm chi phí Vox nào cho tính năng này.
+```
+
+### V34a — PoC hạ tầng API lồng tiếng đầy đủ
+
+```
+V34a — PoC hẹp: chứng minh khả thi kỹ thuật engine đầy đủ chạy server-side (Phase G)
+
+Context:
+- Chủ dự án chọn trực tiếp (2026-08-13, qua AskUserQuestion): mở rộng V31
+  (API dịch văn bản thôi) thành API lồng tiếng ĐẦY ĐỦ (ASR+dịch+TTS+video),
+  giống Sync Labs/HeyGen — nộp video, nhận về video đã lồng tiếng.
+- Agent audit riêng (2026-08-13) đối chiếu hạ tầng V9/V12 (Cloud rendering)
+  đã có với nhu cầu thật của V34:
+  - TÁI DÙNG ĐƯỢC nguyên si: job-queue pattern (`RenderJob` model,
+    claim/heartbeat/complete/fail qua `internal-jobs.js`, xác thực
+    `X-Worker-Token` tách hẳn device/API-key token) — thiết kế vốn đã
+    tổng quát, không riêng Demucs. `autodub/cli.py` (V22) là engine headless
+    KHÔNG phụ thuộc Qt, `DubPipeline`/`DubRequest` chạy được thẳng từ 1
+    tiến trình server, không cần viết pipeline riêng.
+  - THIẾU HOÀN TOÀN, phải xây mới: `control_server/worker/` (render_worker
+    hiện tại) CHỈ cài `demucs`/`soundfile`/`requests`, KHÔNG import
+    `autodub` — cố tình nhẹ, không có Whisper/VieNeu/Paraformer/ffmpeg đầy
+    đủ. Billing hiện chỉ có 2 mô hình (Vox giá cố định theo hành động, hoặc
+    `ApiKey.quota` đếm THEO LƯỢT GỌI — không có khái niệm "theo phút
+    video"). Lưu trữ hiện dùng 1 volume chia sẻ nội bộ, giới hạn cứng
+    200MB/request (đủ audio Demucs, KHÔNG đủ video). GPU: 0 cấu hình
+    `deploy.resources.reservations.devices` trong `docker-compose.yml` —
+    Demucs cloud hiện chạy CPU-only thật trong production, chưa từng có
+    tiền lệ GPU server-side.
+- Rủi ro V34 CAO HƠN cả V9 gốc (audio→video, 1 stage→cả pipeline, GPU chưa
+  chứng minh được ở server, billing hoàn toàn mới) — agent khuyến nghị tách
+  PoC/build đúng tiền lệ V9→V12, V30→V32a→V32b.
+
+Goal:
+- Chứng minh 1 video ngắn (<2 phút) chạy trót lọt ASR→dịch→TTS→mux qua 1
+  container server MỚI gọi thẳng `autodub.cli`/`DubPipeline` headless, đo
+  được số liệu thật (thời gian xử lý, dung lượng đĩa cần, có bắt buộc GPU
+  hay CPU đủ dùng) — đủ dữ liệu để quyết định go/no-go cho V34b.
+
+Constraints (Guardrails):
+1. KHÔNG làm billing thật — chưa có số liệu chi phí compute thật để định
+   giá đúng (đúng nguyên tắc "không suy đoán khi thiếu evidence"). PoC chỉ
+   LOG chi phí giả định, không trừ Vox/quota thật.
+2. Container MỚI HOÀN TOÀN, tách khỏi `control_server/worker/` (render_worker
+   Demucs hiện có) — không nhét chung 1 image, đúng nguyên tắc đã có từ V12
+   ("build/deploy control_server không phụ thuộc thay đổi bên Python").
+3. Đo số liệu THẬT trên video mẫu cụ thể (không suy đoán) — thời gian xử
+   lý, dung lượng input+output, GPU có bắt buộc hay CPU đủ dùng trong thời
+   gian chấp nhận được.
+4. Giới hạn video ĐẦU VÀO nhỏ (<2 phút, 1-2 video mẫu cụ thể) — KHÔNG cam
+   kết video dài/nhiều tenant đồng thời ở PoC này.
+5. Tái dùng nguyên si job-queue pattern (`RenderJob`/claim-heartbeat-
+   complete-fail) — chỉ mở rộng tối thiểu (thêm giá trị `stage` mới hoặc
+   field payload), không viết lại cơ chế queue.
+6. Xác thực qua `ApiKey` (V31) chỉ để NHẬN DIỆN người gọi — không gắn quota/
+   billing thật ở PoC này (Constraint 1).
+
+Scope:
+A. `control_server/worker-dub/` (mới, thư mục + Dockerfile TÁCH HẲN
+   `control_server/worker/`) — cài đủ `autodub` package + faster-whisper +
+   VieNeu (ONNX) + ffmpeg, gọi `autodub.cli`/`DubPipeline` headless xử lý
+   1 job nhận được qua claim.
+B. Mở rộng `RenderJob` schema tối thiểu — audit kỹ khi code xem thêm giá
+   trị `stage: "full_dub"` vào enum hiện có là đủ, hay payload khác biệt
+   quá (input là VIDEO không phải audio, cần thêm sourceLang/targetLang/
+   voice params, output là VIDEO không phải audio) nên cần model job
+   riêng — quyết định cụ thể lúc code, không chốt trước trong tài liệu này.
+C. `POST /api/v1/dub` (mới, xác thực qua `requireApiKey` — tái dùng
+   middleware V31) — CHỈ submit job, trả `jobId` ngay, KHÔNG đồng bộ như
+   `/api/v1/translate` (dub mất nhiều phút, không thể chờ trong 1 request).
+D. `GET /api/v1/dub/:jobId` (mới) — poll trạng thái + tải kết quả khi xong.
+E. Lưu trữ: dùng lại volume chia sẻ tạm hiện có, audit dung lượng THẬT cần
+   cho video test — KHÔNG cam kết giới hạn production (Constraint 4).
+F. Tests: unit (job model mở rộng, route validate body); integration
+   (submit → worker giả lập claim/complete → tải kết quả — theo đúng khuôn
+   `render-job.integration.test.js`/`internal-jobs.test.js` đã có, không
+   cần GPU thật để verify LUỒNG); KHÔNG cần test billing (chưa có ở PoC).
+
+Audit Before Build: đã audit đủ hạ tầng hiện có (agent, kết quả ghi ở
+Context) — cần audit THÊM khi code: đọc kỹ field cụ thể của `RenderJob`
+schema (`control_server/src/models/RenderJob.js`) để quyết định mở rộng
+enum hay tách model riêng (Scope B).
+
+Design Choice:
+- Container tách biệt hoàn toàn (Constraint 2) — đúng nguyên tắc đã có từ
+  V12, tránh 1 lỗi ở pipeline nặng làm ảnh hưởng deploy control_server.
+- Dùng `autodub.cli`/`DubPipeline` headless làm engine — không viết lại
+  pipeline riêng cho server, đúng nguyên tắc Playbook "không build song
+  song với luồng đã có" (đã áp dụng nhất quán từ V22 tới giờ).
+- KHÔNG làm billing thật ở PoC (Constraint 1) — mô hình billing đúng
+  (theo phút video) cần số liệu chi phí compute thật mới định giá đúng,
+  làm sớm là định giá mù.
+
+Test Plan:
+- Unit: job model/route validate.
+- Integration: toàn luồng submit→worker giả→hoàn thành→tải kết quả, dùng
+  worker giả lập (không cần GPU thật) để verify WIRING đúng khuôn test
+  render-job hiện có.
+- Live verification: NẾU có máy GPU thật (hoặc xác nhận CPU đủ dùng) —
+  chạy 1-2 video mẫu <2 phút thật qua worker mới, đo thời gian/dung lượng
+  thật, ghi vào TEST_LOG.
+
+Success Criteria:
+- ≥1 video mẫu <2 phút chạy trót lọt qua API mới (submit→poll→tải kết
+  quả), có số liệu thật (thời gian xử lý, dung lượng, GPU bắt buộc hay
+  CPU đủ dùng).
+- Khuyến nghị go/no-go rõ ràng cho V34b kèm lý do — không lấp lửng.
+```
+
+### V34b — Build production API lồng tiếng đầy đủ (đóng gap V34a)
+
+```
+V34b — Billing theo phút video + lưu trữ production + GPU đa tenant (Phase G, CHỈ mở nếu V34a khuyến nghị "go")
+
+Context:
+- Điều kiện tiên quyết: V34a phải hoàn thành với khuyến nghị "go" kèm số
+  liệu benchmark thật (thời gian xử lý/phút video, dung lượng đĩa/video,
+  GPU có bắt buộc hay không). Mini-spec này KHÔNG được mở nếu V34a khuyến
+  nghị "không build" hoặc "cần thu hẹp phạm vi thêm".
+- 3 mảng CHƯA có tiền lệ nào trong toàn hệ thống (xác nhận qua audit V34a):
+  billing theo thời lượng media, giới hạn lưu trữ video-scale, GPU
+  provisioning multi-tenant — đây là phần việc CHÍNH của mini-spec này.
+
+Goal:
+- API lồng tiếng đầy đủ chạy production thật: billing đúng chi phí compute
+  thật (không lỗ, không đoán mò — lấy số từ V34a), giới hạn lưu trữ + dọn
+  file tự động, hỗ trợ nhiều job đồng thời an toàn (không tranh chấp GPU/
+  tài nguyên giữa các tenant).
+
+Constraints (Guardrails):
+1. Billing PHẢI theo số liệu chi phí compute THẬT đo được ở V34a — không
+   định giá theo cảm tính.
+2. Billing API lồng tiếng TÁCH HẲN `CreditLedger` (Vox desktop) VÀ
+   `ApiUsageLedger` (V31 dịch văn bản) — 3 hệ billing độc lập, đúng nguyên
+   tắc "lỗi 1 hệ không ảnh hưởng ví người dùng khác" đã áp dụng xuyên suốt
+   Phase G (V31 Design Choice).
+3. Lưu trữ video PHẢI có TTL/dọn tự động — video là dữ liệu lớn, không dọn
+   sẽ đầy đĩa nhanh hơn hẳn audio Demucs trước đây.
+4. GPU đa tenant: PHẢI có cơ chế hàng đợi/giới hạn concurrency rõ ràng
+   (không để 2 job cùng tranh 1 GPU gây OOM hoặc timeout không kiểm soát
+   được — bài học thật từ V32a: card 4GB đã cận trần chỉ với 1 job).
+5. KHÔNG cam kết SLA thời gian xử lý cụ thể trước khi có số liệu vận hành
+   thật qua ít nhất 1 đợt live traffic thử nghiệm.
+
+Scope (khung ban đầu — tinh chỉnh cụ thể sau khi có số liệu V34a):
+A. Mô hình billing mới — đơn giá theo PHÚT VIDEO ĐẦU RA (không phải theo
+   lượt gọi như V31), tính từ số liệu chi phí compute thật của V34a + biên
+   lợi nhuận do chủ dự án quyết định (quyết định giá là quyết định kinh
+   doanh, không tự chốt trong tài liệu kỹ thuật này).
+B. `DubApiJob` (model mới hoặc mở rộng `RenderJob` tuỳ quyết định audit của
+   V34a Scope B) — thêm TTL dọn file tự động sau N giờ kể từ khi hoàn
+   thành (giống `cloud.render.ttl.hours` đã có cho Demucs).
+C. Giới hạn concurrency GPU — hàng đợi thật (không phải chỉ "ai claim
+   trước chạy trước" như hiện tại), giới hạn số job xử lý cùng lúc theo
+   đúng khả năng phần cứng thật đã đo ở V34a.
+D. `docker-compose.yml`/tài liệu deploy — thêm cấu hình GPU provisioning
+   (`deploy.resources.reservations.devices`) lần đầu tiên trong hệ thống.
+E. Tests: billing tính đúng theo thời lượng thật; TTL dọn file đúng hạn;
+   giới hạn concurrency chặn đúng khi vượt ngưỡng; regression (API dịch
+   văn bản V31 và Demucs cloud V12 không bị ảnh hưởng — đúng Constraint 2).
+
+Audit Before Build: đọc kỹ báo cáo + số liệu thật của V34a trước khi chốt
+đơn giá/TTL/ngưỡng concurrency cụ thể — không tự quyết lại.
+
+Design Choice: chưa chốt được đầy đủ trước khi có V34a — nguyên tắc chung
+đã rõ (billing tách hệ, TTL bắt buộc, GPU có hàng đợi thật), số cụ thể
+(giá/giờ TTL/số job đồng thời) chốt khi mở mini-spec này thật.
+
+Test Plan:
+- Unit: tính billing theo thời lượng, TTL dọn file, giới hạn concurrency.
+- Integration: nhiều job đồng thời qua đúng giới hạn concurrency, không
+  job nào bị treo/OOM.
+- Regression: API dịch văn bản V31 + Demucs cloud V12 không đổi hành vi.
+- Live verification: ≥1 đợt xử lý thật nhiều video liên tiếp qua GPU thật,
+  xác nhận billing tính đúng + không tràn đĩa + không tranh chấp GPU.
+
+Success Criteria:
+- API lồng tiếng chạy production thật, billing đúng chi phí compute thật,
+  không tranh chấp tài nguyên khi nhiều job chạy cùng lúc.
+- 0 regression cho V31 (dịch văn bản) và V12 (Demucs cloud).
+- Đĩa không tràn nhờ TTL dọn tự động, xác nhận qua live verification.
+```
+
+### V35 — Nâng chất lượng nhân bản giọng (voice cloning)
+
+```
+V35 — Kiểm tra chất lượng đầu vào + minh bạch giới hạn khi nhân bản giọng (Phase G)
+
+Context:
+- Chủ dự án yêu cầu trực tiếp (2026-08-13): nâng chất lượng nhân bản giọng
+  (voice cloning) để cạnh tranh với ElevenLabs/XTTS-v2/OpenVoice.
+- Agent audit riêng (2026-08-13) xác nhận kiến trúc THẬT: VieNeu-TTS
+  v3-Turbo là zero-shot cloning (mã hoá 1 embedding giọng 192 chiều +
+  reference codes từ audio, KHÔNG fine-tune/train riêng từng giọng, KHÔNG
+  cần transcript) — cùng họ kỹ thuật với VALL-E/XTTS/GPT-SoVITS. Giọng
+  nhân bản trở thành "preset" y hệt giọng đóng sẵn ngay sau khi enroll,
+  không tốn thêm chi phí mỗi câu — đây LÀ điểm mạnh thật (khác nhiều đối
+  thủ cần thời gian "train" riêng).
+- Audit phát hiện 2 BUG THẬT, đã sửa riêng NGOÀI mini-spec này (commit
+  `198633a`, trước khi viết mini-spec): (1) ngưỡng thời lượng tối thiểu
+  sai lệch ~40 lần — trước đây chỉ chặn clip <25ms nhưng báo "cần ≥ 1
+  giây", giờ đã có `MIN_ENROLL_SECONDS = 1.0` kiểm tường minh; (2)
+  README mô tả bước "nhập đúng nội dung câu nói" khi thêm giọng — bước
+  này KHÔNG tồn tại trong code (kiến trúc zero-shot không cần transcript),
+  đã sửa lại mô tả đúng.
+- Gap CÒN LẠI (audit, chưa sửa, phạm vi của mini-spec này): (a) KHÔNG có
+  kiểm tra nhiễu/tiếng ồn/cắt tiếng (clipping)/im lặng trước khi học —
+  file khử ồn ONNX luôn chạy nhưng không có bước TỪ CHỐI nếu chất lượng
+  quá kém; (b) trần 8 giây (`wav[: int(8.0 * sr)]`,
+  `autodub/speech/tts/vieneu_worker.py::_encode_one`) bị cắt ÂM THẦM
+  không báo — file 60 giây bị cắt còn 8 giây mà người dùng không biết;
+  (c) KHÔNG có điểm số tin cậy (confidence/similarity score) trước khi
+  lưu — người dùng chỉ biết chất lượng SAU khi lưu, phải tự bấm "Nghe thử"
+  rồi mới biết có cần học lại hay không.
+
+Goal:
+- Người dùng biết NGAY (trước khi mất công enroll) nếu file ghi âm không
+  đạt chất lượng tối thiểu (quá ồn/quá ngắn/bị cắt tiếng/gần như im lặng),
+  thay vì phải tự nghe thử sau khi đã lưu mới phát hiện giọng nhân bản tệ.
+
+Constraints (Guardrails):
+1. KHÔNG thêm dependency AI/model mới nặng (vd 1 model đánh giá chất lượng
+   giọng nói riêng) — dùng phân tích tín hiệu số học đơn giản (năng lượng/
+   biên độ/tỷ lệ mẫu bị clip) đã đủ bắt các lỗi rõ ràng nhất, đúng tinh
+   thần "không suy đoán vượt quá điều đo được thật".
+2. KHÔNG chặn cứng người dùng nếu chất lượng ở mức "chấp nhận được nhưng
+   không lý tưởng" — chỉ CẢNH BÁO rõ ràng, để người dùng tự quyết định có
+   tiếp tục hay chọn file khác (giống cách preflight check của app hiện có
+   phân biệt "fail" cứng và "warn" mềm, xem `autodub/preflight.py`).
+3. Trần độ dài (hiện 8 giây) PHẢI báo rõ khi file dài hơn bị cắt — không
+   được cắt âm thầm như hiện tại.
+4. KHÔNG đổi hành vi giọng THƯ VIỆN có sẵn (120 giọng preset,
+   `voice_downloader.py`) — mini-spec này CHỈ chạm luồng người dùng tự học
+   giọng riêng (`_enroll()`/`vieneu_worker.py --enroll`).
+5. Sửa README nếu phát hiện thêm mô tả sai lệch khác trong lúc build (đã
+   sửa 1 chỗ trước khi viết mini-spec, xem Context) — không để tài liệu
+   tiếp tục sai sau mini-spec này.
+
+Scope:
+A. `autodub/speech/tts/audio_quality.py` (mới) — hàm thuần phân tích tín
+   hiệu số học: tỷ lệ mẫu bị clip (biên độ chạm ±1.0 lặp lại), RMS năng
+   lượng trung bình (phát hiện gần-im-lặng), tỷ lệ khoảng lặng liên tục dài
+   nhất so với tổng thời lượng. Trả về cấu trúc rõ ràng (ok/warn/fail +
+   lý do cụ thể bằng tiếng Việt), KHÔNG phải điểm số mù mờ.
+B. `autodub/speech/tts/vieneu_worker.py::_encode_one()` — gọi
+   `audio_quality` TRƯỚC khi mã hoá; `fail` → `ValueError` với lý do rõ
+   (giống ngưỡng thời lượng đã sửa); `warn` → vẫn enroll nhưng trả kèm
+   cảnh báo trong response JSON để GUI hiển thị (không chặn cứng, đúng
+   Constraint 2). File dài hơn trần 8 giây → cảnh báo rõ trong response
+   thay vì cắt âm thầm (Constraint 3).
+C. `autodub_gui/pages/settings_panels.py` (luồng "Thêm giọng từ đoạn ghi
+   âm") — hiện cảnh báo `warn`/thông báo bị cắt từ bước B ngay sau khi
+   enroll xong, TRƯỚC khi người dùng phải tự bấm "Nghe thử" mới biết.
+D. Tests: unit (`audio_quality` phát hiện đúng clip sạch/ồn/im lặng/bị cắt
+   tiếng bằng dữ liệu tổng hợp — sin wave sạch vs random noise vs mảng
+   toàn 0 vs mảng có clipping thật); tích hợp `_encode_one()` (fail đúng
+   trường hợp quá tệ, warn đúng trường hợp biên, không đổi hành vi giọng
+   thư viện — Constraint 4).
+
+Audit Before Build: đã audit đủ kiến trúc + 2 bug thật (Context) — không
+còn điểm mù kỹ thuật cần audit thêm trước khi build.
+
+Design Choice:
+- Phân tích tín hiệu số học đơn giản (Constraint 1) thay vì model AI đánh
+  giá chất lượng riêng — đủ bắt các lỗi RÕ RÀNG nhất (câm, ồn trắng, cắt
+  tiếng) mà không phải tải thêm model, đúng tinh thần "engine nhẹ, độ
+  chính xác vừa đủ" đã dùng cho heuristic văn bản của V28.
+- Cảnh báo thay vì chặn cứng cho trường hợp biên (Constraint 2) — người
+  dùng vẫn là người quyết định cuối, app chỉ cung cấp thông tin để quyết
+  định đúng hơn, không tự ý từ chối nếu chưa chắc chắn tệ.
+
+Test Plan:
+- Unit: `audio_quality` với dữ liệu tổng hợp (sin wave sạch → ok; toàn 0 →
+  fail im lặng; random noise biên độ cao → warn/fail nhiễu; mảng có nhiều
+  mẫu chạm ±1.0 → warn/fail clipping).
+- Integration: `_encode_one()` fail đúng khi audio_quality fail, warn kèm
+  đúng lý do khi audio_quality warn, không đổi hành vi khi audio_quality ok.
+- Regression: enroll giọng thư viện (`voice_downloader.py`, 120 giọng
+  preset) không bị ảnh hưởng bởi bước kiểm tra mới (Constraint 4).
+
+Success Criteria:
+- File ghi âm rõ ràng quá tệ (câm hoàn toàn, ồn trắng, cắt tiếng nặng) bị
+  từ chối TRƯỚC khi tốn công enroll, kèm lý do cụ thể đọc được.
+- File biên (không lý tưởng nhưng dùng được) vẫn enroll được, kèm cảnh báo
+  rõ ràng cho người dùng tự quyết định.
+- File dài hơn trần 8 giây → người dùng THẤY rõ bị cắt, không còn âm thầm.
+- 120 giọng thư viện có sẵn không bị ảnh hưởng gì (0 regression).
 ```
 
 ### Remaining Limits / Follow-ups của Phase G
