@@ -3740,3 +3740,121 @@ không) — chủ dự án đang xem video kết quả, sẽ ghi bổ sung sau.
   conflict, path handling, encoding) — chưa phát hiện bug nào ở tầng LOGIC
   benchmark/consent-check/watermark tự viết, nhưng cũng chưa test đủ đa
   dạng để loại trừ hoàn toàn.
+
+
+## V33 — AI tự đề xuất giọng đọc phù hợp theo nội dung video (Phase G)
+
+### Audit trước khi build
+
+- Agent audit riêng xác nhận luồng "Tạo dự án" (6 bước wizard): `_go_next()`
+  (`autodub_gui/pages/new_project_page.py:253`) KHÔNG chạy pipeline nào cho
+  tới bước 5 ("Chạy dịch", gọi `DubPipeline.run()` một lượt). `analyze_
+  transcript()` chỉ chạy BÊN TRONG lượt đó (`pipeline.py:1115`), SAU khi
+  giọng đã khóa vào `DubRequest` từ bước 4. Kết luận: không có tín hiệu
+  phân tích nào tồn tại lúc người dùng đang ở bước chọn giọng — chốt với
+  chủ dự án (2026-08-13, qua AskUserQuestion): xây bản "gợi ý SAU khi lồng
+  tiếng xong" (Trình chỉnh sửa) trước, bản "gợi ý SỚM" (cần worker ASR+
+  phân tích riêng chạy trước bước chọn giọng, thêm độ trễ + ASR chạy 2 lần)
+  để dành mini-spec khác.
+- Audit `autodub/securestore.py`: `data/video_context.json` bị khóa
+  AES-256-GCM chỉ tới khi hold Vox CHỐT (mục đích chống lấy data chưa trả
+  tiền, không phải bảo mật nội dung — xem docstring). Sau khi xuất video,
+  `unlock_all()` tự giải mã thành JSON thường (`pipeline.py:1901`,
+  `billing.py:191/314`) — `read_json_secure(path, key=None)` đọc được
+  ngay, không cần xin lại khóa từ máy chủ. Dự án chưa xuất → file còn khóa
+  → đọc ném `SecureStoreError`, phải bắt và coi như không có tín hiệu.
+- Audit catalog giọng (`autodub/speech/tts/voices.py`): `Voice.style` mặc
+  định `"tu_nhien"` cho MỌI giọng kể cả giọng không có tín hiệu phong cách
+  thật (suy từ tên hiển thị qua `_STYLE_FROM_TEXT`) — không thể phân biệt
+  "giọng này thật sự tự nhiên" với "giọng này thiếu dữ liệu". Quyết định:
+  chỉ coi `style in {"tin_tuc", "doc_truyen"}` (2 giá trị CHỈ được gán khi
+  tên giọng thật sự chứa từ khoá tương ứng) là tín hiệu đáng tin để khớp —
+  "tu_nhien" từ LLM không dùng để lọc/xếp hạng.
+
+### Xây dựng
+
+- `control_server/src/prompts/translate.js` — `voice_hint` additive trong
+  `ANALYSIS_SCHEMA` (`{gender: "male"|"female"|"", style:
+  "tu_nhien"|"tin_tuc"|"doc_truyen"|""}`) + hướng dẫn trong
+  `buildAnalysisPrompt`, KHÔNG đụng 5 field cũ (`summary`/`domain`/
+  `pronouns`/`glossary`/`style_notes`). `VOICE_STYLE_VALUES` xuất ra
+  module.exports, khớp đúng 3 style thật của VieNeu — không bịa giá trị
+  ngoài catalog thật.
+- `autodub/speech/tts/voice_recommend.py` (mới) — `recommend_voices(
+  voice_hint, catalog, n=3)`: giới tính là BỘ LỌC CỨNG khi có (không đề
+  xuất sai giới tính dù khớp phong cách); phong cách chỉ dùng 2 giá trị
+  đáng tin để XẾP HẠNG (không loại giọng thiếu dữ liệu phong cách khỏi
+  danh sách — đa số giọng thiếu dữ liệu đó, loại hết sẽ mất gần toàn bộ
+  catalog vô căn cứ). Trả rỗng khi thiếu tín hiệu đáng tin hoặc catalog
+  không có giọng khớp giới tính (thà im lặng còn hơn gợi ý sai).
+- `autodub/editor.py::suggest_voice()` (mới, hàm thuần — cùng nguyên tắc
+  pure-function-first với `list_speakers()`/`set_speaker_voice()` của V26)
+  — đọc `data/video_context.json` qua `securestore.read_json_secure(path,
+  key=None)`, bắt mọi lỗi (thiếu file/còn khóa/JSON hỏng/không phải dict)
+  và trả `None`, không phải để mặc lộ exception ra GUI. Trả `None` thêm khi
+  giọng đề xuất trùng giọng hiện tại (không có gì mới để gợi ý).
+- `autodub_gui/pages/editor_panels.py::VoicePanel` — khối "AI đề xuất
+  giọng" (`ai_suggestion_label` + nút "Đổi sang giọng AI đề xuất"), ẩn mặc
+  định. `_apply_ai_suggestion()` gọi `picker.set_voice()` RỒI
+  `_on_voice_changed()` tường minh — `set_voice()` một mình không phát tín
+  hiệu `changed` (đúng thiết kế VoicePicker, dùng để NẠP giá trị lúc mở dự
+  án), phải gọi thêm để đi đúng luồng cập nhật băng nhắc "chưa đọc lại" như
+  khi người dùng tự chọn giọng trong popup.
+- `autodub_gui/pages/editor_page.py::_apply_ai_voice_suggestion()` — gọi
+  `suggest_voice()` sau khi nạp dự án (`_load_render_opts()`), cập nhật
+  panel. Toàn bộ quyết định nằm ở hàm thuần phía `editor.py`, trang GUI chỉ
+  đọc kết quả và hiển thị.
+
+### Verify
+
+- `control_server/tests/translate-prompts.test.js` (+4 test): `voice_hint`
+  additive giữ nguyên 5 field cũ; enum gender/style đúng 3 giá trị; prompt
+  có hướng dẫn voice_hint. `node --test`: 209 tests, 208 pass, 1 skip, 0
+  fail (205→209).
+- `tests/test_voice_recommend.py` (11 test, mới): rỗng khi thiếu hint;
+  "tu_nhien"/"" không phải tín hiệu (không suy đoán); giới tính là bộ lọc
+  cứng (không lộ giọng sai giới); phong cách xếp hạng chứ không loại giọng
+  thiếu dữ liệu; catalog rỗng/không khớp giới tính → rỗng; giá trị lạ
+  (ngoài enum) bị bỏ qua an toàn, không crash.
+- `tests/test_editor_voice_suggest.py` (7 test, mới): không file → None;
+  thiếu voice_hint → None; file đã mở khóa (plain JSON) đọc được ngay;
+  **file còn khóa AES-256-GCM thật → None, không thử xin lại khóa** (khoá
+  đúng Design Choice — test dùng key thật 64 hex ghi rồi đọc lại với
+  `key=None`); JSON hỏng/không phải dict → None; giọng đề xuất trùng giọng
+  hiện tại → None.
+- `tests/test_voice_panel_ai_suggestion.py` (5 test, mới, headless
+  `QT_QPA_PLATFORM=offscreen`): ẩn mặc định (`isHidden()` — đúng quy ước
+  test GUI đã có ở `test_recognize_step_warning.py`, KHÔNG dùng
+  `isVisible()` vì widget chưa `.show()` luôn trả False dù đã
+  `setVisible(True)`, bug thật gặp lúc viết test); hiện đúng tên+lý do; ẩn
+  lại khi gọi với tên rỗng; bấm nút khi chưa có gợi ý không crash/không đổi
+  gì; bấm nút khi có gợi ý đổi đúng giọng VÀ cập nhật băng nhắc "chưa đọc
+  lại" (xác nhận đi đúng luồng `_on_voice_changed()`, không bỏ qua).
+- **Bug thật tìm+sửa khi viết test**: dùng emoji 🤖 trong nhãn gợi ý — vi
+  phạm `tests/test_gui_no_emoji.py` (quy ước dự án: không emoji trong GUI,
+  dùng `status_text.py` hoặc chữ thường). Sửa bỏ emoji, giữ chữ thường.
+- `pytest tests/ -q` toàn bộ (venv đầy đủ dependency, `QT_QPA_PLATFORM=
+  offscreen`): **986 passed, 6 skipped, 0 failed** (959 pass trước V33 +
+  27 test mới: 11 voice_recommend + 7 editor_voice_suggest + 5 voice_panel
+  GUI + 4 JS đếm riêng ở control_server).
+- `node --test` (`control_server`): **209 tests, 208 pass, 1 skipped, 0
+  failed**.
+- **CHƯA live-verify qua SaaS thật** (cần AI provider key thật để LLM thật
+  sự trả `voice_hint` — sandbox này không có, đúng giới hạn đã ghi nhiều
+  lần trong Phase G). Đã live-verify được toàn bộ logic wiring (schema/
+  prompt/matching/đọc-ghi file/GUI) bằng test thật, chỉ chưa verify được
+  CHẤT LƯỢNG gợi ý thật của 1 LLM thật trên 1 video thật.
+
+### Remaining Limits (V33)
+
+- **Bản "gợi ý SỚM trước khi chọn giọng"** (đúng ý tưởng gốc của chủ dự án,
+  hiện gợi ý NGAY lúc đang ở bước "Giọng & Phụ đề" thay vì sau khi lồng
+  tiếng xong) CHƯA làm — cần 1 worker ASR+phân tích chạy nền riêng trước
+  bước chọn giọng, đánh đổi thêm độ trễ + chạy ASR 2 lần (xem "Audit trước
+  khi build"). Để dành mini-spec riêng nếu chủ dự án vẫn muốn sau khi dùng
+  thử bản này.
+- **Giọng VieNeu chỉ đề xuất được theo giới tính** — catalog thiếu dữ liệu
+  phong cách thật cho phần lớn 120 giọng (xem Audit). Muốn đề xuất sâu hơn
+  cần 1 việc nhập liệu riêng (gắn tay tag phong cách), không phải mini-spec
+  kỹ thuật này.
+- **CHƯA live-verify qua LLM thật** — xem mục Verify.

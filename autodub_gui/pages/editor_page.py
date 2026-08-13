@@ -508,6 +508,7 @@ class EditorPage(VoiceAndExportMixin, BasePage):
             settings, opts.get("voice") or self._project.voice,
             target=self._state.target if self._state else None)
         self.voice_panel.set_project_voice(project_voice)
+        self._apply_ai_voice_suggestion(settings, project_voice)
         self.overview.set_voice(project_voice)
         self.voice_panel.speed.set_value(
             float(opts.get("voice_speed", settings.voice_speed)))
@@ -518,6 +519,24 @@ class EditorPage(VoiceAndExportMixin, BasePage):
             (self._subtitle_style or {}).get("preset")
             or opts.get("subtitle_preset") or settings.subtitle_preset)
         self._apply_style_to_player()
+
+    def _apply_ai_voice_suggestion(self, settings, project_voice: str) -> None:
+        """Hiện gợi ý giọng AI ở panel Giọng đọc, nếu có (mini-spec V33,
+        docs/PLAN.md Phase G) — logic quyết định nằm ở `editor.suggest_voice()`
+        (hàm thuần, testable không cần Qt), ở đây chỉ đọc kết quả và cập
+        nhật giao diện."""
+        from autodub.editor import suggest_voice
+        from autodub.speech.tts import voices as voice_catalog
+
+        catalog = voice_catalog.catalog(
+            settings, self._state.target if self._state else None)
+        suggestion = suggest_voice(self._work_dir, catalog, project_voice)
+
+        if suggestion:
+            self.voice_panel.set_ai_suggestion(
+                suggestion.voice.name, suggestion.reason_text)
+        else:
+            self.voice_panel.set_ai_suggestion("", "")
 
     def _has_separated_audio(self) -> bool:
         from autodub.workdir import data_path

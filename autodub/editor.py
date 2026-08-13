@@ -314,6 +314,44 @@ def set_speaker_voice(work_dir: str, speaker_label: str, voice: str,
     return changed
 
 
+def suggest_voice(work_dir: str, catalog: list, current_voice: str = ""):
+    """Đề xuất 1 giọng phù hợp với nội dung video, dựa trên kết quả phân
+    tích ngữ cảnh đã lưu (mini-spec V33, docs/PLAN.md Phase G).
+
+    Đọc ``data/video_context.json`` (ghi bởi
+    `autodub.text.translate_saas.analyze_transcript()` trong lượt dịch
+    SaaS) — file này bị khóa AES-256-GCM tới khi hold Vox chốt (xem
+    `autodub/securestore.py`), tự mở khóa sau khi xuất video xong.
+
+    Trả về ``None`` (không suy đoán) khi THIẾU BẤT KỲ điều kiện nào: chưa
+    có file (local-only, hoặc dự án chưa từng phân tích), file còn khóa
+    (dự án chưa xuất — KHÔNG xin lại khóa từ máy chủ, xem Design Choice của
+    mini-spec), thiếu `voice_hint` trong kết quả phân tích, hoặc
+    `recommend_voices()` không tìm được giọng đáng tin/giọng đề xuất trùng
+    giọng hiện tại (không có gì mới để gợi ý).
+    """
+    from autodub import securestore
+    from autodub.speech.tts.voice_recommend import recommend_voices
+
+    path = data_path(work_dir, "video_context.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        analysis = securestore.read_json_secure(path, key=None)
+    except Exception:  # noqa: BLE001 — còn khóa/hỏng file đều coi như không có
+        return None
+    if not isinstance(analysis, dict):
+        return None
+    voice_hint = analysis.get("voice_hint")
+    if not voice_hint:
+        return None
+
+    results = recommend_voices(voice_hint, catalog, n=1)
+    if not results or results[0].voice.name == current_voice:
+        return None
+    return results[0]
+
+
 def _stale_derived_paths(work_dir: str, target: TargetLang, seg_id: int) -> list[str]:
     """Files that no longer match a re-synthesized segment and must be removed.
 

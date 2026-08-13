@@ -777,6 +777,25 @@ class VoicePanel(CollapsibleSection):
         self.voice_hint.setVisible(False)
         self.add_widget(self.voice_hint)
 
+        # V33: khối "AI đề xuất giọng" — chỉ hiện khi nơi gọi (editor_page)
+        # đã có tín hiệu đáng tin từ video_context.json (SaaS + dự án đã
+        # xuất/mở khóa); panel này không tự phán đoán gì, chỉ hiển thị.
+        self._suggested_voice_name = ""
+        self.ai_suggestion_label = QLabel("")
+        self.ai_suggestion_label.setWordWrap(True)
+        self.ai_suggestion_label.setStyleSheet(
+            f"color: {tokens.TEXT_SECONDARY}; font-size: {tokens.FS_META}px; "
+            f"background: transparent;")
+        self.ai_suggestion_label.setVisible(False)
+        self.add_widget(self.ai_suggestion_label)
+        self.btn_apply_suggestion = GhostButton("Đổi sang giọng AI đề xuất")
+        self.btn_apply_suggestion.setToolTip(
+            "Chuyển ô chọn giọng ở trên sang giọng AI đề xuất — bấm «Lưu "
+            "tất cả và đọc lại» sau đó để áp dụng thật.")
+        self.btn_apply_suggestion.clicked.connect(self._apply_ai_suggestion)
+        self.btn_apply_suggestion.setVisible(False)
+        self.add_widget(self.btn_apply_suggestion)
+
         self.speed = LabeledSlider(
             "Tốc độ đọc", 0.5, 2.0, 0.05,
             "1.00 là tốc độ tự nhiên.", "x")
@@ -819,6 +838,30 @@ class VoicePanel(CollapsibleSection):
     def set_speakers_available(self, available: bool) -> None:
         """Hiện nút "Xem người nói" chỉ khi dự án đã bật diarization (V26)."""
         self.btn_speakers.setVisible(available)
+
+    def set_ai_suggestion(self, name: str, reason_text: str) -> None:
+        """Hiện khối "AI đề xuất giọng" (V33) — gọi với ``name=""`` để ẩn hẳn
+        (không có tín hiệu đáng tin, dự án còn khóa, hoặc không phải SaaS —
+        nơi gọi tự quyết định, panel này chỉ hiển thị đúng những gì được
+        đưa vào, không tự suy đoán)."""
+        has_suggestion = bool(name)
+        self._suggested_voice_name = name
+        if has_suggestion:
+            self.ai_suggestion_label.setText(
+                f"AI đề xuất giọng «{name}» ({reason_text}) dựa trên nội "
+                "dung video.")
+        self.ai_suggestion_label.setVisible(has_suggestion)
+        self.btn_apply_suggestion.setVisible(has_suggestion)
+
+    def _apply_ai_suggestion(self) -> None:
+        if self._suggested_voice_name:
+            # set_voice() một mình không phát tín hiệu "changed" (đúng thiết
+            # kế của VoicePicker — set_voice() dùng để NẠP giá trị lúc mở dự
+            # án, không nên tự coi là "người dùng vừa đổi"). Gọi thêm
+            # _on_voice_changed() để đi đúng luồng cập nhật băng nhắc "chưa
+            # đọc lại" như khi người dùng tự bấm chọn giọng trong popup.
+            self.picker.set_voice(self._suggested_voice_name)
+            self._on_voice_changed()
 
     def set_project_voice(self, name: str) -> None:
         """Ghi nhớ giọng video này đang dùng thật, để so khi người dùng đổi."""

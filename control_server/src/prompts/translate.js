@@ -574,6 +574,13 @@ function translateSchema(targetField, { emotionTone = false } = {}) {
 
 const ANALYSIS_SYSTEM = 'You analyze video transcripts and return strict JSON.'
 
+// mini-spec V33 (docs/PLAN.md, Phase G) — gợi ý giọng đọc theo nội dung
+// video. Dùng LẠI đúng 3 style THẬT của VieNeu (autodub/speech/tts/
+// voices.py::STYLES, cùng vocabulary với TONE_VALUES của V28) — không bịa
+// giá trị mới ngoài những gì catalog giọng thật có, để phía Python khớp
+// trực tiếp `Voice.style` mà không cần ánh xạ thêm.
+const VOICE_STYLE_VALUES = ['tu_nhien', 'tin_tuc', 'doc_truyen']
+
 const ANALYSIS_SCHEMA = {
   type: 'object',
   properties: {
@@ -582,8 +589,18 @@ const ANALYSIS_SCHEMA = {
     pronouns: { type: 'string' },
     glossary: { type: 'array', items: { type: 'string' } },
     style_notes: { type: 'string' },
+    // Additive (mini-spec V33) — KHÔNG đụng 5 field trên, chỉ mở rộng thêm.
+    voice_hint: {
+      type: 'object',
+      properties: {
+        gender: { type: 'string', enum: ['male', 'female', ''] },
+        style: { type: 'string', enum: [...VOICE_STYLE_VALUES, ''] },
+      },
+      required: ['gender', 'style'],
+      additionalProperties: false,
+    },
   },
-  required: ['summary', 'domain', 'pronouns', 'glossary', 'style_notes'],
+  required: ['summary', 'domain', 'pronouns', 'glossary', 'style_notes', 'voice_hint'],
   additionalProperties: false,
 }
 
@@ -609,7 +626,11 @@ Read the transcript lines below and produce a compact analysis as STRICT JSON (n
   "domain": "${domainHint}",
   "pronouns": "${pronounsHint}",
   "glossary": ["<source term> = <fixed ${targetName} translation>", ...],
-  "style_notes": "<1-2 sentences in ${targetName} about tone/register to keep>"
+  "style_notes": "<1-2 sentences in ${targetName} about tone/register to keep>",
+  "voice_hint": {
+    "gender": "<'male' or 'female' — the voice gender that best fits reading this video aloud for its target audience/domain convention (e.g. a beauty/cooking vlog often reads better in a female voice, a tech/news review often in a male voice) — '' if genuinely no strong convention either way>",
+    "style": "<one of 'tu_nhien' (natural conversational delivery — the default for most creator content), 'tin_tuc' (news-anchor style — calm, precise, authoritative — for serious/informational content), 'doc_truyen' (storyteller style — more dynamic, expressive pacing — for narrative/dramatic content), or '' if none clearly fits>"
+  }
 }
 
 Glossary rules: include ONLY terms that actually recur (person/brand/product names, domain jargon) and would otherwise be translated inconsistently. Keep Latin brand names as-is. Pinyin for Chinese person names. Max 15 entries.
@@ -718,6 +739,7 @@ module.exports = {
   DEFAULT_CPS,
   LANGUAGE_RULES,
   TONE_VALUES,
+  VOICE_STYLE_VALUES,
   resolveTargetLang,
   sanitizeContext,
   buildTranslateSystemPrompt,

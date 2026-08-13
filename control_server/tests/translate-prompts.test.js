@@ -162,6 +162,37 @@ test('buildAnalysisPrompt target=en: không còn ép ra tiếng Việt', () => {
   assert.doesNotMatch(p, /review công nghệ/)
 });
 
+// ------------------------------------------------- mini-spec V33 (Phase G) --
+// voice_hint additive trong ANALYSIS_SCHEMA/buildAnalysisPrompt — gợi ý
+// giọng đọc theo nội dung video, KHÔNG đụng 5 field phân tích hiện có.
+
+test('V33: ANALYSIS_SCHEMA có field voice_hint additive, giữ nguyên 5 field cũ', () => {
+  const props = prompts.ANALYSIS_SCHEMA.properties
+  assert.ok(props.summary && props.domain && props.pronouns
+    && props.glossary && props.style_notes, '5 field cũ phải còn nguyên')
+  assert.ok(props.voice_hint, 'thiếu field voice_hint mới')
+  assert.deepEqual(Object.keys(props.voice_hint.properties).sort(),
+    ['gender', 'style'])
+});
+
+test('V33: voice_hint.gender chỉ nhận đúng 3 giá trị (male/female/rỗng)', () => {
+  const genderEnum = prompts.ANALYSIS_SCHEMA.properties.voice_hint.properties.gender.enum
+  assert.deepEqual(genderEnum.sort(), ['', 'female', 'male'])
+});
+
+test('V33: voice_hint.style chỉ nhận đúng 3 style THẬT của VieNeu (khớp VOICE_STYLE_VALUES)', () => {
+  const styleEnum = prompts.ANALYSIS_SCHEMA.properties.voice_hint.properties.style.enum
+  assert.deepEqual(styleEnum.sort(),
+    [...prompts.VOICE_STYLE_VALUES, ''].sort())
+  assert.deepEqual(prompts.VOICE_STYLE_VALUES, ['tu_nhien', 'tin_tuc', 'doc_truyen'])
+});
+
+test('V33: buildAnalysisPrompt có hướng dẫn voice_hint trong JSON mẫu', () => {
+  const p = prompts.buildAnalysisPrompt({ lines: 'x', sourceLang: 'en-US', targetKey: 'vi' })
+  assert.match(p, /"voice_hint"/)
+  assert.match(p, /tu_nhien.*tin_tuc.*doc_truyen/s)
+});
+
 // --------------------------------------------------------------- buildReviewUserPrompt --
 
 test('buildReviewUserPrompt: lý do "cjk" nêu đúng tên ngôn ngữ đích, không hardcode Vietnamese', () => {
