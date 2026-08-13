@@ -4004,3 +4004,118 @@ KHÔNG cần GPU cho video ngắn — nhưng V34b nên bắt đầu bằng việ
 video dài hơn + `bg-mode=demucs` thật trước khi chốt mô hình billing theo
 phút, vì 2 biến số đó (thời gian xử lý video dài, chi phí thêm của Demucs)
 chưa có số liệu thật trong PoC này.
+
+## V35 — Nâng chất lượng nhân bản giọng (voice cloning) (Phase G)
+
+### Audit trước khi build
+
+- Đã audit đủ kiến trúc + 2 bug thật trước khi viết mini-spec (commit
+  `198633a`, xem Context trong docs/PLAN.md mục V35) — không còn điểm mù
+  kỹ thuật cần audit thêm.
+- Audit THÊM lúc code: `_encode_one()` (nơi Scope B yêu cầu gắn kiểm tra
+  chất lượng) là hàm DÙNG CHUNG cho cả `enroll_voice()` (`--enroll`, luồng
+  người dùng tự học — mini-spec này CHỦ ĐÍCH chạm) VÀ `enroll_batch()`
+  (`--enroll-batch`, luồng thư viện `voice_downloader.py`/`voice_library.py`
+  — Constraint 4 CẤM đụng). `voice_library.py:52` xác nhận mọi mục thư viện
+  luôn gắn sẵn `"source": "library"` trong batch item, truyền thẳng vào
+  `meta` của `_encode_one()` — dùng field có sẵn này làm điều kiện loại trừ
+  CẤU TRÚC (không gọi `audio_quality.analyze()` chút nào khi
+  `source == "library"`), thay vì dựa vào ngưỡng số học "may mắn không
+  chặn nhầm" — đảm bảo Constraint 4 bằng thiết kế chứ không chỉ bằng số
+  liệu thực nghiệm.
+
+### Xây dựng
+
+- `autodub/speech/tts/audio_quality.py` (mới) — `analyze(wav, sr)` hàm
+  thuần, KHÔNG model AI (Constraint 1): tỷ lệ mẫu chạm biên (clip), RMS
+  năng lượng trung bình, tỷ lệ khoảng lặng liên tục dài nhất. Trả
+  `AudioQualityResult` (đúng khuôn `autodub/preflight.py::CheckResult`) —
+  `level` ok/warn/fail + `reasons` tiếng Việt cụ thể, không phải điểm số
+  mù mờ.
+- `autodub/speech/tts/vieneu_worker.py::_encode_one()` — gọi
+  `audio_quality.analyze()` SAU ngưỡng thời lượng (`MIN_ENROLL_SECONDS`),
+  TRƯỚC khử ồn/mã hóa, CHỈ khi `meta.get("source") != "library"`:
+  `fail` → `ValueError` (dừng trước mọi việc nặng); `warn` → vẫn mã hóa
+  bình thường, gắn `entry["quality_warning"]`; dài hơn 8 giây → gắn
+  `entry["truncated_warning"]` thay vì cắt âm thầm (Constraint 3). 2 field
+  cảnh báo này là TẠM THỜI — `enroll_voice()` bóc ra khỏi `entry` (biến
+  `_TRANSIENT_WARNING_KEYS`) TRƯỚC khi gọi `_save_presets()`, chỉ đưa vào
+  response JSON stdout cho GUI đọc ngay lúc enroll, không lưu vĩnh viễn
+  vào `custom_voices.json`. `enroll_batch()` cũng tự bóc phòng xa (dù
+  đường thật hiện tại không bao giờ tạo ra 2 field này vì luôn
+  `source="library"`).
+- `autodub_gui/pages/settings_panels.py` — hàm thuần mới
+  `_enroll_warning_message(payload)` (nối `quality_warning`+
+  `truncated_warning`, tách khỏi QThread/subprocess để test được không cần
+  dựng widget thật) + `_Enroller.warning` + `_done()` hiện
+  `STATUS_WARN`/cảnh báo cụ thể NGAY sau khi enroll xong thay vì im lặng
+  đợi người dùng tự bấm "Nghe thử" (Goal của mini-spec).
+- Không phát hiện thêm mô tả sai lệch nào khác trong README lúc build
+  (Constraint 5) — chỗ đã sửa trước khi viết mini-spec (commit `198633a`)
+  vẫn là chỗ duy nhất tìm thấy.
+
+### Verify
+
+- `tests/test_audio_quality.py` (11 test, mới): sin wave sạch → ok; toàn 0
+  → fail (lý do "câm"); biên độ rất nhỏ → warn/fail; nhiễu clip cứng ±1.0
+  mô phỏng ghi âm quá to → fail (lý do "cắt tiếng"); clip nhẹ 0.5% mẫu
+  chạm biên → warn không fail; khoảng lặng dẫn đầu dài → warn/fail; mảng
+  rỗng → fail; `AudioQualityResult` lộ đủ số liệu thô (clip_ratio/rms/
+  longest_silence_ratio), không chỉ verdict.
+- `tests/test_vieneu_worker_audio_quality.py` (8 test, mới): fail dừng
+  TRƯỚC mã hóa nặng (dùng `_BoomIfCalled` như `test_vieneu_worker_enroll_
+  duration.py` đã có — xác nhận `denoiser`/`_encode_ref_wav` không bị gọi
+  khi bị từ chối); không truyền `source` mặc định VẪN bị kiểm (an toàn,
+  không phải mặc định bỏ qua); warn vẫn mã hóa thật + gắn cảnh báo; ok
+  không có field cảnh báo nào; >8 giây gắn cảnh báo cắt kèm đúng số liệu
+  gốc thật; **giọng thư viện bỏ qua HOÀN TOÀN kiểm tra** (kể cả audio câm
+  hoàn toàn cũng enroll được — đúng Constraint 4) VÀ bỏ qua luôn cảnh báo
+  cắt; `enroll_voice()` end-to-end: cảnh báo có trong JSON stdout NHƯNG
+  KHÔNG có trong file đã lưu.
+- **`tests/test_voice_library_audio_quality_regression.py` (2 test, mới,
+  dùng FILE THẬT không phải dữ liệu tổng hợp)**: chạy `analyze()` trên cả
+  120 file `.wav` thật trong `voices/preset_voices_vn/` (đọc bằng `wave`
+  stdlib, PCM 16-bit thật) — **kết quả: 0/120 file bị fail, 0/120 file bị
+  warn (toàn bộ "ok")**. Đây là bằng chứng THÊM (không phải điều kiện cần
+  — luồng thư viện đã loại trừ bằng cấu trúc) rằng ngưỡng đã chọn không hề
+  cận biên với nội dung thật đã qua tuyển chọn.
+- `tests/test_settings_panels_enroll_warning.py` (5 test, mới, `QT_QPA_
+  PLATFORM=offscreen`): `_enroll_warning_message()` nối đúng 2 field, rỗng
+  khi không có field nào, coi chuỗi rỗng là "không có".
+- **Bug thật tìm+sửa khi wiring** (không phải suy đoán — crash thật lúc
+  chạy test lần đầu): nạp `audio_quality.py` qua `importlib.util.spec_
+  from_file_location()` (bắt buộc — KHÔNG được `from autodub... import`
+  vì `vieneu_worker.py` chạy trong `.venv-vieneu` không cài `autodub`,
+  xem docstring đầu file) mà KHÔNG đăng ký `sys.modules[spec.name] =
+  module` TRƯỚC `exec_module()` — `@dataclass` (dùng `from __future__
+  import annotations`, string annotation) tự tra `sys.modules[cls.
+  __module__].__dict__` lúc xử lý field, module chưa đăng ký thì tra ra
+  `None` và ném `AttributeError` khó hiểu (không phải lỗi do
+  `AudioQualityResult` viết sai). Sửa: đăng ký `sys.modules` trước
+  `exec_module()`.
+- `pytest tests/ -q` (venv đầy đủ, `QT_QPA_PLATFORM=offscreen`): **1020
+  passed, 6 skipped, 0 failed** (994→1020, 26 test mới, 0 regression).
+- `node --test` (`control_server`): **233 tests, 232 pass, 1 skipped, 0
+  failed** — không đổi (V35 không chạm control_server, chạy lại đủ theo
+  yêu cầu "test lại đầy đủ" thay vì suy đoán không ảnh hưởng).
+- **CHƯA live-verify qua model VieNeu thật với file ghi âm thật đủ 4 mức
+  (ok/warn/fail/truncated)** — tất cả test dùng `_FakeEngine` (không cần
+  model ONNX thật để xác nhận WIRING đúng, khớp Test Plan của mini-spec)
+  hoặc dữ liệu tổng hợp. `audio_quality.analyze()` tự nó ĐÃ được live-
+  verify gián tiếp qua 120 file thật ở trên (đọc/phân tích thật), nhưng
+  đường `_encode_one()` gọi model ONNX thật (`.venv-vieneu`, cần cài qua
+  `scripts/setup_vieneu.py`) — sandbox này không có, đúng giới hạn đã ghi
+  nhận nhiều lần trong Phase G.
+
+### Remaining Limits (V35)
+
+- **Ngưỡng số học (clip/RMS/silence-ratio) chưa phải benchmark thống kê
+  chính thức** — chọn theo nguyên tắc "bắt lỗi rõ ràng nhất" (Design
+  Choice), xác nhận không chặn nhầm 120 giọng thư viện thật, nhưng CHƯA
+  test với tập lớn ghi âm THẬT của người dùng cuối (nhiều microphone/
+  phòng ốc khác nhau) — có thể cần tinh chỉnh sau khi có phản hồi thật.
+- **KHÔNG có điểm số tin cậy (confidence/similarity score)** — gap (c) ghi
+  trong Context của mini-spec KHÔNG nằm trong Scope đã chọn (chỉ Scope A/B/C
+  — kiểm tra đầu vào, không phải đánh giá đầu ra sau khi mã hóa xong).
+  Để dành mini-spec riêng nếu cần.
+- **CHƯA live-verify với model VieNeu ONNX thật** — xem mục Verify.

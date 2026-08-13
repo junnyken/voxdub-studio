@@ -147,12 +147,59 @@ def _speaker_embed(engine, wav, sr: int):
     return out[0].astype(np.float32)
 
 
+def _load_audio_quality():
+    """Nạp ``audio_quality.py`` qua đường dẫn FILE trực tiếp — KHÔNG được
+    ``from autodub... import`` (venv này không cài autodub, xem docstring
+    đầu file module): việc đó sẽ chạy ``autodub/__init__.py`` và kéo theo
+    ``python-dotenv``/nhiều phụ thuộc khác chưa cài trong ``.venv-vieneu``.
+    ``audio_quality.py`` chỉ cần numpy (đã có sẵn trong venv này, dùng
+    xuyên suốt file này rồi) nên nạp qua file path là đủ, không cần cài gì
+    thêm. Cache lại — enroll_batch() có thể gọi hàm này hàng trăm lần.
+    """
+    import importlib.util
+
+    global _AUDIO_QUALITY_MODULE
+    if _AUDIO_QUALITY_MODULE is None:
+        import sys
+
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "audio_quality.py")
+        spec = importlib.util.spec_from_file_location(
+            "_vieneu_worker_audio_quality", path)
+        module = importlib.util.module_from_spec(spec)
+        # PHẢI đăng ký vào sys.modules TRƯỚC exec_module(): audio_quality.py
+        # dùng `@dataclass` với string annotation (`from __future__ import
+        # annotations`) — dataclass tự tra `sys.modules[cls.__module__]` lúc
+        # xử lý field, module chưa đăng ký thì tra ra None và crash
+        # AttributeError (bug thật gặp khi viết test này, không phải suy
+        # đoán — xem docs/TEST_LOG.md mục V35).
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _AUDIO_QUALITY_MODULE = module
+    return _AUDIO_QUALITY_MODULE
+
+
+_AUDIO_QUALITY_MODULE = None
+
+#: Field tạm gắn vào kết quả `_encode_one()` để báo GUI ngay sau khi enroll
+#: — KHÔNG được lưu vào custom_voices.json (enroll_voice() tự bóc ra trước
+#: khi gọi _save_presets(), xem mini-spec V35).
+_TRANSIENT_WARNING_KEYS = ("quality_warning", "truncated_warning")
+
+
 def _encode_one(tts, wav_path: str, style: str, no_denoise: bool,
                 meta: dict) -> dict:
     """Mã hóa một đoạn ghi âm thành mục giọng đầy đủ.
 
     Bám theo engine.prepare_reference() nhưng dùng bộ nhúng không cần torch:
     nạp mono → cắt còn 8 giây → khử ồn → (vector giọng, mã tham chiếu).
+
+    Kiểm tra chất lượng (mini-spec V35, docs/PLAN.md Phase G) CHỈ áp dụng
+    khi ``meta["source"] != "library"`` — giọng thư viện (120 giọng preset,
+    `voice_downloader.py`/`voice_library.py`, luôn gắn `source="library"`)
+    đã được người phụ trách curate sẵn, mini-spec này KHÔNG được đổi hành
+    vi của luồng đó (Constraint 4) nên bỏ qua kiểm tra hoàn toàn thay vì
+    dựa vào ngưỡng số học tình cờ không chặn nhầm.
     """
     import numpy as np
 
@@ -163,6 +210,23 @@ def _encode_one(tts, wav_path: str, style: str, no_denoise: bool,
         raise ValueError(
             f"Clip quá ngắn để học giọng (cần ≥ {MIN_ENROLL_SECONDS:g} "
             f"giây, đoạn ghi âm chỉ có {duration_s:.2f} giây).")
+
+    is_library = meta.get("source") == "library"
+    quality_warning = ""
+    truncated_warning = ""
+    if not is_library:
+        quality = _load_audio_quality().analyze(wav, sr)
+        if quality.level == "fail":
+            reason = "; ".join(quality.reasons) or "chất lượng không đạt"
+            raise ValueError(
+                f"Chất lượng đoạn ghi âm không đạt để học giọng: {reason}")
+        if quality.level == "warn":
+            quality_warning = "; ".join(quality.reasons)
+        if duration_s > 8.0:
+            truncated_warning = (
+                f"Chỉ 8 giây đầu được dùng để học giọng (bản ghi gốc dài "
+                f"{duration_s:.1f} giây, phần còn lại bị bỏ qua).")
+
     wav = wav[: int(8.0 * sr)]
     if not no_denoise and engine.denoiser is not None:
         wav = engine.denoiser.denoise(wav, sr)
@@ -170,7 +234,7 @@ def _encode_one(tts, wav_path: str, style: str, no_denoise: bool,
     speaker_emb = (_speaker_embed(engine, wav, sr)
                    if engine.use_speaker_embedding else None)
     ref_codes = engine._encode_ref_wav(wav, sr)
-    return {
+    entry = {
         "description": meta.get("description", ""),
         "gender": meta.get("gender", ""),
         "region": meta.get("region", ""),
@@ -185,6 +249,11 @@ def _encode_one(tts, wav_path: str, style: str, no_denoise: bool,
         "codes": (np.asarray(ref_codes, dtype=int).tolist()
                   if ref_codes is not None else None),
     }
+    if quality_warning:
+        entry["quality_warning"] = quality_warning
+    if truncated_warning:
+        entry["truncated_warning"] = truncated_warning
+    return entry
 
 
 def _save_presets(path: str, presets: dict) -> None:
@@ -204,7 +273,12 @@ def _save_presets(path: str, presets: dict) -> None:
 
 
 def enroll_voice(tts, args, proto_out) -> None:
-    """Chạy một phát: mã hóa ``--enroll`` rồi ghi vào tệp giọng tùy chỉnh."""
+    """Chạy một phát: mã hóa ``--enroll`` rồi ghi vào tệp giọng tùy chỉnh.
+
+    Cảnh báo chất lượng (mini-spec V35) là TẠM THỜI — chỉ để báo GUI ngay
+    lúc này, KHÔNG được lưu vào ``custom_voices.json`` (bóc ra khỏi
+    ``entry`` trước khi gọi ``_save_presets()``, xem `_TRANSIENT_WARNING_KEYS`).
+    """
     try:
         entry = _encode_one(tts, args.enroll, args.style,
                             args.enroll_no_denoise,
@@ -212,9 +286,10 @@ def enroll_voice(tts, args, proto_out) -> None:
                              "gender": args.enroll_gender,
                              "region": args.enroll_region,
                              "country": args.enroll_country})
+        warnings = {k: entry.pop(k) for k in _TRANSIENT_WARNING_KEYS if k in entry}
         data = _save_presets(args.custom_voices, {args.enroll_name: entry})
         print(json.dumps({"ok": True, "enrolled": args.enroll_name,
-                          "voices": sorted(data["presets"])},
+                          "voices": sorted(data["presets"]), **warnings},
                          ensure_ascii=False),
               file=proto_out, flush=True)
     except Exception as e:
@@ -269,8 +344,14 @@ def enroll_batch(tts, args, proto_out) -> None:
         print(f"[vieneu-worker] ({i}/{total}) đang học giọng «{name}»",
               file=sys.stderr, flush=True)
         try:
-            added[name] = _encode_one(tts, wav, args.style,
-                                      args.enroll_no_denoise, item)
+            entry = _encode_one(tts, wav, args.style,
+                                args.enroll_no_denoise, item)
+            # Phòng xa: item batch không gắn source="library" (không xảy ra
+            # với voice_library.py hiện tại, mọi mục đều gắn sẵn) vẫn không
+            # được rò rỉ field cảnh báo tạm thời vào custom_voices.json.
+            for key in _TRANSIENT_WARNING_KEYS:
+                entry.pop(key, None)
+            added[name] = entry
         except Exception as e:
             failed.append({"name": name, "error": f"{type(e).__name__}: {e}"})
 

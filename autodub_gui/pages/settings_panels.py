@@ -263,6 +263,11 @@ class VoiceSettingsPanel(CollapsibleSection):
             def __init__(self, parent):
                 super().__init__(parent)
                 self.error = ""
+                # Mini-spec V35 (docs/PLAN.md Phase G): cảnh báo chất lượng
+                # "warn" (không chặn cứng, Constraint 2) — hiện NGAY sau khi
+                # enroll xong, không bắt người dùng tự bấm "Nghe thử" mới
+                # phát hiện. Rỗng khi audio đạt chất lượng ok.
+                self.warning = ""
 
             def run(self) -> None:
                 try:
@@ -277,6 +282,8 @@ class VoiceSettingsPanel(CollapsibleSection):
                         self.error = (payload.get("error")
                                       or (result.stderr or "")[-300:]
                                       or "không rõ nguyên nhân")
+                    else:
+                        self.warning = _enroll_warning_message(payload)
                 except Exception as e:  # noqa: BLE001 — báo lên giao diện
                     self.error = f"{type(e).__name__}: {e}"
 
@@ -295,9 +302,15 @@ class VoiceSettingsPanel(CollapsibleSection):
                 return
             self.picker.reload()
             self.picker.set_voice(name)
-            self.status.setText(
-                f"{STATUS_OK} Đã thêm giọng «{name}». Bấm Nghe thử ở khung "
-                "bên dưới để kiểm tra, rồi Lưu cài đặt để dùng.")
+            if worker.warning:
+                self.status.setText(
+                    f"{STATUS_WARN} Đã thêm giọng «{name}» nhưng chất lượng "
+                    f"đoạn ghi âm chưa lý tưởng: {worker.warning} Bấm Nghe "
+                    "thử ở khung bên dưới để kiểm tra kỹ trước khi Lưu cài đặt.")
+            else:
+                self.status.setText(
+                    f"{STATUS_OK} Đã thêm giọng «{name}». Bấm Nghe thử ở khung "
+                    "bên dưới để kiểm tra, rồi Lưu cài đặt để dùng.")
             self.changed.emit()
 
         worker.finished.connect(_done)
@@ -680,3 +693,14 @@ def _last_json_line(output: str) -> dict:
             except ValueError:
                 continue
     return {}
+
+
+def _enroll_warning_message(payload: dict) -> str:
+    """Ghép các cảnh báo TẠM THỜI (mini-spec V35, docs/PLAN.md Phase G) mà
+    `vieneu_worker.py::enroll_voice()` đính vào response JSON khi enroll
+    thành công (``quality_warning``/``truncated_warning`` — rỗng khi audio
+    đạt chất lượng ok). Hàm thuần, tách riêng khỏi `_Enroller` (QThread) để
+    test được không cần dựng widget/subprocess thật."""
+    parts = [payload[k] for k in ("quality_warning", "truncated_warning")
+             if payload.get(k)]
+    return " ".join(parts)
