@@ -68,7 +68,68 @@ def test_installed_when_manifest_and_enough_presets(settings, tmp_path,
     assert voice_downloader.voices_installed(settings) is True
 
 
+# -------------------------------------------- _raw_voice_files_present ----- #
+# Bug thật (live-verify 2026-08-13): người tải mã nguồn qua git/zip đã có
+# sẵn 120 file .wav thật trong voices/preset_voices_vn/, nhưng
+# ensure_voices_available() cũ không phân biệt được với "thư mục trống
+# hoàn toàn" — cả hai đều rơi vào nhánh tải voices.zip từ GitHub release,
+# dù release đó CHƯA TỪNG được đăng (link chết, luôn lỗi 404 thật, đã xác
+# nhận qua GitHub API). Người dùng bị kẹt vòng lặp thử-lại vô nghĩa.
+
+def test_raw_files_absent_when_manifest_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(voice_downloader, "app_root", lambda: str(tmp_path))
+    assert voice_downloader._raw_voice_files_present() is False
+
+
+def test_raw_files_absent_when_too_few_wav(tmp_path, monkeypatch):
+    """Có manifest nhưng thư mục gần như trống (vd tải thiếu) — không được
+    coi là đã có sẵn file thật."""
+    monkeypatch.setattr(voice_downloader, "app_root", lambda: str(tmp_path))
+    voices_dir = tmp_path / voice_downloader.VOICES_TARGET_DIR
+    voices_dir.mkdir(parents=True)
+    (voices_dir / voice_downloader.MANIFEST_NAME).write_text("{}",
+                                                             encoding="utf-8")
+    for i in range(5):
+        (voices_dir / f"vn_female_{i:02d}.wav").write_bytes(b"x")
+    assert voice_downloader._raw_voice_files_present() is False
+
+
+def test_raw_files_present_with_manifest_and_enough_wav(tmp_path, monkeypatch):
+    monkeypatch.setattr(voice_downloader, "app_root", lambda: str(tmp_path))
+    voices_dir = tmp_path / voice_downloader.VOICES_TARGET_DIR
+    voices_dir.mkdir(parents=True)
+    (voices_dir / voice_downloader.MANIFEST_NAME).write_text("{}",
+                                                             encoding="utf-8")
+    for i in range(60):
+        (voices_dir / f"vn_female_{i:02d}.wav").write_bytes(b"x")
+    assert voice_downloader._raw_voice_files_present() is True
+
+
 # ------------------------------------------- ensure_voices_available ------- #
+
+def test_ensure_enrolls_directly_when_raw_files_already_present(
+        settings, tmp_path, monkeypatch):
+    """Bug thật: đã có sẵn 120 file .wav thật (tải mã nguồn qua git) nhưng
+    chưa enroll — PHẢI enroll trực tiếp, KHÔNG được cố tải voices.zip (link
+    GitHub release đó không tồn tại, luôn lỗi 404 thật)."""
+    monkeypatch.setattr(voice_downloader, "app_root", lambda: str(tmp_path))
+    voices_dir = tmp_path / voice_downloader.VOICES_TARGET_DIR
+    voices_dir.mkdir(parents=True)
+    (voices_dir / voice_downloader.MANIFEST_NAME).write_text("{}",
+                                                             encoding="utf-8")
+    for i in range(60):
+        (voices_dir / f"vn_female_{i:02d}.wav").write_bytes(b"x")
+    # Chưa enroll — custom_voices.json chưa tồn tại.
+    assert not os.path.isfile(settings.vieneu_custom_voices_path())
+
+    def _boom(*a, **kw):
+        raise AssertionError("không được tải voices.zip khi đã có sẵn file thật")
+
+    monkeypatch.setattr(voice_downloader, "download_voices", _boom)
+    monkeypatch.setattr(voice_downloader, "enroll_voices",
+                        lambda settings, cb=None: {"ok": True, "added": [], "failed": []})
+
+    assert voice_downloader.ensure_voices_available(settings) is True
 
 def test_ensure_is_noop_when_already_installed(settings, tmp_path, monkeypatch):
     """Đã cài rồi thì không được gọi mạng — mở app lần hai phải tức thì."""

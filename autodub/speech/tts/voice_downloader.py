@@ -36,6 +36,29 @@ VOICES_TARGET_DIR = "voices/preset_voices_vn"
 MANIFEST_NAME = "voices_manifest.json"
 
 
+def _raw_voice_files_present() -> bool:
+    """Thư mục ``voices/preset_voices_vn/`` đã có sẵn file .wav thật chưa
+    (vd tải mã nguồn qua git/zip — khác bản đóng gói .exe không kèm theo).
+
+    Bug thật: trước đây ``ensure_voices_available()`` không phân biệt được
+    trường hợp này với "thư mục trống hoàn toàn" — cả hai đều rơi vào nhánh
+    tải ``voices.zip`` từ GitHub release, dù release đó CHƯA TỪNG được đăng
+    (link chết, luôn lỗi 404). Người tải mã nguồn (đã có sẵn 120 file .wav
+    thật trong repo) bị kẹt ở vòng lặp thử-lại vô nghĩa, dù đáng ra chỉ cần
+    enroll ngay từ file đã có.
+    """
+    voices_dir = os.path.join(app_root(), VOICES_TARGET_DIR)
+    manifest = os.path.join(voices_dir, MANIFEST_NAME)
+    if not os.path.isfile(manifest):
+        return False
+    try:
+        wav_count = sum(1 for f in os.listdir(voices_dir) if f.lower().endswith(".wav"))
+    except OSError:
+        return False
+    # Cùng ngưỡng với voices_installed() — thư viện có 120 giọng thật.
+    return wav_count >= 50
+
+
 def voices_installed(settings: Settings) -> bool:
     """Kiểm tra xem voice library đã được tải và enrolled chưa."""
     voices_dir = os.path.join(app_root(), VOICES_TARGET_DIR)
@@ -265,6 +288,26 @@ def ensure_voices_available(settings: Settings, progress_callback=None) -> bool:
     if voices_installed(settings):
         logger.info("Voice library đã được cài đặt")
         return True
+
+    # File .wav thật đã có sẵn (tải mã nguồn qua git/zip) — chỉ còn thiếu
+    # bước enroll, KHÔNG cần tải lại voices.zip từ GitHub. Bỏ qua bước 1-3
+    # (download/extract/dùng embeddings đóng sẵn), đi thẳng bước 4 (enroll).
+    if _raw_voice_files_present():
+        logger.info("Đã có sẵn file giọng thật trong thư mục — enroll trực "
+                    "tiếp, không tải voices.zip")
+        if progress_callback:
+            from autodub.speech.tts import voice_library
+            pending_count = len(voice_library.pending(settings))
+            progress_callback("enroll_start", pending_count, None)
+
+        def _enroll_progress_local(current, total, name):
+            if progress_callback:
+                progress_callback("enroll_progress", current, total, name)
+
+        result = enroll_voices(settings, _enroll_progress_local)
+        if progress_callback:
+            progress_callback("done", None, None)
+        return result.get("ok", False)
 
     try:
         # 1. Tải voices.zip
