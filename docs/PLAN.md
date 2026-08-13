@@ -61,6 +61,7 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V31 | Translation-as-a-Service API cho developer bên thứ 3 (Phase G) | ✅ Xong | `ApiKey`/`ApiUsageLedger` (mới, tách hẳn `Device`/`CreditLedger`) + `apikey.middleware.js` (lớp identity thứ 2 song song `auth.middleware.js`) + route `/api/v1/translate` (tái dùng `gateway.translateSubtitleBatch()` đã có từ V14, không viết prompt mới) + `/v1/admin/api-keys` (tạo/liệt kê/thu hồi thủ công). Quota atomic qua `findOneAndUpdate` (đúng Constraint 5 — không transaction/Redis), verify đúng dưới tải đồng thời thật (10 request song song, đúng 5 lượt qua với quota=5). **Re-audit 2026-08-12**: thêm `GET /api/v1/me` (developer tự xem quota/usage của chính mình mà không cần gọi `/translate` trước) — đóng gap cuối trong Remaining Limits. 21+2 = 23 test mới, 0 regression (204/205 pass npm test). **Live-verify thật qua HTTP thật** (không chỉ `fastify.inject`) — dựng server thật + MongoDB thật (in-memory), curl thật: tạo key → 401 khi thiếu key → key hợp lệ chạy xuyên suốt auth+quota-precheck tới tận AI gateway (dừng ở NO_PROVIDER vì không cấu hình provider, đúng như dự kiến) → liệt kê không lộ hash → thu hồi → 403 ngay sau đó — xem TEST_LOG |
 | V32a | PoC lip-sync MuseTalk — benchmark thật + thử nghiệm consent-check/watermark (Phase G, đóng gap V30) | 🔶 **Live-verify thành công 1/3 mẫu** trên máy chủ dự án (NVIDIA T1200 4GB) — còn thiếu góc nghiêng + nhiều người | Chủ dự án đã trả lời đủ 5 câu hỏi chính sách V30 (2026-08-12): CÓ consent-check, CÓ watermark, CÓ giới hạn theo gói, CHẤP NHẬN GPU-only, KHÔNG cần Wav2Lip. `scripts/setup_lipsync_poc.py` + `scripts/research/lipsync_poc.py` viết xong, cài đặt + chạy thật trên máy chủ dự án (không phải sandbox — sandbox không có GPU). Sau 8 vòng sửa lỗi thật trong lúc live-verify (Python 3.10 pin, huggingface_hub version, gdown cú pháp mới, autodub import kéo dependency nặng, đường dẫn tương đối vỡ khi đổi cwd, YAML escape ký tự Windows, thiếu `--use_float16` gây OOM VRAM, UnicodeEncodeError khi pipe-redirect stdout) — **mẫu mặt thẳng (video mẫu MuseTalk) chạy trót lọt hoàn toàn**: 794s (~13.2 phút) cho ~10.7s video 268 frame, VRAM đỉnh 3929/4096MB (~96%, rất sát trần card 4GB), consent-check 268/268 frame nhận diện khuôn mặt (100%), watermark metadata thành công, watermark chữ đè thành công sau khi trỏ đúng font có sẵn trong repo. CHƯA chạy mẫu góc nghiêng/nhiều người (Constraint 6) và chưa có đánh giá chất lượng bằng mắt — xem TEST_LOG |
 | V32b | Build lip-sync production (Phase G, đóng gap V32a — CHỈ mở khi V32a khuyến nghị "go") | ⏸️ Chờ kết quả V32a | Phạm vi/Design Choice cuối phụ thuộc số liệu benchmark thật của V32a — mini-spec khung đã viết bên dưới, sẽ tinh chỉnh cụ thể (ngưỡng chất lượng, giới hạn video hỗ trợ) sau khi có PoC thật |
+| V33 | AI tự đề xuất giọng đọc phù hợp theo nội dung video (Phase G, chủ dự án yêu cầu 2026-08-13) | 📝 Mini-spec đã viết, chưa build | Audit trước xác nhận giới hạn dữ liệu thật: catalog VieNeu (120 giọng) hầu như không có tag phong cách thật (chỉ 3 style suy từ TÊN hiển thị, phần lớn rơi về "tu_nhien" mặc định) — AI chỉ khớp được GIỚI TÍNH đáng tin cho VieNeu; catalog CapCut có mô tả phong cách phong phú hơn hẳn nên khớp được sâu hơn. Chưa build — xem mini-spec đầy đủ bên dưới |
 
 ## Tổng quan phase
 
@@ -2623,6 +2624,117 @@ Success Criteria:
 - 0 regression cho pipeline không bật lip-sync.
 - Chi phí Vox cho 1 lượt lip-sync phản ánh đúng chi phí compute GPU thật
   (không lỗ, không đoán mò).
+```
+
+### V33 — AI tự đề xuất giọng đọc phù hợp theo nội dung video
+
+```
+V33 — AI đề xuất giọng đọc theo nội dung, thay vì người dùng tự lọc thủ công (Phase G)
+
+Context:
+- Chủ dự án yêu cầu trực tiếp (2026-08-13): hiện tại chọn giọng ở "Tạo dự
+  án" hoàn toàn thủ công (bấm lọc giới tính/vùng miền/phong cách, nghe thử
+  từng giọng) — muốn AI đọc hiểu nội dung video rồi TỰ ĐỀ XUẤT giọng phù
+  hợp nhất, đỡ phải tự mò trong thư viện 120+ giọng.
+- Hạ tầng đã có sẵn, tái dùng được: lượt "phân tích ngữ cảnh video" (Lượt 0
+  — `analyze_transcript()`/`buildAnalysisPrompt`, mini-spec V18/gốc) ĐÃ gọi
+  LLM đọc transcript và trả về `domain`/`style_notes`/`summary` — đây CHÍNH
+  LÀ tín hiệu "hiểu nội dung video" mà tính năng này cần, không cần thêm 1
+  lượt gọi AI mới tốn thêm Vox/token.
+- Audit thật catalog giọng (đọc `autodub/speech/tts/voices.py`): VieNeu
+  (120 giọng, nguồn chính) chỉ có 3 giá trị `style` (tu_nhien/tin_tuc/
+  doc_truyen), suy ra từ CHỮ TRONG TÊN HIỂN THỊ (`_STYLE_FROM_TEXT`) — phần
+  lớn giọng KHÔNG có chữ khoá đó trong tên nên mặc định rơi về "tu_nhien"
+  hết. Tức là AI chỉ khớp được GIỚI TÍNH (`gender`) đáng tin cho VieNeu,
+  KHÔNG có tín hiệu phong cách thật để khớp sâu hơn (khác V20 đã audit: 120
+  giọng VieNeu "không có tag ngữ điệu/phong cách, chỉ tên"). Catalog CapCut
+  có mô tả phong cách phong phú hơn hẳn qua `description` — khớp được sâu
+  hơn cho nhánh này.
+
+Goal:
+- Ở bước chọn giọng (trang "Tạo dự án" hoặc "Giọng đọc AI"), hiện sẵn 1-3
+  giọng AI đề xuất kèm lý do ngắn gọn, dựa trên nội dung video đã phân
+  tích — người dùng vẫn tự chọn giọng khác nếu không ưng, đây là GỢI Ý chứ
+  không phải ép buộc.
+
+Constraints (Guardrails):
+1. CHỈ hoạt động khi có nguồn tín hiệu đáng tin (đúng nguyên tắc "không suy
+   đoán capability khi thiếu evidence"): nhánh SaaS (đã có phân tích ngữ
+   cảnh qua LLM) mới đề xuất được sâu; nhánh local-only KHÔNG có LLM →
+   KHÔNG giả vờ "AI đề xuất" bằng suy đoán rỗng, ẩn hẳn phần gợi ý hoặc gắn
+   nhãn "thử nghiệm" rất rõ nếu vẫn muốn có phiên bản tối giản (Design
+   Choice quyết định cụ thể).
+2. KHÔNG suy đoán phong cách cho giọng VieNeu vượt quá dữ liệu THẬT đang có
+   (chỉ giới tính + có/không style rõ trong tên) — không tự gán nhãn phong
+   cách "tưởng tượng" cho 1 giọng chỉ vì AI nghĩ nó "nghe hợp" mà không có
+   căn cứ trong catalog.
+3. KHÔNG thêm lượt gọi AI mới tốn thêm Vox — tái dùng đúng response của
+   lượt phân tích ngữ cảnh (Lượt 0) đã có sẵn, chỉ mở rộng field trả về
+   (giống cách V28 mở rộng `/translate` qua cờ opt-in, không phá contract
+   cũ của các field hiện có `summary`/`domain`/`pronouns`/`glossary`/
+   `style_notes`).
+4. Gợi ý PHẢI giải thích được lý do bằng dữ liệu thật (vd "giọng nữ, phong
+   cách kể chuyện — khớp domain 'review phim' AI phát hiện") — không hiện
+   gợi ý mù mờ không giải thích được.
+5. Người dùng luôn override được — đề xuất là GỢI Ý mặc định, không khoá
+   quyền tự chọn giọng khác.
+
+Scope:
+A. `control_server/src/prompts/translate.js::buildAnalysisPrompt`/
+   `ANALYSIS_SCHEMA` — mở rộng thêm field mới `voice_hint` (vd
+   `{"gender": "nam"|"nữ"|"", "tone_keywords": ["năng động","điềm tĩnh",...]}`)
+   — ADDITIVE, opt-in, không đụng 5 field hiện có (`summary`/`domain`/
+   `pronouns`/`glossary`/`style_notes`).
+B. `autodub/speech/tts/voice_recommend.py` (mới) — hàm thuần
+   `recommend_voices(analysis: dict, catalog: list[Voice], target, n=3) ->
+   list[Voice]`: khớp `voice_hint.gender` với `Voice.gender` (tín hiệu
+   ĐÁNG TIN, luôn dùng được); khớp `tone_keywords` với `Voice.style`/
+   `Voice.description` CHỈ khi 2 bên thật sự có dữ liệu (VieNeu phần lớn
+   không có — rơi về xếp hạng chỉ theo giới tính, KHÔNG giả vờ khớp phong
+   cách khi catalog không có tín hiệu đó — đúng Constraint 2).
+C. `autodub_gui/` — 1 khối nhỏ "AI đề xuất giọng" ở bước chọn giọng (Tạo dự
+   án hoặc Giọng đọc AI), hiện SAU khi có kết quả phân tích ngữ cảnh (đã
+   chạy sẵn, không thêm độ trễ mới) — ẨN hoàn toàn khi không có SaaS/không
+   có `voice_hint` (Constraint 1), không hiện khối rỗng/giả.
+D. Local-only (không SaaS): KHÔNG đề xuất — giữ nguyên trải nghiệm thủ công
+   hiện có, đúng Constraint 1 (không suy đoán khi thiếu LLM thật).
+E. Tests: unit (khớp giới tính đúng/sai, khớp phong cách chỉ khi catalog có
+   dữ liệu, ẩn gợi ý khi thiếu voice_hint); GUI headless (khối gợi ý hiện/
+   ẩn đúng điều kiện); regression (chọn giọng thủ công không bị ảnh hưởng
+   khi tắt tính năng hoặc không có SaaS).
+
+Audit Before Build: đã audit đủ catalog VieNeu/CapCut (kết quả ghi ở
+Context) — cần audit THÊM khi build: đọc lại đúng response contract hiện
+tại của `analyze_transcript()` phía Python (`autodub/text/translate_saas.py`)
+để biết field `voice_hint` mới sẽ được tiêu thụ ở đúng chỗ nào trong luồng
+"Tạo dự án" (trước hay sau khi hiện danh sách giọng), tránh chậm trễ hiển
+thị nếu phải chờ phân tích xong mới cho chọn giọng.
+
+Design Choice:
+- Tái dùng lượt phân tích ngữ cảnh có sẵn (Constraint 3) — không xây pipeline
+  phân tích riêng cho tính năng này, đúng nguyên tắc Playbook "không build
+  song song với luồng đã có".
+- Ưu tiên trung thực hơn đầy đủ: catalog VieNeu thiếu dữ liệu phong cách
+  thật thì CHỈ đề xuất theo giới tính, không bịa thêm — nếu chủ dự án muốn
+  đề xuất sâu hơn cho VieNeu, cần 1 việc khác hẳn (gắn tay tag phong cách
+  cho 120 giọng — công việc nhập liệu, không phải mini-spec kỹ thuật này).
+
+Test Plan:
+- Unit: `recommend_voices()` khớp đúng giới tính; khớp phong cách CHỈ khi
+  cả `voice_hint` và `Voice.style` đều có tín hiệu thật; trả rỗng (không
+  suy đoán) khi thiếu `voice_hint`.
+- GUI: khối gợi ý ẩn khi không có SaaS/không có voice_hint; hiện đúng khi
+  có, kèm lý do đọc được.
+- Live verification: NẾU có SaaS thật — chạy 1 video có domain rõ ràng (vd
+  "review công nghệ" giọng nam năng động vs "phim cổ trang" giọng nữ điềm
+  tĩnh), xác nhận gợi ý khớp cảm quan với domain AI phân tích được.
+
+Success Criteria:
+- Có SaaS + phân tích ngữ cảnh thành công → hiện đúng 1-3 giọng đề xuất
+  kèm lý do đọc được, khớp giới tính chắc chắn.
+- Không có SaaS hoặc phân tích lỗi → KHÔNG hiện gợi ý giả, trải nghiệm
+  chọn giọng thủ công y hệt trước mini-spec này (0 regression).
+- Không phát sinh thêm chi phí Vox nào cho tính năng này.
 ```
 
 ### Remaining Limits / Follow-ups của Phase G
