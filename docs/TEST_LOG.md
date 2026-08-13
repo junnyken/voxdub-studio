@@ -3858,3 +3858,149 @@ không) — chủ dự án đang xem video kết quả, sẽ ghi bổ sung sau.
   cần 1 việc nhập liệu riêng (gắn tay tag phong cách), không phải mini-spec
   kỹ thuật này.
 - **CHƯA live-verify qua LLM thật** — xem mục Verify.
+
+## V34a — PoC hạ tầng API lồng tiếng đầy đủ (Phase G)
+
+### Audit trước khi build
+
+- Audit hạ tầng V9/V12 đã ghi trong Context của mini-spec (`docs/PLAN.md`):
+  job-queue pattern tái dùng được nguyên si, `render_worker` hiện tại KHÔNG
+  cài `autodub`, billing/lưu trữ/GPU server-side chưa có tiền lệ.
+- Audit THÊM lúc code (Scope B): đọc `control_server/src/models/RenderJob.js`
+  xác nhận `stage: {enum: ['demucs']}` gắn chặt `Device`/`fingerprint` và
+  shape kết quả 2-stem cố định — quyết định tách hẳn model `DubApiJob`
+  (gắn `ApiKey` như V31, KHÔNG dùng `Device`), KHÔNG mở rộng enum.
+- **2 bug thật tìm+sửa qua chính lúc live-verify** (không phải suy đoán —
+  tái hiện thật khi build/chạy Docker image, sửa ngay theo đúng nguyên tắc
+  "sửa được ngay, ít rủi ro → sửa luôn" của Playbook):
+  1. `scripts/setup_whisper.py::step_smoke()` gọi worker với `input=""` —
+     nhưng `autodub/speech/asr_whisper_worker.py` LUÔN đọc 1 dòng JSON
+     request từ stdin trước khi transcribe (`--audio` trên CLI chỉ là giá
+     trị dự phòng, KHÔNG thay thế stdin). `input=""` không phải JSON hợp
+     lệ → worker luôn thoát lỗi "Request JSON không hợp lệ" TRƯỚC KHI chạm
+     model — `installed_ok.json` không bao giờ được ghi trên bất kỳ máy
+     nào chạy script này (Windows lẫn container). Sửa: `input="{}\n"`.
+  2. `autodub/saas_client.py::resolve_api_url()` có `from autodub_gui.
+     _embedded import VOXDUB_API_URL` KHÔNG try/except — mâu thuẫn trực
+     tiếp với cam kết của `autodub/cli.py` (docstring + test cách ly
+     `test_importing_cli_does_not_pull_in_gui_or_qt`) rằng CLI headless
+     không phụ thuộc `autodub_gui`. Mọi máy dev/CI trước giờ đều có sẵn
+     `autodub_gui/` cạnh `autodub/` nên chưa từng lộ ra — vỡ thật ngay lần
+     đầu chạy `autodub.cli dub` trong container `worker-dub` (không cài
+     GUI, đúng như thiết kế). Sửa: bọc `try/except ImportError`, rơi về
+     biến môi trường `VOXDUB_API_URL` như thiết kế gốc.
+  - Cả 2 bug đều là bug CÓ SẴN trong codebase từ trước, không phải do
+    V34a gây ra — chỉ chưa ai chạy đúng đường đó (script cài Whisper lần
+    đầu trên máy sạch; CLI chạy tách biệt hoàn toàn khỏi GUI) để lộ ra.
+  - 4 test regression mới: `tests/test_setup_whisper_smoke_stdin.py` (2,
+    mock `subprocess.run` xác nhận `input` là JSON hợp lệ + `--audio` vẫn
+    còn trên CLI); `tests/test_saas_client.py` (+2, `resolve_api_url()`
+    sống sót khi `autodub_gui` không import được, vẫn rơi đúng về biến môi
+    trường).
+
+### Xây dựng
+
+- `control_server/src/models/DubApiJob.js` (mới) — tách hẳn `RenderJob`
+  (lý do đầy đủ trong docstring file: identity/shape/tham số khác nhau).
+- `control_server/src/services/dub-job.service.js` (mới) — copy nguyên
+  pattern `render-job.service.js` (submit/claim/heartbeat/complete/fail/
+  cleanup/sweep×2), KHÔNG billing thật (Constraint 1 — chỉ log
+  `estimatedCostVox` vào job + audit log).
+- `control_server/src/routes/internal-dub-jobs.js` (mới) — cùng khuôn
+  `internal-jobs.js`, TÁI DÙNG NGUYÊN `requireWorker`/`WORKER_INTERNAL_TOKEN`
+  (không cần token riêng — cơ chế vốn tổng quát).
+- `control_server/src/routes/api-v1.js` — thêm `POST /dub` (multipart
+  upload, `sourceLang`/`targetLang`/`voice` qua query param để tránh phụ
+  thuộc thứ tự field trong multipart), `GET /dub/:jobId` (poll),
+  `GET /dub/:jobId/result` (tải + xoá file ngay, cùng chính sách V9).
+- `control_server/src/services/config.service.js` — 6 khoá `cloud.dub.*`
+  mới (enabled/estimate/max-upload/heartbeat-stale/sweep-interval/ttl).
+- `control_server/server.js` — sweeper riêng cho dub job (timer tách khỏi
+  render sweeper — ngưỡng heartbeat-chết khác hẳn, dub chạy lâu hơn nhiều).
+- `control_server/worker-dub/Dockerfile` (mới, tách hẳn `control_server/
+  worker/`) — cài đủ `autodub` package (core deps, KHÔNG PySide6/demucs/
+  yt-dlp/playwright — không cần cho input file + `--bg-mode none`) + 3
+  venv riêng bằng CHÍNH `scripts/setup_whisper.py`/`setup_vieneu.py`/
+  `setup_translate_local.py` đã có (không viết lại logic cài đặt) —
+  `TRANSLATE_LOCAL_ENABLED=true` vì worker này không có identity `Device`
+  để dùng path B (SaaS) và Constraint 1 cấm billing thật.
+- `control_server/worker-dub/dub_worker.py` (mới) — copy cấu trúc poll/
+  heartbeat-thread của `render_worker.py`, thay việc chạy bằng
+  `python3 -m autodub.cli dub --file ... --bg-mode none --json` (subprocess,
+  parse dòng JSON cuối ở stdout), tìm `dubbed_video.mp4` trong `work_dir`.
+- `docker-compose.yml` — service `dub_worker` MỚI, `profiles: ["dub-poc"]`
+  (không bật mặc định — image nặng, còn PoC), volume `voxdub-dub-jobs`
+  TÁCH HẲN `voxdub-render-jobs`.
+- `.dockerignore` — thêm `.venv-test` (giảm build-context, không liên quan
+  chức năng).
+
+### Verify
+
+- `node --test` (`control_server`, 3 file mới: `dub-job.service.test.js`
+  8 test, `internal-dub-jobs.test.js` 9 test, `api-v1-dub-route.test.js`
+  7 test = 24 test mới): **233 tests, 232 pass, 1 skipped, 0 failed**
+  (209→233, 0 regression).
+- `pytest tests/ -q` (venv đầy đủ, `QT_QPA_PLATFORM=offscreen`): **994
+  passed, 6 skipped, 0 failed** (990→994, 4 test mới từ 2 bug fix trên,
+  0 regression).
+- **Docker build thật** (`docker build -f control_server/worker-dub/
+  Dockerfile`, KHÔNG mock) — thành công sau khi sửa bug #1 ở trên (lần đầu
+  build thất bại đúng chỗ smoke test Whisper). Cả 3 engine cài xong + smoke
+  test riêng của từng cái đều PASS: Whisper (model `medium`, CPU,
+  ctranslate2), NLLB-200-distilled-600M-int8 (dịch thử "你好，欢迎观看。" →
+  "Xin chào, được xem." — đúng chất lượng thấp hơn dịch AI đã ghi nhận ở
+  V6, không phải bug), VieNeu-TTS-v3-Turbo (14 giọng preset).
+- **Live-verify thật, 2 lượt, cùng 1 video mẫu thật** (12.6s, giọng nói
+  tiếng Anh tổng hợp qua gTTS — không phải audio giả câm lặng — mux vào
+  MP4 bằng ffmpeg thật, KHÔNG phải fixture giả):
+  1. Voice mặc định (CapCut «Thanh Lan», qua mạng) — `docker run` bình
+     thường: **thành công**, `status: "completed"`, 2 câu ASR nhận đúng
+     nội dung tiếng Anh thật ("Hello everyone. Welcome to this short
+     video...", "...is changing the way we work and live..."), dịch NLLB
+     local, TTS CapCut, mux video — 32.7s xử lý cho 12.2s gốc.
+  2. **Toàn bộ pipeline HOÀN TOÀN OFFLINE** (`docker run --network none`,
+     PROOF mạnh nhất cho tự-chứa) với giọng VieNeu tự học (`--enroll` 1
+     file WAV thật từ `voices/preset_voices_vn/`, encode thành
+     `custom_voices.json`, rồi dùng chính giọng đó qua `--voice
+     "TestClone"`): **thành công**, `status: "completed"`, ASR+dịch+TTS+mux
+     đều chạy KHÔNG MỘT LẦN GỌI MẠNG NÀO, 36.3s xử lý (báo bởi pipeline) /
+     37.0s wall-clock cho 12.2s gốc. Video kết quả tải ra ngoài container,
+     `ffprobe` xác nhận file hợp lệ (13.2s, không hỏng).
+  - **Số liệu thật cho quyết định go/no-go**:
+    - Thời gian xử lý: ~3x thời lượng gốc, **CPU-only, không cần GPU**
+      (đúng nguyên tắc "GPU-optional" xuyên suốt dự án) — nhưng video mẫu
+      chỉ 2 câu/12.2s, tỉ lệ này CHƯA chắc tuyến tính với video dài hơn
+      (chi phí nạp model là cố định, có thể pha loãng tốt hơn với video
+      dài — CHƯA đo được, cần mẫu dài hơn để xác nhận).
+    - Dung lượng image: **8.42 GB** (`.venv-whisper` 431MB, `.venv-vieneu`
+      882MB, `.venv-mt` 230MB, `models/whisper` 1.5GB [model `medium`],
+      `models/vieneu` 286MB, `models/translate-local` 618MB [NLLB 600M
+      int8], còn lại là ffmpeg+265 gói apt ~466MB + base image + pip) —
+      NẶNG cho 1 worker, đáng cân nhắc model Whisper nhỏ hơn
+      (`small`/`base`) nếu tốc độ tải xuống/khởi động container là vấn đề
+      ở V34b.
+    - Video output: 182KB cho 13.2s (test video màu tĩnh, không đại diện
+      dung lượng video thật có hình ảnh phức tạp).
+
+### Remaining Limits (V34a)
+
+- **`--bg-mode none` xuyên suốt PoC này** (Constraint 4 chủ đích) — CHƯA
+  đo `--bg-mode demucs` (tách nhạc nền) server-side: sẽ cần thêm
+  torch+demucs (~1-2GB nữa) và thời gian xử lý riêng, chưa có số liệu.
+- **Video mẫu duy nhất rất ngắn/đơn giản** (12.2s, 2 câu, 1 người nói rõ
+  ràng, không nhạc nền, không nhiễu) — CHƯA thử video dài hơn 2 phút (biên
+  Constraint 4), nhiều người nói, hoặc audio chất lượng thấp/có nhạc nền.
+- **KHÔNG billing thật** (Constraint 1, chủ đích) — mô hình giá theo phút
+  video của V34b cần số liệu chi phí compute thật hơn nữa (nhiều mẫu, đo
+  CPU-giờ thật) mới định giá đúng, 1 mẫu 12s không đủ.
+- **KHÔNG giới hạn lưu trữ/TTL production, KHÔNG GPU multi-tenant** — đúng
+  phạm vi PoC, để dành V34b (đã ghi trong mini-spec).
+- **`voice_hint`/AI đề xuất giọng (V33) chưa nối vào luồng API** — job dub
+  qua API nhận `voice` tường minh từ caller, không tự đề xuất.
+
+**Khuyến nghị: GO cho V34b, phạm vi thu hẹp** — hạ tầng kỹ thuật đã chứng
+minh khả thi thật (2 lượt live-verify độc lập, 1 lượt HOÀN TOÀN OFFLINE) và
+KHÔNG cần GPU cho video ngắn — nhưng V34b nên bắt đầu bằng việc đo thêm
+video dài hơn + `bg-mode=demucs` thật trước khi chốt mô hình billing theo
+phút, vì 2 biến số đó (thời gian xử lý video dài, chi phí thêm của Demucs)
+chưa có số liệu thật trong PoC này.

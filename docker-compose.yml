@@ -48,10 +48,13 @@ services:
       # render_worker đọc/ghi CÙNG thư mục này qua volume dùng chung — cả
       # 2 container phải trỏ tới đúng 1 đường dẫn (guardrail 1 của V12).
       RENDER_UPLOAD_DIR: /data/render-jobs
+      # Tương tự cho dub_worker (mini-spec V34a) — volume TÁCH HẲN.
+      DUB_UPLOAD_DIR: /data/dub-jobs
     ports:
       - "${HOST_PORT:-3001}:3001"
     volumes:
       - voxdub-render-jobs:/data/render-jobs
+      - voxdub-dub-jobs:/data/dub-jobs
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health"]
       interval: 10s
@@ -78,6 +81,29 @@ services:
     volumes:
       - voxdub-render-jobs:/data/render-jobs
 
+  # Mini-spec V34a (docs/PLAN.md) — PoC hạ tầng API lồng tiếng đầy đủ. Volume
+  # TÁCH HẲN `voxdub-render-jobs` (Constraint 2 — không nhét chung, guardrail
+  # đã có từ V12 "1 lỗi ở pipeline nặng không ảnh hưởng service khác").
+  # KHÔNG bật mặc định trong `docker compose up` (dùng profile) — image nặng
+  # (3 model tải về lúc build: Whisper+VieNeu+NLLB, ~2-3 GB) và vẫn là PoC,
+  # chưa production-ready (chưa billing thật/TTL production/GPU — xem V34b).
+  dub_worker:
+    profiles: ["dub-poc"]
+    build:
+      context: .
+      dockerfile: control_server/worker-dub/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      control_server:
+        condition: service_healthy
+    env_file:
+      - control_server/.env
+    environment:
+      CONTROL_SERVER_URL: http://control_server:3001
+    volumes:
+      - voxdub-dub-jobs:/data/dub-jobs
+
 volumes:
   voxdub-mongo-data:
   voxdub-render-jobs:
+  voxdub-dub-jobs:

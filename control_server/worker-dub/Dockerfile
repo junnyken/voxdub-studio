@@ -1,0 +1,63 @@
+# Mini-spec V34a (docs/PLAN.md) — PoC hạ tầng API lồng tiếng đầy đủ
+# (ASR+dịch+TTS+mux) chạy server-side, gọi thẳng `autodub.cli`/`DubPipeline`
+# headless (V22) — KHÔNG viết lại pipeline riêng cho server (Design Choice).
+#
+# Image MỚI HOÀN TOÀN, TÁCH HẲN `control_server/worker/` (Demucs, V12) —
+# Constraint 2 của V34a: 1 lỗi ở pipeline nặng không ảnh hưởng build/deploy
+# control_server hay render_worker.
+#
+# Cài đủ autodub package + 3 venv riêng (đúng kiến trúc "mỗi engine nặng 1
+# venv qua subprocess" đã có sẵn của app desktop, xem CLAUDE.md) — TÁI DÙNG
+# NGUYÊN VĂN scripts/setup_whisper.py / setup_vieneu.py /
+# setup_translate_local.py (KHÔNG viết lại logic cài đặt model):
+#   .venv-whisper  ASR (faster-whisper, CPU)
+#   .venv-vieneu   TTS tiếng Việt (VieNeu, ONNX, CPU)
+#   .venv-mt       Dịch local/offline (NLLB-200-distilled-600M, CPU — dùng
+#                  thay cho dịch qua máy chủ vì worker này KHÔNG có identity
+#                  Device để gọi /v1/ai/*, và Constraint 1 của V34a cấm
+#                  billing thật ở PoC — dịch local không tốn Vox nào)
+#
+# PoC hẹp (Constraint 4 của V34a): --bg-mode none ở dub_worker.py (bỏ qua
+# Demucs tách nhạc nền) — không cài torch/demucs, giảm hẳn kích thước +
+# thời gian build. KHÔNG cam kết bg_mode=demucs ở PoC này.
+#
+# Build context là gốc repo (docker-compose.yml context: .) để copy được cả
+# autodub/ lẫn control_server/worker-dub/dub_worker.py.
+
+FROM python:3.12-slim AS runtime
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# --- Core pipeline (main venv — nơi autodub.cli chạy trực tiếp) ---
+# Đúng tập requirements.txt mục "Core pipeline", TRỪ PySide6 (cli.py tự
+# đảm bảo không import GUI, xem test cách ly tests/test_cli.py) và TRỪ
+# demucs/soundfile/yt-dlp/playwright (không cần cho --bg-mode none + input
+# là file upload sẵn, không phải URL — autodub/media/downloader.py là nơi
+# DUY NHẤT import yt_dlp ở top-level, không nằm trên đường gọi của CLI này).
+RUN pip install --no-cache-dir --retries 5 --timeout 180 \
+    "pydub>=0.25.1,<2.0" "numpy>=1.24,<3.0" "python-dotenv>=1.0.1,<2.0" \
+    "requests>=2.31.0,<3.0" "cryptography>=42.0.0"
+
+COPY autodub/ /app/autodub/
+COPY scripts/setup_whisper.py scripts/setup_vieneu.py scripts/setup_translate_local.py /app/scripts/
+
+# Cài 3 engine nặng vào venv riêng NGAY lúc build (không phải lúc container
+# khởi động) — image tự chứa, container chạy được không cần mạng lúc
+# runtime. Mỗi script resume-safe + tự smoke-test (raise nếu cài sai).
+RUN python3 scripts/setup_whisper.py
+RUN python3 scripts/setup_translate_local.py
+RUN python3 scripts/setup_vieneu.py
+
+COPY control_server/worker-dub/dub_worker.py /app/dub_worker.py
+
+# Dịch local/offline (path C, autodub/text/translate_local.py) — worker
+# này không có identity Device để dùng path B (SaaS qua control_server),
+# và Constraint 1 của V34a cấm billing thật nên không thể dùng CreditHold
+# của path B dù có identity. Model NLLB đã tải sẵn ở bước setup_translate_local.
+ENV TRANSLATE_LOCAL_ENABLED=true
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python3", "dub_worker.py"]

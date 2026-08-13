@@ -81,6 +81,18 @@ const DEFAULTS = {
   // (guardrail 5) thay vì treo mãi ở `running`.
   'cloud.render.heartbeat.stale.minutes': 5,
   'cloud.render.sweep.interval.minutes': 2,
+  // Mini-spec V34a (docs/PLAN.md, Phase G) — PoC hạ tầng API lồng tiếng đầy
+  // đủ. Constraint 1: KHÔNG billing thật ở PoC này — con số dưới đây CHỈ để
+  // LOG chi phí giả định (audit.log), không bao giờ trừ Vox/quota thật.
+  'cloud.dub.enabled': true,
+  'cloud.dub.estimate.vox.per.request': 500,
+  'cloud.dub.max.upload.mb': 300,
+  // Dub xử lý lâu hơn Demucs nhiều (ASR+dịch+TTS+mux, không chỉ 1 stage) —
+  // ngưỡng heartbeat-chết PHẢI rộng hơn hẳn cloud.render (5 phút) để không
+  // báo nhầm worker chết giữa lúc TTS/mux vẫn đang chạy bình thường.
+  'cloud.dub.heartbeat.stale.minutes': 15,
+  'cloud.dub.sweep.interval.minutes': 2,
+  'cloud.dub.ttl.hours': 2,
   // Chuẩn giá: 1 Vox = 10đ (1.000 Vox = 10.000đ). Bonus tăng dần theo gói.
   'credit.packages': [
     { id: 'mini', label: 'Khởi đầu', vnd: 10000, vox: 1000, bonus: 0, popular: false },

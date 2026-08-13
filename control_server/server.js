@@ -96,6 +96,29 @@ async function main() {
   }, renderSweepMinutes * 60 * 1000)
   renderSweepTimer.unref()
 
+  // Sweeper API lồng tiếng đầy đủ (mini-spec V34a) — cùng lý do/cơ chế của
+  // render sweeper phía trên, tách timer riêng vì ngưỡng heartbeat-chết
+  // khác hẳn (dub xử lý lâu hơn Demucs nhiều — xem cloud.dub.heartbeat.
+  // stale.minutes trong config.service.js).
+  const dubJobService = require('./src/services/dub-job.service')
+  const dubSweepMinutes = Number(
+    await config.get('cloud.dub.sweep.interval.minutes')) || 2
+  const dubSweepTimer = setInterval(async () => {
+    try {
+      const [expired, staleFailed] = await Promise.all([
+        dubJobService.sweepExpired(app.log),
+        dubJobService.sweepStaleRunning(app.log),
+      ])
+      if (expired > 0) app.log.info({ expired }, 'đã dọn dub job hết hạn TTL')
+      if (staleFailed > 0) {
+        app.log.warn({ staleFailed }, 'đã chuyển failed dub job kẹt ở running (worker mất kết nối)')
+      }
+    } catch (err) {
+      app.log.warn({ err }, 'vòng quét dub job thất bại')
+    }
+  }, dubSweepMinutes * 60 * 1000)
+  dubSweepTimer.unref()
+
   // Tắt êm: ngừng nhận request mới, cho request đang chạy kịp xong.
   for (const sig of ['SIGINT', 'SIGTERM']) {
     process.on(sig, async () => {

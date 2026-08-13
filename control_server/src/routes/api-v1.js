@@ -20,6 +20,7 @@ const { QuotaExceededError, consumeQuota } = require('../services/api-key.servic
 const gateway = require('../services/ai-gateway.service')
 const config = require('../services/config.service')
 const ApiKey = require('../models/ApiKey')
+const dubJob = require('../services/dub-job.service')
 
 module.exports = async function apiV1Routes(fastify) {
   fastify.addHook('preHandler', requireApiKey)
@@ -143,5 +144,97 @@ module.exports = async function apiV1Routes(fastify) {
       quota: updatedKey.quota,
       usageCount: updatedKey.usageCount,
     }
+  })
+
+  // ---------------------------------------------------------------------
+  // Mini-spec V34a (docs/PLAN.md, Phase G) — PoC hạ tầng API lồng tiếng đầy
+  // đủ (ASR+dịch+TTS+mux), mở rộng V31 (vốn CHỈ dịch văn bản). CHỈ submit +
+  // poll/tải kết quả (KHÔNG đồng bộ như /translate — dub mất nhiều phút,
+  // không thể chờ trong 1 request HTTP). KHÔNG billing thật (Constraint 1
+  // của V34a) — quota/usageCount của ApiKey KHÔNG bị đụng ở các route này.
+  // ---------------------------------------------------------------------
+
+  // --- Nộp job lồng tiếng (upload video, TRẢ VỀ NGAY) ----------------------
+  fastify.post('/dub', {
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const { apiKey } = request
+    const sourceLang = String(request.query.sourceLang || '').trim()
+    const targetLang = String(request.query.targetLang || '').trim()
+    const voice = String(request.query.voice || '').trim()
+    if (!sourceLang || !targetLang) {
+      return reply.code(400).send({
+        code: 'MISSING_LANG',
+        message: 'Cần query param sourceLang và targetLang.',
+      })
+    }
+
+    const maxMb = Number(await config.get('cloud.dub.max.upload.mb')) || 300
+    const data = await request.file({ limits: { fileSize: maxMb * 1024 * 1024 } })
+    if (!data) {
+      return reply.code(400).send({ code: 'NO_FILE', message: 'Thiếu file video.' })
+    }
+    const buffer = await data.toBuffer()
+    if (!buffer.length) {
+      return reply.code(400).send({ code: 'EMPTY_FILE', message: 'File video rỗng.' })
+    }
+
+    try {
+      const { job } = await dubJob.submitDubJob({
+        apiKey, fileBuffer: buffer, sourceLang, targetLang, voice, ip: request.ip,
+      })
+      return {
+        jobId: job._id,
+        status: job.status,
+        async: true,
+        estimatedCostVox: job.estimatedCostVox,
+      }
+    } catch (err) {
+      if (err instanceof dubJob.DubJobError) {
+        return reply.code(err.statusCode).send({ code: err.code, message: err.message })
+      }
+      throw err
+    }
+  })
+
+  // --- Trạng thái job --------------------------------------------------------
+  fastify.get('/dub/:jobId', async (request, reply) => {
+    const job = await dubJob.getJob(request.apiKey._id, request.params.jobId)
+    if (!job) return reply.code(404).send({ code: 'NOT_FOUND' })
+    return {
+      jobId: job._id, status: job.status,
+      error: job.error || undefined,
+      metrics: job.status === 'done' ? job.metrics : undefined,
+      expiresAt: job.expiresAt,
+    }
+  })
+
+  // --- Tải video kết quả — xoá file NGAY sau khi trả (cùng chính sách dữ ---
+  // liệu đã áp dụng cho cloud rendering V9, xem docs/TEST_LOG.md) ----------
+  fastify.get('/dub/:jobId/result', async (request, reply) => {
+    const job = await dubJob.getJob(request.apiKey._id, request.params.jobId)
+    if (!job) return reply.code(404).send({ code: 'NOT_FOUND' })
+    if (job.status !== 'done') {
+      return reply.code(409).send({ code: 'NOT_READY', message: `Job đang ở trạng thái ${job.status}.` })
+    }
+    if (!job.outputPath) {
+      return reply.code(404).send({ code: 'RESULT_NOT_FOUND' })
+    }
+
+    const fs = require('node:fs')
+    if (!fs.existsSync(job.outputPath)) {
+      return reply.code(410).send({
+        code: 'RESULT_EXPIRED',
+        message: 'Kết quả đã bị xoá (đã tải trước đó hoặc quá hạn TTL).',
+      })
+    }
+    const stream = fs.createReadStream(job.outputPath)
+    reply.header('Content-Type', 'video/mp4')
+    reply.header('Content-Disposition', `attachment; filename="dubbed_${job._id}.mp4"`)
+    await reply.send(stream)
+
+    stream.on('close', () => {
+      dubJob.cleanupJob(job._id).catch(() => {})
+    })
   })
 }

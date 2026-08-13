@@ -88,6 +88,10 @@ async function build(opts = {}) {
   // kết quả) — KHÔNG dưới /v1, xác thực bằng WORKER_INTERNAL_TOKEN riêng
   // (worker-auth.middleware.js), không lộ ra client thiết bị/website.
   await app.register(require('./routes/internal-jobs'), { prefix: '/internal/jobs' })
+  // Mini-spec V34a (docs/PLAN.md, Phase G): API nội bộ cho worker Python
+  // lồng tiếng đầy đủ (ASR+dịch+TTS+mux) — container RIÊNG
+  // (control_server/worker-dub/), cùng cơ chế WORKER_INTERNAL_TOKEN.
+  await app.register(require('./routes/internal-dub-jobs'), { prefix: '/internal/dub-jobs' })
   // Mini-spec V31 (docs/PLAN.md, Phase G): API dịch thuật công khai cho
   // developer bên thứ 3 — namespace RIÊNG /api/v1 (khác /v1/ai của app
   // desktop), xác thực bằng API key (apikey.middleware.js), KHÔNG đụng
