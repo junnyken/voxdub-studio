@@ -75,10 +75,24 @@ def resolve_api_url() -> str:
     Thứ tự: giá trị nhúng lúc build exe → biến môi trường ``VOXDUB_API_URL``
     (chỉ khi chạy từ mã nguồn). Rỗng = không có máy chủ, bước dịch tự chuyển
     sang dịch tay.
+
+    Bug thật tìm+sửa (mini-spec V34a, xem docs/TEST_LOG.md): import
+    ``autodub_gui._embedded`` từng KHÔNG có try/except — mâu thuẫn trực
+    tiếp với cam kết của ``autodub/cli.py`` (docstring + test cách ly
+    ``test_importing_cli_does_not_pull_in_gui_or_qt``) rằng CLI headless
+    không phụ thuộc ``autodub_gui``. Mọi máy dev/CI trước giờ đều có sẵn
+    ``autodub_gui/`` cạnh ``autodub/`` nên lỗi này chưa từng lộ ra — chỉ vỡ
+    thật khi chạy trong môi trường server KHÔNG cài GUI (tái hiện thật lúc
+    dựng container ``control_server/worker-dub/``). Giá trị nhúng chỉ có ý
+    nghĩa cho bản .exe đóng gói (PyInstaller) — thiếu package đó ở môi
+    trường khác là bình thường, không phải lỗi cấu hình.
     """
     import sys
 
-    from autodub_gui._embedded import VOXDUB_API_URL as embedded
+    try:
+        from autodub_gui._embedded import VOXDUB_API_URL as embedded
+    except ImportError:
+        embedded = ""
 
     url = (embedded or "").strip()
     if not getattr(sys, "frozen", False):

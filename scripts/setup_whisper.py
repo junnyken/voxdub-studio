@@ -92,7 +92,18 @@ def step_smoke() -> None:
              "--model",     "medium",      # model nhỏ cho smoke test nhanh
              "--language",  "zh",
              "--model-dir", MODEL_DIR],
-            input="",        # stdin rỗng — worker dùng arg --audio trực tiếp
+            # Worker LUÔN đọc 1 dòng JSON request từ stdin trước khi chạy
+            # (xem docstring + `sys.stdin.readline()` trong
+            # asr_whisper_worker.py) — `--audio` trên CLI chỉ là giá trị
+            # DỰ PHÒNG khi request thiếu field đó (`req.get("audio") or
+            # args.audio`), KHÔNG thay thế được stdin. Bug thật đã audit
+            # (mini-spec V34a, xem docs/TEST_LOG.md): `input=""` không phải
+            # JSON hợp lệ → worker luôn báo lỗi "Request JSON không hợp lệ"
+            # trước khi chạm tới model, khiến smoke test KHÔNG BAO GIỜ pass
+            # được — `installed_ok.json` không bao giờ được ghi trên máy
+            # thật (Windows lẫn CI), 100% máy chạy script này đều dính.
+            input="{}\n",
+
             capture_output=True,
             encoding="utf-8",
             errors="replace",

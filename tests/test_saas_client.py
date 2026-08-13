@@ -163,3 +163,30 @@ def test_merge_keeps_original_for_missing_segment():
 def test_merge_treats_blank_translation_as_missing():
     merged = _merge([seg(1)], [{"id": 1, "text_vi": "   "}], "text_vi")
     assert merged[0]["text_vi"] == seg(1)["text"]
+
+
+# ------------------------------------------ resolve_api_url() (V34a) ----
+
+def test_resolve_api_url_survives_missing_autodub_gui(monkeypatch):
+    """Bug thật tìm+sửa (mini-spec V34a, docs/TEST_LOG.md): môi trường
+    server headless (control_server/worker-dub/) không cài package
+    ``autodub_gui`` — reprod thật lúc chạy autodub.cli trong container đó,
+    resolve_api_url() từng crash ImportError thay vì rơi về biến môi trường.
+    """
+    import sys
+
+    from autodub import saas_client
+
+    monkeypatch.setitem(sys.modules, "autodub_gui._embedded", None)
+    monkeypatch.delenv(saas_client.ENV_KEY, raising=False)
+    assert saas_client.resolve_api_url() == ""
+
+
+def test_resolve_api_url_falls_back_to_env_var_without_autodub_gui(monkeypatch):
+    import sys
+
+    from autodub import saas_client
+
+    monkeypatch.setitem(sys.modules, "autodub_gui._embedded", None)
+    monkeypatch.setenv(saas_client.ENV_KEY, "http://example.local:3001/")
+    assert saas_client.resolve_api_url() == "http://example.local:3001"
