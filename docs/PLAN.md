@@ -2651,11 +2651,35 @@ Context:
   có mô tả phong cách phong phú hơn hẳn qua `description` — khớp được sâu
   hơn cho nhánh này.
 
+- **Audit thật luồng "Tạo dự án"** (2026-08-13, agent audit riêng): 6 bước
+  của wizard (Video → Nhận dạng → Dịch thuật → Giọng & Phụ đề → Chạy dịch →
+  Xuất video) chỉ là MÀN HÌNH CẤU HÌNH — `_go_next()`
+  (`autodub_gui/pages/new_project_page.py:253`) không chạy bất kỳ pipeline
+  nào cho tới khi bấm "Bắt đầu lồng tiếng" (bước 5, gọi `DubPipeline.run()`
+  một lượt duy nhất). `analyze_transcript()` chỉ chạy BÊN TRONG lượt dịch
+  đó (`pipeline.py:1115`), SAU khi giọng đã bị khoá vào `DubRequest` từ lúc
+  rời bước 4. Nghĩa là KHÔNG có tín hiệu phân tích nào tồn tại lúc người
+  dùng đang ở bước chọn giọng — chốt với chủ dự án (2026-08-13): xây bản
+  **SAU khi lồng tiếng xong** (ở Trình chỉnh sửa) trước, dùng đúng kết quả
+  phân tích đã có sẵn trên đĩa — không thêm bước chờ nào vào luồng tạo dự
+  án. Bản "gợi ý SỚM trước khi chọn giọng" (cần 1 worker chạy nền riêng,
+  thêm độ trễ + ASR/phân tích chạy 2 lần) để dành mini-spec khác nếu cần.
+- **Audit khóa mã hóa** (`autodub/securestore.py`): `data/video_context.json`
+  (nơi lưu kết quả phân tích) bị khóa AES-256-GCM chỉ trong lúc hold Vox
+  CHƯA chốt (mục đích chống lấy data chưa trả tiền, không phải bảo mật nội
+  dung — xem docstring `securestore.py`). Sau khi xuất video (hold đã chốt),
+  `unlock_all()` tự giải mã file này thành JSON thường (`pipeline.py:1901`,
+  `billing.py:191/314`) — `read_json_secure(path, key=None)` đọc được ngay,
+  không cần xin lại khóa từ máy chủ. Dự án còn dở/chưa xuất thì file vẫn
+  khóa — đọc sẽ ném `SecureStoreError`, phải bắt và ẨN gợi ý (đúng Constraint
+  1, không phải lỗi).
+
 Goal:
-- Ở bước chọn giọng (trang "Tạo dự án" hoặc "Giọng đọc AI"), hiện sẵn 1-3
-  giọng AI đề xuất kèm lý do ngắn gọn, dựa trên nội dung video đã phân
-  tích — người dùng vẫn tự chọn giọng khác nếu không ưng, đây là GỢI Ý chứ
-  không phải ép buộc.
+- Ở Trình chỉnh sửa (sau khi 1 video đã lồng tiếng xong), hiện 1 khối "AI
+  đề xuất giọng" dựa trên nội dung video đã phân tích — nếu giọng đang dùng
+  không khớp gợi ý, người dùng bấm 1 nút để đổi SANG giọng đó rồi đọc lại
+  toàn bộ (tái dùng đúng luồng "Lưu tất cả và đọc lại" đã có). Đây là GỢI Ý,
+  không phải ép buộc — không đổi gì nếu người dùng không bấm áp dụng.
 
 Constraints (Guardrails):
 1. CHỈ hoạt động khi có nguồn tín hiệu đáng tin (đúng nguyên tắc "không suy
@@ -2692,32 +2716,42 @@ B. `autodub/speech/tts/voice_recommend.py` (mới) — hàm thuần
    `Voice.description` CHỈ khi 2 bên thật sự có dữ liệu (VieNeu phần lớn
    không có — rơi về xếp hạng chỉ theo giới tính, KHÔNG giả vờ khớp phong
    cách khi catalog không có tín hiệu đó — đúng Constraint 2).
-C. `autodub_gui/` — 1 khối nhỏ "AI đề xuất giọng" ở bước chọn giọng (Tạo dự
-   án hoặc Giọng đọc AI), hiện SAU khi có kết quả phân tích ngữ cảnh (đã
-   chạy sẵn, không thêm độ trễ mới) — ẨN hoàn toàn khi không có SaaS/không
-   có `voice_hint` (Constraint 1), không hiện khối rỗng/giả.
-D. Local-only (không SaaS): KHÔNG đề xuất — giữ nguyên trải nghiệm thủ công
-   hiện có, đúng Constraint 1 (không suy đoán khi thiếu LLM thật).
-E. Tests: unit (khớp giới tính đúng/sai, khớp phong cách chỉ khi catalog có
-   dữ liệu, ẩn gợi ý khi thiếu voice_hint); GUI headless (khối gợi ý hiện/
-   ẩn đúng điều kiện); regression (chọn giọng thủ công không bị ảnh hưởng
-   khi tắt tính năng hoặc không có SaaS).
+C. `autodub_gui/pages/editor_panels.py::VoicePanel` (mục "Giọng đọc" của
+   Trình chỉnh sửa) — thêm khối "AI đề xuất giọng", đọc
+   `data/video_context.json` qua `securestore.read_json_secure(path,
+   key=None)` khi mở dự án; bắt `SecureStoreError`/`OSError`/thiếu
+   `voice_hint` → ẩn hẳn khối này (không hiện rỗng/lỗi). Có tín hiệu → gọi
+   `recommend_voices()`, hiện tên giọng đề xuất hàng đầu + lý do, nút "Đổi
+   sang giọng này" gọi lại đúng cơ chế đổi giọng dự án đã có
+   (`VoicePanel.set_project_voice`/nút "Lưu tất cả và đọc lại").
+D. Local-only (không SaaS) hoặc dự án chưa xuất (còn khóa): KHÔNG đề xuất —
+   giữ nguyên trải nghiệm hiện có, đúng Constraint 1.
+E. Tests: unit Python (`recommend_voices()` khớp giới tính đúng/sai, khớp
+   phong cách chỉ khi catalog có dữ liệu, trả rỗng khi thiếu voice_hint);
+   unit JS (schema/prompt có/không voice_hint theo đúng contract cũ); GUI
+   headless (khối gợi ý ẩn khi thiếu file/khi còn khóa/khi thiếu
+   voice_hint, hiện đúng khi đủ điều kiện); regression (đổi giọng thủ công
+   không bị ảnh hưởng).
 
-Audit Before Build: đã audit đủ catalog VieNeu/CapCut (kết quả ghi ở
-Context) — cần audit THÊM khi build: đọc lại đúng response contract hiện
-tại của `analyze_transcript()` phía Python (`autodub/text/translate_saas.py`)
-để biết field `voice_hint` mới sẽ được tiêu thụ ở đúng chỗ nào trong luồng
-"Tạo dự án" (trước hay sau khi hiện danh sách giọng), tránh chậm trễ hiển
-thị nếu phải chờ phân tích xong mới cho chọn giọng.
+Audit Before Build: đã audit đủ — luồng wizard (Context), khóa mã hóa
+(Context), catalog VieNeu/CapCut (Context gốc). Không còn điểm mù cần audit
+thêm trước khi build.
 
 Design Choice:
 - Tái dùng lượt phân tích ngữ cảnh có sẵn (Constraint 3) — không xây pipeline
   phân tích riêng cho tính năng này, đúng nguyên tắc Playbook "không build
   song song với luồng đã có".
+- Đặt gợi ý ở Trình chỉnh sửa (sau khi lồng tiếng xong), KHÔNG ở wizard Tạo
+  dự án — vì phân tích chỉ có sau khi chạy, và không muốn thêm bước chờ/
+  worker nền mới vào luồng tạo dự án (đã audit: cần 1 worker ASR+phân tích
+  riêng, tốn thêm độ trễ + chạy ASR 2 lần nếu làm ở wizard).
 - Ưu tiên trung thực hơn đầy đủ: catalog VieNeu thiếu dữ liệu phong cách
   thật thì CHỈ đề xuất theo giới tính, không bịa thêm — nếu chủ dự án muốn
   đề xuất sâu hơn cho VieNeu, cần 1 việc khác hẳn (gắn tay tag phong cách
   cho 120 giọng — công việc nhập liệu, không phải mini-spec kỹ thuật này).
+- Dự án chưa xuất (hold chưa chốt, file còn khóa) → ẩn gợi ý thay vì xin lại
+  khóa từ máy chủ (phức tạp hơn nhiều, tốn thêm round-trip mạng cho 1 tính
+  năng chỉ là gợi ý phụ trợ — không đáng đánh đổi).
 
 Test Plan:
 - Unit: `recommend_voices()` khớp đúng giới tính; khớp phong cách CHỈ khi
