@@ -23,6 +23,16 @@ import json
 import os
 import sys
 
+# Bug thật tìm+sửa (mini-spec V35, docs/PLAN.md Phase G): trước đây chỗ
+# DUY NHẤT chặn clip quá ngắn là ngưỡng nội bộ của _kaldi_fbank_numpy() —
+# nó chỉ kiểm "đủ mẫu cho 1 khung fbank" (~25ms ở mọi sample rate thường
+# gặp), NHƯNG lại báo lỗi "cần ≥ 1 giây" — sai lệch ~40 lần so với ngưỡng
+# thật sự được kiểm. Clip vài chục mili-giây (gần như câm) vẫn lọt qua và
+# "học" thành công, ra giọng vô nghĩa mà không báo lỗi gì. MIN_ENROLL_SECONDS
+# là ngưỡng THẬT, kiểm tường minh ở _encode_one() trước khi làm bất cứ việc
+# gì khác — khớp đúng mức tối thiểu đã ghi trong GUI/README ("3-10 giây").
+MIN_ENROLL_SECONDS = 1.0
+
 
 def load_custom_voices(tts, path: str) -> int:
     """Merge enrolled voices from ``path`` into the model's preset table.
@@ -75,7 +85,12 @@ def _kaldi_fbank_numpy(wav, sr: int, n_mels: int = 80):
     win, shift = int(0.025 * sr), int(0.010 * sr)
     wav = np.asarray(wav, dtype=np.float32).reshape(-1)
     if len(wav) < win:
-        raise ValueError("Clip quá ngắn để học giọng (cần ≥ 1 giây).")
+        # Đây là ngưỡng AN TOÀN NỘI BỘ (đủ mẫu cho 1 khung fbank, ~25ms) —
+        # KHÔNG phải ngưỡng chất lượng thật cho người dùng (xem
+        # MIN_ENROLL_SECONDS, kiểm ở _encode_one() trước khi tới đây).
+        raise ValueError(
+            "Không tính được đặc trưng âm thanh — clip quá ngắn "
+            f"({len(wav)} mẫu, cần tối thiểu {win} mẫu).")
     num_frames = 1 + (len(wav) - win) // shift
     idx = np.arange(win)[None, :] + shift * np.arange(num_frames)[:, None]
     frames = wav[idx]
@@ -143,6 +158,11 @@ def _encode_one(tts, wav_path: str, style: str, no_denoise: bool,
 
     engine = tts.engine
     wav, sr = engine._load_mono(wav_path, None)
+    duration_s = len(wav) / sr if sr else 0.0
+    if duration_s < MIN_ENROLL_SECONDS:
+        raise ValueError(
+            f"Clip quá ngắn để học giọng (cần ≥ {MIN_ENROLL_SECONDS:g} "
+            f"giây, đoạn ghi âm chỉ có {duration_s:.2f} giây).")
     wav = wav[: int(8.0 * sr)]
     if not no_denoise and engine.denoiser is not None:
         wav = engine.denoiser.denoise(wav, sr)

@@ -190,7 +190,7 @@ https://www.douyin.com/video/789 | nam
 
 Thư viện giọng có bộ lọc theo **giới tính / vùng miền / phong cách**, nút **nghe thử** từng giọng. Repo đi kèm sẵn **120 giọng mẫu** trong `voices/preset_voices_vn/`.
 
-**Thêm giọng của riêng bạn:** chọn một file WAV dài 5–10 giây (nói rõ, không nhạc nền), nhập đúng nội dung câu nói trong đó — app tự học và thêm vào thư viện.
+**Thêm giọng của riêng bạn:** chọn một file WAV/MP3/M4A/FLAC dài khoảng 3–10 giây (nói rõ, không nhạc nền, tối thiểu 1 giây), đặt tên + chọn giới tính/vùng miền — app tự học giọng theo kiểu "zero-shot" (không cần bạn gõ lại đúng câu nói trong file) và thêm vào thư viện.
 
 > Không dùng tính năng này để giả mạo giọng người khác.
 
