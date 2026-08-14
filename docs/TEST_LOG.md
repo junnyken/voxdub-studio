@@ -4674,3 +4674,30 @@ chưa có số liệu thật trong PoC này.
   chủ dự án gặp lỗi (cần chạy lại thật trên máy Windows, ngoài khả năng
   của phiên làm việc này) — sửa dựa trên đọc code xác nhận đúng cơ chế gây
   lỗi, chưa xác nhận bằng cách tái hiện y hệt lỗi gốc trên đúng video đó.
+
+## Thiết lập hạ tầng (KHÔNG phải bug code) — chưa từng cấu hình nhà cung cấp AI dịch (2026-08-15)
+
+- **Triệu chứng**: chủ dự án báo dịch tự động LUÔN thất bại (không phải
+  thỉnh thoảng), dù server đã kết nối tốt (500 Vox trial nhận đúng, hold
+  Vox hoạt động đúng). Log client chỉ thấy "Dịch vụ dịch tạm thời không
+  phản hồi" lặp lại 3 lần rồi rơi về dịch tay — không phải log lỗi thật.
+- **Nguyên nhân gốc**: `control_server/src/routes/ai.js` NUỐT lỗi thật từ
+  `ai-gateway.service.js` và luôn trả đúng 1 câu chung chung cho client dù
+  lỗi gốc là gì — phải gọi `GET /v1/admin/providers` mới thấy được
+  `data: []`. Vì `control_server` được deploy lần đầu (V37/V38, xem project
+  memory) với MongoDB HOÀN TOÀN MỚI, bảng `AiProvider` chưa từng được seed
+  (`scripts/seed-config.js`/`SEED_OPENROUTER_API_KEY` chưa chạy lúc setup)
+  — không có nhà cung cấp AI dịch nào cả, mọi lượt dịch tự động chắc chắn
+  thất bại 100%, không phải lỗi mạng ngẫu nhiên.
+- **Sửa**: chủ dự án cấp key Google Gemini thật (AI Studio) — nối vào qua
+  `POST /v1/admin/providers` (`role: "translate", type: "google", model:
+  "gemini-2.5-flash"`, đúng theo audit `ai-gateway.service.js::callGemini()`
+  — endpoint `generativelanguage.googleapis.com` gốc, không qua OpenRouter).
+- **Live-verify thật**: gọi `translate_segments()` thật qua đúng server —
+  `"Hello, how are you today?"` → `"Chào bạn, bạn khỏe không?"` — dịch đúng
+  nghĩa, không mock.
+- **Rủi ro cần nhớ**: cấu hình này nằm trong MongoDB, KHÔNG nằm trong env
+  var hay code nào — nếu database bị deploy lại từ đầu (như đã xảy ra 1
+  lần trong quá trình dựng server ban đầu), provider này sẽ mất và cần cấu
+  hình lại. Không có gì trong `docker-compose.yml`/`release.yml` tự động
+  seed lại provider này.
