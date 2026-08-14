@@ -4243,3 +4243,100 @@ chưa có số liệu thật trong PoC này.
   — giới hạn CPU + hướng dẫn scale ngang đã cấu hình trong
   `docker-compose.yml` nhưng chưa live-verify chạy `--scale dub_worker=N`
   thật với N>1.
+
+## V36 — Nâng cấp gán giọng theo người nói (round-robin → theo pitch thật) (Phase G)
+
+### Audit trước khi build
+
+- Đã audit thứ tự pipeline lúc viết mini-spec (docs/PLAN.md): `voice_hint`
+  (V33) chưa sẵn sàng ở bước gán giọng theo người nói — chốt KHÔNG nối V33
+  ở mini-spec này (Constraint 5).
+- Audit THÊM lúc code (đúng yêu cầu "Audit Before Build" của mini-spec):
+  1. `Voice.gender` — kiểm tra `autodub/speech/tts/voices.py` xác nhận
+     field này CÓ THẬT cho MỌI nguồn giọng, không chỉ VieNeu:
+     `_capcut_voices()` (dòng 209) cũng gán `gender=e["gender"]` từ dữ
+     liệu API CapCut thật, không phải giá trị mặc định rỗng. Scope B lọc
+     được trên `catalog(settings, target)` đầy đủ, không cần tách riêng
+     nguồn VieNeu/CapCut.
+  2. **Sửa 1 giả định sai trong chính mini-spec đã viết**: Scope A ghi "wav
+     đã có sẵn trong `_apply_diarization()`, không cần đọc file lại" —
+     audit thật lúc code (đọc `pipeline.py::run()` quanh dòng gọi
+     `_apply_diarization()`, dòng 458) xác nhận KHÔNG có mảng audio nào
+     đã nạp sẵn ở đó — `audio_path` chỉ là đường dẫn file, `transcribe()`
+     tự đọc file trong subprocess Whisper riêng (không lộ ra ngoài dạng
+     mảng numpy). Sửa: thêm `load_wav_mono()` (mới, đọc WAV PCM16 bằng
+     `wave` stdlib, cùng cách `autodub/media/audio.py` đã làm cho việc đọc
+     WAV nhẹ khác) — chấp nhận đọc lại file 1 lần, chi phí I/O nhỏ so với
+     lợi ích module `diarization_voice_match.py` giữ được chữ ký thuần
+     `estimate_speaker_genders(wav, sr, diar_segments)` như Scope A đã tả.
+
+### Xây dựng
+
+- `autodub/speech/diarization_voice_match.py` (mới):
+  - `load_wav_mono(path)` — đọc WAV PCM16 (mono hoặc downmix từ stereo)
+    thành mảng float32 chuẩn hoá ±1.0 + sample rate.
+  - `estimate_speaker_genders(wav, sr, diar_segments)` — với mỗi
+    `speaker`, gộp các đoạn audio thuộc người đó, ước lượng F0 từng khung
+    40ms (autocorrelation thuần numpy, có ngưỡng độ tin cậy đỉnh tương
+    quan để loại khung câm/nhiễu), lấy trung vị F0 các khung hợp lệ, phân
+    loại theo 2 ngưỡng CÓ KHOẢNG TRỐNG cố ý ở giữa (≤145Hz nam, ≥175Hz nữ,
+    145-175Hz KHÔNG đoán — Constraint 2) — trả `""` nếu không đủ khung
+    voiced (< 0.5s tổng) hoặc rơi vào vùng mù mờ.
+- `autodub/speech/tts/voice_assign.py` — hàm mới
+  `assign_voices_by_gender(speaker_labels, genders, catalog, fallback_names)`:
+  lọc `catalog` theo giới tính CỨNG, round-robin TRONG NHÓM giới tính khi
+  nhiều người nói cùng giới tính; người nói không ước lượng được HOẶC
+  catalog thiếu giọng đúng giới tính → rơi về `assign_voices_round_robin()`
+  nguyên bản trên `fallback_names` (luôn gán được 1 giọng, không bỏ sót).
+- `autodub/pipeline.py::_apply_diarization()` — nối luồng mới: đọc audio
+  qua `load_wav_mono()` (bọc `try/except OSError/EOFError` — lỗi đọc file
+  rơi về round-robin toàn bộ, không làm hỏng cả lượt dub, đúng Constraint
+  "degrade trung thực" gốc của V26) → `estimate_speaker_genders()` →
+  `assign_voices_by_gender()` → log rõ số người gán theo giới tính ước
+  lượng vs số người rơi về round-robin (minh bạch, không giả vờ "tất cả
+  đều thông minh").
+
+### Verify
+
+- `tests/test_diarization_voice_match.py` (11 test mới): pitch thấp/cao rõ
+  ràng (110Hz/220Hz) → phân loại đúng nam/nữ; pitch 160Hz (giữa 2 ngưỡng)
+  → `""` không đoán; câm hoàn toàn/quá ngắn → `""`; nhiều người nói độc
+  lập; speaker ngoài phạm vi audio → không có trong kết quả; nhiều đoạn
+  rời rạc cùng 1 người → gộp đúng; `load_wav_mono()` đọc file WAV PCM16
+  thật (mono + downmix stereo) đúng giá trị/độ dài.
+- `tests/test_voice_assign.py` (+6 test mới): gán đúng giới tính khi ước
+  lượng được; 2 người nói cùng giới tính → round-robin TRONG NHÓM (không
+  trùng giọng); giới tính rỗng/thiếu key → rơi về fallback; **catalog CHỈ
+  có 1 giới tính → người nói giới tính kia vẫn được gán (không bỏ sót)**;
+  hỗn hợp người ước lượng được + không ước lượng được trong cùng 1 lượt gọi.
+- `tests/test_pipeline_diarization.py` — sửa fixture `_FakeVoice` cũ
+  (thiếu `gender`, gây `AttributeError` khi chạy thật — bug lộ ra ngay khi
+  chạy test, không phải suy đoán) thành `Voice` thật; +1 test mới
+  (`test_gender_estimated_assigns_matching_voices`, mock
+  `estimate_speaker_genders()` trả giới tính biết trước, xác nhận
+  `_apply_diarization()` gán đúng giọng theo giới tính qua toàn bộ luồng
+  thật, không chỉ ở tầng hàm thuần).
+- `pytest tests/ -q`: **1038 passed, 6 skipped, 0 failed** (1020→1038, 18
+  test mới, 0 regression).
+- `node --test` (`control_server`): **249 tests, 248 pass, 1 skipped, 0
+  failed** — không đổi (V36 không chạm control_server, chạy lại đủ theo
+  yêu cầu "test lại đầy đủ").
+- **CHƯA live-verify trên audio nhiều người nói THẬT qua diarization thật**
+  — cùng giới hạn đã ghi từ V26 (model pyannote gated trên HuggingFace,
+  sandbox dev không có token/GPU). `estimate_speaker_genders()` tự nó ĐÃ
+  được verify bằng sóng sin tổng hợp tần số biết trước (không suy đoán độ
+  chính xác trên giọng nói thật phức tạp hơn — xem Remaining Limits).
+
+### Remaining Limits (V36)
+
+- **Ngưỡng phân loại (145Hz/175Hz) chưa phải benchmark thống kê trên giọng
+  nói thật đa dạng** — chỉ verify bằng sóng sin thuần tần số cố định, sạch
+  tuyệt đối. Giọng nói thật có hài âm/rung động (vibrato)/nhiễu nền có thể
+  khiến autocorrelation kém chính xác hơn — cần dữ liệu thật (bị chặn bởi
+  cùng giới hạn model pyannote gated) để tinh chỉnh ngưỡng.
+- **Chưa nối `voice_hint` (V33)** — quyết định có chủ đích (Constraint 5),
+  để dành mini-spec riêng nếu chủ dự án muốn đổi thứ tự các bước pipeline.
+- **Chỉ phân loại nhị phân nam/nữ** — không ước lượng tuổi/tông giọng chi
+  tiết hơn như câu hỏi gốc của chủ dự án có gợi ý ("giới tính/tông
+  giọng/tuổi") — phạm vi PoC chỉ giải quyết phần giới tính, khả thi nhất
+  với kỹ thuật nhẹ đã chọn (Constraint 1).

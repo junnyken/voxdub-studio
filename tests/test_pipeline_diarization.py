@@ -1,5 +1,9 @@
 """Mini-spec V26 (docs/PLAN.md, Phase G) — wiring diarization vào
-`DubPipeline._apply_diarization()`. Test gọi thẳng phương thức (cùng cách
+`DubPipeline._apply_diarization()`. Mini-spec V36 mở rộng: gán giọng theo
+giới tính ước lượng thay vì round-robin thuần (audio giả `/tmp/fake.wav`
+không tồn tại nên `load_wav_mono()` luôn lỗi trong các test dưới đây —
+đúng đường "không đọc được audio -> round-robin toàn bộ" trừ test riêng có
+mock `estimate_speaker_genders`). Test gọi thẳng phương thức (cùng cách
 `test_pipeline_telemetry_wiring.py` đã làm) — không chạy pipeline.run() đầy
 đủ (cần tải video/ASR/TTS thật).
 """
@@ -8,6 +12,7 @@ from __future__ import annotations
 from autodub.config import Settings
 from autodub.languages import get_target
 from autodub.pipeline import DubPipeline
+from autodub.speech.tts.voices import Voice
 
 
 def _pipeline():
@@ -67,12 +72,46 @@ def test_successful_diarization_assigns_distinct_voices(monkeypatch):
             {"start": 2.0, "end": 4.0, "speaker": "SPEAKER_01"},
         ])
 
-    class _FakeVoice:
-        def __init__(self, name):
-            self.name = name
     monkeypatch.setattr(
         "autodub.speech.tts.voices.catalog",
-        lambda settings, target: [_FakeVoice("Minh Trang"), _FakeVoice("Phạm Tuyên")])
+        lambda settings, target: [Voice("Minh Trang"), Voice("Phạm Tuyên")])
+
+    segments = [
+        {"id": 1, "text": "a", "start": 0.0, "end": 2.0},
+        {"id": 2, "text": "b", "start": 2.0, "end": 4.0},
+    ]
+    # /tmp/fake.wav không tồn tại -> load_wav_mono() lỗi -> round-robin
+    # thuần (V36 fallback, xem docstring module) — vẫn đúng hành vi V26 cũ.
+    pipeline._apply_diarization(segments, "/tmp/fake.wav", get_target("vi"))
+
+    assert segments[0]["speaker_label"] == "SPEAKER_00"
+    assert segments[1]["speaker_label"] == "SPEAKER_01"
+    assert segments[0]["voice"] != segments[1]["voice"]
+    assert segments[0]["voice"] in ("Minh Trang", "Phạm Tuyên")
+
+
+def test_gender_estimated_assigns_matching_voices(monkeypatch):
+    """Mini-spec V36: người nói ước lượng được giới tính phải nhận đúng
+    giọng cùng giới tính từ catalog, không phải round-robin mù."""
+    pipeline = _pipeline()
+    pipeline.settings.diarization_enabled = True
+    monkeypatch.setattr(pipeline.settings, "diarization_configured", lambda: True)
+    monkeypatch.setattr(
+        "autodub.speech.diarization.diarize",
+        lambda audio_path, settings: [
+            {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
+            {"start": 2.0, "end": 4.0, "speaker": "SPEAKER_01"},
+        ])
+    monkeypatch.setattr(
+        "autodub.speech.tts.voices.catalog",
+        lambda settings, target: [
+            Voice("Nam A", gender="male"), Voice("Nu A", gender="female")])
+    monkeypatch.setattr(
+        "autodub.speech.diarization_voice_match.load_wav_mono",
+        lambda path: (__import__("numpy").zeros(1), 16000))
+    monkeypatch.setattr(
+        "autodub.speech.diarization_voice_match.estimate_speaker_genders",
+        lambda wav, sr, diar: {"SPEAKER_00": "male", "SPEAKER_01": "female"})
 
     segments = [
         {"id": 1, "text": "a", "start": 0.0, "end": 2.0},
@@ -80,10 +119,8 @@ def test_successful_diarization_assigns_distinct_voices(monkeypatch):
     ]
     pipeline._apply_diarization(segments, "/tmp/fake.wav", get_target("vi"))
 
-    assert segments[0]["speaker_label"] == "SPEAKER_00"
-    assert segments[1]["speaker_label"] == "SPEAKER_01"
-    assert segments[0]["voice"] != segments[1]["voice"]
-    assert segments[0]["voice"] in ("Minh Trang", "Phạm Tuyên")
+    assert segments[0]["voice"] == "Nam A"
+    assert segments[1]["voice"] == "Nu A"
 
 
 def test_no_speakers_detected_leaves_segments_untouched(monkeypatch):

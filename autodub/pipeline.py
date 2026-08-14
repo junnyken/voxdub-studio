@@ -947,7 +947,7 @@ class DubPipeline:
         )
         from autodub.speech.tts import voices as voice_catalog
         from autodub.speech.tts.voice_assign import (
-            apply_segment_voices, assign_voices_round_robin,
+            apply_segment_voices, assign_voices_by_gender, assign_voices_round_robin,
         )
 
         try:
@@ -963,11 +963,34 @@ class DubPipeline:
                            "(video có thể chỉ 1 người nói) — giữ 1 giọng.")
                 return
             available = [v.name for v in voice_catalog.catalog(settings, target)]
-            voice_map = assign_voices_round_robin(speaker_labels, available)
+
+            # Mini-spec V36 (docs/PLAN.md, Phase G): ước lượng giới tính
+            # từng người nói từ pitch (F0) để gán giọng phù hợp hơn round-
+            # robin thuần — người nói ước lượng được rơi vào nhóm giới tính
+            # đúng, người nói KHÔNG ước lượng được (âm thanh nhiễu/quá ngắn)
+            # rơi về round-robin nguyên bản (Constraint 2/6, không đoán liều).
+            from autodub.speech.diarization_voice_match import (
+                estimate_speaker_genders, load_wav_mono,
+            )
+
+            genders: dict[str, str] = {}
+            try:
+                wav, sr = load_wav_mono(audio_path)
+                genders = estimate_speaker_genders(wav, sr, diar_segments)
+            except (OSError, EOFError) as e:
+                logger.warning(
+                    f"Không đọc được audio để ước lượng giới tính người nói "
+                    f"({e}) — dùng round-robin cho toàn bộ.")
+
+            catalog_full = voice_catalog.catalog(settings, target)
+            voice_map = assign_voices_by_gender(
+                speaker_labels, genders, catalog_full, fallback_names=available)
             apply_segment_voices(segments, voice_map)
+            gendered = sum(1 for lbl in speaker_labels if genders.get(lbl))
             logger.info(
                 f"Diarization: {len(speaker_labels)} người nói phát hiện "
-                f"được, đã gán giọng riêng cho từng người.")
+                f"được, {gendered} người gán giọng theo giới tính ước lượng, "
+                f"{len(speaker_labels) - gendered} người dùng round-robin.")
         except DiarizationError as e:
             logger.warning(
                 f"Diarization lỗi ({e}) — dùng 1 giọng cho toàn video như "
