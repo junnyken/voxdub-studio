@@ -4643,3 +4643,34 @@ chưa có số liệu thật trong PoC này.
 - **Monitoring/backup `control_server` production + runbook deploy** — đã
   ghi ở Remaining Limits của Phase G (`docs/PLAN.md`), không lặp lại ở
   đây, chưa thuộc phạm vi V38.
+
+## Bugfix ngoài mini-spec — rà soát dịch bỏ sót câu thiếu khi nguồn không phải tiếng Trung (2026-08-15)
+
+- **Báo cáo thật từ chủ dự án**: dùng bản chạy từ mã nguồn (server thật đã
+  deploy), lồng tiếng 1 video tiếng Anh (TikTok) — nhận thấy "đôi khi dịch
+  thiếu hội thoại".
+- **Audit tìm nguyên nhân gốc** (đọc code, không suy đoán): `_merge()`
+  (`translate_saas.py`) khi máy chủ trả thiếu 1 câu thì GIỮ NGUYÊN VĂN câu
+  gốc (đã có từ trước, đúng thiết kế — tránh raise giữa chừng khi Vox đã
+  bị trừ). Lưới bắt cuối cùng để phát hiện câu còn sót là `review_
+  translations()::_flag()`, nhưng lưới đó CHỈ kiểm tra `contains_cjk()` —
+  chỉ bắt được ký tự Hán. Nguồn tiếng Anh (hoặc bất kỳ ngôn ngữ Latin nào
+  khác) bị thiếu vẫn là chữ Latin, không phải CJK → lọt qua lưới, cuối
+  cùng còn nguyên tiếng gốc trong video "đã dịch xong".
+- **Sửa**: thêm 1 lưới mới trong `_flag()` — so khớp bản dịch với câu gốc
+  Y HỆT (`text == src`), tín hiệu chắc chắn không phụ thuộc ngôn ngữ nguồn
+  (đúng dấu vết `_merge()` để lại khi trả thiếu). Chỉ áp dụng câu dài hơn 5
+  ký tự, tránh cờ nhầm câu ngắn/tên riêng/số vốn dĩ giữ nguyên qua bản dịch
+  hợp lệ.
+- **Test**: `tests/test_translate_review_trace.py` +2 test —
+  `test_untranslated_english_segment_flagged_and_retried` (câu tiếng Anh
+  giữ nguyên → bị cờ "untranslated", gửi rà soát, sửa đúng) và
+  `test_short_identical_segment_not_flagged_untranslated` (câu ngắn "2026"
+  giữ nguyên → KHÔNG bị cờ nhầm, tránh false positive tốn Vox rà soát vô
+  ích).
+- `pytest tests/ -q`: **1098 passed, 6 skipped, 0 failed** (1096→1098, 2
+  test mới, 0 regression).
+- **Giới hạn còn lại**: chưa live-verify lại đúng video TikTok tiếng Anh mà
+  chủ dự án gặp lỗi (cần chạy lại thật trên máy Windows, ngoài khả năng
+  của phiên làm việc này) — sửa dựa trên đọc code xác nhận đúng cơ chế gây
+  lỗi, chưa xác nhận bằng cách tái hiện y hệt lỗi gốc trên đúng video đó.

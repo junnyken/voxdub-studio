@@ -71,12 +71,23 @@ def _flag(seg: dict, text_field: str, cps: float) -> str | None:
     text = str(seg.get(text_field, "")).strip()
     if not text:
         return None  # đã được các lớp trước xử lý (write_silence)
+    src = str(seg.get("text", "")).strip()
     if contains_cjk(text):
         return "cjk"
+    # Bug thật tìm được (2026-08-15, chủ dự án báo "đôi khi dịch thiếu hội
+    # thoại"): `contains_cjk` chỉ bắt được câu dịch thiếu khi NGÔN NGỮ GỐC
+    # là tiếng Trung — `_merge()` (translate_saas.py) giữ NGUYÊN VĂN câu
+    # gốc khi máy chủ trả thiếu, nên với nguồn tiếng Anh/Hàn/Nhật... câu
+    # thiếu vẫn là chữ Latin/không-CJK, lọt qua lưới cũ, cuối cùng còn
+    # nguyên tiếng gốc trong video "đã dịch xong". So khớp y hệt câu gốc là
+    # tín hiệu chắc chắn nhất, không phụ thuộc ngôn ngữ — chỉ áp dụng câu
+    # đủ dài (>5 ký tự) để không cờ nhầm câu ngắn/tên riêng/số vốn dĩ giữ
+    # nguyên đúng là bản dịch hợp lệ.
+    if src and text == src and len(src) > 5:
+        return "untranslated"
     budget = payload_segment(seg, cps).get("max_chars")
     if budget and len(text) > budget * _OVER_BUDGET_TOLERANCE:
         return "over_budget"
-    src = str(seg.get("text", "")).strip()
     if src and len(text) < len(src) * _MIN_SOURCE_RATIO and len(src) > 20:
         return "too_short"
     return None
