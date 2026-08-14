@@ -65,6 +65,7 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V34a | PoC hạ tầng API lồng tiếng đầy đủ (Phase G, đóng gap V31 — mở rộng dịch-thôi thành ASR+dịch+TTS+video) | ✅ Xong — **khuyến nghị GO cho V34b** | `DubApiJob`/`dub-job.service.js` (tách hẳn `RenderJob`) + `/internal/dub-jobs/*` + `/api/v1/dub*` + `control_server/worker-dub/` (Docker image mới, 3 venv Whisper/VieNeu/NLLB cài bằng chính script cài đặt có sẵn). Docker build thật + **2 lượt live-verify thật thành công** trên 1 video mẫu thật (12.2s, giọng nói tiếng Anh thật qua gTTS): 1 lượt bình thường (voice CapCut mặc định), 1 lượt **HOÀN TOÀN OFFLINE** (`--network none`, giọng VieNeu tự học từ file thật trong `voices/preset_voices_vn/`) — cả 2 đều `status: completed`, CPU-only ~3x thời lượng gốc, không cần GPU. 2 bug thật có sẵn trong codebase (không phải do V34a) lộ ra và sửa ngay lúc live-verify: `setup_whisper.py` gửi stdin rỗng cho worker luôn đòi JSON (chặn cài Whisper trên MỌI máy sạch); `saas_client.py` import cứng `autodub_gui` dù `autodub.cli` tự nhận không phụ thuộc GUI. 24+4 = 28 test mới, 0 regression (994/1000 pass Python, 232/233 pass Node) — xem TEST_LOG cho số liệu đầy đủ + Remaining Limits (bg-mode=demucs, video dài, billing thật đều chưa đo) |
 | V34b | Build production API lồng tiếng đầy đủ (Phase G, đóng gap V34a) | ✅ Xong | Đo thêm 2 lượt thật (video dài + bg-mode=demucs) trước khi code — xác nhận ~1.6x/~2.6x tỉ lệ compute, CPU-only, sửa nhận định sai "cần GPU" của bản mini-spec gốc thành giới hạn CPU. `ApiKey.dubMinutesQuota/Used` (opt-in, tách hẳn quota V31) + `DubUsageLedger` (sống độc lập TTL sweeper) + billing tính SAU khi job xong theo `durationS` thật đo bởi ASR (không cần ffprobe ở Node). `bg-mode=demucs` giờ là tham số thật của API, `worker-dub` cài demucs vĩnh viễn. 2 bug thật tìm+sửa: admin thiếu route cấp quota cho key cũ (đã thêm `PATCH .../dub-quota`); `pip install demucs` kéo torch CUDA ~2.5GB thừa (đã sửa cài torch CPU-only). Live-verify cuối trên image production thật (9.72GB): cả 2 bg-mode chạy đúng, video hợp lệ. 249 test (233→249), 0 regression (248/249 Node, 1020/1026 Python) — xem TEST_LOG |
 | V35 | Nâng chất lượng nhân bản giọng (voice cloning) (Phase G, chủ dự án yêu cầu 2026-08-13) | ✅ Xong | `autodub/speech/tts/audio_quality.py` (mới, hàm thuần không model AI — clip ratio/RMS/khoảng lặng liên tục) nối vào `vieneu_worker.py::_encode_one()`: fail → chặn trước khi mã hóa nặng, warn → vẫn học nhưng gắn cảnh báo tạm thời (không lưu vào file), >8s → báo cắt thay vì âm thầm. Loại trừ CẤU TRÚC (không chỉ ngưỡng số học) cho giọng thư viện qua field `source="library"` có sẵn — Constraint 4 giữ nguyên hành vi 120 giọng preset, xác nhận thêm bằng regression test THẬT (0/120 file fail/warn). GUI (`settings_panels.py`) hiện cảnh báo ngay sau enroll, không đợi "Nghe thử". Bug thật tìm+sửa khi wiring: nạp module qua `importlib` thiếu đăng ký `sys.modules` làm `@dataclass` crash `AttributeError`. 26 test mới, 0 regression (1020/1026 pass Python, 232/233 pass Node) — xem TEST_LOG |
+| V36 | Nâng cấp gán giọng theo người nói — round-robin → theo đặc điểm giọng thật (Phase G, chủ dự án yêu cầu 2026-08-14) | 📝 Mini-spec đã viết, chưa build | Agent audit xác nhận: hạ tầng diarization (`pyannote.audio`, `.venv-diar`) có thật + nhất quán giọng theo người nói xuyên suốt video đã đúng (bằng chứng thật), nhưng gán giọng hiện là ROUND-ROBIN thuần (`voice_assign.py::assign_voices_round_robin` — xoay vòng theo index, không phân tích đặc điểm giọng nói thật), và diarization CHƯA từng live-verify trên audio nhiều người nói thật (model pyannote gated trên HuggingFace, cần token — sandbox dev không có). Tính năng tắt mặc định, chỉ ở Cài đặt nâng cao, không có trong wizard chính — xem mini-spec đầy đủ bên dưới |
 
 ## Tổng quan phase
 
@@ -3123,6 +3124,161 @@ Success Criteria:
   rõ ràng cho người dùng tự quyết định.
 - File dài hơn trần 8 giây → người dùng THẤY rõ bị cắt, không còn âm thầm.
 - 120 giọng thư viện có sẵn không bị ảnh hưởng gì (0 regression).
+```
+
+### V36 — Nâng cấp gán giọng theo người nói (round-robin → theo đặc điểm giọng thật)
+
+```
+V36 — Gán giọng theo giới tính ước lượng từ pitch thay vì xoay vòng mù (Phase G)
+
+Context:
+- Chủ dự án hỏi trực tiếp (2026-08-14): tool có nhận diện được video có bao
+  nhiêu người nói rồi chọn giọng phù hợp theo từng người, và giữ nhất quán
+  xuyên suốt video không?
+- Agent audit trả lời (2026-08-14, trích dẫn code thật):
+  1. **Đếm/tách người nói**: CÓ thật — `autodub/speech/diarize_worker.py`
+     chạy `pyannote.audio` (model `pyannote/speaker-diarization-3.1`,
+     GATED trên HuggingFace, cần token) trong venv riêng `.venv-diar`
+     (mini-spec V26). `autodub/speech/diarization.py::diarize()` trả về
+     `[{"start", "end", "speaker"}, ...]`. **CHƯA từng live-verify trên
+     audio nhiều người nói thật** — sandbox dev không có HF token/GPU để
+     tải model gated (đã ghi nhận trong TEST_LOG mục V26 từ trước, không
+     phải phát hiện mới).
+  2. **Chọn giọng theo người nói**: ROUND-ROBIN THUẦN —
+     `autodub/speech/tts/voice_assign.py::assign_voices_round_robin()`
+     xoay vòng theo index qua `available_voice_names`, KHÔNG phân tích đặc
+     điểm giọng nói thật của từng người (giới tính/tông giọng/tuổi) — đây
+     là gap CHÍNH mini-spec này nhắm vào.
+  3. **Nhất quán xuyên suốt video**: CÓ, đúng thiết kế —
+     `pipeline.py::_apply_diarization()` (dòng 924-974) gọi
+     `assign_voices_round_robin()` MỘT LẦN tạo `voice_map` cố định
+     (speaker_label → tên giọng), rồi `apply_segment_voices()` áp dụng
+     đồng loạt qua MỌI segment mang `speaker_label` đó — không có logic
+     nào đổi giọng giữa chừng cho cùng 1 người.
+  4. **UI**: `DIARIZATION_ENABLED` chỉ ở trang Cài đặt (mặc định tắt), cần
+     cài thêm qua `scripts/setup_diarization.py` — không có trong wizard
+     "Tạo dự án". Panel "Xem trước người nói" (`autodub_gui/ui/
+     speaker_dialog.py` + `editor.py::list_speakers()`/`set_speaker_
+     voice()`, dòng 234-314) cho người dùng ghi đè tay SAU khi dub xong.
+  5. **Audit THÊM lúc chuẩn bị mini-spec này**: `_apply_diarization()`
+     (dòng 458 của `pipeline.py::run()`) chạy TRƯỚC bước phân tích nội
+     dung tạo `voice_hint` của V33 (`analyze_transcript()`, dòng ~1116-1117
+     — thuộc bước dịch, chạy SAU diarization trong cùng 1 lượt `run()`).
+     Nghĩa là `voice_hint` (giới tính/phong cách toàn video theo LLM)
+     **CHƯA tồn tại** tại thời điểm gán giọng theo người nói cần chạy —
+     không thể tái dùng `voice_recommend.recommend_voices()` với style
+     ngay trong V36 mà không đổi thứ tự các bước trong pipeline (rủi ro
+     cao hơn phạm vi mini-spec này nên KHÔNG làm ở đây — xem Scope B).
+
+Goal:
+- Gán giọng theo người nói dựa trên ĐẶC ĐIỂM THẬT đo được (giới tính ước
+  lượng từ cao độ giọng nói/pitch của chính người đó) thay vì xoay vòng mù
+  theo index — người nói nam có xu hướng được gán giọng nam, người nói nữ
+  giọng nữ, thay vì ngẫu nhiên theo thứ tự phát hiện.
+
+Constraints (Guardrails):
+1. KHÔNG thêm model AI/dependency nặng để phân loại giọng nói (vd
+   classifier giới tính giọng nói riêng, thường cần torch + model vài trăm
+   MB) — dùng ước lượng cao độ cơ bản (F0) bằng autocorrelation thuần
+   numpy, đúng tinh thần "engine nhẹ, đủ dùng" đã áp dụng cho
+   `audio_quality.py` (V35).
+2. Ước lượng giới tính từ pitch là HEURISTIC THÔ (ngưỡng tần số, không
+   phải khoa học chính xác — có giọng nam trầm/nữ cao lệch ngưỡng thật) —
+   khi kết quả KHÔNG rõ ràng (pitch nằm gần ngưỡng, hoặc không đo được đủ
+   mẫu voiced) PHẢI rơi về round-robin cho người nói đó, KHÔNG đoán liều
+   (đúng nguyên tắc "không suy đoán vượt quá điều đo được thật" xuyên suốt
+   dự án).
+3. KHÔNG đổi mặc định TẮT của diarization (V26 Guardrail gốc) — mini-spec
+   này CHỈ đổi BƯỚC GÁN GIỌNG sau khi diarization đã chạy, không đổi có
+   bật diarization hay không.
+4. KHÔNG đổi luồng ghi đè tay của người dùng (`list_speakers()`/
+   `set_speaker_voice()`, panel "Xem trước người nói") — gán tự động chỉ
+   là GIÁ TRỊ KHỞI ĐẦU tốt hơn, người dùng vẫn luôn sửa được sau.
+5. KHÔNG nối `voice_hint` (V33, phong cách toàn video) vào lần này — audit
+   xác nhận thứ tự pipeline chưa cho phép (xem Context mục 5) — để dành
+   mini-spec riêng nếu chủ dự án muốn sau khi đổi thứ tự các bước.
+6. 0 regression khi diarization tắt (mặc định) hoặc khi ước lượng giới
+   tính thất bại toàn bộ — hành vi round-robin thuần vẫn còn nguyên như
+   lối thoát an toàn.
+
+Scope:
+A. `autodub/speech/diarization_voice_match.py` (mới) — hàm thuần
+   `estimate_speaker_genders(wav, sr, diar_segments) -> dict[str, str]`:
+   với mỗi `speaker_label`, cắt+ghép các đoạn audio thuộc người đó từ
+   `wav` (đã có sẵn trong `_apply_diarization()`, không cần đọc file lại),
+   ước lượng F0 trung vị bằng autocorrelation trên các khung "voiced"
+   (năng lượng đủ lớn — tái dùng logic tương tự
+   `audio_quality._longest_silence_ratio()` để bỏ khung lặng), phân loại
+   "male"/"female" theo ngưỡng, trả `""` (rỗng — không đoán) nếu không đủ
+   mẫu voiced hoặc pitch nằm trong vùng mù mờ gần ngưỡng.
+B. `autodub/speech/tts/voice_assign.py` — hàm mới
+   `assign_voices_by_gender(speaker_labels, genders, catalog, fallback_names)`:
+   với mỗi speaker có giới tính ước lượng được, lọc `catalog` (danh mục
+   `Voice` đầy đủ, không chỉ tên) theo giới tính CỨNG (tái dùng đúng quy
+   tắc lọc của `voice_recommend.recommend_voices()` — giới tính LÀ bộ lọc
+   cứng, không suy đoán phong cách vì chưa có `voice_hint`, xem Constraint
+   5) rồi chọn 1 giọng (round-robin TRONG NHÓM giới tính đó nếu nhiều
+   người nói cùng giới tính, để không phải ai cũng ra đúng 1 giọng); speaker
+   không ước lượng được giới tính → rơi về `assign_voices_round_robin()`
+   nguyên bản trên `fallback_names` (Constraint 2/6).
+C. `autodub/pipeline.py::_apply_diarization()` — thay lời gọi
+   `assign_voices_round_robin()` bằng luồng mới: ước lượng giới tính
+   (Scope A) → gán theo giới tính (Scope B) → log rõ bao nhiêu người nói
+   được gán theo giới tính ước lượng, bao nhiêu rơi về round-robin thuần
+   (minh bạch, không giả vờ "tất cả đều thông minh").
+D. Tests: unit `estimate_speaker_genders()` (giọng nói tổng hợp tần số cao/
+   thấp rõ ràng → phân loại đúng; audio ngắn/lặng → trả rỗng, không đoán
+   liều); unit `assign_voices_by_gender()` (lọc giới tính đúng, fallback
+   round-robin đúng khi thiếu giới tính, không crash khi catalog thiếu 1
+   giới tính hoàn toàn); integration `_apply_diarization()` (đúng luồng
+   mới, KHÔNG đổi hành vi khi diarization tắt — regression 0).
+
+Audit Before Build: đã audit thứ tự pipeline (Context mục 5) — xác nhận
+`voice_hint` chưa sẵn sàng ở bước này, chốt Scope KHÔNG nối V33 (Constraint
+5). Cần audit THÊM lúc code: cấu trúc `Voice` catalog thật
+(`autodub/speech/tts/voices.py`) có field `gender` tin cậy đủ cho MỌI
+giọng (kể cả giọng CapCut, không chỉ VieNeu) hay chỉ VieNeu mới có — quyết
+định catalog nào Scope B lọc được.
+
+Design Choice:
+- Ước lượng pitch bằng autocorrelation thuần numpy (Constraint 1) — không
+  kéo thêm model AI, nhất quán với `audio_quality.py` (V35) đã chứng minh
+  cách tiếp cận "tín hiệu số học đơn giản, đủ dùng" hoạt động tốt cho lớp
+  bài toán tương tự trong chính dự án này.
+- KHÔNG nối `voice_hint`/V33 ở mini-spec này (Constraint 5) — đổi thứ tự
+  gọi `analyze_transcript()` lên TRƯỚC `_apply_diarization()` là thay đổi
+  kiến trúc lớn hơn hẳn phạm vi "gán giọng thông minh hơn", rủi ro ảnh
+  hưởng luồng dịch/billing hiện có — để dành quyết định riêng.
+- Rơi về round-robin khi không chắc (Constraint 2) — sai giới tính một
+  giọng còn TỆ HƠN xoay vòng trung tính, nên thà thiếu thông minh còn hơn
+  đoán sai có chủ đích.
+
+Test Plan:
+- Unit: `estimate_speaker_genders()` với sóng tổng hợp tần số cố định rõ
+  ràng nam/nữ (ví dụ 100Hz vs 220Hz) → phân loại đúng; audio toàn khung
+  lặng/quá ngắn → trả `""` cho speaker đó (không đoán).
+- Unit: `assign_voices_by_gender()` — catalog đủ cả 2 giới tính → lọc
+  đúng; catalog CHỈ có 1 giới tính → không crash, người nói giới tính kia
+  vẫn được gán (không loại bỏ hoàn toàn, khác `recommend_voices()` được
+  phép trả rỗng vì đó là GỢI Ý không bắt buộc — ở đây BẮT BUỘC phải gán
+  được 1 giọng nào đó).
+- Integration: `_apply_diarization()` — diarization tắt → không đổi gì
+  (0 regression); bật + giới tính ước lượng được hết → không giọng nào
+  trùng logic round-robin cũ một cách tình cờ (test có ý nghĩa); bật +
+  không ước lượng được giới tính nào (audio giả toàn nhiễu) → HÀNH VI
+  GIỐNG HỆT round-robin cũ (Constraint 6).
+- Live verification: CHƯA thể chạy thật (cùng giới hạn model pyannote
+  gated đã ghi nhận từ V26) — verify bằng dữ liệu tổng hợp + audio thật
+  KHÔNG qua diarization (tự tạo danh sách speaker_label giả để test 2 hàm
+  mới độc lập với việc diarization thật có chạy được hay không).
+
+Success Criteria:
+- Người nói có giọng nói rõ ràng nam/nữ (đo pitch tách biệt tốt) được gán
+  đúng giới tính giọng đọc, thay vì ngẫu nhiên theo thứ tự phát hiện.
+- Người nói không ước lượng được giới tính vẫn được gán 1 giọng hợp lệ
+  (không crash, không bỏ sót) — rơi về round-robin đúng như trước.
+- 0 regression khi diarization tắt (mặc định) hoặc khi chạy trên audio cũ
+  đã test trước V36.
 ```
 
 ### Remaining Limits / Follow-ups của Phase G
