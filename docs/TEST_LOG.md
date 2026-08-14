@@ -4627,12 +4627,16 @@ chưa có số liệu thật trong PoC này.
 
 ### Remaining Limits (V38)
 
-- **`voice_downloader.py`'s `VOICES_RELEASE_URL` vẫn trỏ tới asset chưa
-  tồn tại** (404 ở cả 2 repo) — cần publish 1 release `voices-v1.0.0` thật
-  kèm `preset_voices_vn.zip` trước khi tính năng tải giọng đọc dự phòng
-  (khi thư mục `voices/` trống) hoạt động được. Ngoài phạm vi V38 (publish
-  nội dung, không phải sửa code) — chủ dự án cần quyết định có build/đóng
-  gói file đó không.
+- **[ĐÃ XONG 2026-08-15] `voice_downloader.py`'s `VOICES_RELEASE_URL`**
+  — publish thật release `voices-v1.0.0` trên `junnyken/voxdub-studio`,
+  đóng gói `voices/preset_voices_vn/` sẵn có trong repo (121 file, 120
+  `.wav` thật + `voices_manifest.json`, 37.1MB nén) làm asset
+  `preset_voices_vn.zip`. Xác nhận thật: `curl -L` vào đúng
+  `VOICES_RELEASE_URL` trả `HTTP 200` (trước đó 404); tải về + `unzip -t`
+  không lỗi; `sha256sum` khớp tuyệt đối giữa file gốc và file tải về qua
+  GitHub — không chỉ tạo release, mà xác nhận cả toàn vẹn dữ liệu thật.
+  Release: `https://github.com/junnyken/voxdub-studio/releases/tag/
+  voices-v1.0.0`.
 - **Chưa bật gate cứng (branch protection)** — đúng Constraint 4, workflow
   hiện chỉ báo pass/fail tham khảo, chưa chặn merge PR nào cả. Chủ dự án
   quyết định có bật không.
