@@ -4575,9 +4575,29 @@ chưa có số liệu thật trong PoC này.
   nguyên có chủ đích).
 - Grep xác nhận không có test nào assert theo giá trị `support_url`/
   `update_repo` cũ — không cần sửa test nào.
-- **CHƯA verify workflow chạy thật qua GitHub Actions** tại thời điểm ghi
-  log này — sẽ verify ngay sau khi push (Success Criteria của mini-spec
-  yêu cầu chạy thật ít nhất 1 lần, không chỉ đọc YAML hợp lệ).
+- **Workflow `test.yml` xác nhận chạy thật qua GitHub Actions** ngay sau
+  khi push (`push` trigger trên `main`) — không chỉ đọc YAML hợp lệ.
+- **Bug thật tìm+sửa ngoài phạm vi gốc của mini-spec, phát hiện khi kiểm
+  tra lượt release `v3.0.0` (release đầu tiên trong lịch sử repo, trigger
+  cùng lúc với V38) đã FAIL**: `autodub_gui/app.py::_smoke_report()` coi
+  `faster_whisper_importable` là bắt buộc để `ok=True`, nhưng
+  `autodub.spec`'s `_ML_PRUNE` CỐ Ý loại `faster_whisper`/`ctranslate2`
+  khỏi bản đóng gói (ASR chạy qua subprocess `.venv-whisper` riêng, đúng
+  kiến trúc đã ghi trong CLAUDE.md) — 2 phần code mâu thuẫn nhau khiến MỌI
+  bản build đúng kiến trúc tự động fail smoke test của chính nó. Đọc log
+  build thật (`https://github.com/junnyken/voxdub-studio/actions/runs/
+  31799031806`) xác nhận: mọi mục "required" khác đều PASS
+  (`gui_constructed`/`env_path_writable`/`yt_dlp_importable`/
+  `worker_scripts_found`/`new_modules_importable`/`multimedia_importable`
+  đều `True`), CHỈ `faster_whisper_importable=False` kéo `ok=False` —
+  đúng như dự đoán từ audit code, không phải lỗi khác. Sửa: bỏ
+  `faster_whisper_importable` khỏi tuple `required`, giữ lại trong
+  `checks` để vẫn thấy (thông tin, không quyết định pass/fail) — khớp
+  đúng cách `ffmpeg_found`/`vieneu_installed`/`playwright_importable` đã
+  được xử lý (informational, không bắt buộc).
+- Bump `APP_VERSION` (`autodub_gui/app.py`) từ `"3.0.0"` lên `"3.0.1"` —
+  tag `v3.0.0` đã dùng cho lượt build fail, tạo tag mới `v3.0.1` cho lượt
+  build lại sau khi sửa (không ghi đè/xoá tag cũ).
 
 ### Remaining Limits (V38)
 

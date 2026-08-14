@@ -30,7 +30,7 @@ from autodub_gui.ui.toast import TOASTS
 
 APP_NAME = "VoxDub Studio"
 APP_TAGLINE = "Lồng tiếng video bằng AI"
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.0.1"
 
 # -- Danh mục trang ----------------------------------------------------
 ROW_HOME, ROW_NEW, ROW_PROJECTS, ROW_BATCH, ROW_DOWNLOAD = 0, 1, 2, 3, 4
@@ -674,9 +674,16 @@ def _smoke_report(window: MainWindow) -> int:
     _probe_video_playback(checks, settings)
     _probe_env_file(checks)
 
+    # faster_whisper/ctranslate2 bị autodub.spec CỐ Ý loại khỏi bản đóng gói
+    # (_ML_PRUNE) — ASR chạy qua subprocess trong .venv-whisper riêng, exe
+    # chính không cần import được. Coi faster_whisper_importable là bắt
+    # buộc sẽ khiến MỌI bản build đúng kiến trúc tự fail smoke test — bug
+    # thật tìm thấy lúc chạy release.yml lần đầu (2026-08-14, xem
+    # docs/PLAN.md V38). Giữ lại trong `checks` để biết (thông tin), chỉ
+    # bỏ khỏi danh sách bắt buộc.
     required = ("gui_constructed", "env_path_writable", "yt_dlp_importable",
-                "faster_whisper_importable", "worker_scripts_found",
-                "new_modules_importable", "multimedia_importable")
+                "worker_scripts_found", "new_modules_importable",
+                "multimedia_importable")
     checks["ok"] = all(checks.get(k) for k in required)
 
     out = os.path.join(app_root(), "smoke_test_result.json")
