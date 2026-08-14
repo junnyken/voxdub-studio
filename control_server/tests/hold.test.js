@@ -94,6 +94,11 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     // thêm có chủ đích, không phải rò rỉ giá nội bộ.
     'credit.cost.cloud.dub.vox.per.minute',
     'credit.cost.cloud.dub.vox.per.minute.demucs',
+    // credit.cost.cloud.music/sound_effect: giá công khai mới cho nhạc
+    // nền/hiệu ứng âm thanh AI (mini-spec V37, xem docs/PLAN.md) — thêm
+    // có chủ đích, không phải rò rỉ giá nội bộ.
+    'credit.cost.cloud.music',
+    'credit.cost.cloud.sound_effect',
     'credit.cost.metadata',
     'credit.cost.segment.autotranslate',
     'credit.cost.segment.base',

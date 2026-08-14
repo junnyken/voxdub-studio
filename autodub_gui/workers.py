@@ -904,3 +904,49 @@ class SubtitleTranslateWorker(QThread):
             self.failed.emit(str(e))
         finally:
             detach_gui_logging(handler)
+
+
+class MusicSfxWorker(QThread):
+    """Nhạc nền/hiệu ứng âm thanh AI — mini-spec V37, docs/PLAN.md Phase G.
+
+    3 hành động dùng chung 1 lớp (``kind``) vì cùng hình dạng: gọi 1 hàm của
+    ``autodub.media.music_match`` (đã tự bọc lỗi rõ ràng), báo kết quả qua
+    Qt signal — không có logic khác biệt đáng tách lớp riêng.
+    """
+
+    finished_ok = Signal(str, dict)   # đường dẫn file kết quả, {creditCharged, balanceAfter}
+    failed = Signal(str)
+
+    def __init__(self, kind: str, work_dir: str, *,
+                 description: str = "", name: str = "",
+                 timestamp_s: float = 0.0, sfx_wav_path: str = "",
+                 parent=None):
+        super().__init__(parent)
+        self._kind = kind   # "music" | "sfx_preview" | "sfx_apply"
+        self._work_dir = work_dir
+        self._description = description
+        self._name = name
+        self._timestamp_s = timestamp_s
+        self._sfx_wav_path = sfx_wav_path
+
+    def run(self) -> None:
+        from autodub.media import music_match
+
+        try:
+            if self._kind == "music":
+                billing = music_match.generate_and_save_music(
+                    self._work_dir, self._description)
+                from autodub.workdir import data_path
+                self.finished_ok.emit(data_path(self._work_dir, "ai_music.wav"), billing)
+            elif self._kind == "sfx_preview":
+                path, billing = music_match.generate_sound_effect_preview(
+                    self._work_dir, self._description, self._name)
+                self.finished_ok.emit(path, billing)
+            elif self._kind == "sfx_apply":
+                path = music_match.insert_sfx_and_replace_video(
+                    self._work_dir, self._sfx_wav_path, self._timestamp_s)
+                self.finished_ok.emit(path, {})
+            else:  # pragma: no cover - lỗi lập trình, không phải người dùng
+                self.failed.emit(f"Loại thao tác không hợp lệ: {self._kind}")
+        except Exception as e:  # noqa: BLE001
+            self.failed.emit(str(e))

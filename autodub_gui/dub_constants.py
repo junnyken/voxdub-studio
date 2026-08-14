@@ -51,6 +51,12 @@ BG_MODES: list[tuple[str, str]] = [
     ("Tách giọng gốc, giữ nguyên nhạc nền", "demucs"),
     ("Giảm nhỏ tiếng gốc khi có lời thoại", "duck"),
     ("Bỏ hết âm thanh gốc", "none"),
+    # Mini-spec V37 (docs/PLAN.md, Phase G) — nhạc nền do AI sinh
+    # (ElevenLabs), sinh qua khối "Nhạc nền & hiệu ứng AI" ở Trình chỉnh
+    # sửa (data/ai_music.wav) — chọn mục này KHÔNG tự sinh nhạc, chỉ dùng
+    # bản đã sinh sẵn (chưa sinh -> im lặng, giống các chế độ khác khi
+    # thiếu file nguồn, xem `editor.resolve_existing_background()`).
+    ("Nhạc nền AI (ElevenLabs)", "ai_music"),
 ]
 
 SUBTITLE_MODES: list[tuple[str, str]] = [

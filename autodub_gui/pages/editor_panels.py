@@ -30,6 +30,18 @@ _TEXT_MIN_H = 46
 _ROW_PADDING = 8
 
 
+def _open_in_default_player(path: str) -> None:
+    """Mở 1 file âm thanh bằng trình phát mặc định của hệ điều hành — cách
+    "nghe thử" đơn giản nhất cho nhạc nền/SFX AI (mini-spec V37) mà không
+    phải dựng lại 1 QMediaPlayer widget riêng (đã có `VoicePreview` cho
+    giọng đọc, nhưng module đó gắn chặt với logic tra catalog giọng, không
+    hợp để tái dùng cho file bất kỳ)."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+
+    QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+
 class _GrowingTextEdit(QPlainTextEdit):
     """Ô nhập tự cao lên theo nội dung — chữ dài mấy cũng không bị cắt.
 
@@ -950,6 +962,176 @@ class BackgroundPanel(CollapsibleSection):
     def values(self) -> dict:
         return {"bg_mode": self.mode.current_key(),
                 "bg_duck_db": self.duck.value()}
+
+
+class MusicSfxPanel(CollapsibleSection):
+    """Nhạc nền + hiệu ứng âm thanh AI qua ElevenLabs — mini-spec V37,
+    docs/PLAN.md Phase G. Ẩn hoàn toàn khi chưa cấu hình SaaS
+    (`autodub.media.music_match.is_available()`, nơi gọi tự kiểm trước khi
+    hiện panel này — cùng nguyên tắc `is_configured()` là cổng duy nhất
+    xuyên suốt dự án) hoặc khi tính năng đang tắt ở server
+    (``cloud.music_match.enabled``, hiện lỗi rõ khi bấm thay vì ẩn im lặng
+    — server có thể bật/tắt bất cứ lúc nào, ẩn cứng sẽ gây khó hiểu).
+
+    Chỉ SINH + hiện đường dẫn preview — người dùng tự nghe (mở file) rồi
+    mới bấm "Dùng nhạc này"/"Chèn vào video" (Constraint 5 của V37: không
+    tự động chèn khi chưa có xác nhận của người dùng).
+    """
+
+    music_requested = Signal(str)                 # mô tả tâm trạng
+    sfx_points_requested = Signal()
+    sfx_requested = Signal(float, str, str)        # timestamp, mô tả, tên
+    sfx_apply_requested = Signal(float, str)       # timestamp, đường dẫn wav đã sinh
+    apply_music_requested = Signal()
+    changed = Signal()
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__("Nhạc nền & hiệu ứng âm thanh AI", expanded=False, parent=parent)
+        from PySide6.QtWidgets import QLineEdit
+
+        hint = QLabel(
+            "Sinh nhạc nền/hiệu ứng âm thanh phù hợp nội dung qua ElevenLabs "
+            "— mỗi lượt tốn Vox thật, luôn nghe thử trước khi áp dụng.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet(
+            f"color: {tokens.TEXT_MUTED}; font-size: {tokens.FS_META}px; "
+            f"background: transparent;")
+        self.add_widget(hint)
+
+        # --- Nhạc nền ---
+        self.music_desc = QLineEdit()
+        self.music_desc.setPlaceholderText(
+            "Mô tả tâm trạng nhạc nền, ví dụ: nhạc vui tươi, tempo nhanh")
+        self.add_widget(self.music_desc)
+        row1 = QHBoxLayout()
+        self.btn_gen_music = GhostButton("Sinh nhạc nền")
+        self.btn_gen_music.clicked.connect(
+            lambda: self.music_requested.emit(self.music_desc.text().strip()))
+        row1.addWidget(self.btn_gen_music)
+        self.btn_preview_music = GhostButton("Nghe thử")
+        self.btn_preview_music.setToolTip(
+            "Mở đoạn nhạc vừa sinh bằng trình phát mặc định của máy — nghe "
+            "trước khi quyết định dùng (Constraint 5, mini-spec V37).")
+        self.btn_preview_music.setVisible(False)
+        self.btn_preview_music.clicked.connect(self._preview_music)
+        row1.addWidget(self.btn_preview_music)
+        self.btn_apply_music = GhostButton("Dùng nhạc này")
+        self.btn_apply_music.setVisible(False)
+        self.btn_apply_music.clicked.connect(self.apply_music_requested.emit)
+        row1.addWidget(self.btn_apply_music)
+        row1.addStretch()
+        self.add_layout(row1)
+        self._music_path = ""
+        self.music_status = QLabel("")
+        self.music_status.setWordWrap(True)
+        self.music_status.setStyleSheet(
+            f"color: {tokens.TEXT_MUTED}; font-size: {tokens.FS_META}px; "
+            f"background: transparent;")
+        self.add_widget(self.music_status)
+
+        # --- Hiệu ứng âm thanh ---
+        self.btn_find_points = GhostButton("Tìm điểm nhấn trong video")
+        self.btn_find_points.setToolTip(
+            "Tìm các câu kết bằng dấu !/? hoặc có khoảng lặng dài sau — gợi "
+            "ý chỗ đáng chèn hiệu ứng âm thanh, không phải quyết định cuối.")
+        self.btn_find_points.clicked.connect(self.sfx_points_requested.emit)
+        self.add_widget(self.btn_find_points)
+        self.points_list = QListWidget()
+        self.points_list.setMaximumHeight(120)
+        self.points_list.setVisible(False)
+        self.points_list.currentRowChanged.connect(lambda _r: self._reset_sfx_preview())
+        self.add_widget(self.points_list)
+        self.sfx_desc = QLineEdit()
+        self.sfx_desc.setPlaceholderText("Mô tả hiệu ứng, ví dụ: tiếng vỗ tay")
+        self.sfx_desc.setVisible(False)
+        self.add_widget(self.sfx_desc)
+        row2 = QHBoxLayout()
+        self.btn_gen_sfx = GhostButton("Sinh hiệu ứng")
+        self.btn_gen_sfx.setVisible(False)
+        self.btn_gen_sfx.clicked.connect(self._emit_sfx_requested)
+        row2.addWidget(self.btn_gen_sfx)
+        self.btn_preview_sfx = GhostButton("Nghe thử")
+        self.btn_preview_sfx.setVisible(False)
+        self.btn_preview_sfx.clicked.connect(self._preview_sfx)
+        row2.addWidget(self.btn_preview_sfx)
+        self.btn_apply_sfx = GhostButton("Chèn vào video")
+        self.btn_apply_sfx.setVisible(False)
+        self.btn_apply_sfx.clicked.connect(self._emit_apply_sfx)
+        row2.addWidget(self.btn_apply_sfx)
+        row2.addStretch()
+        self.add_layout(row2)
+        self.sfx_status = QLabel("")
+        self.sfx_status.setWordWrap(True)
+        self.sfx_status.setStyleSheet(
+            f"color: {tokens.TEXT_MUTED}; font-size: {tokens.FS_META}px; "
+            f"background: transparent;")
+        self.add_widget(self.sfx_status)
+
+        self._points: list = []
+        self._sfx_path = ""
+        self._sfx_timestamp = 0.0
+
+    def set_music_status(self, text: str, *, path: str = "") -> None:
+        """``path`` (không rỗng) = vừa sinh xong file thật, hiện nút "Nghe
+        thử"/"Dùng nhạc này". Rỗng = xoá kết quả cũ (lỗi, hoặc mô tả mới)."""
+        self.music_status.setText(text)
+        self._music_path = path
+        self.btn_preview_music.setVisible(bool(path))
+        self.btn_apply_music.setVisible(bool(path))
+
+    def _preview_music(self) -> None:
+        if self._music_path:
+            _open_in_default_player(self._music_path)
+
+    def set_emphasis_points(self, points: list) -> None:
+        """``points``: list of ``EmphasisPoint`` (autodub.media.emphasis_points)."""
+        self._points = points
+        self.points_list.clear()
+        for p in points:
+            item = QListWidgetItem(f"{p.time:.1f}s — {p.reason}")
+            self.points_list.addItem(item)
+        has_points = bool(points)
+        self.points_list.setVisible(has_points)
+        self.sfx_desc.setVisible(has_points)
+        self.btn_gen_sfx.setVisible(has_points)
+        self._reset_sfx_preview()
+        if not has_points:
+            self.sfx_status.setText("Không tìm thấy điểm nhấn rõ ràng nào trong video này.")
+
+    def _reset_sfx_preview(self) -> None:
+        """Đổi điểm/mô tả -> bỏ preview cũ, tránh chèn nhầm hiệu ứng của
+        điểm khác vào điểm đang chọn."""
+        self._sfx_path = ""
+        self.btn_preview_sfx.setVisible(False)
+        self.btn_apply_sfx.setVisible(False)
+
+    def _emit_sfx_requested(self) -> None:
+        row = self.points_list.currentRow()
+        if row < 0 or row >= len(self._points):
+            self.sfx_status.setText("Hãy chọn 1 điểm trong danh sách trước.")
+            return
+        desc = self.sfx_desc.text().strip()
+        if not desc:
+            self.sfx_status.setText("Hãy mô tả hiệu ứng âm thanh muốn sinh.")
+            return
+        point = self._points[row]
+        name = f"pt{row}_{int(point.time)}"
+        self.sfx_requested.emit(point.time, desc, name)
+
+    def set_sfx_status(self, text: str, *, path: str = "", timestamp: float = 0.0) -> None:
+        self.sfx_status.setText(text)
+        self._sfx_path = path
+        self._sfx_timestamp = timestamp
+        self.btn_preview_sfx.setVisible(bool(path))
+        self.btn_apply_sfx.setVisible(bool(path))
+
+    def _preview_sfx(self) -> None:
+        if self._sfx_path:
+            _open_in_default_player(self._sfx_path)
+
+    def _emit_apply_sfx(self) -> None:
+        if self._sfx_path:
+            self.sfx_apply_requested.emit(self._sfx_timestamp, self._sfx_path)
 
 
 class ExportPanel(CollapsibleSection):

@@ -543,6 +543,14 @@ def resolve_existing_background(
     the original run (falling back to a silent base if it is absent), for
     ``duck`` it reuses ``original_audio.wav`` at the ducked gain, for ``none`` a
     silent base.
+
+    ``"ai_music"`` (mini-spec V37, docs/PLAN.md Phase G): nhạc nền do AI
+    sinh (ElevenLabs, qua `autodub.media.music_match`), lưu sẵn tại
+    ``data/ai_music.wav`` bởi `music_match.save_music_track()` TRƯỚC khi
+    gọi hàm này — cùng cơ chế "resolve từ đĩa, không tự sinh lại" như 2 chế
+    độ trên. Loại trừ lẫn nhau với `demucs`/`duck` theo thiết kế (nhạc AI
+    chỉ có ý nghĩa khi KHÔNG giữ nhạc nền gốc — chọn `bg_mode="ai_music"`
+    thay vì `"demucs"`/`"duck"`, không chồng cả hai).
     """
     if bg_mode == "demucs":
         no_vocals = data_path(work_dir, "no_vocals.wav")
@@ -557,6 +565,12 @@ def resolve_existing_background(
             if os.path.exists(original):
                 return original, bg_duck_db
         return None, bg_duck_db
+    if bg_mode == "ai_music":
+        ai_music = data_path(work_dir, "ai_music.wav")
+        if os.path.exists(ai_music):
+            return ai_music, bg_duck_db
+        logger.warning("ai_music.wav missing — rebuild will use a silent base")
+        return None, 0.0
     return None, 0.0
 
 

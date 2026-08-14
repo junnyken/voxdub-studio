@@ -4340,3 +4340,173 @@ chưa có số liệu thật trong PoC này.
   tiết hơn như câu hỏi gốc của chủ dự án có gợi ý ("giới tính/tông
   giọng/tuổi") — phạm vi PoC chỉ giải quyết phần giới tính, khả thi nhất
   với kỹ thuật nhẹ đã chọn (Constraint 1).
+
+## V37 — Nhạc nền + hiệu ứng âm thanh AI theo nội dung video (Phase G)
+
+### Audit trước khi build
+
+- Khảo sát thị trường thật (agent riêng, có trích nguồn) trước khi viết
+  mini-spec — kết quả nằm trong docs/PLAN.md §V37 Context: ElevenLabs
+  Music v2/Sound Effects v2 SAFE cho SaaS trả phí, Epidemic Sound Partner
+  API SAFE nhưng cần đàm phán (track kinh doanh), MusicGen/Envato/Suno
+  KHÔNG dùng được (lặp lớp lỗi NLLB/Wav2Lip).
+- Xác nhận thật (WebFetch tài liệu chính thức ElevenLabs, không đoán) hình
+  dạng API: `POST /v1/sound-generation` + `POST /v1/music`, header
+  `xi-api-key`, response nhị phân (không phải JSON).
+- **Mâu thuẫn kiến trúc tìm thấy lúc code** giữa Scope A (mini-spec ghi
+  `music_match.py` gọi ElevenLabs trực tiếp) và Design Choice (server quản
+  lý key, người dùng không tự cấp) — 2 câu tự mâu thuẫn nhau. Giải quyết
+  bằng cách tái dùng ĐÚNG pattern SaaS-proxy đã có sẵn cho dịch/phân tích
+  (`saas_client.py` ↔ `control_server/routes/ai.js`) — server giữ key
+  thật, Python chỉ gọi qua HTTP có device-token, không bao giờ thấy key.
+- Audit `autodub/editor.py::rebuild_output()`/`resolve_existing_background()`
+  xác nhận đã có sẵn 1 slot trộn nhạc nền DUY NHẤT với ducking tự động —
+  cho phép thêm `bg_mode="ai_music"` mà KHÔNG viết lại logic mixing (giảm
+  phạm vi thật so với lo ngại ban đầu ở Scope C của mini-spec).
+
+### Xây dựng
+
+- **control_server** (Node):
+  - `src/services/config.service.js` — thêm `cloud.music_match.enabled`
+    (mặc định `false`, opt-in ở tầng server — Constraint 2), giá Vox
+    `credit.cost.cloud.sound_effect` (100) và `credit.cost.cloud.music`
+    (500).
+  - `src/services/elevenlabs-audio.service.js` (mới) — gọi 2 endpoint
+    ElevenLabs thật qua axios (`responseType: 'arraybuffer'`), map lỗi
+    thật (401/429/network) thành `ElevenLabsError` có `code`/`statusCode`
+    rõ ràng để route phía trên hiển thị đúng.
+  - `src/routes/ai.js` — 2 route mới `POST /sound-effect`/`/music`, dùng
+    lại nguyên `precheck`/`charge` (billing) đã có cho các route AI khác;
+    response là audio nhị phân + billing đi qua header
+    `X-Credit-Charged`/`X-Balance-After` (JSON body không hợp với audio).
+  - Bug thật tìm+sửa: `src/models/UsageLog.js` — enum `action` thiếu
+    `'sound_effect'`/`'music'`, sẽ crash `ValidationError` khi `.create()`
+    thật — đã thêm.
+  - `.env.example` — ghi chú biến `ELEVENLABS_API_KEY` mới.
+- **Python** (`autodub/`):
+  - `autodub/media/emphasis_points.py` (mới) — `detect_emphasis_points()`
+    thuần, đọc `segments` đã có (dấu câu !/?+khoảng lặng ≥1.5s giữa 2 câu),
+    KHÔNG thêm model AI nặng (Constraint 3) — PySceneDetect (Scope B gốc)
+    CHƯA làm, để dành (xem Remaining Limits).
+  - `autodub/saas_client.py` — thêm `generate_sound_effect()`/
+    `generate_music()` + `_save_audio_response()` (tách từ
+    `_parse_response()` phần xử lý lỗi thành `_raise_saas_error()` dùng
+    chung, vì response audio không gọi `resp.json()` được).
+  - `autodub/media/music_match.py` (mới) — orchestration: gọi SaaS, convert
+    MP3→WAV bằng ffmpeg (đồng bộ định dạng với các track nền khác trong
+    work_dir), lưu `data/ai_music.wav` (nhạc nền, đọc lại qua
+    `resolve_existing_background()`) hoặc `data/sfx_<name>.wav` (SFX, GUI
+    tự sinh tên an toàn — không lấy thẳng từ input người dùng). SFX chèn
+    vào `dubbed_video.mp4` bằng ffmpeg overlay điểm-thời-gian
+    (`adelay`+`amix`) — KHÔNG qua `merge_segments()` (bài toán khác: 1
+    track liên tục vs 1 điểm chèn rời rạc).
+  - `insert_sfx_and_replace_video()` — ffmpeg không đọc/ghi cùng file, nên
+    ghi ra file tạm rồi `os.replace()` (atomic) đè lên `dubbed_video.mp4`.
+  - `autodub/editor.py::resolve_existing_background()` — thêm nhánh
+    `bg_mode == "ai_music"` đọc `data/ai_music.wav`; thiếu file → im lặng
+    (fallback), giống các `bg_mode` khác khi thiếu nguồn.
+  - Bug thật tìm+sửa: `saas_client.py::_save_audio_response()` quên gọi
+    `_note_usage()` — thanh Vox đầu app (`credit_widget.py`) sẽ KHÔNG cập
+    nhật số dư ngay sau khi sinh nhạc/SFX, khác mọi lượt gọi AI trả phí
+    khác trong app (tất cả đều gọi `_note_usage()`). Đã sửa.
+- **GUI** (`autodub_gui/`):
+  - `dub_constants.py::BG_MODES` — thêm mục "Nhạc nền AI (ElevenLabs)"
+    (`ai_music`).
+  - `editor_panels.py::MusicSfxPanel` (mới, `CollapsibleSection`) — khối
+    "Nhạc nền & hiệu ứng âm thanh AI": sinh nhạc (mô tả tâm trạng) → nghe
+    thử (mở bằng trình phát mặc định hệ điều hành, `QDesktopServices`) →
+    "Dùng nhạc này"; tìm điểm nhấn → chọn 1 điểm → mô tả SFX → sinh → nghe
+    thử → "Chèn vào video". Đổi điểm/mô tả tự xoá preview cũ (tránh chèn
+    nhầm hiệu ứng của điểm khác).
+  - `editor_music_sfx.py` (mới, mixin `MusicSfxMixin`) — nối signal của
+    panel với `MusicSfxWorker` (QThread mới trong `workers.py`, 1 lớp dùng
+    chung cho cả 3 hành động qua tham số `kind`) và `music_match.py`. Áp
+    dụng nhạc nền = `background_panel.mode.set_key("ai_music")` +
+    `_save_render_opts()` (tái dùng nguyên cơ chế lưu tuỳ chọn dự án đã
+    có, không viết đường lưu riêng). Chèn SFX nhả video (`release_video()`)
+    trước khi ghi đè `dubbed_video.mp4` — cùng lý do WinError 32 đã áp
+    dụng cho resynth/export.
+  - Panel gộp chung mục rail "Nhạc nền" đã có (không thêm mục điều hướng
+    mới — `RAIL_ITEMS` ánh xạ 1-1 theo thứ tự với `panels`, thêm mục mới
+    sẽ phải sửa nhiều chỗ phụ thuộc thứ tự đó). Ẩn hoàn toàn khi
+    `music_match.is_available()` là `False` (chưa cấu hình SaaS).
+
+### Verify
+
+- `tests/test_emphasis_points.py` (10 test mới): dấu câu !/? → điểm nhấn
+  đúng vị trí; khoảng lặng dài → điểm nhấn; khoảng lặng ngắn bình thường →
+  bỏ qua; 2 điểm gần nhau (< 1s) → gộp lại 1, lý do nối chuỗi.
+- `tests/test_saas_client_music.py` (10 test mới, mock `client._http()`):
+  gọi đúng endpoint/payload; lỗi HTTP → `_raise_saas_error()` dùng chung
+  đúng nhánh (401/402/503); ghi file nhị phân đúng nội dung; billing đọc
+  đúng từ header.
+  Sau khi sửa bug `_note_usage()`, chạy lại xác nhận vẫn 10/10 pass (fake
+  `_device`/`USAGE` không crash khi thiếu context thật).
+- `tests/test_music_match.py` (12 test mới — 10 gốc + 2 thêm khi verify
+  `insert_sfx_and_replace_video()`): chưa cấu hình SaaS → lỗi rõ; sinh
+  nhạc/SFX thành công (mock `saas_client` + ffmpeg fake) → ghi đúng
+  đường dẫn quy ước; ffmpeg lỗi → `MusicMatchError` rõ ràng; lỗi thật từ
+  `saas_client` (vd `InsufficientCreditError`) bay nguyên lên, không bị
+  nuốt; `insert_sfx_and_replace_video()` — thiếu `dubbed_video.mp4` → lỗi
+  rõ; có file → ghi đè tại chỗ đúng, không sót file tạm `.sfx_tmp.mp4`.
+- `tests/test_editor.py` (+2 test): `bg_mode="ai_music"` đọc đúng
+  `data/ai_music.wav` khi có; thiếu file → fallback im lặng.
+- `tests/test_music_sfx_panel.py` (16 test mới, headless
+  `QT_QPA_PLATFORM=offscreen`): nút ẩn/hiện đúng theo trạng thái; validate
+  thiếu mô tả/chưa chọn điểm; đổi điểm xoá preview cũ; signal phát đúng
+  tham số (timestamp/mô tả/tên).
+- `tests/test_editor_music_sfx_mixin.py` (8 test mới) — kiểm hành vi nối
+  dây (`MusicSfxMixin`) tách khỏi `EditorPage` thật: host giả + fake
+  `MusicSfxWorker` gọi kết quả ngay trên luồng chính, `ConfirmDialog.
+  show_error` monkeypatch (tránh `QDialog.exec()` thật treo test headless).
+  Xác nhận: nhạc nền sinh xong ghim đúng `bg_mode`; SFX áp dụng nhả/khôi
+  phục video đúng thời điểm; lỗi hiện đúng hộp thoại, không rơi vào nhánh
+  thành công.
+- `control_server/tests/music-sfx-route.test.js` (9 test mới): route trả
+  đúng audio+header billing; thiếu Vox → 402; tính năng tắt ở server →
+  lỗi rõ (không phải 500 im lặng); `hold.test.js` cập nhật allowlist giá
+  công khai (đã có guardrail chặn lộ giá nội bộ từ V34b, thêm đúng 2 khoá
+  mới vào danh sách kỳ vọng).
+- `pytest tests/ -q`: **1096 passed, 6 skipped, 0 failed** (1038→1096, 58
+  test mới, 0 regression).
+- `node --test` (`control_server`): **258 tests, 257 pass, 1 skipped, 0
+  failed** (249→258, 9 test mới, 0 regression).
+- **Live-verify THẬT** (2026-08-14, key ElevenLabs thật do chủ dự án cấp
+  qua chat, lưu `control_server/.env` — gitignored, không lưu/echo trong
+  chat theo đúng yêu cầu): gọi `generateSoundEffect()` thật (script tạm,
+  xoá sau khi verify xong) — mô tả "a single soft clap", 1.0s — nhận về
+  **17.180 byte MP3 thật trong 1.77s**, convert qua ffmpeg (đúng lệnh
+  `_mp3_to_wav()` dùng) ra WAV đúng thời lượng 1.0s. Xác nhận chuỗi thật
+  từ đầu tới cuối: key thật → ElevenLabs thật → audio thật → convert
+  thật — không có bước nào mock trong lượt verify này.
+  Chưa live-verify `generateMusic()` (nhạc nền, đắt hơn — 500 Vox/lượt
+  theo giá đề xuất) vì Sound Effects đã đủ chứng minh cùng 1 code path
+  (`_save_audio_response()`/`_mp3_to_wav()` dùng chung cho cả 2). Chưa
+  live-verify việc "nhạc/SFX có thật sự phù hợp nội dung video" — đây là
+  đánh giá chủ quan của con người, không có thước đo khách quan để giả vờ
+  đo tự động (đúng yêu cầu Test Plan của mini-spec).
+  Chưa live-verify route `/v1/ai/sound-effect`/`/music` qua HTTP thật của
+  `control_server` (cần MongoDB thật + device đã đăng ký có Vox thật, môi
+  trường dev hiện không có) — route ĐÃ verify đầy đủ bằng test mock
+  (9/9 pass) cùng chuẩn các route AI khác trong dự án, và phần duy nhất
+  chưa test bằng mock (gọi ElevenLabs thật) đã verify riêng ở trên.
+
+### Remaining Limits (V37)
+
+- **PySceneDetect chưa làm** — Scope B gốc của mini-spec nêu cả transcript
+  timing lẫn phát hiện chuyển cảnh hình ảnh; PoC chỉ làm phần transcript.
+  Xem docs/PLAN.md Remaining Limits.
+- **Epidemic Sound Partner API — track kinh doanh riêng**, chủ dự án tự
+  theo dõi đàm phán, không có code trong mini-spec này.
+- **Không phải bước tự động trong pipeline chính** — build thực tế là
+  hành động thủ công ở Editor (sinh → nghe thử → áp dụng), không phải 1
+  bước mới trong `pipeline.py` như Scope C gốc đề xuất. Xem lý do đầy đủ ở
+  docs/PLAN.md Remaining Limits.
+- **Route HTTP thật của `control_server` chưa live-verify qua request
+  thật** (thiếu MongoDB + device đăng ký sẵn trong môi trường dev) — chỉ
+  verify bằng mock (9/9 pass) + verify riêng phần gọi ElevenLabs thật.
+  Rủi ro thấp: route dùng nguyên `precheck`/`charge` đã chạy thật cho các
+  route AI khác trong production.
+- **Nhạc nền AI (`ai_music`) loại trừ lẫn nhau với `demucs`/`duck`** — đúng
+  Design Choice, người dùng chỉ chọn được 1 `bg_mode` tại 1 thời điểm,
+  không lớp chồng nhạc AI lên nhạc nền gốc đã tách.

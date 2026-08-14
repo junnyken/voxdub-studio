@@ -803,6 +803,135 @@ module.exports = async function aiRoutes(fastify) {
     ])
     return response
   })
+
+  // ------------------------------------- nhạc nền/SFX AI (mini-spec V37) --
+  //
+  // KHÔNG dùng `replay`/`JobResult` (Constraint PoC hẹp — xem docs/PLAN.md
+  // Remaining Limits mục V37): audio nhị phân không hợp để lưu JSON,
+  // lượt gọi lại thật (network retry) hiếm và giá trị nhỏ, chấp nhận rủi
+  // ro tính phí trùng hiếm gặp thay vì xây hệ cache file riêng cho PoC.
+  // Trả về NHỊ PHÂN trực tiếp (khác mọi route JSON khác ở file này) — cùng
+  // cách `routes/jobs.js` stream kết quả Demucs.
+  const crypto = require('node:crypto')
+  const elevenlabs = require('../services/elevenlabs-audio.service')
+
+  fastify.post('/sound-effect', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['text'],
+        properties: {
+          text: { type: 'string', minLength: 1, maxLength: 500 },
+          durationSeconds: { type: 'number', minimum: 0.5, maximum: 30 },
+          jobId: { type: 'string', maxLength: 100 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { device } = request
+    const { text, durationSeconds } = request.body
+    const jobId = request.body.jobId || crypto.randomUUID()
+
+    if (!(await config.get('cloud.music_match.enabled'))) {
+      return reply.code(409).send({ code: 'MUSIC_MATCH_DISABLED', message: 'Tính năng nhạc nền/SFX đang tắt.' })
+    }
+    const cost = Number(await config.get('credit.cost.cloud.sound_effect')) || 0
+    const lacking = await precheck(device.fingerprint, null, cost, { action: 'sound_effect', jobId })
+    if (lacking) {
+      return reply.code(402).send({
+        code: 'INSUFFICIENT_CREDIT',
+        message: `Không đủ Vox. Cần ${lacking.required}, bạn có ${lacking.balance}.`,
+        balance: lacking.balance, required: lacking.required,
+      })
+    }
+
+    let audio
+    try {
+      audio = await elevenlabs.generateSoundEffect({ text, durationSeconds })
+    } catch (err) {
+      if (err instanceof elevenlabs.ElevenLabsError) {
+        return reply.code(err.statusCode).send({ code: err.code, message: err.message })
+      }
+      throw err
+    }
+
+    const paid = await charge(device, {
+      jobId, action: 'sound_effect', walletCost: cost, internalVox: cost,
+      description: 'Hiệu ứng âm thanh AI', ip: request.ip,
+    })
+    await UsageLog.create({
+      fingerprint: device.fingerprint, jobId, action: 'sound_effect',
+      inputSize: text.length, creditCharged: paid.charged,
+      aiProvider: 'elevenlabs', aiModel: 'eleven_text_to_sound_v2',
+      promptTokens: 0, completionTokens: 0, durationMs: 0,
+      status: 'success', ip: request.ip, appVersion: device.appVersion,
+    })
+
+    reply.header('Content-Type', 'audio/mpeg')
+    reply.header('X-Credit-Charged', String(paid.charged))
+    reply.header('X-Balance-After', String(paid.balanceAfter))
+    return reply.send(audio)
+  })
+
+  fastify.post('/music', {
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+          prompt: { type: 'string', minLength: 1, maxLength: 2000 },
+          musicLengthMs: { type: 'integer', minimum: 3000, maximum: 600000 },
+          jobId: { type: 'string', maxLength: 100 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { device } = request
+    const { prompt, musicLengthMs } = request.body
+    const jobId = request.body.jobId || crypto.randomUUID()
+
+    if (!(await config.get('cloud.music_match.enabled'))) {
+      return reply.code(409).send({ code: 'MUSIC_MATCH_DISABLED', message: 'Tính năng nhạc nền/SFX đang tắt.' })
+    }
+    const cost = Number(await config.get('credit.cost.cloud.music')) || 0
+    const lacking = await precheck(device.fingerprint, null, cost, { action: 'music', jobId })
+    if (lacking) {
+      return reply.code(402).send({
+        code: 'INSUFFICIENT_CREDIT',
+        message: `Không đủ Vox. Cần ${lacking.required}, bạn có ${lacking.balance}.`,
+        balance: lacking.balance, required: lacking.required,
+      })
+    }
+
+    let audio
+    try {
+      audio = await elevenlabs.generateMusic({ prompt, musicLengthMs })
+    } catch (err) {
+      if (err instanceof elevenlabs.ElevenLabsError) {
+        return reply.code(err.statusCode).send({ code: err.code, message: err.message })
+      }
+      throw err
+    }
+
+    const paid = await charge(device, {
+      jobId, action: 'music', walletCost: cost, internalVox: cost,
+      description: 'Nhạc nền AI', ip: request.ip,
+    })
+    await UsageLog.create({
+      fingerprint: device.fingerprint, jobId, action: 'music',
+      inputSize: prompt.length, creditCharged: paid.charged,
+      aiProvider: 'elevenlabs', aiModel: 'music_v2',
+      promptTokens: 0, completionTokens: 0, durationMs: 0,
+      status: 'success', ip: request.ip, appVersion: device.appVersion,
+    })
+
+    reply.header('Content-Type', 'audio/mpeg')
+    reply.header('X-Credit-Charged', String(paid.charged))
+    reply.header('X-Balance-After', String(paid.balanceAfter))
+    return reply.send(audio)
+  })
 }
 
 /** Bản dịch lại chỉ được nhận khi thật sự sửa được lý do bị cờ. */

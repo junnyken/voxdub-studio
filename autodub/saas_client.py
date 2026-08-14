@@ -399,6 +399,13 @@ class SaasClient:
                 return resp.json()
             except ValueError as e:
                 raise SaasError("Máy chủ trả về dữ liệu không đọc được.") from e
+        self._raise_saas_error(resp)
+
+    def _raise_saas_error(self, resp) -> None:
+        """Ném đúng loại SaasError theo mã lỗi HTTP — dùng chung cho response
+        JSON (``_parse_response``) VÀ response nhị phân (mini-spec V37:
+        ``generate_sound_effect()``/``generate_music()`` — 200 là audio,
+        không phải JSON, nên không đi qua ``_parse_response`` được)."""
         try:
             data = resp.json()
         except ValueError:
@@ -607,6 +614,87 @@ class SaasClient:
                              json_body=payload)
         self._note_usage(data)
         return data.get("metadata") or {}
+
+    # ---------------------------------- nhạc nền/SFX AI (mini-spec V37) --
+    #
+    # Response 200 là AUDIO NHỊ PHÂN (không phải JSON) — không đi qua
+    # ``_request()`` được (nó luôn ``resp.json()`` lúc 200), cùng lý do
+    # ``submit_demucs_job()``/``download_job_result()`` tự gọi HTTP trực
+    # tiếp rồi tự diễn giải response.
+
+    def generate_sound_effect(self, text: str, dest_path: str, *,
+                              duration_seconds: float | None = None,
+                              job_id: str | None = None) -> dict:
+        """Sinh 1 hiệu ứng âm thanh từ mô tả, ghi ra ``dest_path`` (MP3).
+
+        Trả về ``{"creditCharged", "balanceAfter"}`` (đọc từ header response
+        — server không gói billing vào JSON vì response CHÍNH LÀ audio).
+        Thiếu Vox -> :class:`InsufficientCreditError`. Tính năng đang tắt ở
+        server (opt-in, mini-spec V37 Constraint 2) -> :class:`SaasError`
+        với ``code="MUSIC_MATCH_DISABLED"``.
+        """
+        import requests
+
+        if not self.base_url:
+            raise OfflineError("Chưa cấu hình địa chỉ máy chủ VoxDub.")
+        token = self._load_token() or self._register_device()
+        payload = {"text": text[:500]}
+        if duration_seconds:
+            payload["durationSeconds"] = float(duration_seconds)
+        if job_id:
+            payload["jobId"] = job_id
+        try:
+            resp = self._http().post(
+                f"{self.base_url}/v1/ai/sound-effect", json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=(_CONNECT_TIMEOUT, 60.0))
+        except requests.exceptions.RequestException as e:
+            raise OfflineError(
+                "Không kết nối được máy chủ VoxDub. Kiểm tra mạng rồi thử lại."
+            ) from e
+        return self._save_audio_response(resp, dest_path)
+
+    def generate_music(self, prompt: str, dest_path: str, *,
+                       music_length_ms: int | None = None,
+                       job_id: str | None = None) -> dict:
+        """Sinh 1 đoạn nhạc nền từ mô tả tâm trạng, ghi ra ``dest_path``
+        (MP3). Cùng hợp đồng lỗi/billing với :meth:`generate_sound_effect`."""
+        import requests
+
+        if not self.base_url:
+            raise OfflineError("Chưa cấu hình địa chỉ máy chủ VoxDub.")
+        token = self._load_token() or self._register_device()
+        payload = {"prompt": prompt[:2000]}
+        if music_length_ms:
+            payload["musicLengthMs"] = int(music_length_ms)
+        if job_id:
+            payload["jobId"] = job_id
+        try:
+            resp = self._http().post(
+                f"{self.base_url}/v1/ai/music", json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=(_CONNECT_TIMEOUT, 180.0))
+        except requests.exceptions.RequestException as e:
+            raise OfflineError(
+                "Không kết nối được máy chủ VoxDub. Kiểm tra mạng rồi thử lại."
+            ) from e
+        return self._save_audio_response(resp, dest_path)
+
+    def _save_audio_response(self, resp, dest_path: str) -> dict:
+        if resp.status_code != 200:
+            self._raise_saas_error(resp)
+        os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
+        with open(dest_path, "wb") as f:
+            f.write(resp.content)
+        data = {
+            "creditCharged": int(resp.headers.get("X-Credit-Charged") or 0),
+            "balanceAfter": int(resp.headers.get("X-Balance-After") or 0),
+        }
+        # Billing của 2 endpoint này nằm ở header (response là audio nhị
+        # phân), không phải JSON — nhưng vẫn phải cập nhật sổ Vox chung
+        # (thanh Vox đầu app) giống MỌI lượt gọi AI khác, xem `_note_usage`.
+        self._note_usage(data)
+        return data
 
     # -------------------------------------------- telemetry (V13) --------
 

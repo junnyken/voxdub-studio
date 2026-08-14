@@ -102,6 +102,18 @@ const DEFAULTS = {
   // Phase G — xem Constraint 6 của V34b).
   'credit.cost.cloud.dub.vox.per.minute': 150,
   'credit.cost.cloud.dub.vox.per.minute.demucs': 250,
+  // Mini-spec V37 (docs/PLAN.md) — nhạc nền/hiệu ứng âm thanh AI qua
+  // ElevenLabs (Sound Effects v2 + Music v2). Bật/tắt qua
+  // `cloud.music_match.enabled` — mặc định TẮT (Constraint 2 của V37: tính
+  // năng OPT-IN, không phải mọi video đều nên tự động có thêm nhạc/SFX).
+  // 2 giá dưới đây là ĐỀ XUẤT KỸ THUẬT thô dựa trên giá công bố của
+  // ElevenLabs (SFX ~$0.02/hiệu ứng, Music theo credit-pool subscription —
+  // CHƯA đo được chi phí credit thật/lượt gọi) — KHÔNG PHẢI giá cuối cùng,
+  // chủ dự án cần duyệt/chỉnh qua Admin (Constraint 6 của V37, cùng
+  // nguyên tắc Constraint 6 của V34b).
+  'cloud.music_match.enabled': false,
+  'credit.cost.cloud.sound_effect': 100,
+  'credit.cost.cloud.music': 500,
   // Chuẩn giá: 1 Vox = 10đ (1.000 Vox = 10.000đ). Bonus tăng dần theo gói.
   'credit.packages': [
     { id: 'mini', label: 'Khởi đầu', vnd: 10000, vox: 1000, bonus: 0, popular: false },

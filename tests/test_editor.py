@@ -175,6 +175,23 @@ def test_background_demucs_missing_falls_back(tmp_path):
     assert resolve_existing_background(str(tmp_path / "e"), "demucs", 0.0) == (None, 0.0)
 
 
+def test_background_ai_music_reuses_saved_track(work_dir):
+    """Mini-spec V37: nhạc AI đã sinh sẵn (music_match.generate_and_save_music())
+    lưu vào data/ai_music.wav — resolve lại đúng file đó, dùng bg_duck_db
+    làm mức âm lượng (cùng cách "duck" dùng gain riêng)."""
+    from autodub.workdir import data_path
+    with open(data_path(work_dir, "ai_music.wav", create_dir=True), "wb") as f:
+        f.write(b"x")
+
+    path, gain = resolve_existing_background(work_dir, "ai_music", -18.0)
+    assert path.endswith("ai_music.wav") and gain == -18.0
+
+
+def test_background_ai_music_missing_falls_back(tmp_path):
+    (tmp_path / "e").mkdir()
+    assert resolve_existing_background(str(tmp_path / "e"), "ai_music", -18.0) == (None, 0.0)
+
+
 # --------------------------- rebuild --------------------------- #
 
 def test_rebuild_reuses_cached_wavs(work_dir, monkeypatch):

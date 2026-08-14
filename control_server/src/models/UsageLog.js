@@ -14,7 +14,10 @@ const usageLogSchema = new mongoose.Schema({
     type: String,
     // 'translate_subtitle' thêm ở mini-spec V14 (docs/PLAN.md) — dịch phụ
     // đề rời, tách khỏi 'translate' (pipeline dub).
-    enum: ['translate', 'analyze', 'review', 'generate_post', 'translate_subtitle'],
+    // 'sound_effect'/'music' thêm ở mini-spec V37 — nhạc nền/hiệu ứng âm
+    // thanh AI qua ElevenLabs.
+    enum: ['translate', 'analyze', 'review', 'generate_post', 'translate_subtitle',
+          'sound_effect', 'music'],
     required: true,
   },
   inputSize: { type: Number, default: 0 },

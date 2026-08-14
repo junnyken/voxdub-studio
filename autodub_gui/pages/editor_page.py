@@ -26,9 +26,10 @@ from autodub_gui.pages.editor_commands import (
     AddSegmentCommand, DeleteSegmentCommand, EditTextCommand,
     MergeSegmentCommand, MoveSegmentCommand, SplitSegmentCommand,
 )
+from autodub_gui.pages.editor_music_sfx import MusicSfxMixin
 from autodub_gui.pages.editor_panels import (
-    AudioPanel, BackgroundPanel, DirtyBanner, ExportPanel, OverviewPanel,
-    QCPanel, SubtitleListPanel, VoicePanel, debounce_timer,
+    AudioPanel, BackgroundPanel, DirtyBanner, ExportPanel, MusicSfxPanel,
+    OverviewPanel, QCPanel, SubtitleListPanel, VoicePanel, debounce_timer,
 )
 from autodub_gui.run_state import REGISTRY, ActiveJob
 from autodub_gui.system_open import open_file, open_folder
@@ -65,7 +66,7 @@ RAIL_ITEMS = (
 )
 
 
-class EditorPage(VoiceAndExportMixin, BasePage):
+class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
     """Trang chỉnh sửa một dự án đã lồng tiếng."""
 
     settings_needed = Signal(str)
@@ -90,6 +91,8 @@ class EditorPage(VoiceAndExportMixin, BasePage):
         self._save_worker = None
         self._resynth_worker = None
         self._rebuild_worker = None
+        self._music_sfx_worker = None
+        self._sfx_apply_resume_pos = None
         self._preview_seg_worker = None
         self._wave_worker = None
         self._wave_workers: list = []
@@ -244,6 +247,14 @@ class EditorPage(VoiceAndExportMixin, BasePage):
         self.voice_panel.changed.connect(self._save_render_opts)
         self.background_panel = BackgroundPanel()
         self.background_panel.changed.connect(self._save_render_opts)
+        self.music_sfx_panel = MusicSfxPanel()
+        self.music_sfx_panel.music_requested.connect(self._on_music_requested)
+        self.music_sfx_panel.apply_music_requested.connect(self._on_apply_music)
+        self.music_sfx_panel.sfx_points_requested.connect(
+            self._on_sfx_points_requested)
+        self.music_sfx_panel.sfx_requested.connect(self._on_sfx_requested)
+        self.music_sfx_panel.sfx_apply_requested.connect(
+            self._on_sfx_apply_requested)
         self.export_panel = ExportPanel()
         self.export_panel.export_requested.connect(self._export)
         self.export_panel.subtitles_requested.connect(self._export_subtitles)
@@ -260,9 +271,20 @@ class EditorPage(VoiceAndExportMixin, BasePage):
         self._preview.finished.connect(
             lambda _ok: self.voice_panel.picker.set_preview_enabled(True))
 
+        # Nhạc nền AI/hiệu ứng âm thanh (mini-spec V37) đi chung mục "Nhạc
+        # nền" với BackgroundPanel — cùng chủ đề, tránh phải thêm mục mới ở
+        # cột điều hướng (RAIL_ITEMS ánh xạ 1-1 theo thứ tự với panels).
+        background_tab = QWidget()
+        background_layout = QVBoxLayout(background_tab)
+        background_layout.setContentsMargins(0, 0, 0, 0)
+        background_layout.setSpacing(tokens.SP_3)
+        background_layout.addWidget(self.background_panel)
+        background_layout.addWidget(self.music_sfx_panel)
+        background_layout.addStretch()
+
         for widget in (self.overview, self.subtitles, self.qc_panel,
                        self.audio_panel, self.voice_panel,
-                       self.background_panel, self.export_panel):
+                       background_tab, self.export_panel):
             self.panels.addWidget(self._scrollable(widget))
         layout.addWidget(self.panels)
         # Mở sẵn mục Phụ đề vì đó là chỗ người dùng làm việc nhiều nhất.
@@ -490,6 +512,11 @@ class EditorPage(VoiceAndExportMixin, BasePage):
         self.background_panel.duck.set_value(
             float(opts.get("bg_duck_db", DEFAULT_DUCK_DB)))
         self.background_panel.set_separated(self._has_separated_audio())
+        # Nhạc nền/SFX AI (mini-spec V37) chỉ dùng được ở chế độ SaaS — ẩn
+        # hoàn toàn khi chưa cấu hình, cùng nguyên tắc is_configured() là
+        # cổng duy nhất xuyên suốt dự án (không rải điều kiện tương đương).
+        from autodub.media import music_match
+        self.music_sfx_panel.setVisible(music_match.is_available())
         self.export_panel.subtitle.set_key(
             opts.get("subtitle_mode", settings.subtitle_mode))
         self.voice_panel.picker.reload(settings)
