@@ -66,6 +66,7 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V34b | Build production API lồng tiếng đầy đủ (Phase G, đóng gap V34a) | ✅ Xong | Đo thêm 2 lượt thật (video dài + bg-mode=demucs) trước khi code — xác nhận ~1.6x/~2.6x tỉ lệ compute, CPU-only, sửa nhận định sai "cần GPU" của bản mini-spec gốc thành giới hạn CPU. `ApiKey.dubMinutesQuota/Used` (opt-in, tách hẳn quota V31) + `DubUsageLedger` (sống độc lập TTL sweeper) + billing tính SAU khi job xong theo `durationS` thật đo bởi ASR (không cần ffprobe ở Node). `bg-mode=demucs` giờ là tham số thật của API, `worker-dub` cài demucs vĩnh viễn. 2 bug thật tìm+sửa: admin thiếu route cấp quota cho key cũ (đã thêm `PATCH .../dub-quota`); `pip install demucs` kéo torch CUDA ~2.5GB thừa (đã sửa cài torch CPU-only). Live-verify cuối trên image production thật (9.72GB): cả 2 bg-mode chạy đúng, video hợp lệ. 249 test (233→249), 0 regression (248/249 Node, 1020/1026 Python) — xem TEST_LOG |
 | V35 | Nâng chất lượng nhân bản giọng (voice cloning) (Phase G, chủ dự án yêu cầu 2026-08-13) | ✅ Xong | `autodub/speech/tts/audio_quality.py` (mới, hàm thuần không model AI — clip ratio/RMS/khoảng lặng liên tục) nối vào `vieneu_worker.py::_encode_one()`: fail → chặn trước khi mã hóa nặng, warn → vẫn học nhưng gắn cảnh báo tạm thời (không lưu vào file), >8s → báo cắt thay vì âm thầm. Loại trừ CẤU TRÚC (không chỉ ngưỡng số học) cho giọng thư viện qua field `source="library"` có sẵn — Constraint 4 giữ nguyên hành vi 120 giọng preset, xác nhận thêm bằng regression test THẬT (0/120 file fail/warn). GUI (`settings_panels.py`) hiện cảnh báo ngay sau enroll, không đợi "Nghe thử". Bug thật tìm+sửa khi wiring: nạp module qua `importlib` thiếu đăng ký `sys.modules` làm `@dataclass` crash `AttributeError`. 26 test mới, 0 regression (1020/1026 pass Python, 232/233 pass Node) — xem TEST_LOG |
 | V36 | Nâng cấp gán giọng theo người nói — round-robin → theo đặc điểm giọng thật (Phase G, chủ dự án yêu cầu 2026-08-14) | 📝 Mini-spec đã viết, chưa build | Agent audit xác nhận: hạ tầng diarization (`pyannote.audio`, `.venv-diar`) có thật + nhất quán giọng theo người nói xuyên suốt video đã đúng (bằng chứng thật), nhưng gán giọng hiện là ROUND-ROBIN thuần (`voice_assign.py::assign_voices_round_robin` — xoay vòng theo index, không phân tích đặc điểm giọng nói thật), và diarization CHƯA từng live-verify trên audio nhiều người nói thật (model pyannote gated trên HuggingFace, cần token — sandbox dev không có). Tính năng tắt mặc định, chỉ ở Cài đặt nâng cao, không có trong wizard chính — xem mini-spec đầy đủ bên dưới |
+| V37 | Nhạc nền + hiệu ứng âm thanh AI theo nội dung video (Phase G, chủ dự án yêu cầu 2026-08-14, làm SAU V36) | 📝 Mini-spec đã viết, chưa build | Agent khảo sát thật (2026-08-14) toàn bộ thị trường API nhạc/SFX AI + giấy phép thương mại — tìm ra bẫy pháp lý y hệt lỗi cũ (NLLB/Wav2Lip): Meta MusicGen tự host là CC-BY-NC-4.0 (cấm thương mại), Envato/AudioJungle cấm redistribute cho SaaS đa khách hàng, Suno chưa có API chính thức. Nguồn AN TOÀN xác nhận: ElevenLabs Music v2 + Sound Effects v2 (API đơn giản, tự đăng ký được ngay) và Epidemic Sound Partner API (rẻ hơn ở quy mô lớn, gộp cả nhạc+SFX, nhưng cần đàm phán đối tác — track kinh doanh riêng, không phải code). Chủ dự án chọn làm CẢ 2 track song song. Đối thủ cùng ngành (HeyGen) đã có API hiệu ứng âm thanh tương tự — xác nhận tính khả thi. Phát hiện "điểm nhấn" dùng heuristic nhẹ có sẵn (transcript timing + PySceneDetect, MIT, CPU-only) — không cần model AI nặng mới — xem mini-spec đầy đủ bên dưới |
 
 ## Tổng quan phase
 
@@ -3279,6 +3280,153 @@ Success Criteria:
   (không crash, không bỏ sót) — rơi về round-robin đúng như trước.
 - 0 regression khi diarization tắt (mặc định) hoặc khi chạy trên audio cũ
   đã test trước V36.
+```
+
+### V37 — Nhạc nền + hiệu ứng âm thanh AI theo nội dung video
+
+```
+V37 — PoC nhạc nền/SFX AI qua API bên thứ 3 có giấy phép thương mại rõ ràng (Phase G)
+
+Context:
+- Chủ dự án đề xuất (2026-08-14): kết nối API bên thứ 3 để lấy nhạc nền/
+  hiệu ứng âm thanh phù hợp nội dung video, AI hỗ trợ chọn tự động, tiết
+  kiệm thời gian dựng video thủ công, tận dụng AI cho tự động hoá.
+- Agent khảo sát thị trường thật (2026-08-14, có trích nguồn) trước khi
+  viết mini-spec — kết quả đầy đủ:
+  - **Nhạc nền AI có giấy phép AN TOÀN cho SaaS trả phí**: ElevenLabs
+    Music v2 (tự đăng ký được ngay, API đơn giản, cùng tài khoản với TTS/
+    SFX đã tích hợp sẵn từ trước — VoxDub đã có dùng ElevenLabs SFX/TTS
+    trong 1 số nhánh trước đó), Soundraw, Loudly. Epidemic Sound có Partner
+    API "Connect" — điều khoản NÊU RÕ hỗ trợ "sublicensing cho end-user/
+    onward distribution" (case study Shopee Video là 1 SaaS thật đã dùng
+    kiểu này) — RẺ HƠN ở quy mô lớn và gộp cả nhạc+SFX 1 hợp đồng, nhưng
+    cần đàm phán đối tác trước (không tự đăng ký được), track KINH DOANH
+    riêng, không thuộc phạm vi code của mini-spec này.
+  - **BẪY PHÁP LÝ tìm được, y hệt lớp lỗi cũ (NLLB-200/Wav2Lip)**: Meta
+    MusicGen (tự host, miễn phí) là **CC-BY-NC-4.0 — CẤM dùng thương
+    mại**, dùng sẽ lặp lại đúng lỗi NLLB đã gặp (mini-spec V6). Suno CHƯA
+    có API chính thức (chỉ có API "chui" không được Suno công nhận — rủi
+    ro pháp lý cho sản phẩm trả phí). Envato/AudioJungle: giấy phép chuẩn
+    KHÔNG cho phép redistribute cho nhiều khách hàng trả phí (mô hình SaaS
+    đa khách hàng) — không dùng được dù có vẻ rẻ.
+  - **Hiệu ứng âm thanh**: ElevenLabs Sound Effects v2 (self-serve, giá rẻ
+    ~$0.02/hiệu ứng, thương mại rõ ràng mọi gói trả phí) là lựa chọn nhanh
+    nhất. Freesound có API thật nhưng giấy phép LẪN LỘN theo từng file
+    (CC0/CC-BY/CC-BY-NC) — chỉ an toàn nếu LỌC CỨNG còn `license=CC0`.
+  - **Đối thủ cùng ngành** (HeyGen — cũng là tool lồng tiếng AI) đã có API
+    hiệu ứng âm thanh thật (`/v3/audio/sounds`, tìm bằng ngôn ngữ tự
+    nhiên) — xác nhận tính năng này khả thi và có tiền lệ đúng lĩnh vực.
+  - **Phát hiện "điểm nhấn" để đặt SFX**: KHÔNG cần model AI nặng mới cho
+    PoC — timestamp/transcript ASR đã có sẵn (dấu câu, khoảng lặng giữa
+    câu) cho tín hiệu rẻ; `PySceneDetect` (MIT license, pip install thuần,
+    CPU-only, không cần GPU) cho phát hiện chuyển cảnh thật từ track hình
+    ảnh — cả 2 khớp đúng tinh thần "engine nhẹ, đủ dùng" đã áp dụng cho
+    `audio_quality.py` (V35)/ước lượng pitch (V36).
+- Chủ dự án chốt (2026-08-14, qua AskUserQuestion): làm CẢ 2 track song
+  song — PoC kỹ thuật với ElevenLabs ngay (mini-spec này), ĐỒNG THỜI bắt
+  đầu liên hệ đàm phán đối tác Epidemic Sound (kinh doanh, ngoài phạm vi
+  mini-spec kỹ thuật, chủ dự án tự theo dõi riêng).
+- Ưu tiên: làm SAU V36 (thứ tự chủ dự án chỉ định).
+
+Goal:
+- 1 video mẫu dub xong có THÊM nhạc nền phù hợp tâm trạng nội dung + ít
+  nhất 1 hiệu ứng âm thanh đặt đúng lúc (điểm nhấn thật, không phải chèn
+  ngẫu nhiên), qua ElevenLabs Music/SFX API thật — người dùng xem trước
+  được kết quả trước khi chốt, không tự động chèn vĩnh viễn không hỏi.
+
+Constraints (Guardrails):
+1. CHỈ dùng nguồn có giấy phép thương mại RÕ RÀNG cho SaaS trả phí đa
+   khách hàng (verdict "SAFE" trong khảo sát) — CẤM MusicGen tự host,
+   CẤM Envato/AudioJungle, CẤM Freesound trừ khi lọc cứng `license=CC0`,
+   TRÁNH Suno tới khi có API chính thức. Vi phạm guardrail này là lặp lại
+   đúng lỗi đã trả giá ở V6 (NLLB)/V30 (Wav2Lip).
+2. Tính năng OPT-IN, KHÔNG bật mặc định cho mọi lượt dub — không phải mọi
+   video (tin tức, hướng dẫn kỹ thuật) đều nên tự động có nhạc nền/SFX
+   chèn thêm, và mỗi lượt gọi API tốn tiền thật (Vox + chi phí ElevenLabs
+   credit).
+3. KHÔNG suy đoán "điểm nhấn" bằng model AI phân tích cảm xúc/hành động
+   nặng mới — dùng heuristic rẻ đã có (Context) cho PoC này, đúng nguyên
+   tắc "không suy đoán vượt quá điều đo được thật" xuyên suốt dự án.
+4. Billing: chi phí gọi ElevenLabs (credit thật) PHẢI phản ánh vào giá Vox
+   tính năng này — không lỗ, cùng nguyên tắc "billing theo chi phí compute
+   thật" đã áp dụng cho V34b (dù đây là chi phí API bên ngoài, không phải
+   compute nội bộ, tinh thần vẫn giữ nguyên).
+5. Người dùng LUÔN xem/nghe thử trước khi chốt (đúng nguyên tắc "người
+   dùng là người quyết định cuối" đã áp dụng cho audio_quality warn ở
+   V35) — không tự động ghép vĩnh viễn vào video xuất mà không cho duyệt.
+6. Track Epidemic Sound là ĐÀM PHÁN KINH DOANH — mini-spec này KHÔNG viết
+   code cho track đó, chỉ ghi nhận trạng thái tiến độ nếu chủ dự án cập
+   nhật.
+
+Scope:
+A. `autodub/media/music_match.py` (mới) — gọi ElevenLabs Music API +
+   Sound Effects API thật. Input: mô tả tâm trạng/nội dung (suy từ tiêu đề
+   video đã có sẵn từ downloader + tóm tắt transcript — CHƯA dùng
+   `voice_hint` của V33 vì lý do thứ tự pipeline y hệt đã audit ở V36,
+   xem Constraint 3). Output: đường dẫn file nhạc/SFX đã tải về.
+B. Phát hiện điểm nhấn nhẹ (mới, module riêng hoặc gộp vào A) — kết hợp
+   dấu câu/khoảng lặng transcript (đã có timing) + `PySceneDetect` (thêm
+   dependency mới, cần audit có xung đột `requirements.txt` không) → danh
+   sách timestamp candidate cho SFX, xếp hạng đơn giản (KHÔNG suy đoán
+   "quan trọng" — chỉ đưa danh sách candidate cho người dùng chọn ở GUI).
+C. Tích hợp `autodub/pipeline.py` — bước MỚI, tuỳ chọn (`req.music_match`
+   hoặc tương tự), đặt QUANH khu vực STEP 6 (dòng ~673, `_merge_audio_
+   segments`)/`_resolve_background()` (dòng ~1319) đã có cho `bg_mode`.
+   **Cần audit kỹ lúc code**: tương tác với `bg_mode=demucs` (giữ nhạc nền
+   GỐC của video) — nhạc nền MỚI do AI chọn có xung đột/chồng lấn với
+   nhạc nền gốc đã giữ lại không, hay 2 tính năng loại trừ lẫn nhau (PoC
+   có thể giới hạn CHỈ áp dụng khi `bg_mode != demucs` để tránh chồng lấn,
+   quyết định cụ thể lúc code).
+D. Billing + config: `credit.cost.cloud.music_match` (Vox, phản ánh chi
+   phí ElevenLabs credit thật + biên lợi nhuận — ĐỀ XUẤT, chủ dự án duyệt,
+   cùng nguyên tắc Constraint 6 của V34b) — CHƯA quyết định model billing
+   API-key-riêng hay dùng chung API key của VoxDub (server-side, giống
+   cách control_server hiện quản lý AI provider key qua Admin, KHÔNG phải
+   người dùng tự cung cấp key ElevenLabs).
+E. GUI: nút "Gợi ý nhạc nền/hiệu ứng" (Editor, sau khi dub xong — cùng vị
+   trí panel "AI đề xuất giọng" của V33) — hiện preview nghe thử, người
+   dùng chọn áp dụng hay bỏ qua trước khi xuất video cuối.
+F. Tests: unit (phát hiện điểm nhấn với transcript giả — dấu câu/khoảng
+   lặng đúng vị trí kỳ vọng); integration (`music_match.py` MOCK response
+   ElevenLabs — KHÔNG gọi API thật mỗi lần chạy test, tốn tiền thật);
+   ≥1 lượt live-verify THẬT với API key ElevenLabs thật (chủ dự án cần
+   cung cấp, giống cách cấp Gemini key cho control_server trước đây).
+
+Audit Before Build:
+- Cần API key ElevenLabs thật từ chủ dự án để live-verify (điều kiện tiên
+  quyết, chưa có ở thời điểm viết mini-spec này).
+- Cần audit thứ tự pipeline thật lúc code: tương tác `bg_mode=demucs` với
+  nhạc nền mới (Scope C) — hiện CHƯA audit đủ, mini-spec chỉ nêu câu hỏi,
+  không tự quyết trước.
+- Cần audit `PySceneDetect` có xung đột dependency nào với
+  `requirements.txt` hiện có không trước khi thêm.
+
+Design Choice:
+- ElevenLabs trước (self-serve, giấy phép rõ ràng, dùng được ngay) — Epidemic Sound
+  để sau khi đàm phán xong (Design Choice nhất quán với pattern PoC-hẹp-
+  trước-production đã dùng xuyên suốt dự án: V8→V11, V9→V12, V30→V32a/b,
+  V34a→V34b).
+- Server quản lý API key ElevenLabs (không bắt người dùng tự cấp key) —
+  đúng mô hình SaaS hiện có (control_server quản lý AI provider key qua
+  Admin, người dùng cuối không thấy/không cần biết key nào).
+- Opt-in + preview bắt buộc (Constraint 2/5) — nhạc nền/SFX là lựa chọn
+  thẩm mỹ chủ quan, khác các bước dịch/TTS là bắt buộc phải có kết quả.
+
+Test Plan:
+- Unit: phát hiện điểm nhấn từ transcript giả (dấu câu/khoảng lặng).
+- Integration: `music_match.py` với response ElevenLabs giả lập (mock).
+- Live verification: ≥1 video mẫu thật, API key ElevenLabs thật, nghe thử
+  thật kết quả nhạc nền + SFX được chọn — GHI RÕ đánh giá chủ quan (nhạc
+  có thật sự "phù hợp" hay không là đánh giá con người, không đo được tự
+  động), không giả vờ có thước đo khách quan không tồn tại.
+
+Success Criteria:
+- ≥1 video mẫu thật có nhạc nền + SFX chèn đúng qua API thật, người dùng
+  nghe thử được trước khi chốt.
+- Billing tính đúng theo chi phí API thật + biên lợi nhuận đã duyệt.
+- 0 regression cho luồng dub hiện có khi tính năng tắt (mặc định).
+- Ghi nhận rõ giới hạn: PoC chỉ dùng ElevenLabs, track Epidemic Sound
+  (kinh doanh) ghi trạng thái riêng, không chặn Success Criteria kỹ thuật.
 ```
 
 ### Remaining Limits / Follow-ups của Phase G
