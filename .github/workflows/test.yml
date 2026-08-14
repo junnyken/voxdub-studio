@@ -27,14 +27,14 @@ jobs:
       # PySide6/Qt cần vài thư viện hệ thống ngay cả ở chế độ offscreen —
       # ubuntu-latest trần trụi thiếu (lộ ra lúc chạy thật lần đầu, xem
       # docs/PLAN.md V38 Verify — libEGL.so.1 not found).
-      - name: Cài thư viện hệ thống cho Qt offscreen
+      - name: Cài thư viện hệ thống cho Qt offscreen + ffmpeg (vài test gọi thật)
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libegl1 libgl1 libxkbcommon0 libdbus-1-3 \
             libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 \
-            libxcb-xinerama0
+            libxcb-xinerama0 ffmpeg
 
       # Loại demucs/soundfile — nặng (kéo theo torch), không cần cho test
       # suite hiện có (xem docs/PLAN.md V38 Audit Before Build: đã xác
