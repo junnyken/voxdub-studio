@@ -63,7 +63,7 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V32b | Build lip-sync production (Phase G, đóng gap V32a — CHỈ mở khi V32a khuyến nghị "go") | ⏸️ Chờ kết quả V32a | Phạm vi/Design Choice cuối phụ thuộc số liệu benchmark thật của V32a — mini-spec khung đã viết bên dưới, sẽ tinh chỉnh cụ thể (ngưỡng chất lượng, giới hạn video hỗ trợ) sau khi có PoC thật |
 | V33 | AI tự đề xuất giọng đọc phù hợp theo nội dung video (Phase G, chủ dự án yêu cầu 2026-08-13) | ✅ Xong (bản "sau khi lồng tiếng xong", đúng chốt Design Choice) | Agent audit xác nhận luồng wizard "Tạo dự án" chỉ cấu hình, không có tín hiệu phân tích lúc chọn giọng — chốt xây bản đề xuất Ở TRÌNH CHỈNH SỬA (sau khi xuất, dùng `video_context.json` đã mở khóa). `voice_hint` additive trong `ANALYSIS_SCHEMA` (chỉ 3 style thật của VieNeu, khớp `VOICE_STYLE_VALUES`) → `autodub/speech/tts/voice_recommend.py::recommend_voices()` (giới tính là bộ lọc cứng, style chỉ dùng 2 giá trị đáng tin tin_tuc/doc_truyen — không suy đoán khi catalog thiếu dữ liệu, đúng Constraint 2) → `autodub/editor.py::suggest_voice()` (hàm thuần, đọc file qua `securestore.read_json_secure(key=None)`, còn khóa/thiếu/hỏng đều trả None chứ không xin lại khóa máy chủ) → khối "AI đề xuất giọng" trong `VoicePanel` (Trình chỉnh sửa), tái dùng đúng luồng đổi giọng thủ công đã có. 4+11+7+5 = 27 test mới, 0 regression (986/992 pass Python, 208/209 pass Node) — xem TEST_LOG |
 | V34a | PoC hạ tầng API lồng tiếng đầy đủ (Phase G, đóng gap V31 — mở rộng dịch-thôi thành ASR+dịch+TTS+video) | ✅ Xong — **khuyến nghị GO cho V34b** | `DubApiJob`/`dub-job.service.js` (tách hẳn `RenderJob`) + `/internal/dub-jobs/*` + `/api/v1/dub*` + `control_server/worker-dub/` (Docker image mới, 3 venv Whisper/VieNeu/NLLB cài bằng chính script cài đặt có sẵn). Docker build thật + **2 lượt live-verify thật thành công** trên 1 video mẫu thật (12.2s, giọng nói tiếng Anh thật qua gTTS): 1 lượt bình thường (voice CapCut mặc định), 1 lượt **HOÀN TOÀN OFFLINE** (`--network none`, giọng VieNeu tự học từ file thật trong `voices/preset_voices_vn/`) — cả 2 đều `status: completed`, CPU-only ~3x thời lượng gốc, không cần GPU. 2 bug thật có sẵn trong codebase (không phải do V34a) lộ ra và sửa ngay lúc live-verify: `setup_whisper.py` gửi stdin rỗng cho worker luôn đòi JSON (chặn cài Whisper trên MỌI máy sạch); `saas_client.py` import cứng `autodub_gui` dù `autodub.cli` tự nhận không phụ thuộc GUI. 24+4 = 28 test mới, 0 regression (994/1000 pass Python, 232/233 pass Node) — xem TEST_LOG cho số liệu đầy đủ + Remaining Limits (bg-mode=demucs, video dài, billing thật đều chưa đo) |
-| V34b | Build production API lồng tiếng đầy đủ (Phase G, đóng gap V34a — CHỈ mở khi V34a khuyến nghị "go") | ⏸️ V34a đã khuyến nghị GO (2026-08-13) — chưa mở, chờ chủ dự án quyết định thứ tự ưu tiên | Billing theo phút video + giới hạn lưu trữ production + GPU provisioning multi-tenant — có số liệu thật từ V34a (CPU đủ dùng cho video ngắn, ~3x thời lượng gốc, image 8.42GB) nhưng CHƯA có số liệu video dài/bg-mode=demucs — nên đo thêm trước khi chốt giá, xem TEST_LOG mục V34a |
+| V34b | Build production API lồng tiếng đầy đủ (Phase G, đóng gap V34a) | ✅ Xong | Đo thêm 2 lượt thật (video dài + bg-mode=demucs) trước khi code — xác nhận ~1.6x/~2.6x tỉ lệ compute, CPU-only, sửa nhận định sai "cần GPU" của bản mini-spec gốc thành giới hạn CPU. `ApiKey.dubMinutesQuota/Used` (opt-in, tách hẳn quota V31) + `DubUsageLedger` (sống độc lập TTL sweeper) + billing tính SAU khi job xong theo `durationS` thật đo bởi ASR (không cần ffprobe ở Node). `bg-mode=demucs` giờ là tham số thật của API, `worker-dub` cài demucs vĩnh viễn. 2 bug thật tìm+sửa: admin thiếu route cấp quota cho key cũ (đã thêm `PATCH .../dub-quota`); `pip install demucs` kéo torch CUDA ~2.5GB thừa (đã sửa cài torch CPU-only). Live-verify cuối trên image production thật (9.72GB): cả 2 bg-mode chạy đúng, video hợp lệ. 249 test (233→249), 0 regression (248/249 Node, 1020/1026 Python) — xem TEST_LOG |
 | V35 | Nâng chất lượng nhân bản giọng (voice cloning) (Phase G, chủ dự án yêu cầu 2026-08-13) | ✅ Xong | `autodub/speech/tts/audio_quality.py` (mới, hàm thuần không model AI — clip ratio/RMS/khoảng lặng liên tục) nối vào `vieneu_worker.py::_encode_one()`: fail → chặn trước khi mã hóa nặng, warn → vẫn học nhưng gắn cảnh báo tạm thời (không lưu vào file), >8s → báo cắt thay vì âm thầm. Loại trừ CẤU TRÚC (không chỉ ngưỡng số học) cho giọng thư viện qua field `source="library"` có sẵn — Constraint 4 giữ nguyên hành vi 120 giọng preset, xác nhận thêm bằng regression test THẬT (0/120 file fail/warn). GUI (`settings_panels.py`) hiện cảnh báo ngay sau enroll, không đợi "Nghe thử". Bug thật tìm+sửa khi wiring: nạp module qua `importlib` thiếu đăng ký `sys.modules` làm `@dataclass` crash `AttributeError`. 26 test mới, 0 regression (1020/1026 pass Python, 232/233 pass Node) — xem TEST_LOG |
 
 ## Tổng quan phase
@@ -2884,75 +2884,139 @@ Success Criteria:
 ### V34b — Build production API lồng tiếng đầy đủ (đóng gap V34a)
 
 ```
-V34b — Billing theo phút video + lưu trữ production + GPU đa tenant (Phase G, CHỈ mở nếu V34a khuyến nghị "go")
+V34b — Billing theo phút video + lưu trữ production + giới hạn concurrency CPU (Phase G)
 
 Context:
-- Điều kiện tiên quyết: V34a phải hoàn thành với khuyến nghị "go" kèm số
-  liệu benchmark thật (thời gian xử lý/phút video, dung lượng đĩa/video,
-  GPU có bắt buộc hay không). Mini-spec này KHÔNG được mở nếu V34a khuyến
-  nghị "không build" hoặc "cần thu hẹp phạm vi thêm".
-- 3 mảng CHƯA có tiền lệ nào trong toàn hệ thống (xác nhận qua audit V34a):
-  billing theo thời lượng media, giới hạn lưu trữ video-scale, GPU
-  provisioning multi-tenant — đây là phần việc CHÍNH của mini-spec này.
+- V34a đã khuyến nghị GO (2026-08-13, xem docs/TEST_LOG.md) — điều kiện mở
+  mini-spec này đã đạt.
+- Chủ dự án yêu cầu trực tiếp (2026-08-14): làm tiếp V34b, nhưng "cần đo
+  thêm video dài hơn trước khi chốt giá" — đúng gap V34a đã tự nêu. Đã đo
+  THÊM 2 lượt live thật (2026-08-14, xem docs/TEST_LOG.md mục V34b) trước
+  khi viết Scope cụ thể dưới đây:
+  - Video 72.5s (17 câu, `--bg-mode none`): 118.0s xử lý → tỉ lệ **~1.63x**
+    thời lượng gốc (RÕ RỆT thấp hơn tỉ lệ ~3x đo trên video 12.2s của
+    V34a — chi phí nạp model là CỐ ĐỊNH, video càng dài càng pha loãng
+    tốt, đúng dự đoán "chưa chắc tuyến tính" đã ghi trong Remaining Limits
+    V34a).
+  - Video 77.7s CÓ nhạc nền (12 câu, `--bg-mode demucs`): 204.8s xử lý →
+    tỉ lệ **~2.64x** — Demucs cộng thêm ~1x thời lượng gốc so với
+    `bg-mode none`. Cả 2 lượt đều CPU-only, không cần GPU (nhất quán với
+    V34a: "GPU-optional" giữ nguyên đúng cho `bg-mode demucs` server-side,
+    không chỉ desktop).
+  - **Sửa nhận định GPU của mini-spec gốc**: Constraint 4 bản đầu viết
+    "GPU đa tenant" — SAI với thực tế đã đo (2 lượt V34a + 2 lượt này, tất
+    cả CPU-only). Sửa lại thành giới hạn concurrency CPU, không phải GPU
+    (xem Constraint 4 mới bên dưới) — không suy đoán khi đã có bằng chứng
+    ngược lại.
 
 Goal:
 - API lồng tiếng đầy đủ chạy production thật: billing đúng chi phí compute
-  thật (không lỗ, không đoán mò — lấy số từ V34a), giới hạn lưu trữ + dọn
-  file tự động, hỗ trợ nhiều job đồng thời an toàn (không tranh chấp GPU/
-  tài nguyên giữa các tenant).
+  thật theo phút (không lỗ, không đoán mò), hỗ trợ `bg-mode=demucs` (tách
+  nhạc nền) như 1 lựa chọn có giá riêng, giới hạn lưu trữ + dọn file tự
+  động, nhiều job đồng thời an toàn qua nhiều worker (không tranh chấp CPU
+  không kiểm soát).
 
 Constraints (Guardrails):
-1. Billing PHẢI theo số liệu chi phí compute THẬT đo được ở V34a — không
-   định giá theo cảm tính.
+1. Billing PHẢI theo số liệu chi phí compute THẬT đo được (V34a + đo thêm
+   ở đây) — không định giá theo cảm tính.
 2. Billing API lồng tiếng TÁCH HẲN `CreditLedger` (Vox desktop) VÀ
    `ApiUsageLedger` (V31 dịch văn bản) — 3 hệ billing độc lập, đúng nguyên
    tắc "lỗi 1 hệ không ảnh hưởng ví người dùng khác" đã áp dụng xuyên suốt
    Phase G (V31 Design Choice).
-3. Lưu trữ video PHẢI có TTL/dọn tự động — video là dữ liệu lớn, không dọn
-   sẽ đầy đĩa nhanh hơn hẳn audio Demucs trước đây.
-4. GPU đa tenant: PHẢI có cơ chế hàng đợi/giới hạn concurrency rõ ràng
-   (không để 2 job cùng tranh 1 GPU gây OOM hoặc timeout không kiểm soát
-   được — bài học thật từ V32a: card 4GB đã cận trần chỉ với 1 job).
+3. Lưu trữ video PHẢI có TTL/dọn tự động — ĐÃ CÓ từ V34a
+   (`cloud.dub.ttl.hours`, sweeper đã nối vào `server.js`) — V34b chỉ cần
+   XÁC NHẬN lại giá trị còn hợp lý với dung lượng video thật, không viết
+   lại cơ chế.
+4. **Giới hạn concurrency CPU** (sửa từ "GPU đa tenant" — xem Context: đã
+   đo THẬT, không cần GPU) — mỗi worker chỉ xử lý ĐÚNG 1 job tại 1 thời
+   điểm (đã đúng từ kiến trúc V34a: vòng lặp poll của `dub_worker.py` là
+   TUẦN TỰ, `claimNextJob()` atomic không cho 2 worker nhận trùng job) —
+   mở rộng công suất bằng cách chạy NHIỀU worker container (horizontal
+   scale), mỗi container có giới hạn CPU rõ ràng (`deploy.resources.
+   limits.cpus`) để nhiều container trên cùng máy chủ không tranh CPU vô
+   kiểm soát.
 5. KHÔNG cam kết SLA thời gian xử lý cụ thể trước khi có số liệu vận hành
-   thật qua ít nhất 1 đợt live traffic thử nghiệm.
+   thật qua ít nhất 1 đợt live traffic thử nghiệm thật (khác PoC 1-2 video
+   mẫu).
+6. Đơn giá Vox/phút trong Scope A là **ĐỀ XUẤT BAN ĐẦU dựa trên số liệu
+   compute thật**, KHÔNG PHẢI quyết định giá cuối cùng — chủ dự án là
+   người chốt giá thật (quyết định kinh doanh, đúng Constraint 1 gốc).
 
-Scope (khung ban đầu — tinh chỉnh cụ thể sau khi có số liệu V34a):
-A. Mô hình billing mới — đơn giá theo PHÚT VIDEO ĐẦU RA (không phải theo
-   lượt gọi như V31), tính từ số liệu chi phí compute thật của V34a + biên
-   lợi nhuận do chủ dự án quyết định (quyết định giá là quyết định kinh
-   doanh, không tự chốt trong tài liệu kỹ thuật này).
-B. `DubApiJob` (model mới hoặc mở rộng `RenderJob` tuỳ quyết định audit của
-   V34a Scope B) — thêm TTL dọn file tự động sau N giờ kể từ khi hoàn
-   thành (giống `cloud.render.ttl.hours` đã có cho Demucs).
-C. Giới hạn concurrency GPU — hàng đợi thật (không phải chỉ "ai claim
-   trước chạy trước" như hiện tại), giới hạn số job xử lý cùng lúc theo
-   đúng khả năng phần cứng thật đã đo ở V34a.
-D. `docker-compose.yml`/tài liệu deploy — thêm cấu hình GPU provisioning
-   (`deploy.resources.reservations.devices`) lần đầu tiên trong hệ thống.
-E. Tests: billing tính đúng theo thời lượng thật; TTL dọn file đúng hạn;
-   giới hạn concurrency chặn đúng khi vượt ngưỡng; regression (API dịch
-   văn bản V31 và Demucs cloud V12 không bị ảnh hưởng — đúng Constraint 2).
+Scope:
+A. Mô hình billing mới — `ApiKey` thêm 2 field MỚI, TÁCH HẲN `quota`/
+   `usageCount` hiện có của V31 (field đó đếm LƯỢT GỌI dịch văn bản, không
+   liên quan): `dubMinutesQuota` (mặc định 0 — tính năng dub qua API là
+   OPT-IN, admin phải cấp quota rõ ràng qua `/v1/admin`, không tự động mở
+   cho mọi API key hiện có) và `dubMinutesUsed` (chạy, tăng atomic).
+   `DubUsageLedger` (model MỚI, TÁCH HẲN `ApiUsageLedger`/`CreditLedger`)
+   — 1 dòng bất biến mỗi job tính phí, SỐNG ĐỘC LẬP với vòng đời
+   `DubApiJob` (job bị TTL sweeper xoá sau `cloud.dub.ttl.hours`, ledger
+   thì KHÔNG — lịch sử billing phải còn lại).
+   Tính phí SAU khi job hoàn thành (worker trả về `durationS` đo THẬT từ
+   chính pipeline, không phải ước lượng client gửi lên) — quyết định khác
+   khung "video đầu ra" ban đầu của mini-spec: `control_server` (Node,
+   Alpine, không có ffmpeg/ffprobe) không thể tự đo thời lượng video lúc
+   submit; đo thời lượng THẬT ở cuối (worker đã có sẵn số này trong
+   `report.total_original_duration` của `autodub.cli`) vừa chính xác hơn
+   "đầu ra" (không lệch vì tăng/giảm tốc từng câu) vừa không cần thêm phụ
+   thuộc ffprobe vào control_server. Đơn giá ĐỀ XUẤT (tính từ tỉ lệ thật
+   ở Context, làm tròn lên phút, CẦN CHỦ DỰ ÁN DUYỆT/CHỈNH):
+   `credit.cost.cloud.dub.vox.per.minute` = 150 Vox/phút (`bg-mode=none`),
+   `credit.cost.cloud.dub.vox.per.minute.demucs` = 250 Vox/phút
+   (`bg-mode=demucs`, phản ánh ~1.6x lên ~2.6x compute thật đo được).
+   Submit bị chặn (402) nếu `dubMinutesUsed >= dubMinutesQuota` — job ĐANG
+   chạy khi cán mốc quota vẫn hoàn tất bình thường (post-paid nhẹ, không
+   ngắt job giữa chừng vì lý do billing).
+B. `bg-mode` là tham số THẬT của API (`POST /api/v1/dub?bgMode=none|demucs`,
+   mặc định `none` — giữ hành vi/giá cũ nếu caller không đổi gì) — mở
+   rộng `worker-dub/Dockerfile` cài thêm `demucs`+`soundfile` (đã live-
+   verify thật ở Context, không phải suy đoán) VĨNH VIỄN vào image thay vì
+   cài tạm lúc benchmark.
+C. TTL: xác nhận `cloud.dub.ttl.hours` mặc định (2 giờ, đã có từ V34a) vẫn
+   hợp lý — KHÔNG đổi cơ chế, chỉ audit lại có cần giảm xuống không (video
+   nặng hơn audio Demucs nhiều).
+D. Giới hạn CPU: thêm `deploy.resources.limits.cpus` cho service
+   `dub_worker` trong `docker-compose.yml` + tài liệu hướng dẫn scale
+   ngang (`docker compose up --scale dub_worker=N`) — KHÔNG cấu hình GPU
+   (Constraint 4 đã sửa).
+E. Tests: billing tính đúng theo `durationS` thật (làm tròn phút, đúng giá
+   theo `bgMode`); quota chặn đúng khi hết (402), job đang chạy vẫn hoàn
+   tất; `DubUsageLedger` sống sót qua TTL sweep của `DubApiJob`; regression
+   (API dịch văn bản V31 + Demucs cloud V12 không đổi hành vi, đúng
+   Constraint 2).
 
-Audit Before Build: đọc kỹ báo cáo + số liệu thật của V34a trước khi chốt
-đơn giá/TTL/ngưỡng concurrency cụ thể — không tự quyết lại.
+Audit Before Build: đã đo THẬT 2 lượt bổ sung (video dài hơn + bg-mode=
+demucs) trước khi viết Scope cụ thể ở trên — xem Context + docs/TEST_LOG.md
+mục V34b cho log đầy đủ.
 
-Design Choice: chưa chốt được đầy đủ trước khi có V34a — nguyên tắc chung
-đã rõ (billing tách hệ, TTL bắt buộc, GPU có hàng đợi thật), số cụ thể
-(giá/giờ TTL/số job đồng thời) chốt khi mở mini-spec này thật.
+Design Choice:
+- Tính phí SAU (không phải giữ chỗ trước như luồng wizard desktop) — lý do
+  kỹ thuật cụ thể ở Scope A (không có ffprobe trong control_server).
+- Giới hạn concurrency bằng CPU + scale ngang (không phải GPU) — bằng
+  chứng thật từ 4 lượt live-verify (2 của V34a + 2 ở đây), không suy đoán
+  theo mini-spec gốc nữa.
+- Đơn giá là đề xuất kỹ thuật có căn cứ, KHÔNG PHẢI quyết định cuối — đúng
+  nguyên tắc "quyết định giá là quyết định kinh doanh" xuyên suốt Phase G.
 
 Test Plan:
-- Unit: tính billing theo thời lượng, TTL dọn file, giới hạn concurrency.
-- Integration: nhiều job đồng thời qua đúng giới hạn concurrency, không
-  job nào bị treo/OOM.
-- Regression: API dịch văn bản V31 + Demucs cloud V12 không đổi hành vi.
-- Live verification: ≥1 đợt xử lý thật nhiều video liên tiếp qua GPU thật,
-  xác nhận billing tính đúng + không tràn đĩa + không tranh chấp GPU.
+- Unit: tính Vox theo `durationS`+`bgMode` (làm tròn phút đúng); quota
+  atomic (2 request đồng thời không vượt quota).
+- Integration: job hoàn tất → ledger có đúng 1 dòng, `ApiKey.dubMinutesUsed`
+  tăng đúng; hết quota → submit mới bị 402, job cũ vẫn chạy xong; TTL sweep
+  xoá `DubApiJob` nhưng KHÔNG đụng `DubUsageLedger`.
+- Regression: `/api/v1/translate` (V31) + `/v1/jobs/demucs` (V12) không
+  đổi hành vi qua toàn bộ test suite hiện có.
+- Live verification: đã có 2 lượt thật ở Context (không lặp lại — Docker
+  build cho `bg-mode=demucs` mất ~2-3 phút tải torch+demucs lần đầu, đã
+  xác nhận hoạt động đúng).
 
 Success Criteria:
-- API lồng tiếng chạy production thật, billing đúng chi phí compute thật,
-  không tranh chấp tài nguyên khi nhiều job chạy cùng lúc.
+- Billing tính đúng theo phút thực tế đo được, tách hệ hoàn toàn khỏi Vox
+  desktop và quota dịch văn bản V31.
 - 0 regression cho V31 (dịch văn bản) và V12 (Demucs cloud).
-- Đĩa không tràn nhờ TTL dọn tự động, xác nhận qua live verification.
+- Đĩa không tràn nhờ TTL dọn tự động (đã có từ V34a, xác nhận lại).
+- Concurrency an toàn qua nhiều worker (mỗi worker luôn đúng 1 job tại 1
+  thời điểm, giới hạn CPU rõ ràng per-container).
 ```
 
 ### V35 — Nâng chất lượng nhân bản giọng (voice cloning)

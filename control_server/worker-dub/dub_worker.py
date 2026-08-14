@@ -92,20 +92,22 @@ def run_dub(job: dict) -> dict:
     lại pipeline riêng (Design Choice của V34a). Trả về
     {"ok": True, "video_path": ..., "metrics": {...}} hoặc {"ok": False, "error": ...}.
 
-    PoC hẹp (Constraint 4 của V34a): `--bg-mode none` — bỏ qua tách nhạc nền
-    (Demucs) để giảm phụ thuộc/thời gian build, KHÔNG cam kết bg_mode=demucs
-    ở PoC này (xem docs/TEST_LOG.md mục V34a cho lý do cụ thể).
+    `bg-mode` (mini-spec V34b) là tham số THẬT từ job (`job["bgMode"]`,
+    mặc định "none" nếu job cũ/thiếu field — giữ đúng hành vi V34a) — đã
+    live-verify thật cả 2 giá trị (xem docs/TEST_LOG.md mục V34b: video có
+    nhạc nền qua `--bg-mode demucs`, CPU-only, không cần GPU).
     """
     job_dir = os.path.join(DUB_WORK_DIR, str(job["jobId"]))
     os.makedirs(job_dir, exist_ok=True)
     input_size = os.path.getsize(job["inputPath"]) if os.path.exists(job["inputPath"]) else 0
+    bg_mode = job.get("bgMode") or "none"
 
     cmd = [
         VOXDUB_PYTHON, "-m", "autodub.cli", "dub",
         "--file", job["inputPath"],
         "--source-lang", job["sourceLang"],
         "--target", job["targetLang"],
-        "--bg-mode", "none",
+        "--bg-mode", bg_mode,
         "--output-dir", job_dir,
         "--json",
     ]
@@ -132,10 +134,17 @@ def run_dub(job: dict) -> dict:
         return {"ok": False, "error": f"pipeline báo completed nhưng không thấy {video_path}"}
 
     output_size = os.path.getsize(video_path)
+    # Thời lượng video gốc ĐO THẬT bởi pipeline (report.total_original_duration,
+    # từ ASR) — dùng để tính phí (mini-spec V34b Scope A), KHÔNG suy từ kích
+    # thước file hay giá trị client tự khai lúc submit.
+    duration_s = float(parsed.get("report", {}).get("total_original_duration") or 0.0)
     return {
         "ok": True,
         "video_path": video_path,
-        "metrics": {"inputBytes": input_size, "outputBytes": output_size, "processingMs": elapsed_ms},
+        "metrics": {
+            "inputBytes": input_size, "outputBytes": output_size,
+            "processingMs": elapsed_ms, "durationS": duration_s,
+        },
     }
 
 

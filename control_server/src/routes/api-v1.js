@@ -38,6 +38,11 @@ module.exports = async function apiV1Routes(fastify) {
       quota: apiKey.quota,
       usageCount: apiKey.usageCount,
       remaining: Math.max(0, apiKey.quota - apiKey.usageCount),
+      // Mini-spec V34b — quota RIÊNG cho lồng tiếng đầy đủ, đơn vị PHÚT chứ
+      // không phải lượt gọi (khác quota/usageCount ở trên, xem Constraint 2).
+      dubMinutesQuota: apiKey.dubMinutesQuota,
+      dubMinutesUsed: apiKey.dubMinutesUsed,
+      dubMinutesRemaining: Math.max(0, apiKey.dubMinutesQuota - apiKey.dubMinutesUsed),
       lastUsedAt: apiKey.lastUsedAt,
     }
   })
@@ -147,11 +152,13 @@ module.exports = async function apiV1Routes(fastify) {
   })
 
   // ---------------------------------------------------------------------
-  // Mini-spec V34a (docs/PLAN.md, Phase G) — PoC hạ tầng API lồng tiếng đầy
-  // đủ (ASR+dịch+TTS+mux), mở rộng V31 (vốn CHỈ dịch văn bản). CHỈ submit +
+  // Mini-spec V34a→V34b (docs/PLAN.md, Phase G) — API lồng tiếng đầy đủ
+  // (ASR+dịch+TTS+mux), mở rộng V31 (vốn CHỈ dịch văn bản). CHỈ submit +
   // poll/tải kết quả (KHÔNG đồng bộ như /translate — dub mất nhiều phút,
-  // không thể chờ trong 1 request HTTP). KHÔNG billing thật (Constraint 1
-  // của V34a) — quota/usageCount của ApiKey KHÔNG bị đụng ở các route này.
+  // không thể chờ trong 1 request HTTP). V34b: billing THẬT theo phút,
+  // tính SAU khi job xong (xem dub-job.service.js::chargeDubUsage) — quota
+  // kiểm TRƯỚC lúc submit (402 nếu hết), KHÔNG đụng `ApiKey.quota`/
+  // `usageCount` (đó là bộ đếm riêng của V31, đơn vị khác — Constraint 2).
   // ---------------------------------------------------------------------
 
   // --- Nộp job lồng tiếng (upload video, TRẢ VỀ NGAY) ----------------------
@@ -162,10 +169,17 @@ module.exports = async function apiV1Routes(fastify) {
     const sourceLang = String(request.query.sourceLang || '').trim()
     const targetLang = String(request.query.targetLang || '').trim()
     const voice = String(request.query.voice || '').trim()
+    const bgMode = String(request.query.bgMode || 'none').trim()
     if (!sourceLang || !targetLang) {
       return reply.code(400).send({
         code: 'MISSING_LANG',
         message: 'Cần query param sourceLang và targetLang.',
+      })
+    }
+    if (!['none', 'demucs'].includes(bgMode)) {
+      return reply.code(400).send({
+        code: 'BAD_BG_MODE',
+        message: 'bgMode phải là "none" hoặc "demucs".',
       })
     }
 
@@ -181,13 +195,14 @@ module.exports = async function apiV1Routes(fastify) {
 
     try {
       const { job } = await dubJob.submitDubJob({
-        apiKey, fileBuffer: buffer, sourceLang, targetLang, voice, ip: request.ip,
+        apiKey, fileBuffer: buffer, sourceLang, targetLang, voice, bgMode, ip: request.ip,
       })
       return {
         jobId: job._id,
         status: job.status,
         async: true,
-        estimatedCostVox: job.estimatedCostVox,
+        bgMode: job.bgMode,
+        estimatedCostVoxPerMinute: job.estimatedCostVox,
       }
     } catch (err) {
       if (err instanceof dubJob.DubJobError) {
@@ -205,6 +220,7 @@ module.exports = async function apiV1Routes(fastify) {
       jobId: job._id, status: job.status,
       error: job.error || undefined,
       metrics: job.status === 'done' ? job.metrics : undefined,
+      costVox: job.status === 'done' ? job.costVox : undefined,
       expiresAt: job.expiresAt,
     }
   })

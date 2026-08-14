@@ -622,21 +622,55 @@ module.exports = async function adminRoutes(fastify) {
           orgName: { type: 'string', minLength: 1, maxLength: 200 },
           contactEmail: { type: 'string', maxLength: 200, default: '' },
           quota: { type: 'integer', minimum: 1, default: 1000 },
+          // Mini-spec V34b — quota phút lồng tiếng, TÁCH HẲN `quota` ở trên
+          // (đó là lượt gọi dịch văn bản V31). Mặc định 0 = opt-in, admin
+          // phải chủ động điền > 0 mới bật được API dub cho key này.
+          dubMinutesQuota: { type: 'integer', minimum: 0, default: 0 },
         },
       },
     },
   }, async (request) => {
-    const { orgName, contactEmail = '', quota = 1000 } = request.body
+    const { orgName, contactEmail = '', quota = 1000, dubMinutesQuota = 0 } = request.body
     const { plaintext, doc } = await createApiKey({
-      orgName, contactEmail, quota, createdIp: request.ip,
+      orgName, contactEmail, quota, dubMinutesQuota, createdIp: request.ip,
     })
     await audit.log({
       action: 'admin.apikey.create',
       target: String(doc._id),
-      after: { orgName, quota },
+      after: { orgName, quota, dubMinutesQuota },
       ip: request.ip,
     })
     return { ok: true, apiKey: plaintext, id: doc._id, keyPrefix: doc.keyPrefix }
+  })
+
+  /** Cấp/chỉnh quota phút lồng tiếng cho key ĐÃ TỒN TẠI (mini-spec V34b) —
+   * tính năng dub là opt-in, key tạo trước V34b luôn có dubMinutesQuota=0,
+   * cần đường này để admin bật lên mà không phải tạo lại key (mất plaintext
+   * cũ, phá vỡ tích hợp phía developer). CHỈ đổi hạn mức, KHÔNG đụng
+   * `dubMinutesUsed` (lịch sử đã dùng giữ nguyên khi tăng/giảm hạn mức). */
+  fastify.patch('/api-keys/:id/dub-quota', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['dubMinutesQuota'],
+        properties: {
+          dubMinutesQuota: { type: 'integer', minimum: 0 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { dubMinutesQuota } = request.body
+    const key = await ApiKey.findByIdAndUpdate(
+      request.params.id, { $set: { dubMinutesQuota } }, { new: true },
+    ).select('-keyHash')
+    if (!key) return reply.code(404).send({ code: 'NOT_FOUND' })
+    await audit.log({
+      action: 'admin.apikey.dub_quota_update',
+      target: String(key._id),
+      after: { dubMinutesQuota },
+      ip: request.ip,
+    })
+    return { ok: true, id: key._id, dubMinutesQuota: key.dubMinutesQuota, dubMinutesUsed: key.dubMinutesUsed }
   })
 
   fastify.delete('/api-keys/:id', async (request, reply) => {

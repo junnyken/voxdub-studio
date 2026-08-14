@@ -32,19 +32,27 @@ const dubApiJobSchema = new mongoose.Schema({
   sourceLang: { type: String, required: true },
   targetLang: { type: String, required: true },
   voice: { type: String, default: '' },
+  // Mini-spec V34b (docs/PLAN.md) — tách nhạc nền (Demucs), mặc định "none"
+  // giữ đúng giá/hành vi cũ của V34a nếu caller không truyền gì.
+  bgMode: { type: String, enum: ['none', 'demucs'], default: 'none' },
   inputPath: { type: String, required: true },
   outputPath: { type: String, default: '' },
   // Số liệu THẬT đo được lúc worker chạy xong (Constraint 3 của V34a: đo
   // thật, không suy đoán) — điền lúc completeJob(), rỗng khi chưa xong.
+  // durationS (V34b): thời lượng video gốc đo bởi ASR, dùng để tính phí.
   metrics: {
     inputBytes: { type: Number, default: 0 },
     outputBytes: { type: Number, default: 0 },
     processingMs: { type: Number, default: 0 },
+    durationS: { type: Number, default: 0 },
   },
   error: { type: String, default: '' },
-  // CHỈ log chi phí giả định (Constraint 1) — KHÔNG bao giờ trừ vào
-  // ApiKey.quota/usageCount thật ở PoC này.
+  // V34a: chỉ log ước tính (Constraint 1 của V34a — PoC không billing thật).
+  // V34b: `costVox` là số Vox THẬT đã trừ sau khi job hoàn tất — 0 nếu job
+  // chưa xong hoặc thất bại. estimatedCostVox giữ lại cho tương thích/tham
+  // khảo lúc submit (trước khi biết durationS thật).
   estimatedCostVox: { type: Number, default: 0 },
+  costVox: { type: Number, default: 0 },
   workerId: { type: String, default: '' },
   heartbeatAt: { type: Date, default: null },
   startedAt: { type: Date, default: null },

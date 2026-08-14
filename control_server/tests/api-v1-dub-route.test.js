@@ -1,15 +1,18 @@
 'use strict'
 
 /**
- * Mini-spec V34a (docs/PLAN.md, Phase G) — `/api/v1/dub*` qua HTTP thật
- * (fastify.inject, kể cả multipart upload thật — tự dựng body multipart
- * tối thiểu vì repo chưa có dependency `form-data`). Worker Python KHÔNG
- * chạy thật ở đây (không cần Docker/mạng) — mô phỏng bằng cách gọi thẳng
- * `dub-job.service.js` (claim/complete), giống cách
+ * Mini-spec V34a→V34b (docs/PLAN.md, Phase G) — `/api/v1/dub*` qua HTTP
+ * thật (fastify.inject, kể cả multipart upload thật — tự dựng body
+ * multipart tối thiểu vì repo chưa có dependency `form-data`). Worker
+ * Python KHÔNG chạy thật ở đây (không cần Docker/mạng) — mô phỏng bằng
+ * cách gọi thẳng `dub-job.service.js` (claim/complete), giống cách
  * `render-job.integration.test.js` mô phỏng render_worker.py.
  *
- * Xác nhận riêng cho V34a: auth tách biệt API key/device/worker, KHÔNG
- * billing thật (Constraint 1 — usageCount/quota không đổi qua toàn luồng).
+ * V34b: `dubMinutesQuota` mặc định 0 (opt-in) — `makeDubApiKey()` dưới
+ * đây cấp sẵn quota để các test không phải tự lo billing, trừ test CHỦ
+ * ĐÍCH kiểm quota (đặt tên rõ). Xác nhận riêng: auth tách biệt API key/
+ * device/worker; billing THẬT tính sau khi job xong, KHÔNG đụng
+ * `quota`/`usageCount` của V31 (Constraint 2 của V34b).
  *
  * Chạy:  node --test tests/api-v1-dub-route.test.js
  */
@@ -28,6 +31,7 @@ const { build } = require('../src/app')
 const ApiKey = require('../src/models/ApiKey')
 const { createApiKey } = require('../src/services/api-key.service')
 const dubJobService = require('../src/services/dub-job.service')
+const config = require('../src/services/config.service')
 
 let app
 
@@ -41,6 +45,10 @@ test.after(async () => {
   await stopDb()
 })
 test.beforeEach(clearDb)
+
+function makeDubApiKey(opts = {}) {
+  return createApiKey({ orgName: 'Test', dubMinutesQuota: 100, ...opts })
+}
 
 /** Dựng body multipart/form-data tối thiểu cho 1 file — @fastify/multipart
  * lấy part ĐẦU TIÊN có filename, không quan tâm tên field. */
@@ -58,8 +66,10 @@ function buildMultipart(filename, contentType, buffer) {
   }
 }
 
-function postDub(key, { sourceLang = 'en-US', targetLang = 'vi', voice, buffer } = {}) {
-  const qs = new URLSearchParams({ sourceLang, targetLang, ...(voice ? { voice } : {}) }).toString()
+function postDub(key, { sourceLang = 'en-US', targetLang = 'vi', voice, bgMode, buffer } = {}) {
+  const qs = new URLSearchParams({
+    sourceLang, targetLang, ...(voice ? { voice } : {}), ...(bgMode ? { bgMode } : {}),
+  }).toString()
   const mp = buildMultipart('video.mp4', 'video/mp4', buffer || Buffer.from('fake-mp4'))
   return app.inject({
     method: 'POST',
@@ -76,7 +86,7 @@ test('POST /dub: thiếu API key -> 401 NO_API_KEY', async () => {
 })
 
 test('POST /dub: thiếu sourceLang/targetLang -> 400 MISSING_LANG', async () => {
-  const { plaintext } = await createApiKey({ orgName: 'Test' })
+  const { plaintext } = await makeDubApiKey()
   const mp = buildMultipart('video.mp4', 'video/mp4', Buffer.from('fake-mp4'))
   const res = await app.inject({
     method: 'POST', url: '/api/v1/dub',
@@ -87,8 +97,15 @@ test('POST /dub: thiếu sourceLang/targetLang -> 400 MISSING_LANG', async () =>
   assert.equal(res.json().code, 'MISSING_LANG')
 })
 
+test('POST /dub: bgMode không hợp lệ -> 400 BAD_BG_MODE', async () => {
+  const { plaintext } = await makeDubApiKey()
+  const res = await postDub(plaintext, { bgMode: 'reverb' })
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().code, 'BAD_BG_MODE')
+})
+
 test('POST /dub: multipart hợp lệ nhưng không có file part -> 400 NO_FILE', async () => {
-  const { plaintext } = await createApiKey({ orgName: 'Test' })
+  const { plaintext } = await makeDubApiKey()
   const boundary = '----voxdubtestempty'
   const res = await app.inject({
     method: 'POST', url: '/api/v1/dub?sourceLang=en-US&targetLang=vi',
@@ -102,24 +119,40 @@ test('POST /dub: multipart hợp lệ nhưng không có file part -> 400 NO_FILE
   assert.equal(res.json().code, 'NO_FILE')
 })
 
-test('POST /dub: hợp lệ -> 200, queued, async:true, KHÔNG đụng usageCount/quota', async () => {
-  const { plaintext, doc } = await createApiKey({ orgName: 'Test', quota: 100 })
+test('POST /dub: hết quota phút dub (mặc định 0) -> 402 DUB_QUOTA_EXCEEDED', async () => {
+  const { plaintext } = await createApiKey({ orgName: 'No Quota' })
+  const res = await postDub(plaintext)
+  assert.equal(res.statusCode, 402)
+  assert.equal(res.json().code, 'DUB_QUOTA_EXCEEDED')
+})
+
+test('POST /dub: hợp lệ -> 200, queued, async:true, bgMode mặc định "none", KHÔNG đụng quota/usageCount V31', async () => {
+  const { plaintext, doc } = await createApiKey({ orgName: 'Test', quota: 100, dubMinutesQuota: 100 })
   const res = await postDub(plaintext, { voice: 'Minh Trang' })
   assert.equal(res.statusCode, 200)
   const body = res.json()
   assert.equal(body.status, 'queued')
   assert.equal(body.async, true)
+  assert.equal(body.bgMode, 'none')
   assert.ok(body.jobId)
-  assert.ok(typeof body.estimatedCostVox === 'number')
+  assert.ok(typeof body.estimatedCostVoxPerMinute === 'number')
 
   const fresh = await ApiKey.findById(doc._id).lean()
-  assert.equal(fresh.usageCount, 0, 'V34a Constraint 1: không billing thật')
+  assert.equal(fresh.usageCount, 0, 'quota/usageCount của V31 không liên quan tới dub')
   assert.equal(fresh.quota, 100)
+  assert.equal(fresh.dubMinutesUsed, 0, 'chưa xong job thì chưa trừ phút')
+})
+
+test('POST /dub: bgMode=demucs được ghi nhận đúng', async () => {
+  const { plaintext } = await makeDubApiKey()
+  const res = await postDub(plaintext, { bgMode: 'demucs' })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().bgMode, 'demucs')
 })
 
 test('GET /dub/:jobId: job của API key khác -> 404 (không lộ job giữa các org)', async () => {
-  const { plaintext: keyA } = await createApiKey({ orgName: 'Org A' })
-  const { plaintext: keyB } = await createApiKey({ orgName: 'Org B' })
+  const { plaintext: keyA } = await makeDubApiKey()
+  const { plaintext: keyB } = await makeDubApiKey()
   const submitRes = await postDub(keyA)
   const { jobId } = submitRes.json()
 
@@ -130,8 +163,21 @@ test('GET /dub/:jobId: job của API key khác -> 404 (không lộ job giữa c�
   assert.equal(res.statusCode, 404)
 })
 
-test('luồng đầy đủ: submit -> worker giả claim/complete -> poll done -> tải video -> xoá file', async () => {
-  const { plaintext } = await createApiKey({ orgName: 'Test' })
+test('GET /me: hiện đúng dubMinutesQuota/dubMinutesUsed/dubMinutesRemaining', async () => {
+  const { plaintext } = await makeDubApiKey({ dubMinutesQuota: 50 })
+  const res = await app.inject({
+    method: 'GET', url: '/api/v1/me',
+    headers: { authorization: `Bearer ${plaintext}` },
+  })
+  assert.equal(res.statusCode, 200)
+  const body = res.json()
+  assert.equal(body.dubMinutesQuota, 50)
+  assert.equal(body.dubMinutesUsed, 0)
+  assert.equal(body.dubMinutesRemaining, 50)
+})
+
+test('luồng đầy đủ: submit -> worker giả claim/complete (kèm durationS thật) -> poll done -> tải video -> xoá file -> trừ đúng phút', async () => {
+  const { plaintext, doc } = await makeDubApiKey()
   const submitRes = await postDub(plaintext)
   const { jobId } = submitRes.json()
 
@@ -142,7 +188,7 @@ test('luồng đầy đủ: submit -> worker giả claim/complete -> poll done -
   fs.writeFileSync(paths.output, 'fake-dubbed-video-bytes')
   await dubJobService.completeJob(jobId, 'test-worker', {
     outputPath: paths.output,
-    metrics: { inputBytes: 8, outputBytes: 24, processingMs: 999 },
+    metrics: { inputBytes: 8, outputBytes: 24, processingMs: 999, durationS: 90 },
   })
 
   const pollRes = await app.inject({
@@ -153,6 +199,8 @@ test('luồng đầy đủ: submit -> worker giả claim/complete -> poll done -
   const pollBody = pollRes.json()
   assert.equal(pollBody.status, 'done')
   assert.equal(pollBody.metrics.processingMs, 999)
+  const perMinute = await config.get('credit.cost.cloud.dub.vox.per.minute')
+  assert.equal(pollBody.costVox, 2 * perMinute, '90s -> làm tròn lên 2 phút')
 
   const downloadRes = await app.inject({
     method: 'GET', url: `/api/v1/dub/${jobId}/result`,
@@ -164,10 +212,13 @@ test('luồng đầy đủ: submit -> worker giả claim/complete -> poll done -
 
   await new Promise((r) => setTimeout(r, 50))   // stream 'close' handler xoá file bất đồng bộ
   assert.ok(!fs.existsSync(paths.output), 'file phải bị xoá ngay sau khi tải (chính sách dữ liệu V9)')
+
+  const fresh = await ApiKey.findById(doc._id).lean()
+  assert.equal(fresh.dubMinutesUsed, 2)
 })
 
 test('GET /dub/:jobId/result: chưa xong -> 409 NOT_READY', async () => {
-  const { plaintext } = await createApiKey({ orgName: 'Test' })
+  const { plaintext } = await makeDubApiKey()
   const submitRes = await postDub(plaintext)
   const { jobId } = submitRes.json()
 

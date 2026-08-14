@@ -88,3 +88,47 @@ test('DELETE /api-keys/:id với id không tồn tại -> 404', async () => {
   const res = await adminReq('DELETE', '/v1/admin/api-keys/000000000000000000000000')
   assert.equal(res.statusCode, 404)
 })
+
+// ------------------------------------ dubMinutesQuota (mini-spec V34b) ----
+
+test('tạo API key không truyền dubMinutesQuota -> mặc định 0 (opt-in)', async () => {
+  const res = await adminReq('POST', '/v1/admin/api-keys', { orgName: 'Acme' })
+  const doc = await ApiKey.findById(res.json().id).lean()
+  assert.equal(doc.dubMinutesQuota, 0)
+})
+
+test('tạo API key kèm dubMinutesQuota -> lưu đúng giá trị', async () => {
+  const res = await adminReq('POST', '/v1/admin/api-keys', { orgName: 'Acme', dubMinutesQuota: 200 })
+  const doc = await ApiKey.findById(res.json().id).lean()
+  assert.equal(doc.dubMinutesQuota, 200)
+})
+
+test('PATCH /api-keys/:id/dub-quota: cấp quota cho key đã tồn tại, không đụng dubMinutesUsed', async () => {
+  const createRes = await adminReq('POST', '/v1/admin/api-keys', { orgName: 'Acme' })
+  const id = createRes.json().id
+  await ApiKey.findByIdAndUpdate(id, { $set: { dubMinutesUsed: 7 } })
+
+  const res = await adminReq('PATCH', `/v1/admin/api-keys/${id}/dub-quota`, { dubMinutesQuota: 300 })
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.json().dubMinutesQuota, 300)
+  assert.equal(res.json().dubMinutesUsed, 7, 'chỉ đổi hạn mức, không đụng lịch sử đã dùng')
+
+  const doc = await ApiKey.findById(id).lean()
+  assert.equal(doc.dubMinutesQuota, 300)
+  assert.equal(doc.dubMinutesUsed, 7)
+})
+
+test('PATCH /api-keys/:id/dub-quota: thiếu X-Admin-Token -> 401', async () => {
+  const createRes = await adminReq('POST', '/v1/admin/api-keys', { orgName: 'Acme' })
+  const res = await app.inject({
+    method: 'PATCH', url: `/v1/admin/api-keys/${createRes.json().id}/dub-quota`,
+    payload: { dubMinutesQuota: 100 },
+  })
+  assert.equal(res.statusCode, 401)
+})
+
+test('PATCH /api-keys/:id/dub-quota: id không tồn tại -> 404', async () => {
+  const res = await adminReq('PATCH', '/v1/admin/api-keys/000000000000000000000000/dub-quota',
+    { dubMinutesQuota: 100 })
+  assert.equal(res.statusCode, 404)
+})

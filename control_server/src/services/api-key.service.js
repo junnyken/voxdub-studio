@@ -32,14 +32,19 @@ function generateApiKey() {
 }
 
 /** Tạo 1 ApiKey mới trong DB, trả về { plaintext, doc } — plaintext CHỈ xuất
- * hiện 1 LẦN DUY NHẤT lúc tạo (giống mọi hệ API key thật), không đọc lại được. */
-async function createApiKey({ orgName, contactEmail = '', quota = 1000, createdIp = '' }) {
+ * hiện 1 LẦN DUY NHẤT lúc tạo (giống mọi hệ API key thật), không đọc lại được.
+ * `dubMinutesQuota` (mini-spec V34b) mặc định 0 — opt-in, admin phải truyền
+ * rõ giá trị > 0 lúc tạo (hoặc cấp sau qua PATCH) mới dùng được API dub. */
+async function createApiKey({
+  orgName, contactEmail = '', quota = 1000, dubMinutesQuota = 0, createdIp = '',
+}) {
   const plaintext = generateApiKey()
   const doc = await ApiKey.create({
     keyHash: hashApiKey(plaintext),
     keyPrefix: plaintext.slice(0, 15), // "vx_live_" + 7 ký tự đầu của phần hex
     orgName,
     contactEmail,
+    dubMinutesQuota,
     quota,
     createdIp,
   })

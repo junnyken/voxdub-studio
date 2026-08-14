@@ -89,6 +89,11 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     // (mini-spec V9, xem docs/PLAN.md) — thêm có chủ đích, không phải rò
     // rỉ giá nội bộ.
     'credit.cost.cloud.demucs',
+    // credit.cost.cloud.dub.vox.per.minute(.demucs): giá công khai mới cho
+    // API lồng tiếng đầy đủ theo phút (mini-spec V34b, xem docs/PLAN.md) —
+    // thêm có chủ đích, không phải rò rỉ giá nội bộ.
+    'credit.cost.cloud.dub.vox.per.minute',
+    'credit.cost.cloud.dub.vox.per.minute.demucs',
     'credit.cost.metadata',
     'credit.cost.segment.autotranslate',
     'credit.cost.segment.base',

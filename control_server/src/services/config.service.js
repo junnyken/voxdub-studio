@@ -93,6 +93,15 @@ const DEFAULTS = {
   'cloud.dub.heartbeat.stale.minutes': 15,
   'cloud.dub.sweep.interval.minutes': 2,
   'cloud.dub.ttl.hours': 2,
+  // Mini-spec V34b (docs/PLAN.md) — billing THẬT theo phút video, tính từ
+  // tỉ lệ compute thật đo được (xem docs/TEST_LOG.md mục V34b): ~1.63x
+  // thời lượng gốc cho bg-mode=none, ~2.64x cho bg-mode=demucs. 2 giá dưới
+  // đây là ĐỀ XUẤT KỸ THUẬT có căn cứ — KHÔNG PHẢI giá cuối cùng, chủ dự
+  // án cần duyệt/chỉnh qua trang Admin trước khi tính là giá chính thức
+  // (quyết định giá là quyết định kinh doanh, đúng nguyên tắc xuyên suốt
+  // Phase G — xem Constraint 6 của V34b).
+  'credit.cost.cloud.dub.vox.per.minute': 150,
+  'credit.cost.cloud.dub.vox.per.minute.demucs': 250,
   // Chuẩn giá: 1 Vox = 10đ (1.000 Vox = 10.000đ). Bonus tăng dần theo gói.
   'credit.packages': [
     { id: 'mini', label: 'Khởi đầu', vnd: 10000, vox: 1000, bonus: 0, popular: false },

@@ -4119,3 +4119,127 @@ chưa có số liệu thật trong PoC này.
   — kiểm tra đầu vào, không phải đánh giá đầu ra sau khi mã hóa xong).
   Để dành mini-spec riêng nếu cần.
 - **CHƯA live-verify với model VieNeu ONNX thật** — xem mục Verify.
+
+## V34b — Build production API lồng tiếng đầy đủ (Phase G)
+
+### Audit trước khi build
+
+- V34a đã khuyến nghị GO — điều kiện mở mini-spec đạt.
+- Chủ dự án yêu cầu (2026-08-14): làm tiếp V34b nhưng đo thêm trước khi
+  chốt giá — đúng gap V34a tự nêu. Đo THÊM 2 lượt thật trước khi viết Scope
+  cụ thể (số liệu đầy đủ trong mục Verify bên dưới): video 72.5s không
+  nhạc nền → tỉ lệ ~1.63x; video 77.7s có nhạc nền (`bg-mode=demucs`) →
+  tỉ lệ ~2.64x. Cả 2 CPU-only, không cần GPU.
+- Kết luận từ số liệu: **Constraint 4 gốc của mini-spec ("GPU đa tenant")
+  SAI với thực tế đã đo** (4 lượt live-verify: 2 của V34a + 2 ở đây, tất cả
+  CPU-only) — sửa lại thành giới hạn concurrency CPU, không suy đoán theo
+  bản viết ban đầu nữa (xem docs/PLAN.md mục V34b đã cập nhật).
+- Audit thêm lúc code: `control_server` (Node, Alpine) không có ffmpeg/
+  ffprobe → không thể đo thời lượng video lúc submit (khác khung "video
+  đầu ra" ban đầu của mini-spec) → quyết định tính phí SAU khi job xong,
+  dùng `report.total_original_duration` mà `autodub.cli` đã tự đo qua ASR
+  (chính xác hơn "đầu ra" — không lệch do tăng/giảm tốc từng câu, và không
+  cần thêm phụ thuộc).
+
+### Xây dựng
+
+- `ApiKey` model: 2 field mới `dubMinutesQuota`/`dubMinutesUsed` (mặc định
+  0 — opt-in, TÁCH HẲN `quota`/`usageCount` của V31 — đơn vị khác nhau).
+- `DubUsageLedger` model (mới) — 1 dòng bất biến/job tính phí, sống ĐỘC LẬP
+  với vòng đời `DubApiJob` (không bị TTL sweeper xoá theo job).
+- `dub-job.service.js`: `submitDubJob()` chặn 402 nếu hết quota phút;
+  `chargeDubUsage()` (atomic `$inc`, cùng kỹ thuật `consumeQuota()` của
+  V31) tính Vox theo `durationS` thật (làm tròn LÊN phút, tối thiểu 1 phút)
+  × đơn giá theo `bgMode`; `completeJob()` gọi billing sau khi đánh dấu
+  `done`, bỏ qua billing nếu `durationS=0` (worker cũ/lỗi — thà bỏ qua còn
+  hơn tính sai).
+- `internal-dub-jobs.js`: `/claim` trả thêm `bgMode`; `/complete` đã
+  forward `metrics` nguyên vẹn nên `durationS` tự đi qua, không cần đổi gì
+  thêm.
+- `api-v1.js`: `POST /dub` nhận query `bgMode` (`none`|`demucs`, mặc định
+  `none` — giữ đúng giá/hành vi cũ nếu caller không đổi gì), validate 400
+  nếu sai giá trị; `GET /dub/:jobId` trả thêm `costVox` khi `done`;
+  `GET /me` trả thêm `dubMinutesQuota`/`dubMinutesUsed`/`dubMinutesRemaining`.
+- `admin.js`: `POST /api-keys` nhận thêm `dubMinutesQuota` (tạo key kèm
+  quota luôn); **route mới `PATCH /api-keys/:id/dub-quota`** — bịt gap
+  thật phát hiện lúc code: nếu không có route này, KHÔNG có cách nào cấp
+  quota dub cho key ĐÃ TỒN TẠI (mọi key tạo trước V34b mãi mãi
+  `dubMinutesQuota=0`, tính năng không dùng được với key cũ).
+- `config.service.js`: 2 khoá giá mới `credit.cost.cloud.dub.vox.per.minute`
+  (150) / `.demucs` (250) — ĐỀ XUẤT dựa trên tỉ lệ compute thật đo ở trên,
+  KHÔNG PHẢI giá cuối cùng (Constraint 6 — chủ dự án cần duyệt qua Admin).
+- `worker-dub/Dockerfile`: thêm `demucs`+`soundfile` VĨNH VIỄN (không còn
+  cài tạm lúc benchmark như lúc đo số liệu). **Bug thật tìm+sửa khi build**:
+  `pip install demucs` mặc định kéo bản torch CÓ CUDA (~2.5GB thư viện
+  nvidia-*/triton hoàn toàn không dùng — container CPU-only đã xác nhận) —
+  sửa cài torch bản CPU-ONLY trước qua `--index-url https://download.
+  pytorch.org/whl/cpu` (191.8MB thay vì torch CUDA 526MB + ~2.5GB phụ
+  thuộc CUDA đi kèm).
+- `dub_worker.py`: đọc `job["bgMode"]` (mặc định "none" nếu thiếu — job cũ
+  vẫn chạy đúng), truyền `--bg-mode` thật cho `autodub.cli`; đọc
+  `report.total_original_duration` từ kết quả pipeline, gửi lên qua
+  `metrics.durationS` trong `/complete`.
+- `docker-compose.yml`: `deploy.resources.limits.cpus: "2.0"` cho
+  `dub_worker` + comment hướng dẫn scale ngang
+  (`docker compose --profile dub-poc up --scale dub_worker=N`) — thay cho
+  GPU provisioning (không cần, xem Audit).
+
+### Verify
+
+- **Live-verify benchmark bổ sung** (trước khi viết Scope, xem Audit):
+  video 72.5s/17 câu `bg-mode=none` → 118.0s xử lý (~1.63x); video 77.7s/12
+  câu CÓ nhạc nền `bg-mode=demucs` (nhạc nền tổng hợp trộn với giọng nói
+  thật gTTS bằng ffmpeg thật) → 204.8s xử lý (~2.64x, +~1x so với none) —
+  cả 2 CPU-only. Bug thật phát hiện đúng lúc chạy live: `scripts/
+  setup_whisper.py` gửi stdin rỗng cho worker luôn đòi JSON (đã sửa, xem
+  commit `9541bd8` mục V34a) — sửa xong build lại chạy được ngay.
+- **Live-verify image production cuối cùng** (sau khi sửa bug torch-CUDA):
+  build lại từ đầu, image **9.72GB** (so với torch-CUDA sẽ >12GB nếu không
+  sửa). Chạy 2 lượt qua CHÍNH `python -m autodub.cli` (không phải pip
+  install tạm nữa — demucs+torch CPU đã baked-in):
+  - `bg-mode=none`, video 72.5s → **108.8s xử lý** (~1.50x, nhất quán với
+    số đo trước).
+  - `bg-mode=demucs`, video 77.7s CÓ nhạc nền → **187.7s xử lý** (~2.42x,
+    nhất quán với số đo trước — chênh lệch nhỏ trong khoảng nhiễu đo đạc
+    bình thường).
+  - Cả 2 video kết quả tải ra ngoài container, `ffprobe` xác nhận hợp lệ:
+    79.62s/1.19MB (none) và 79.64s/2.01MB (demucs — nặng hơn vì giữ nhạc
+    nền).
+- `node --test` (`control_server`, cập nhật `dub-job.service.test.js`
+  +5 test mới, `internal-dub-jobs.test.js` +1, `api-v1-dub-route.test.js`
+  viết lại +4 net mới, `admin-api-keys-route.test.js` +5, `hold.test.js`
+  cập nhật allowlist giá công khai): **249 tests, 248 pass, 1 skipped, 0
+  failed** (233→249, 0 regression cho V31 dịch văn bản + V12 Demucs cloud
+  — xác nhận qua chính test suite hiện có, không phải suy đoán).
+- `pytest tests/ -q`: **1020 passed, 6 skipped, 0 failed** — không đổi
+  (V34b không chạm code Python, chạy lại đủ theo yêu cầu "test lại đầy đủ"
+  thay vì suy đoán không ảnh hưởng).
+- **CHƯA live-verify billing THẬT qua HTTP end-to-end với worker thật** —
+  đã live-verify billing logic qua test thật (atomic, ledger, quota chặn
+  đúng) VÀ live-verify pipeline thật qua CLI trực tiếp (số liệu ở trên),
+  nhưng chưa nối 2 việc đó lại thành 1 lượt hoàn chỉnh
+  submit→worker thật→complete→ledger ghi đúng qua HTTP thật trong 1 lần
+  chạy (V34a đã làm việc này cho luồng KHÔNG billing — làm lại với billing
+  thật cần dựng lại toàn bộ docker-compose stack, để dành cho đợt vận hành
+  thử nghiệm thật đầu tiên, đúng Test Plan "Live verification" của mini-spec).
+
+### Remaining Limits (V34b)
+
+- **Đơn giá Vox/phút là ĐỀ XUẤT, chưa phải giá cuối** — chủ dự án cần
+  duyệt/chỉnh qua Admin trước khi coi là chính thức (Constraint 6).
+- **Chưa đo chi phí compute video RẤT dài** (>5 phút) — 2 mẫu đo được đều
+  <90s, tỉ lệ có thể còn thay đổi thêm ở quy mô lớn hơn nữa (dù xu hướng
+  "dài hơn thì tỉ lệ giảm" đã rõ từ 12s→72s).
+- **`dubMinutesUsed` có thể vượt `dubMinutesQuota` một chút** (post-paid có
+  chủ đích — job đang chạy lúc cán mốc vẫn hoàn tất, xem Design Choice) —
+  không phải giới hạn cứng tuyệt đối, cần chủ dự án xác nhận chấp nhận
+  được mô hình này trước khi đưa cho khách hàng thật có giới hạn ngân sách
+  nghiêm ngặt.
+- **Demucs model tải lần đầu khi có job `bg-mode=demucs` thật đầu tiên**
+  (không pre-warm trong Dockerfile) — job đầu tiên sau mỗi lần deploy mới
+  sẽ chậm hơn các job sau (chưa đo chính xác thêm bao lâu, ước tính
+  tương tự lần tải NLLB/Whisper ~vài chục giây tới vài phút tuỳ mạng).
+- **Chưa vận hành thử nhiều job đồng thời qua nhiều worker container thật**
+  — giới hạn CPU + hướng dẫn scale ngang đã cấu hình trong
+  `docker-compose.yml` nhưng chưa live-verify chạy `--scale dub_worker=N`
+  thật với N>1.

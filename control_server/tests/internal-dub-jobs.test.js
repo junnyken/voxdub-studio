@@ -74,6 +74,7 @@ test('claim: đúng token, có job queued → trả về job + tham số dịch'
   assert.equal(String(body.job.jobId), String(job._id))
   assert.equal(body.job.sourceLang, 'en-US')
   assert.equal(body.job.targetLang, 'vi')
+  assert.equal(body.job.bgMode, 'none', 'worker cần biết bgMode để gọi đúng --bg-mode (V34b)')
   assert.ok(body.job.inputPath)
   assert.ok(body.job.outputPath)
 
@@ -120,6 +121,41 @@ test('heartbeat → complete: luồng đầy đủ qua HTTP thật, kèm metrics
   assert.equal(job.status, 'done')
   assert.equal(job.outputPath, '/tmp/out.mp4')
   assert.equal(job.metrics.processingMs, 5000)
+})
+
+test('complete: durationS thật trong metrics → tính phí thật, ghi ledger (V34b)', async () => {
+  const apiKey = await ApiKey.create({
+    keyHash: `h-billing-${Date.now()}`, keyPrefix: 'testpfx1', orgName: 'Billing Org',
+    dubMinutesQuota: 100,
+  })
+  const job = await DubApiJob.create({
+    apiKeyId: apiKey._id, status: 'queued', bgMode: 'demucs',
+    sourceLang: 'en-US', targetLang: 'vi', inputPath: '/tmp/in.mp4',
+    expiresAt: new Date(Date.now() + 3600_000),
+  })
+  const claimRes = await app.inject({
+    method: 'POST', url: '/internal/dub-jobs/claim',
+    headers: { 'x-worker-token': TOKEN }, payload: { workerId: 'w1' },
+  })
+  assert.equal(String(claimRes.json().job.jobId), String(job._id))
+
+  const perMinuteDemucs = await require('../src/services/config.service').get(
+    'credit.cost.cloud.dub.vox.per.minute.demucs')
+  const completeRes = await app.inject({
+    method: 'POST', url: `/internal/dub-jobs/${job._id}/complete`,
+    headers: { 'x-worker-token': TOKEN },
+    payload: {
+      workerId: 'w1', outputPath: '/tmp/out.mp4',
+      metrics: { inputBytes: 1024, outputBytes: 2048, processingMs: 5000, durationS: 90 },
+    },
+  })
+  assert.equal(completeRes.statusCode, 200)
+
+  const updated = await DubApiJob.findById(job._id).lean()
+  assert.equal(updated.costVox, 2 * perMinuteDemucs, '90s -> làm tròn lên 2 phút')
+
+  const freshKey = await ApiKey.findById(apiKey._id).lean()
+  assert.equal(freshKey.dubMinutesUsed, 2)
 })
 
 test('complete: thiếu outputPath → 400', async () => {

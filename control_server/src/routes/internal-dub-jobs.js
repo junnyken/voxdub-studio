@@ -34,6 +34,7 @@ module.exports = async function internalDubJobsRoutes(fastify) {
         sourceLang: job.sourceLang,
         targetLang: job.targetLang,
         voice: job.voice,
+        bgMode: job.bgMode,
       },
     }
   })

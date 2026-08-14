@@ -81,12 +81,22 @@ services:
     volumes:
       - voxdub-render-jobs:/data/render-jobs
 
-  # Mini-spec V34a (docs/PLAN.md) — PoC hạ tầng API lồng tiếng đầy đủ. Volume
-  # TÁCH HẲN `voxdub-render-jobs` (Constraint 2 — không nhét chung, guardrail
-  # đã có từ V12 "1 lỗi ở pipeline nặng không ảnh hưởng service khác").
-  # KHÔNG bật mặc định trong `docker compose up` (dùng profile) — image nặng
-  # (3 model tải về lúc build: Whisper+VieNeu+NLLB, ~2-3 GB) và vẫn là PoC,
-  # chưa production-ready (chưa billing thật/TTL production/GPU — xem V34b).
+  # Mini-spec V34a→V34b (docs/PLAN.md) — API lồng tiếng đầy đủ. Volume TÁCH
+  # HẲN `voxdub-render-jobs` (Constraint 2 — không nhét chung, guardrail đã
+  # có từ V12 "1 lỗi ở pipeline nặng không ảnh hưởng service khác"). KHÔNG
+  # bật mặc định trong `docker compose up` (dùng profile) — image nặng (3
+  # model + demucs/torch tải lúc build, ~4-5 GB) là lựa chọn triển khai
+  # riêng (không phải mọi deploy control_server đều cần API này).
+  #
+  # Billing THẬT (V34b) — không cần GPU (đã live-verify CPU-only đủ dùng cả
+  # `bg-mode=none` lẫn `bg-mode=demucs`, xem docs/TEST_LOG.md). Concurrency:
+  # MỖI worker xử lý ĐÚNG 1 job/lần (vòng lặp poll tuần tự trong
+  # dub_worker.py + claim atomic — không job nào bị nhận trùng). Muốn xử lý
+  # nhiều job đồng thời: chạy NHIỀU container qua
+  #   docker compose --profile dub-poc up --scale dub_worker=N
+  # `cpus` dưới đây giới hạn MỖI container — đặt tổng (N × cpus) không vượt
+  # số nhân CPU thật của máy chủ để tránh N container tranh nhau vô kiểm
+  # soát (Constraint 4 của V34b).
   dub_worker:
     profiles: ["dub-poc"]
     build:
@@ -100,6 +110,10 @@ services:
       - control_server/.env
     environment:
       CONTROL_SERVER_URL: http://control_server:3001
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
     volumes:
       - voxdub-dub-jobs:/data/dub-jobs
 
