@@ -68,6 +68,8 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V36 | Nâng cấp gán giọng theo người nói — round-robin → theo pitch thật (Phase G, chủ dự án yêu cầu 2026-08-14) | ✅ Xong | `autodub/speech/diarization_voice_match.py` (mới, thuần numpy — autocorrelation ước lượng F0/pitch, KHÔNG model AI) + `voice_assign.py::assign_voices_by_gender()` nối vào `pipeline.py::_apply_diarization()`: người nói ước lượng được giới tính (145Hz/175Hz, có khoảng trống cố ý ở giữa cho vùng không chắc) nhận giọng cùng giới tính, người không chắc rơi về round-robin gốc (không đoán liều). Audit lúc code sửa 1 giả định sai trong chính mini-spec (wav không có sẵn như đã viết — thêm `load_wav_mono()` đọc file) + phát hiện bug thật trong test cũ (fixture `_FakeVoice` thiếu `gender`). 18 test mới, 0 regression (1038/1044 pass Python, 248/249 pass Node) — xem TEST_LOG |
 | V37 | Nhạc nền + hiệu ứng âm thanh AI theo nội dung video (Phase G, chủ dự án yêu cầu 2026-08-14, làm SAU V36) | ✅ Xong | SaaS-proxy y hệt pattern dịch/phân tích có sẵn: `control_server` giữ key ElevenLabs thật (`ELEVENLABS_API_KEY`, gitignored), route mới `POST /v1/ai/sound-effect`+`/music` trả audio nhị phân qua header billing `X-Credit-Charged`/`X-Balance-After`. Python: `autodub/media/music_match.py` (mới) gọi qua `saas_client.py`, lưu `data/ai_music.wav` (dùng lại nguyên `editor.resolve_existing_background()` qua `bg_mode="ai_music"` mới — KHÔNG viết lại logic mixing/ducking) và `data/sfx_<name>.wav` (chèn bằng ffmpeg overlay điểm-thời-gian riêng, không qua `merge_segments`). Phát hiện điểm nhấn (`emphasis_points.py`, mới) dùng heuristic rẻ có sẵn (dấu câu !/?+khoảng lặng transcript) — **PySceneDetect (Scope B gốc) CHƯA làm, để dành** (xem Remaining Limits). GUI: khối "Nhạc nền & hiệu ứng âm thanh AI" gộp chung mục "Nhạc nền" của Editor — sinh → nghe thử bằng trình phát hệ thống → mới cho áp dụng (Constraint 5), không tự động chèn. Bug thật tìm+sửa khi wiring: `_save_audio_response()` quên gọi `_note_usage()` nên thanh Vox đầu app không tự cập nhật sau khi sinh nhạc/SFX (đã sửa). Live-verify THẬT với key ElevenLabs thật do chủ dự án cấp (2026-08-14): gọi Sound Effects thật, 17.180 byte MP3 trong 1.77s, convert WAV qua ffmpeg đúng 1.0s — chuỗi thật từ đầu tới cuối, không mock. Epidemic Sound Partner API vẫn là track kinh doanh riêng, chủ dự án tự theo dõi tiến độ đàm phán (ngoài phạm vi code). 67 test mới (58 Python, 9 Node), 0 regression (1096/1102 pass Python, 257/258 pass Node) — xem TEST_LOG |
 
+| V38 | CI: cổng test tự động trước phát hành + sửa `UPDATE_REPO` sai (Phase G, phát hiện thật lúc build+deploy V37 2026-08-14) | 📝 Mini-spec đã viết, chưa build | Audit thật lúc build release đầu tiên (v3.0.0, 2026-08-14): `.github/workflows/` chỉ có `release.yml` (build khi push tag `v*`) — KHÔNG có workflow nào chạy pytest/node test tự động, dù có 1096+ test Python/258+ test Node đã có sẵn. `UPDATE_REPO` trong `.env.example:157` sai (`ttthanh2044/voxdub`) trong khi mặc định đúng của code (`autodub/config.py:251`) đã là `junnyken/voxdub-studio` — `cai_dat.bat` copy y nguyên `.env.example` thành `.env` nên user cài theo đúng hướng dẫn sẽ vô tình đè giá trị đúng bằng giá trị sai, khiến tính năng tự báo bản cập nhật mới không bao giờ hoạt động — xem mini-spec đầy đủ bên dưới |
+
 ## Tổng quan phase
 
 | Phase | Mini-spec | Trọng tâm | Thời lượng ước tính (AI-compressed, 7h/ngày) |
@@ -3429,8 +3431,130 @@ Success Criteria:
   (kinh doanh) ghi trạng thái riêng, không chặn Success Criteria kỹ thuật.
 ```
 
+### V38 — CI: cổng test tự động trước phát hành + sửa `UPDATE_REPO` sai
+
+```
+V38 — Vá lỗ hổng vận hành phát hiện thật lúc build+deploy release đầu tiên (Phase G)
+
+Context:
+- 2026-08-14, ngay sau khi build+publish bản release THẬT ĐẦU TIÊN
+  (`v3.0.0`, `junnyken/voxdub-studio`) và deploy `control_server` lần đầu
+  lên production, audit lộ 2 lỗ hổng vận hành thật (không phải suy đoán):
+  1. `.github/workflows/` chỉ có `release.yml` (build khi push tag `v*`,
+     chạy trên `windows-latest`) — KHÔNG có workflow nào chạy
+     `pytest`/`node --test` tự động. 1096+ test Python và 258+ test Node
+     đã tồn tại sẵn trong repo nhưng không có cơ chế nào bắt buộc chúng
+     chạy trước khi 1 tag được đẩy lên và kích hoạt build release. Lượt
+     release `v3.0.0` vừa rồi chỉ "an toàn" vì người vận hành (phiên làm
+     việc này) tự chạy tay `pytest`/`npm test` trước khi push tag — đó là
+     thói quen, không phải cơ chế của hệ thống.
+  2. `.env.example:157` ghi `UPDATE_REPO=ttthanh2044/voxdub` — SAI, không
+     khớp repo thật. Mặc định trong code (`autodub/config.py:251`) đã
+     ĐÚNG là `junnyken/voxdub-studio` từ trước, nhưng `cai_dat.bat` copy y
+     nguyên `.env.example` thành `.env` thật (đúng quy trình cài đặt
+     README mục 1) — nên người dùng cài theo đúng hướng dẫn sẽ VÔ TÌNH ghi
+     đè giá trị đúng bằng giá trị sai. Hệ quả: `autodub/updates.py` (kiểm
+     tra bản mới qua GitHub Releases API) sẽ luôn hỏi nhầm repo, tính năng
+     tự báo có bản cập nhật mới không bao giờ hoạt động cho ai cài theo
+     hướng dẫn chính thức.
+- Cả 2 đều là lỗi CƠ CHẾ/CẤU HÌNH thuần, không cần quyết định kinh
+  doanh/hạ tầng nào — khác các mini-spec trước cần chủ dự án duyệt giá
+  (V34b/V37) hay đàm phán đối tác (V37 Epidemic Sound).
+
+Goal:
+- Mọi commit đẩy lên `main` VÀ mọi tag `v*` đều tự động chạy đủ bộ test
+  (Python + Node) — build release không còn phụ thuộc vào việc người vận
+  hành có nhớ chạy tay hay không.
+- `UPDATE_REPO` mặc định đúng xuyên suốt: code, `.env.example`, và (nếu
+  có) giá trị nhúng lúc build `.exe` đều trỏ về `junnyken/voxdub-studio`.
+
+Constraints (Guardrails):
+1. Workflow test mới chạy trên `ubuntu-latest`, KHÔNG phải
+   `windows-latest` — phần lớn test (pytest headless
+   `QT_QPA_PLATFORM=offscreen`, `node --test` thuần) không phụ thuộc gì
+   Windows-specific, chạy Linux runner rẻ hơn/nhanh hơn nhiều so với phút
+   Actions Windows (giới hạn miễn phí GitHub tính phút Windows đắt gấp 2x
+   Linux). `release.yml` (build .exe thật) vẫn giữ nguyên `windows-latest`
+   — đó là bước RIÊNG, không gộp.
+2. KHÔNG cần cài Whisper/VieNeu model nặng (~1-2GB) trong CI — audit trước
+   khi build xem bộ test hiện có (1096+ Python) có bao nhiêu phần thật sự
+   cần model tải về hay đã mock đủ (kỳ vọng: gần như toàn bộ đã mock, dựa
+   trên pattern `fake_ffmpeg_ok`/mock `saas_client` xuyên suốt các mini-spec
+   trước) — nếu có phần cần model thật, tách riêng hoặc đánh dấu skip
+   trong CI (rõ ràng, không giả vờ đã test).
+3. Sửa `UPDATE_REPO` là sửa VĂN BẢN VÍ DỤ (`.env.example`), KHÔNG đụng gì
+   tới `autodub/config.py` (giá trị mặc định trong code đã đúng sẵn,
+   không cần sửa) — tránh sửa nhầm chỗ đã đúng.
+4. Không tự ý biến workflow test mới thành GATE CỨNG chặn merge (branch
+   protection rule) — đó là quyết định vận hành nhóm (ai review/approve
+   PR), CHỦ DỰ ÁN quyết định có bật branch protection hay chỉ để CI chạy
+   báo đỏ/xanh tham khảo trước.
+
+Scope:
+A. `.github/workflows/test.yml` (mới) — 2 job song song: `python-tests`
+   (setup Python 3.12, cài `requirements.txt` + deps test, chạy
+   `pytest tests/ -q` với `QT_QPA_PLATFORM=offscreen`) và `node-tests`
+   (setup Node 20, `cd control_server && npm ci && npm test`). Trigger:
+   `push` (mọi nhánh) + `pull_request` vào `main`.
+B. `.env.example:157` — sửa `UPDATE_REPO=junnyken/voxdub-studio` (khớp
+   đúng mặc định code đã có).
+C. Audit `scripts/build_exe.py`/`autodub_gui/_embedded.py` xem có nhúng
+   cứng giá trị `UPDATE_REPO` nào khác lúc build `.exe` không (khác cơ chế
+   `VOXDUB_API_URL` đã audit ở V34a) — nếu có, sửa luôn cho khớp.
+D. Tests: workflow tự nó là bằng chứng — chạy thật qua GitHub Actions ít
+   nhất 1 lần (push thử), xác nhận cả 2 job pass với đúng bộ test hiện có,
+   không phải test giả/rỗng.
+
+Audit Before Build:
+- Cần đọc `scripts/build_exe.py` xác nhận `UPDATE_REPO` không bị nhúng
+  cứng ở đâu khác ngoài `.env.example` (Scope C).
+- Cần xác nhận bộ test Python hiện tại (1096+) chạy được trọn vẹn trên
+  `ubuntu-latest` không cần model AI nặng tải về — audit nhanh bằng cách
+  thử chạy `pytest tests/ -q` trên môi trường sạch (không có sẵn cache
+  model) trước khi viết workflow thật.
+
+Design Choice:
+- Workflow test TÁCH RIÊNG khỏi `release.yml` (không nhúng bước test vào
+  giữa quy trình build Windows) — độc lập, chạy nhanh trên mọi push (kể cả
+  nhánh dev), không phải chỉ lúc chuẩn bị release. Đúng nguyên tắc "kiểm
+  tra sớm, kiểm tra thường xuyên" hơn là chỉ kiểm tra ngay trước khi phát
+  hành.
+
+Test Plan:
+- Chạy thử workflow qua 1 lượt push thật, xác nhận 2 job đều pass, thời
+  gian chạy hợp lý (ước tính vài phút, không cần benchmark chính xác).
+- Xác nhận `UPDATE_REPO` mới hoạt động đúng: `autodub/updates.py` gọi
+  đúng repo, tìm thấy đúng release `v3.0.0` vừa publish.
+
+Success Criteria:
+- CI test chạy tự động, thấy được kết quả (pass/fail) ngay trên GitHub mà
+  không cần ai chạy tay.
+- `UPDATE_REPO` đúng ở mọi nơi, tính năng tự báo cập nhật hoạt động thật
+  (không giả vờ) khi có release mới.
+- 0 regression: `release.yml` vẫn hoạt động y nguyên như trước.
+```
+
 ### Remaining Limits / Follow-ups của Phase G
 
+- **`control_server` production chưa có monitoring/alerting/backup** — phát
+  hiện thật lúc deploy lần đầu (2026-08-14): server + MongoDB mới lên
+  Coolify hoàn toàn chưa có (1) cảnh báo khi server down/lỗi (ngoài việc
+  tự mở Coolify UI xem tay), (2) backup tự động cho MongoDB (mất dữ liệu =
+  mất toàn bộ số dư Vox/lịch sử hold/usage log của người dùng, không có
+  đường khôi phục). Chưa viết mini-spec vì cần chủ dự án quyết định công
+  cụ/ngân sách trước (Uptime Kuma tự host? Coolify's built-in backup
+  scheduler? dịch vụ ngoài trả phí?) — đây là quyết định hạ tầng/kinh
+  doanh, không phải kỹ thuật thuần, đúng nguyên tắc xuyên suốt Phase G.
+- **Quy trình deploy `control_server` chưa được viết thành tài liệu/script
+  lặp lại được** — lần deploy đầu tiên (2026-08-14) làm hoàn toàn thủ công
+  qua gọi API Coolify trực tiếp, gặp nhiều lỗi thật giữa chừng (token
+  thiếu quyền `workflow`, domain/build_pack phải PATCH tách 2 lần do thứ
+  tự validate của Coolify, biến môi trường bị nhân đôi qua endpoint
+  `envs/bulk`, DNS domain tuỳ chỉnh trỏ sai IP). Nên viết lại thành 1
+  script/tài liệu runbook chuẩn (README riêng trong `control_server/`) để
+  lần cập nhật hạ tầng tiếp theo không phải dò lại từ đầu — chưa làm vì ưu
+  tiên thấp hơn V38 (V38 là lỗ hổng ảnh hưởng MỌI lượt phát hành, việc này
+  chỉ ảnh hưởng lúc thay đổi hạ tầng, hiếm hơn).
 - **Multi-user collaborative workspace** — TRỰC TIẾP mâu thuẫn với guardrail
   "không có tài khoản người dùng theo thiết kế" (V10 Guardrail 2) — không spec
   ở đợt này, cần chủ dự án quyết định có muốn lật lại guardrail đó không trước
