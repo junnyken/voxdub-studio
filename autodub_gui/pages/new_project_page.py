@@ -1016,8 +1016,9 @@ class NewProjectPage(BasePage):
             "Video đang chờ bản dịch tiếng Việt. Bấm Mở hướng dẫn dịch rồi làm "
             "theo ba bước, mất khoảng hai đến ba phút. Lưu bản dịch xong thì "
             "quay lại đây bấm Đã dịch xong, tiếp tục.\n\n"
-            "Mẹo: điền API Key Gemini miễn phí trong Cài đặt để ứng dụng tự "
-            "dịch, khỏi làm tay.\n\n"
+            "Mẹo: bật công tắc \"Dịch tự động\" trong Cài đặt (thẻ Dịch "
+            "thuật) để dự án sau tự động chọn dịch qua máy chủ, khỏi phải "
+            "tích tay mỗi lần.\n\n"
             f"Thư mục dự án: {result.work_dir}")
         self.pending_banner.setVisible(True)
 
