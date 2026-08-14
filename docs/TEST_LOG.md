@@ -4598,6 +4598,32 @@ chưa có số liệu thật trong PoC này.
 - Bump `APP_VERSION` (`autodub_gui/app.py`) từ `"3.0.0"` lên `"3.0.1"` —
   tag `v3.0.0` đã dùng cho lượt build fail, tạo tag mới `v3.0.1` cho lượt
   build lại sau khi sửa (không ghi đè/xoá tag cũ).
+- **Bug thật thứ 2 tìm+sửa lúc verify `test.yml` thật lần đầu**:
+  `ubuntu-latest` trần trụi thiếu `libEGL.so.1` (và các thư viện Qt hệ
+  thống khác) — PySide6 cần chúng ngay cả ở chế độ offscreen. 9 file test
+  liên quan Qt lỗi ngay ở bước IMPORT (không chạy được test nào bên
+  trong). Sửa: thêm bước `apt-get install` các gói
+  `libegl1 libgl1 libxkbcommon0 libdbus-1-3 libxcb-*` trước khi chạy pytest.
+- **Bug thật thứ 3, phát hiện SAU KHI sửa xong bug #2** (lượt chạy thật kế
+  tiếp): 6 test gọi `ffmpeg` thật qua subprocess (không phải toàn bộ test
+  đều mock như audit ban đầu giả định) — `ubuntu-latest` không có sẵn
+  `ffmpeg`. Sửa: thêm `ffmpeg` vào cùng bước `apt-get install`.
+- **Cả 2 lượt sửa trên đều được XÁC NHẬN THẬT qua chạy lại Actions**, không
+  suy đoán: lượt cuối cùng (`https://github.com/junnyken/voxdub-studio/
+  actions/runs/31801735986`) cả 2 job `python-tests`/`node-tests` đều
+  `conclusion: success`. Bản release `v3.0.1` (`https://github.com/
+  junnyken/voxdub-studio/actions/runs/31801445637`) cũng `success`, sinh
+  ra file thật `VoxDub-Studio-v3.0.1-win64.zip` (75.2MB) tại
+  `https://github.com/junnyken/voxdub-studio/releases/tag/v3.0.1` — đây
+  là bản release ĐẦU TIÊN trong lịch sử repo có file tải về thật (trang
+  Releases trước đó luôn trống, nút Tải xuống trên website dẫn tới trang
+  rỗng).
+- Bài học audit: bước "Audit Before Build" ban đầu chỉ xác nhận qua
+  `.venv-test` sẵn có trong sandbox — sandbox đó CŨNG đã cài sẵn hệ thống
+  lib Qt + ffmpeg (khác `ubuntu-latest` trần trụi), nên audit "đã pass
+  local" không đủ để kết luận "sẽ pass trên CI sạch". Phải chạy thật trên
+  đúng loại runner CI dùng mới phát hiện được 2 bug trên — đúng nguyên tắc
+  live-verify xuyên suốt dự án, không dừng ở suy luận.
 
 ### Remaining Limits (V38)
 
