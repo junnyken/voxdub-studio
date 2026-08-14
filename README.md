@@ -344,7 +344,7 @@ py -m pytest -q
 py scripts/build_exe.py
 ```
 
-Góp ý và báo lỗi: <https://github.com/ttthanh2044/voxdub/issues>
+Góp ý và báo lỗi: <https://github.com/junnyken/voxdub-studio/issues>
 
 ---
 

@@ -250,7 +250,7 @@ class Settings:
     # Kho GitHub chứa bản phát hành (dạng "chủ/kho") — dùng để báo bản mới.
     update_repo: str = "junnyken/voxdub-studio"
     # Đường dẫn biểu mẫu nhận báo lỗi và góp ý từ người dùng.
-    support_url: str = "https://github.com/ttthanh2044/voxdub/issues"
+    support_url: str = "https://github.com/junnyken/voxdub-studio/issues"
 
     # Liên kết video mặc định (dùng khi giao diện/chạy hàng loạt không đưa nguồn)
     video_url: str = ""
@@ -446,7 +446,7 @@ class Settings:
             update_repo=env("UPDATE_REPO",
                             "junnyken/voxdub-studio").strip(),
             support_url=env("SUPPORT_URL",
-                            "https://github.com/ttthanh2044/voxdub/issues").strip(),
+                            "https://github.com/junnyken/voxdub-studio/issues").strip(),
             video_url=env("VIDEO_URL"),
             generate_metadata=env("GENERATE_METADATA", "true").strip().lower()
                               not in ("0", "false", "no"),

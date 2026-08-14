@@ -4510,3 +4510,86 @@ chưa có số liệu thật trong PoC này.
 - **Nhạc nền AI (`ai_music`) loại trừ lẫn nhau với `demucs`/`duck`** — đúng
   Design Choice, người dùng chỉ chọn được 1 `bg_mode` tại 1 thời điểm,
   không lớp chồng nhạc AI lên nhạc nền gốc đã tách.
+
+## V38 — CI: cổng test tự động trước phát hành + sửa `UPDATE_REPO` sai (Phase G)
+
+### Audit trước khi build
+
+- Xác nhận `.github/workflows/` chỉ có `release.yml` (build khi push tag
+  `v*`, `windows-latest`) — không có workflow test nào, dù có sẵn
+  1096+ test Python/258+ test Node.
+- Đọc `scripts/build_exe.py`/`autodub_gui/_embedded.py`: chỉ nhúng
+  `VOXDUB_API_URL` lúc build exe, KHÔNG nhúng `UPDATE_REPO`/`SUPPORT_URL`
+  — 2 giá trị này chỉ đọc từ `.env`/mặc định code, không có chỗ nào khác
+  cần sửa cho bản đóng gói.
+- Kiểm tra `autodub/config.py` phát hiện SÂU HƠN mini-spec ban đầu tưởng:
+  không chỉ `.env.example` sai — dòng 253 (dataclass field default của
+  `support_url`) và `README.md:347` (link "Góp ý và báo lỗi") CŨNG đang
+  trỏ về repo cũ `ttthanh2044/voxdub`. Sửa cả 4 chỗ (`.env.example` ×2,
+  `config.py` field default + `env()` fallback, `README.md`), không chỉ 1
+  chỗ như Scope B mini-spec ghi ban đầu.
+- Phát hiện thêm 1 bug KHÔNG sửa (ngoài phạm vi V38): `autodub/speech/tts/
+  voice_downloader.py:34` — `VOICES_RELEASE_URL` trỏ tới file
+  `preset_voices_vn.zip` ở release `voices-v1.0.0` của
+  `ttthanh2044/voxdub`. Kiểm tra thật (curl) xác nhận URL đó **404** — file
+  chưa từng tồn tại. Đổi tên repo trong URL không sửa được gì (vẫn 404 ở
+  repo mới vì asset chưa từng được publish ở đâu cả) — cần publish 1
+  release riêng (`voices-v1.0.0`) kèm file thật trước, đây là việc publish
+  nội dung, không phải sửa code, ngoài phạm vi V38. Xem Remaining Limits.
+- Audit `.venv-test` (môi trường đã chạy 1096+/1102 pass xuyên suốt phiên
+  làm việc) xác nhận KHÔNG cài `demucs`/`soundfile`/`audioop-lts` mà test
+  suite vẫn pass đầy đủ — dùng làm căn cứ loại 2 gói nặng (`demucs` kéo
+  theo `torch`) khỏi bước cài dependency của CI, tránh tải chậm/dễ flaky.
+
+### Xây dựng
+
+- `.github/workflows/test.yml` (mới) — 2 job song song trên
+  `ubuntu-latest` (KHÔNG dùng `windows-latest` như `release.yml` — phút
+  Actions Linux rẻ/nhanh hơn, test không phụ thuộc Windows-specific):
+  - `python-tests`: cài dependency từ `requirements.txt` đã lọc bỏ
+    `demucs`/`soundfile` (`grep -viE`), chạy `pytest tests/ -q` với
+    `QT_QPA_PLATFORM=offscreen`.
+  - `node-tests`: `npm ci` + `npm test` trong `control_server/`.
+  - Trigger: mọi `push` (mọi nhánh) + `pull_request` vào `main`. KHÔNG bật
+    branch protection/gate cứng (Constraint 4) — chỉ báo pass/fail rõ
+    ràng trên GitHub, chủ dự án tự quyết định có bật gate sau.
+- `.env.example` — sửa `UPDATE_REPO=junnyken/voxdub-studio` (dòng 157) và
+  `SUPPORT_URL=https://github.com/junnyken/voxdub-studio/issues` (dòng
+  159, phát hiện thêm lúc audit).
+- `autodub/config.py` — sửa `support_url` ở CẢ 2 chỗ: dataclass field
+  default (dòng 253) và `env("SUPPORT_URL", ...)` fallback (dòng 449).
+  `update_repo` (dòng 251/446) đã đúng sẵn từ trước, không đụng.
+- `README.md:347` — sửa link "Góp ý và báo lỗi" khớp repo thật.
+
+### Verify
+
+- `pytest tests/ -q` (dùng đúng `.venv-test`, tương đương môi trường CI sẽ
+  cài): **1096 passed, 6 skipped, 0 failed** — 0 regression sau khi sửa
+  `config.py`/`.env.example`.
+- `node --test` (`control_server`): **258 tests, 257 pass, 1 skipped, 0
+  failed** — không đổi (V38 không chạm code `control_server`).
+- Grep xác nhận không còn `ttthanh2044` sót lại ở bất kỳ chỗ nào thuộc
+  phạm vi V38 (`.py`/`.js`/`.md`/`.example`), trừ đúng
+  `voice_downloader.py` (đã xác nhận ngoài phạm vi, xem Audit) và chính
+  văn bản mô tả mini-spec V38 trong `docs/PLAN.md` (ghi nhận lịch sử, giữ
+  nguyên có chủ đích).
+- Grep xác nhận không có test nào assert theo giá trị `support_url`/
+  `update_repo` cũ — không cần sửa test nào.
+- **CHƯA verify workflow chạy thật qua GitHub Actions** tại thời điểm ghi
+  log này — sẽ verify ngay sau khi push (Success Criteria của mini-spec
+  yêu cầu chạy thật ít nhất 1 lần, không chỉ đọc YAML hợp lệ).
+
+### Remaining Limits (V38)
+
+- **`voice_downloader.py`'s `VOICES_RELEASE_URL` vẫn trỏ tới asset chưa
+  tồn tại** (404 ở cả 2 repo) — cần publish 1 release `voices-v1.0.0` thật
+  kèm `preset_voices_vn.zip` trước khi tính năng tải giọng đọc dự phòng
+  (khi thư mục `voices/` trống) hoạt động được. Ngoài phạm vi V38 (publish
+  nội dung, không phải sửa code) — chủ dự án cần quyết định có build/đóng
+  gói file đó không.
+- **Chưa bật gate cứng (branch protection)** — đúng Constraint 4, workflow
+  hiện chỉ báo pass/fail tham khảo, chưa chặn merge PR nào cả. Chủ dự án
+  quyết định có bật không.
+- **Monitoring/backup `control_server` production + runbook deploy** — đã
+  ghi ở Remaining Limits của Phase G (`docs/PLAN.md`), không lặp lại ở
+  đây, chưa thuộc phạm vi V38.

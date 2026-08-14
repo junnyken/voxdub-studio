@@ -1,0 +1,58 @@
+name: Test (Python + Node)
+
+# Mini-spec V38 (docs/PLAN.md) — cổng kiểm tra tự động, TÁCH RIÊNG khỏi
+# release.yml (build .exe thật trên Windows). Chạy trên MỌI push và mọi PR
+# vào main, không chỉ lúc chuẩn bị phát hành — kiểm tra sớm, kiểm tra
+# thường xuyên. Không tự bật branch protection (gate cứng) — đó là quyết
+# định của chủ dự án, workflow này chỉ báo pass/fail rõ ràng.
+
+on:
+  push: {}
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-tests:
+    # ubuntu-latest, không phải windows-latest (release.yml) — phần lớn
+    # test không phụ thuộc Windows-specific, phút Actions Linux rẻ/nhanh
+    # hơn nhiều so với Windows.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Loại demucs/soundfile — nặng (kéo theo torch), không cần cho test
+      # suite hiện có (xem docs/PLAN.md V38 Audit Before Build: đã xác
+      # nhận .venv-test không có 2 gói này mà vẫn 1096+/1102 pass).
+      - name: Cài dependencies
+        run: |
+          python -m pip install --upgrade pip
+          grep -viE '^demucs|^soundfile' requirements.txt > /tmp/requirements-ci.txt
+          pip install -r /tmp/requirements-ci.txt
+
+      - name: Chạy pytest (headless, không màn hình)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pytest tests/ -q
+
+  node-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: control_server/package-lock.json
+
+      - name: Cài dependencies
+        working-directory: control_server
+        run: npm ci
+
+      - name: Chạy test
+        working-directory: control_server
+        run: npm test
