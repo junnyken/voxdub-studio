@@ -3536,25 +3536,25 @@ Success Criteria:
 
 ### Remaining Limits / Follow-ups của Phase G
 
-- **`control_server` production chưa có monitoring/alerting/backup** — phát
-  hiện thật lúc deploy lần đầu (2026-08-14): server + MongoDB mới lên
-  Coolify hoàn toàn chưa có (1) cảnh báo khi server down/lỗi (ngoài việc
-  tự mở Coolify UI xem tay), (2) backup tự động cho MongoDB (mất dữ liệu =
-  mất toàn bộ số dư Vox/lịch sử hold/usage log của người dùng, không có
-  đường khôi phục). Chưa viết mini-spec vì cần chủ dự án quyết định công
-  cụ/ngân sách trước (Uptime Kuma tự host? Coolify's built-in backup
-  scheduler? dịch vụ ngoài trả phí?) — đây là quyết định hạ tầng/kinh
-  doanh, không phải kỹ thuật thuần, đúng nguyên tắc xuyên suốt Phase G.
-- **Quy trình deploy `control_server` chưa được viết thành tài liệu/script
-  lặp lại được** — lần deploy đầu tiên (2026-08-14) làm hoàn toàn thủ công
-  qua gọi API Coolify trực tiếp, gặp nhiều lỗi thật giữa chừng (token
-  thiếu quyền `workflow`, domain/build_pack phải PATCH tách 2 lần do thứ
-  tự validate của Coolify, biến môi trường bị nhân đôi qua endpoint
-  `envs/bulk`, DNS domain tuỳ chỉnh trỏ sai IP). Nên viết lại thành 1
-  script/tài liệu runbook chuẩn (README riêng trong `control_server/`) để
-  lần cập nhật hạ tầng tiếp theo không phải dò lại từ đầu — chưa làm vì ưu
-  tiên thấp hơn V38 (V38 là lỗ hổng ảnh hưởng MỌI lượt phát hành, việc này
-  chỉ ảnh hưởng lúc thay đổi hạ tầng, hiếm hơn).
+- **[ĐÃ XONG 2026-08-15] `control_server` production monitoring/backup cơ
+  bản** — bật `health_check_enabled` đúng path `/health` (mặc định Coolify
+  để tắt, trỏ `/`) — Coolify's Sentinel (đã bật sẵn cấp server) giờ có tín
+  hiệu healthy/unhealthy chính xác. Backup MongoDB hàng ngày (3h sáng, lưu
+  local trên server, giữ 14 bản/30 ngày) — live-verify thật bằng cách đổi
+  lịch chạy thử mỗi 2 phút, xác nhận 2 lượt `status: success` với file thật
+  trên đĩa, rồi đặt lại lịch thật. **Giới hạn còn lại có chủ đích**: backup
+  chỉ lưu CÙNG server với database (bảo vệ khỏi lỗi DB/xoá nhầm, KHÔNG bảo
+  vệ khỏi mất cả server) — nâng cấp lên backup ngoài (S3) cần credential
+  bên ngoài, đây là quyết định hạ tầng/ngân sách của chủ dự án, chưa làm.
+  Cảnh báo chủ động (Telegram/email khi server down) không tìm được endpoint
+  API công khai của Coolify để cấu hình — có thể chỉ làm được qua UI, chưa
+  xác nhận.
+- **[ĐÃ XONG 2026-08-15] Runbook deploy `control_server`** —
+  `control_server/docs/DEPLOY_RUNBOOK.md` (mới), ghi lại đầy đủ quy trình
+  thật + mọi lỗi thật đã gặp lúc deploy lần đầu (token thiếu quyền
+  `workflow`, domain/build_pack phải PATCH tách 2 lần, biến môi trường bị
+  nhân đôi qua `envs/bulk`, DNS domain tuỳ chỉnh trỏ sai IP, thiếu seed nhà
+  cung cấp AI dịch). Link từ `control_server/README.md`.
 - **Multi-user collaborative workspace** — TRỰC TIẾP mâu thuẫn với guardrail
   "không có tài khoản người dùng theo thiết kế" (V10 Guardrail 2) — không spec
   ở đợt này, cần chủ dự án quyết định có muốn lật lại guardrail đó không trước

@@ -209,6 +209,13 @@ Sửa qua `PUT /v1/admin/config/:key`, có hiệu lực trong vòng 60 giây
 
 ## Vận hành
 
+### Deploy production (Coolify)
+
+Xem [`docs/DEPLOY_RUNBOOK.md`](docs/DEPLOY_RUNBOOK.md) — quy trình đầy đủ,
+kèm các lỗi thật đã gặp lúc deploy lần đầu (domain/build_pack, biến môi
+trường bị nhân đôi, thiếu nhà cung cấp AI dịch...). Đọc trước khi deploy
+lại/dựng server mới, tránh dò lại từ đầu.
+
 ### Tiền vào mà không có key?
 
 Với PayOS, đơn khớp tự động theo mã số — không còn cảnh ghi sai nội dung
