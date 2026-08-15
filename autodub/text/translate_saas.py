@@ -52,6 +52,17 @@ _BACKOFF_S = (2.0, 6.0, 15.0)
 _RATE_LIMIT = 30
 _RATE_WINDOW_S = 60.0
 
+#: Mini-spec V39 (docs/PLAN.md) — trần chờ lô LIỀN TRƯỚC xong trước khi lô
+#: này tính prev_context, để có bản dịch tiếng Việt thật thay vì luôn rỗng
+#: (race condition thật: nộp hết batch vào ThreadPoolExecutor gần như đồng
+#: thời khiến lô sau hầu như luôn tính prev_context trước khi lô trước kịp
+#: có phản hồi mạng). ~8s dựa độ trễ 1 lô dịch quan sát được thật trong
+#: phiên audit (2-4s bình thường, có dư cho dao động) — ĐỀ XUẤT, có thể
+#: tinh chỉnh khi có số liệu nhiều video hơn. Hết hạn thì lô này tự chạy
+#: tiếp với prev_context hiện có (câu gốc, có thể thiếu bản dịch) — đúng
+#: hành vi graceful-degrade sẵn có, không phải lỗi mới (Constraint 3).
+_PREV_BATCH_WAIT_S = 8.0
+
 
 class _RateLimiter:
     """Chặn nhịp gửi cho CẢ tiến trình, không phải cho từng luồng.
@@ -239,6 +250,12 @@ def translate_segments(
     # khác dừng ngay thay vì đâm đầu vào cùng một bức tường.
     out_of_credit: list[InsufficientCreditError] = []
     stop = threading.Event()
+    # Mini-spec V39 — điền dần khi nộp batch (không phải 1 list-comprehension
+    # nộp hết cùng lúc), để _run_batch(i, ...) với i>0 tra được futures[i-1]
+    # (lô liền trước) — futures[i-1] LUÔN đã có mặt trong list trước khi lô i
+    # được nộp, vì vòng lặp nộp batch chạy tuần tự trên luồng chính (xem
+    # vòng lặp "for i, b in enumerate(batches)" bên dưới).
+    futures: list = []
 
     def _run_batch(index: int, batch: list[dict]) -> list[dict]:
         cached = checkpoint.take(batch)
@@ -246,6 +263,17 @@ def translate_segments(
             return cached
         if stop.is_set():
             raise out_of_credit[0]
+
+        # Mini-spec V39 — đợi CÓ TRẦN lô liền trước xong, để prev_context
+        # (dưới) đọc được bản dịch tiếng Việt thật thay vì luôn rỗng do race
+        # condition (mọi lô được nộp gần như đồng thời). Lô trước lỗi/quá
+        # chậm/bị hủy: bỏ qua, chạy tiếp với prev_context hiện có — không
+        # chặn lô này vô thời hạn (Constraint 2/3 của V39).
+        if index > 0:
+            try:
+                futures[index - 1].result(timeout=_PREV_BATCH_WAIT_S)
+            except Exception:  # noqa: BLE001 — timeout hay lô trước lỗi đều bỏ qua như nhau
+                pass
 
         payload = [_payload_segment(s, cps) for s in batch]
         # job_id băm theo NỘI DUNG lô nên gửi lại đúng lô đó là idempotent:
@@ -289,6 +317,20 @@ def translate_segments(
 
         merged = _merge(batch, data.get("segments") or [], target.text_field)
         checkpoint.put(merged)
+        # Mini-spec V39 — ghi ngược bản dịch vào ĐÚNG dict gốc trong `batch`
+        # (chia sẻ chung object với `segments`/`all_segments`, không phải
+        # bản sao) để `_prev_context()` của lô SAU đọc được bản dịch thật.
+        # `_merge()` CỐ Ý không mutate (giữ nguyên `test_merge_does_not_
+        # mutate_source`) nên làm riêng ở đây, không đụng vào `_merge()`.
+        for original, done in zip(batch, merged):
+            original[target.text_field] = done[target.text_field]
+            # Phản ánh ĐÚNG kết quả lượt này — không để "tone" sót lại từ
+            # 1 lượt translate_segments() trước đó (nếu segment bị dùng
+            # lại) khi lượt này không có/không bật emotion_tone.
+            if "tone" in done:
+                original["tone"] = done["tone"]
+            else:
+                original.pop("tone", None)
         return merged
 
     from concurrent.futures import ThreadPoolExecutor
@@ -296,7 +338,11 @@ def translate_segments(
     done = 0
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
-        futures = [pool.submit(_run_batch, i, b) for i, b in enumerate(batches)]
+        # Mini-spec V39 — nộp TUẦN TỰ (futures.append trước khi nộp lô kế
+        # tiếp), không phải list-comprehension nộp hết cùng lúc — xem lý do
+        # ở khai báo `futures = []`/logic chờ trong `_run_batch` phía trên.
+        for i, b in enumerate(batches):
+            futures.append(pool.submit(_run_batch, i, b))
         results: list[list[dict]] = []
         for i, fut in enumerate(futures):
             if reporter is not None:

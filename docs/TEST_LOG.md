@@ -4701,3 +4701,75 @@ chưa có số liệu thật trong PoC này.
   lần trong quá trình dựng server ban đầu), provider này sẽ mất và cần cấu
   hình lại. Không có gì trong `docker-compose.yml`/`release.yml` tự động
   seed lại provider này.
+
+## V39 — Sửa race condition ngữ cảnh câu trước khi dịch song song nhiều lô (Phase G)
+
+### Audit trước khi build
+
+- Đã audit đủ 4 mảng chủ dự án yêu cầu ("nâng độ tự nhiên bản dịch, khớp
+  thời gian, chất lượng giọng đọc/cảm xúc, nhạc nền AI") — 3/4 đã khá hoàn
+  thiện (chi tiết ở mini-spec, `docs/PLAN.md`). Tìm ra 1 bug thật đúng vào
+  ưu tiên #1: `translate_saas.py::translate_segments()` nộp tất cả lô vào
+  `ThreadPoolExecutor` gần như đồng thời, `_prev_context()` tính NGAY lúc
+  dựng payload — trước khi lô trước kịp có phản hồi mạng.
+- **Audit lúc code phát hiện bug SÂU HƠN mini-spec ban đầu chẩn đoán**: kể
+  cả sửa đúng thời điểm (đợi lô trước xong), `_prev_context()` VẪN không
+  thấy được bản dịch, vì `_merge()` tạo dict MỚI (`{**seg, text_field:
+  text}`) thay vì mutate `seg` gốc — segment gốc trong `all_segments` không
+  bao giờ được cập nhật bản dịch, bất kể thời điểm gọi. Xác nhận qua
+  `tests/test_saas_client.py::test_merge_does_not_mutate_source` — đây là
+  invariant CỐ Ý, có test khoá lại, không được sửa `_merge()`.
+
+### Xây dựng
+
+- `autodub/text/translate_saas.py`:
+  - Hằng số `_PREV_BATCH_WAIT_S = 8.0` (trần chờ lô liền trước).
+  - `translate_segments()` — đổi nộp batch từ 1 list-comprehension
+    (`[pool.submit(...) for ...]`) sang vòng lặp điền dần vào `futures`
+    (khai báo trước `_run_batch`) — để `_run_batch(i, ...)` với `i>0` tra
+    được `futures[i-1]` (lô liền trước).
+  - `_run_batch()` — trước khi build payload: nếu `index>0`, gọi
+    `futures[index-1].result(timeout=_PREV_BATCH_WAIT_S)`, bọc mọi lỗi
+    (timeout hay lô trước lỗi thật) rồi bỏ qua — không chặn vô hạn.
+  - `_run_batch()` — SAU khi `_merge()` (giữ `_merge()` thuần túy như cũ,
+    không đụng invariant có test khoá): thêm bước ghi ngược
+    `original[target.text_field] = done[target.text_field]` (và
+    `tone`, có `pop` khi vắng để không để sót giá trị cũ) vào ĐÚNG dict
+    trong `batch` — chia sẻ chung object với `segments`/`all_segments`
+    nên `_prev_context()` của lô SAU đọc được ngay.
+- `tests/test_translate_prev_context_race.py` (mới, 3 test) — dùng
+  `FakeClient` mô phỏng độ trễ có kiểm soát (`time.sleep` ngắn, không
+  `threading.Event` treo vô hạn — test không bao giờ bị treo thật).
+
+### Verify
+
+- 3 test mới đều pass, xác nhận đúng 3 hành vi mini-spec yêu cầu: (a) lô
+  trước xong nhanh → lô sau nhận bản dịch thật trong `prev_context`, (b)
+  lô trước chậm hơn trần → lô sau KHÔNG treo vô hạn, tự chạy tiếp với
+  `prev_context` không có bản dịch (đúng graceful-degrade), tổng thời gian
+  vẫn ngắn (xác nhận thật sự chạy song song, không bị serialize hoàn
+  toàn), (c) video 1 lô — 0 regression, `prev_context` rỗng y hệt trước.
+- **Bug thật thứ 2 tìm+sửa lúc verify**: fix ban đầu làm lộ ra
+  `tests/test_translate_saas_emotion_tone.py` dùng chung 1 list `SEGMENTS`
+  module-level MUTABLE giữa nhiều hàm test (không copy) — an toàn trước
+  đây vì không có gì mutate, giờ lộ ra vì thao tác ghi ngược (Scope B) hợp
+  lệ khiến "tone" từ 1 lượt test TRƯỚC còn sót lại, lộ ra ở lượt test SAU
+  (`test_translate_segments_no_tone_field_when_server_omits_it` fail vì
+  thấy `tone` không nên có). Sửa 2 lớp: (1) code production —
+  `original.pop("tone", None)` khi lượt này không có tone (phản ánh ĐÚNG
+  kết quả lượt hiện tại, không để sót dữ liệu cũ), (2) sửa test theo đúng
+  convention đã có sẵn trong `test_translate_retry.py`
+  (`[dict(s) for s in SEGMENTS]`, không truyền thẳng list dùng chung).
+- `pytest tests/test_saas_client.py tests/test_translate_saas_emotion_tone.py
+  tests/test_translate_local.py tests/test_translate_target_lang.py
+  tests/test_translate_retry.py tests/test_translate_review_trace.py
+  tests/test_translate_prev_context_race.py -q`: **66 passed, 2 skipped, 0
+  failed**.
+- `pytest tests/ -q` (toàn bộ suite): **1101 passed, 6 skipped, 0 failed**
+  (1098→1101, 3 test mới, 0 regression).
+- **Giới hạn còn lại**: chưa live-verify trên video thật ≥2 lô (>40 câu)
+  qua server thật — test dùng `FakeClient`, không gọi mạng thật (đúng quy
+  ước dự án: mock cho unit/integration, live-verify riêng khi cần xác nhận
+  hành vi thật). Trần `_PREV_BATCH_WAIT_S=8.0` là đề xuất kỹ thuật dựa độ
+  trễ quan sát được (2-4s/lô) trong phiên audit — chưa có số liệu từ nhiều
+  video thật dài hơn để tinh chỉnh.

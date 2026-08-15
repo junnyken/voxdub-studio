@@ -47,7 +47,7 @@ def test_translate_segments_sends_emotion_tone_false_by_default(monkeypatch):
 
     settings = Settings()
     assert settings.emotion_voice_enabled is False
-    translate_saas.translate_segments(SEGMENTS, get_target("vi"), "zh-CN", settings)
+    translate_saas.translate_segments([dict(s) for s in SEGMENTS], get_target("vi"), "zh-CN", settings)
 
     _, kwargs = fake_client.translate.call_args
     assert kwargs["emotion_tone"] is False
@@ -61,7 +61,7 @@ def test_translate_segments_sends_emotion_tone_true_when_setting_enabled(monkeyp
     monkeypatch.setattr(translate_saas, "get_client", lambda: fake_client)
 
     settings = dataclasses.replace(Settings(), emotion_voice_enabled=True)
-    translate_saas.translate_segments(SEGMENTS, get_target("vi"), "zh-CN", settings)
+    translate_saas.translate_segments([dict(s) for s in SEGMENTS], get_target("vi"), "zh-CN", settings)
 
     _, kwargs = fake_client.translate.call_args
     assert kwargs["emotion_tone"] is True
@@ -80,7 +80,7 @@ def test_translate_segments_carries_tone_into_result_segments(monkeypatch):
 
     settings = dataclasses.replace(Settings(), emotion_voice_enabled=True)
     result = translate_saas.translate_segments(
-        SEGMENTS, get_target("vi"), "zh-CN", settings)
+        [dict(s) for s in SEGMENTS], get_target("vi"), "zh-CN", settings)
 
     by_id = {s["id"]: s for s in result}
     assert by_id[1]["tone"] == "excited"
@@ -95,7 +95,7 @@ def test_translate_segments_no_tone_field_when_server_omits_it(monkeypatch):
     monkeypatch.setattr(translate_saas, "get_client", lambda: fake_client)
 
     result = translate_saas.translate_segments(
-        SEGMENTS, get_target("vi"), "zh-CN", Settings())
+        [dict(s) for s in SEGMENTS], get_target("vi"), "zh-CN", Settings())
 
     assert all("tone" not in s for s in result)
 

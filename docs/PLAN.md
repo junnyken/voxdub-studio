@@ -70,6 +70,8 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 
 | V38 | CI: cổng test tự động trước phát hành + sửa `UPDATE_REPO` sai (Phase G, phát hiện thật lúc build+deploy V37 2026-08-14) | ✅ Xong | Thêm `.github/workflows/test.yml` (pytest+node test, `ubuntu-latest`, mọi push/PR) tách riêng `release.yml`. Sửa `UPDATE_REPO`/`SUPPORT_URL` sai ở 4 chỗ (`.env.example` ×2, `config.py` field default + `env()` fallback, `README.md`) — sâu hơn phạm vi ban đầu tưởng. Lượt release đầu tiên trong lịch sử repo (`v3.0.0`) FAIL thật lúc build — audit lộ bug có sẵn từ trước (không liên quan V38): `_smoke_report()` bắt buộc `faster_whisper_importable=True` trong khi `autodub.spec` cố ý loại `faster_whisper`/`ctranslate2` khỏi bundle (ASR chạy qua `.venv-whisper` subprocess) — sửa bỏ khỏi tuple `required`. Verify `test.yml` thật lộ thêm 2 bug môi trường CI (thiếu `libEGL`+lib Qt hệ thống, thiếu `ffmpeg`) — cả 2 sửa xong, xác nhận qua chạy lại Actions thật, không suy đoán. Kết quả cuối: cả `test.yml` (`python-tests`+`node-tests`) và `release.yml` đều `success`, sinh ra bản release ĐẦU TIÊN thật có file tải (`VoxDub-Studio-v3.0.1-win64.zip`, 75.2MB, https://github.com/junnyken/voxdub-studio/releases/tag/v3.0.1) — trang Releases trước đó luôn trống. Follow-up 2026-08-15: `voice_downloader.py`'s `VOICES_RELEASE_URL` (404 ở cả 2 repo lúc audit V38) đã publish thật — release `voices-v1.0.0` trên `junnyken/voxdub-studio` kèm `preset_voices_vn.zip` (đóng gói từ 120 file `.wav` thật sẵn có trong repo), xác nhận `HTTP 200` + checksum khớp tuyệt đối, xem TEST_LOG. 0 regression (1096/1102 pass Python, 258/258 pass Node local + xác nhận lại trên CI thật) — xem TEST_LOG |
 
+| V39 | Sửa race condition khiến ngữ cảnh câu trước bị bỏ trống khi dịch song song nhiều lô (Phase G, chủ dự án yêu cầu nâng độ tự nhiên bản dịch 2026-08-15) | ✅ Xong | Audit thật xác nhận 3/4 mảng chủ dự án nêu đã hoàn thiện (khớp thời gian, cảm xúc V28, nhạc nền V37) — chỉ mảng "độ tự nhiên" có bug thật. `translate_segments()` nộp tất cả lô vào `ThreadPoolExecutor` gần như đồng thời, `_prev_context()` tính ngay lúc dựng payload nên gần như luôn thấy bản dịch RỖNG của lô trước. Audit lúc code lộ bug SÂU HƠN: kể cả sửa đúng thời điểm, `_merge()` tạo dict MỚI thay vì mutate — segment gốc không bao giờ được cập nhật bản dịch (có test khoá `_merge()` không được đổi). Sửa: thêm `futures` điền dần + `_run_batch` đợi CÓ TRẦN (8s) lô liền trước qua `futures[i-1].result(timeout=...)`, rồi ghi ngược bản dịch vào đúng dict gốc trong `batch` (không đụng `_merge()`). Bug thứ 2 lộ ra lúc verify: fix làm lộ 1 test dùng chung list `SEGMENTS` mutable giữa nhiều hàm test — sửa cả code (`pop` tone cũ khi lượt này không có) lẫn test (copy segment, đúng convention có sẵn). 3 test mới (`test_translate_prev_context_race.py`), 0 regression (1101/1107 pass Python) — xem TEST_LOG |
+
 ## Tổng quan phase
 
 | Phase | Mini-spec | Trọng tâm | Thời lượng ước tính (AI-compressed, 7h/ngày) |
@@ -3532,6 +3534,138 @@ Success Criteria:
 - `UPDATE_REPO` đúng ở mọi nơi, tính năng tự báo cập nhật hoạt động thật
   (không giả vờ) khi có release mới.
 - 0 regression: `release.yml` vẫn hoạt động y nguyên như trước.
+```
+
+### V39 — Sửa race condition ngữ cảnh câu trước khi dịch song song nhiều lô
+
+```
+V39 — Nâng độ tự nhiên bản dịch: sửa cơ chế giữ mạch xưng hô/thuật ngữ giữa
+các lô dịch song song, hiện gần như không hoạt động (Phase G)
+
+Context:
+- 2026-08-15, chủ dự án yêu cầu rà lại 4 mảng để "hoàn thiện việc xây dựng
+  video": (1) độ tự nhiên bản dịch — ƯU TIÊN CAO NHẤT, (2) khớp thời gian
+  đọc câu dài, (3) chất lượng giọng đọc AI/đồng bộ cảm xúc, (4) nhạc nền/SFX
+  AI tự động (V37, vừa xong).
+- Audit thật (đọc code, không suy đoán) cho cả 4 mảng:
+  1. (2) Khớp thời gian: đã có `apply_soft_timing()` (dồn trễ vào khoảng
+     lặng → nén nhẹ bất khả kháng → chấp nhận+báo cáo) + đòn bẩy toàn cục
+     `video_speed`. Lời nhắc dịch (`control_server/src/prompts/translate.js`)
+     ĐÃ gửi `max_chars` tính từ khung thời gian thật + yêu cầu model tự
+     rút gọn ngay từ lượt dịch đầu, không đợi tới bước khớp thời gian mới
+     xử lý. Đã khá đầy đủ, KHÔNG tìm thấy gap thật đáng kể.
+  2. (3) Cảm xúc: mini-spec V28 đã wiring đúng — máy chủ phân loại tone
+     từng câu (`neutral`/`excited`/`serious`) qua LLM khi bật
+     `EMOTION_VOICE_ENABLED`, `pipeline.py::_apply_emotion_styles()` ưu
+     tiên tín hiệu LLM hơn heuristic văn bản local, ánh xạ đúng sang 3
+     style giọng VieNeu thật. Công tắc có trong Cài đặt (thẻ Giọng đọc).
+     Đã hoạt động đúng, KHÔNG tìm thấy gap thật.
+  3. (4) Nhạc nền/SFX AI: V37 vừa xong, live-verify thật, không lặp lại.
+  4. (1) Độ tự nhiên bản dịch: prompt dịch (`control_server/src/prompts/
+     translate.js::buildTranslateSystemPrompt()`) RẤT chi tiết — quy tắc
+     riêng theo từng ngôn ngữ đích (trợ từ cuối câu tiếng Việt, kính ngữ
+     tiếng Nhật, đại từ nhân xưng theo ngôn ngữ...), khối "CONSISTENCY"
+     yêu cầu model tự giữ nhất quán tên riêng/thuật ngữ/xưng hô XUYÊN SUỐT
+     transcript. **Tìm ra bug thật đúng vào yêu cầu "xuyên suốt transcript"
+     này**: `autodub/text/translate_saas.py::translate_segments()` chia
+     video thành nhiều lô (`translate_batch_size`, mặc định 40 câu) rồi
+     nộp TẤT CẢ vào `ThreadPoolExecutor` gần như đồng thời
+     (`[pool.submit(_run_batch, i, b) for i, b in enumerate(batches)]`,
+     dòng ~294). Mỗi lô có gửi kèm `prev_context` (3 câu ngay trước lô,
+     kèm bản dịch tiếng Việt NẾU ĐÃ CÓ — `_prev_context()`, dòng ~188) để
+     giữ mạch — nhưng vì các lô chạy song song thật (mặc định
+     `parallel_workers` > 1), lô sau hầu như LUÔN tính `_prev_context()`
+     TRƯỚC KHI lô liền trước kịp nhận phản hồi mạng (độ trễ mạng thật quan
+     sát được trong phiên này: vài giây/lô) — trường bản dịch tiếng Việt
+     trong `prev_context` gần như luôn RỖNG cho MỌI lô từ lô thứ 2 trở đi.
+     Cơ chế "đọc câu Việt đã dịch của lô trước để giữ mạch" gần như KHÔNG
+     hoạt động đúng thiết kế — chỉ còn tác dụng thật cho video 1 lô (≤40
+     câu). Video dài hơn (nhiều lô) mất đi lớp bảo vệ liền mạch NGAY TẠI
+     ranh giới lô — đúng chỗ dễ lộ ra "câu trước câu sau lệch giọng văn"
+     nhất.
+  5. **Không phải mất hoàn toàn** — `context.pronouns`/`context.glossary`
+     (từ `analyze_transcript()`, tính 1 lần/video, không đua tranh) vẫn
+     gửi ĐẦY ĐỦ cho MỌI lô, đây là 2 lớp bảo vệ chính cho xưng hô/thuật
+     ngữ CỐ ĐỊNH. `prev_context` cũng LUÔN gửi được câu GỐC (không phải
+     bản dịch) của 3 câu trước — model vẫn đọc hiểu được mạch ý, chỉ thiếu
+     đúng CÁCH DÙNG TỪ đã chọn ở câu ngay trước. Mức độ ảnh hưởng thật là
+     "giảm độ mượt mạch văn ở ranh giới lô", không phải "dịch sai/lệch
+     nghĩa".
+
+Goal:
+- Lô dịch thứ N (N ≥ 1, đánh số từ 0) khi xây `prev_context` phải ưu tiên
+  đợi có kết quả THẬT của lô N-1 (bản dịch tiếng Việt thật, không phải
+  rỗng) trong 1 khoảng chờ CÓ GIỚI HẠN — không đợi vô thời hạn (làm chậm cả
+  lô nếu 1 lô bị treo/lỗi mạng), không phá vỡ tốc độ dịch song song cho
+  video có NHIỀU lô CÁCH XA NHAU (lô N+3 không cần đợi lô N+2 nếu bản thân
+  nó không phải lô liền sau).
+
+Constraints (Guardrails):
+1. KHÔNG chuyển toàn bộ về dịch tuần tự (workers=1) — mất hẳn lợi ích tốc
+   độ dịch song song cho video dài (bằng chứng thật: `parallel_workers`
+   mặc định >1, log thật trong phiên này cho thấy máy chạy `parallel 6`).
+   Giải pháp phải giữ được phần lớn lợi ích song song.
+2. Thời gian chờ lô liền trước PHẢI có trần cứng (vài giây, không phải vô
+   hạn) — lô trước lỗi/bị retry (đã thấy thật trong phiên này: lỗi tạm
+   thời phải thử lại tới 3 lần, mỗi lần backoff tăng dần) không được kéo
+   lô sau treo theo.
+3. Hết thời gian chờ mà lô trước vẫn chưa xong: lô sau PHẢI tự chạy tiếp
+   với `prev_context` tốt nhất đang có (câu gốc, có thể thiếu bản dịch) —
+   ĐÚNG hành vi graceful-degrade hiện có, không phải lỗi mới.
+4. Không đổi format `prev_context`/prompt gửi lên máy chủ — chỉ đổi THỜI
+   ĐIỂM lô sau tính `prev_context`, giữ nguyên toàn bộ hợp đồng API hiện
+   có (0 thay đổi phía `control_server`).
+
+Scope:
+A. `autodub/text/translate_saas.py::translate_segments()` — đổi cách nộp
+   batch vào `ThreadPoolExecutor`: giữ 1 danh sách `futures` được điền dần
+   (không phải 1 list-comprehension nộp hết cùng lúc), để `_run_batch(i,
+   batch)` với `i > 0` truy cập được `futures[i-1]` (lô liền trước, đã
+   được nộp trước đó trong cùng vòng lặp — không có vấn đề thứ tự khởi tạo
+   vì vòng lặp nộp batch chạy tuần tự trên luồng chính).
+B. Trong `_run_batch`, TRƯỚC khi build payload: nếu `i > 0`, gọi
+   `futures[i-1].result(timeout=<trần>)` — bọc `TimeoutError` (và mọi lỗi
+   khác của lô trước — lô trước lỗi thật thì không có gì để đợi thêm) rồi
+   BỎ QUA, tiếp tục với `prev_context` hiện có (dù rỗng bản dịch). Chỉ khi
+   lô trước THẬT SỰ xong trong hạn mới đọc lại `_prev_context()` (lúc này
+   `all_segments` đã được cập nhật bản dịch thật của lô trước).
+C. Trần thời gian chờ: đề xuất ~8s (dựa quan sát thật độ trễ 1 lô dịch
+   trong phiên này ~2-4s bình thường, có dư cho dao động) — ĐỀ XUẤT KỸ
+   THUẬT, chủ dự án có thể điều chỉnh, không phải số cố định tuyệt đối.
+D. Tests: mô phỏng 3 lô dịch với độ trễ giả lập khác nhau (lô 0 nhanh, lô
+   1 chậm hơn ngưỡng trần) — xác nhận (a) lô 1 chờ được lô 0 khi lô 0 xong
+   trong hạn (prev_context có bản dịch thật), (b) lô 2 KHÔNG chờ vô hạn
+   khi lô 1 vượt trần (vẫn chạy tiếp, prev_context không có bản dịch của
+   lô 1 nhưng vẫn có câu gốc), (c) 0 regression cho video 1 lô (hành vi y
+   hệt trước — không có lô nào để chờ).
+
+Audit Before Build:
+- Đã audit đủ tại Context — không cần audit thêm trước khi code, hiểu rõ
+  đúng vị trí (`translate_saas.py` dòng ~188 `_prev_context()`, ~294 nộp
+  batch) và cơ chế race.
+
+Design Choice:
+- Chờ CÓ TRẦN thay vì (a) tuần tự hoàn toàn (mất tốc độ) hay (b) không sửa
+  gì (giữ nguyên race, cơ chế prev_context gần như vô dụng cho video nhiều
+  lô) — cân bằng giữa đúng mini-spec Goal và Constraint 1/2. Đây là quyết
+  định kỹ thuật thuần (không phải giá/kinh doanh), không cần chủ dự án
+  duyệt trước khi build, nhưng trần thời gian cụ thể (Scope C) có thể tinh
+  chỉnh sau khi có số liệu thật từ nhiều video hơn.
+
+Test Plan:
+- Unit: giả lập futures với độ trễ kiểm soát được (không gọi mạng thật),
+  xác nhận đúng 3 hành vi ở Scope D.
+- Integration: chạy `translate_segments()` thật (mock `client.translate`)
+  với video giả lập >40 câu (≥2 lô), xác nhận lô thứ 2 THẬT SỰ nhận được
+  `prev_context` có bản dịch tiếng Việt của lô 1 khi lô 1 xong nhanh.
+
+Success Criteria:
+- Video nhiều lô: `prev_context` của lô N có bản dịch thật của lô N-1
+  trong đa số trường hợp bình thường (lô trước không lỗi/không quá chậm).
+- Video 1 lô: 0 regression, hành vi y hệt trước khi sửa.
+- Không tăng đáng kể tổng thời gian dịch cho trường hợp bình thường (lô
+  trước xong trong hạn thì gần như không có độ trễ thêm — thời gian chờ
+  trùng với thời gian lô đó vốn đã cần để xong).
 ```
 
 ### Remaining Limits / Follow-ups của Phase G
