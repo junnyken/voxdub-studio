@@ -4927,3 +4927,59 @@ chưa có số liệu thật trong PoC này.
   cài thật + cố tình xóa model chấm câu để tái hiện) — test dùng worker giả
   đúng giao thức, không mock `Popen` (cùng mức độ tin cậy các test watchdog
   khác trong repo).
+
+## V42 — Audit kiến trúc batch song song không người canh (Phase G)
+
+### Audit trước khi build
+
+- Đọc thật `autodub/batch.py`, `autodub/watch_folder.py`,
+  `autodub/resources.py` (`GPU_LOCK`/`FFMPEG_SLOTS`), `autodub/pipeline.py`
+  (`overlap_ok` logic dòng ~415-430, tạo work_dir dòng ~289-292),
+  `autodub/speech/transcriber.py` (`WhisperCache`), `autodub/media/
+  vocal_separator.py` (`DemucsCache`), `autodub/speech/tts/vieneu_vi.py`,
+  `control_server/worker-dub/` + `docker-compose.yml` + `dub-job.service.js`.
+- **Kết luận**: batch/watch tuần tự là thiết kế ĐÚNG cho phần cứng thật
+  (T1200 4GB VRAM, đã có bằng chứng peak 96% cho 1 workload từ V32a) —
+  chạy song song thật 2 GPU stage là rủi ro CUDA OOM, không phải "chậm hơn
+  nhưng chạy được". `worker-dub` (Docker, CPU-only, N-replica đã verify
+  atomic-safe từ V34a/V34b) đã là câu trả lời đúng cho scale thật — không
+  cần code GPU-parallelism mới trong app desktop.
+- Audit lộ 2 bug thật KHÔNG nằm trong phạm vi câu hỏi gốc (tìm được lúc đọc
+  code liên quan): work_dir trùng giây (đã sửa, xem dưới) và quota-gate đọc-
+  rồi-quyết không atomic ở `dub-job.service.js:73` (KHÔNG sửa, xem lý do).
+
+### Xây dựng
+
+- `autodub/pipeline.py::_unique_new_folder_name()` (mới, static method) —
+  vòng lặp thêm hậu tố `-2`/`-3`... khi `output_dir/base_name` đã tồn tại,
+  chỉ áp dụng cho nhánh lượt chạy MỚI (không đụng nhánh `resume_dir`).
+  Hành vi golden-path (không trùng) giữ NGUYÊN tên cũ — 0 regression.
+- `tests/test_pipeline_workdir_collision.py` (mới, 3 test).
+- **KHÔNG sửa quota-gate**: phân tích sâu hơn lúc định implement fix phát
+  hiện "atomic hóa" cái đọc `apiKey.dubMinutesUsed >= apiKey.dubMinutesQuota`
+  bằng kỹ thuật `$expr` (như `consumeQuota()` của V31 đã dùng) KHÔNG thực sự
+  đóng được gap — `dubMinutesUsed` chỉ `$inc` SAU khi job hoàn tất
+  (`chargeDubUsage()`), không có ghi đồng thời nào lúc submit để atomic bảo
+  vệ chống lại; đây không phải race trong nghĩa CAS truyền thống mà là
+  THIẾU cơ chế reservation cho usage dự kiến. Sửa đúng cần 1 hệ thống
+  hold/reserve giống `hold.service.js` đã có cho Vox credit (Device) —
+  không tồn tại cho `ApiKey.dubMinutesQuota`, xây tương đương là 1 mini-spec
+  riêng, KHÔNG phải "bug nhỏ" như đánh giá ban đầu. Giữ nguyên, ghi nhận là
+  giới hạn chấp nhận được (billing thật SAU khi job xong vẫn đúng/atomic,
+  chỉ có thể vượt nhẹ quota MỀM lúc submit nếu nhiều request đồng thời từ
+  cùng 1 API key).
+
+### Verify
+
+- `pytest tests/test_pipeline_workdir_collision.py -q`: **3 passed**.
+- `pytest tests/ -q` (toàn bộ suite Python): **1123 passed, 6 skipped, 1
+  failed** (1120→1123, đúng 3 test mới cộng dồn — 1 fail còn lại là flake
+  có sẵn từ V40, xem TEST_LOG mục V40).
+- Không đụng `control_server` (quota-gate không sửa) — không cần chạy lại
+  `npm test`.
+- **Giới hạn còn lại**: quota-gate soft-overshoot ghi nhận ở trên, chưa xây
+  hold/reserve — chờ quyết định chủ dự án nếu muốn ưu tiên (không khẩn cấp,
+  billing thật không sai). Chưa thiết kế/xây cách app desktop hoặc quy
+  trình vận hành đẩy batch job vào `worker-dub` để scale thật — đây là
+  quyết định hạ tầng/quy mô của chủ dự án, cần bàn riêng trước khi viết
+  mini-spec tiếp theo.

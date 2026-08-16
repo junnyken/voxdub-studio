@@ -288,7 +288,8 @@ class DubPipeline:
             logger.info(f"Resuming work directory: {work_dir}")
         else:
             output_dir = req.output_dir or self.default_output_dir(target)
-            folder_name = datetime.now().strftime("%Y%m%d%H%M%S") + target.folder_suffix
+            base_name = datetime.now().strftime("%Y%m%d%H%M%S") + target.folder_suffix
+            folder_name = self._unique_new_folder_name(output_dir, base_name)
             work_dir = ensure_dir(os.path.join(output_dir, folder_name))
             logger.info(f"Output folder: {work_dir}")
         # Cho caller (batch) biết lượt chạy này nằm ở thư mục nào — kể cả khi
@@ -1197,6 +1198,27 @@ class DubPipeline:
             logger.info(f"Lượt dịch này tốn {usage['vox']:,} Vox "
                         f"(còn lại {usage['balance_after']:,})")
         return result
+
+    @staticmethod
+    def _unique_new_folder_name(output_dir: str, base_name: str) -> str:
+        """Đảm bảo tên thư mục cho 1 lượt chạy MỚI (không phải resume) không
+        trùng thư mục đã tồn tại.
+
+        mini-spec V42 (docs/PLAN.md, Phase G): ``base_name`` chỉ có độ phân
+        giải tới GIÂY (``datetime.now().strftime("%Y%m%d%H%M%S")``) — 2 lượt
+        chạy MỚI khởi động cùng 1 giây trước đây sẽ vô tình trùng tên,
+        ``ensure_dir()`` (``exist_ok=True``) lặng lẽ tái dùng thư mục cũ như
+        thể đang resume, khiến 2 video khác nhau đè file lên nhau. Vô hại
+        hiện tại vì batch/watch chạy tuần tự thật (audit V42 xác nhận), vá
+        phòng hờ trước khi có bất kỳ đường chạy song song nào (kể cả 2 tiến
+        trình CLI độc lập người dùng tự khởi động cùng lúc).
+        """
+        folder_name = base_name
+        suffix = 1
+        while os.path.exists(os.path.join(output_dir, folder_name)):
+            suffix += 1
+            folder_name = f"{base_name}-{suffix}"
+        return folder_name
 
     @staticmethod
     def _load_cached_transcript(
