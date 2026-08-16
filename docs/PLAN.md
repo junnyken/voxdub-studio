@@ -72,6 +72,8 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 
 | V39 | Sửa race condition khiến ngữ cảnh câu trước bị bỏ trống khi dịch song song nhiều lô (Phase G, chủ dự án yêu cầu nâng độ tự nhiên bản dịch 2026-08-15) | ✅ Xong | Audit thật xác nhận 3/4 mảng chủ dự án nêu đã hoàn thiện (khớp thời gian, cảm xúc V28, nhạc nền V37) — chỉ mảng "độ tự nhiên" có bug thật. `translate_segments()` nộp tất cả lô vào `ThreadPoolExecutor` gần như đồng thời, `_prev_context()` tính ngay lúc dựng payload nên gần như luôn thấy bản dịch RỖNG của lô trước. Audit lúc code lộ bug SÂU HƠN: kể cả sửa đúng thời điểm, `_merge()` tạo dict MỚI thay vì mutate — segment gốc không bao giờ được cập nhật bản dịch (có test khoá `_merge()` không được đổi). Sửa: thêm `futures` điền dần + `_run_batch` đợi CÓ TRẦN (8s) lô liền trước qua `futures[i-1].result(timeout=...)`, rồi ghi ngược bản dịch vào đúng dict gốc trong `batch` (không đụng `_merge()`). Bug thứ 2 lộ ra lúc verify: fix làm lộ 1 test dùng chung list `SEGMENTS` mutable giữa nhiều hàm test — sửa cả code (`pop` tone cũ khi lượt này không có) lẫn test (copy segment, đúng convention có sẵn). 3 test mới (`test_translate_prev_context_race.py`), 0 regression (1101/1107 pass Python) — xem TEST_LOG |
 
+| V40 | Sửa 3 bug thật từ audit sâu toàn pipeline (resume-safety + Demucs quality signal + orphaned subprocess) (Phase G, chủ dự án yêu cầu 2026-08-16) | ✅ Xong | Audit 2 agent song song (bug pipeline + khảo sát thị trường) tìm 4 bug thật, chủ dự án chọn sửa 3 (bỏ #4 LOW). **#1 HIGH** resume-safety: `_load_cached_transcript()` (mới, tách từ `_run_impl`) thêm marker `.asr_lang` — đổi "Ngôn ngữ gốc" rồi resume trước đây âm thầm dùng lại transcript SAI ngôn ngữ; `_ensure_render_mode()` (đã có từ trước, mở rộng) thêm dòng 2 lưu giọng đọc đã resolve vào marker `.render_mode` có sẵn — đổi giọng rồi resume trước đây để lại .wav CŨ lẫn với .wav MỚI trong cùng video. Cả 2 đều: marker không tồn tại (dự án tạo trước V40) → coi là khớp, không ép làm lại oan. **#2 MEDIUM** Demucs không có tín hiệu chất lượng: tái dùng NGUYÊN `audio_quality.analyze()` (RMS/khoảng-lặng, đã có từ V35 cho voice cloning) áp lên `vocals.wav` sau khi tách — CHỈ báo qua field mới `background_separation` trong `quality_report.json` (additive, theo đúng pattern `translate_review` của V29), KHÔNG chặn (video không lời thoại là hợp lệ). Đọc WAV bằng `wave` stdlib (không phải `soundfile`) — CI cố tình loại `soundfile` khỏi cài đặt test (V38) để tránh kéo torch. **#3 MEDIUM** tiến trình con mồ côi: `atexit.register(proc.kill)` cho Whisper subprocess (`transcriber.py`) và Demucs GPU worker (đổi `subprocess.run`→`Popen`+`communicate` để có handle đăng ký được, `vocal_separator.py`) — cùng pattern VieNeu worker đã dùng từ trước, đóng app giữa lúc ASR/Demucs chạy giờ có thêm lưới an toàn (không bảo vệ được kill -9/crash cứng). 18 test mới (`test_pipeline_resume_safety.py` mới + bổ sung `test_vocal_separator.py`/`test_transcriber_watchdog.py`), 0 regression (1118/1119 pass Python — 1 fail còn lại là flake phụ thuộc thứ tự test có sẵn từ TRƯỚC V40, xác nhận bằng cách chạy lại full suite trên `main` sạch, xem TEST_LOG) |
+
 ## Tổng quan phase
 
 | Phase | Mini-spec | Trọng tâm | Thời lượng ước tính (AI-compressed, 7h/ngày) |
@@ -3667,6 +3669,148 @@ Success Criteria:
   trước xong trong hạn thì gần như không có độ trễ thêm — thời gian chờ
   trùng với thời gian lô đó vốn đã cần để xong).
 ```
+
+### V40 — Sửa 3 bug thật từ audit sâu toàn pipeline
+
+```
+V40 — Resume-safety (transcript/giọng đọc sai lệch khi resume) + tín hiệu
+chất lượng Demucs + tiến trình con mồ côi (Phase G)
+
+Context:
+- 2026-08-16, chủ dự án yêu cầu audit lại toàn bộ tính năng tìm bug + tham
+  khảo thị trường tool auto-dub/auto-video để định hướng nâng cấp. 2 agent
+  chạy song song: (1) audit sâu code các mảng CHƯA soát trong V39 (ASR,
+  Demucs, render, downloader, checkpoint/resume, SaaS credit, GUI lifecycle)
+  — tìm 4 bug thật; (2) khảo sát thị trường (Rask/HeyGen/ElevenLabs/Vidnoz/
+  Vrew/Opus Clip...) — xem mục "Định hướng thị trường" bên dưới.
+- Chủ dự án chọn sửa 3/4 bug (bỏ #4 LOW — sai loại exception timeout hiếm
+  gặp, không ảnh hưởng kết quả).
+- Audit xác nhận phần còn lại (credit/billing, downloader, audio mixer, GUI
+  cancel UX) đã vững, KHÔNG tìm thấy gap thật — không sửa gì thêm ở đó.
+
+Goal:
+1. Resume một dự án sau khi ĐỔI "Ngôn ngữ gốc" hoặc ĐỔI giọng đọc (job cũ
+   dừng giữa chừng — hết Vox, lỗi mạng, cancel) không được âm thầm dùng lại
+   cache của tham số CŨ.
+2. Tách nhạc nền (Demucs) "chạy không lỗi" phải có tín hiệu SƠ BỘ về việc
+   tách có sạch hay không, thay vì hoàn toàn im lặng.
+3. Đóng app (đóng cửa sổ, force-quit) giữa lúc ASR/Demucs đang chạy phải có
+   thêm 1 lưới an toàn dọn tiến trình con, giảm nguy cơ mồ côi.
+
+Constraints (Guardrails):
+1. Thư mục dự án tạo TRƯỚC V40 (không có marker mới) phải tiếp tục dùng lại
+   cache như hành vi cũ — không được ép làm lại oan (nghe lại ASR/đọc lại
+   TTS) chỉ vì thiếu 1 trường mới thêm.
+2. Tín hiệu chất lượng Demucs CHỈ được báo, KHÔNG được chặn pipeline — video
+   hoàn toàn không có lời thoại (nhạc phim, ASMR...) là hợp lệ, không phải
+   lỗi tách; không có cách nào phân biệt chắc chắn 2 trường hợp mà không
+   nghe thật.
+3. Không thêm dependency mới cho code chạy trong tiến trình chính — CI đã
+   cố tình loại `soundfile`/`demucs` khỏi cài đặt test (V38) để tránh kéo
+   torch; đo chất lượng WAV phải dùng `wave` (stdlib) + `numpy` (đã có).
+4. `atexit` chỉ là lưới an toàn BỔ SUNG cho lượt thoát tương đối êm (Qt app
+   gọi `sys.exit`), không thay thế cơ chế cancel hiện có, không cam kết bảo
+   vệ được `kill -9`/crash cứng — Windows không có parent-death-signal.
+
+Scope:
+A. `autodub/pipeline.py::_load_cached_transcript()` (mới, static method
+   tách từ khối inline cũ trong `_run_impl` Step 3) — đọc + validate shape
+   JSON (như cũ) + so `lang_code` với marker `.asr_lang` cạnh
+   `transcript_original.json`. Marker ghi lại NGAY sau khi ASR thật chạy
+   xong (không ghi khi dùng cache).
+B. `autodub/pipeline.py::_ensure_render_mode()` (đã có từ V-render-mode cũ,
+   mở rộng) — thêm tham số `target`/`voice`, resolve qua
+   `voice_catalog.resolve()` (đúng tên thật dùng khi synth, tránh 2 alias
+   cùng trỏ 1 giọng bị coi là "đổi"), ghi dòng 2 của marker `.render_mode`
+   sẵn có (dòng 1 vẫn là `RENDER_MODE`). Marker CHỈ 1 dòng (từ trước V40)
+   → `current_voice=None` → KHÔNG coi là đổi (Constraint 1).
+C. `autodub/pipeline.py::_resolve_background()` — sau khi Demucs tách xong
+   (nhánh local, không phải cloud — V12 cloud path ngoài phạm vi), đọc
+   `vocals.wav` qua `wave` stdlib, chuẩn hoá mono float32, chạy
+   `audio_quality.analyze()` (tái dùng nguyên, không viết ngưỡng mới) → lưu
+   side-channel `self._last_vocals_quality`, đọc lại bởi
+   `_build_quality_report()` → field mới `background_separation` (additive,
+   cùng pattern `translate_review` của V29).
+D. `autodub/speech/transcriber.py::_transcribe_whisper_subprocess()` +
+   `autodub/media/vocal_separator.py::_run_demucs_gpu_worker()` —
+   `atexit.register(proc.kill)` ngay sau `Popen`, `atexit.unregister(...)`
+   trong `finally`/sau khi xong. Worker GPU đổi `subprocess.run()` →
+   `Popen()` + `communicate(timeout=...)` thủ công để có handle `proc`
+   đăng ký được (giữ nguyên hành vi timeout/kill khi hết hạn).
+E. Tests: `tests/test_pipeline_resume_safety.py` (mới) cho A/B/C;
+   `tests/test_vocal_separator.py`/`tests/test_transcriber_watchdog.py`
+   (bổ sung) cho D — mock `atexit.register`/`unregister`, xác nhận gọi
+   đúng cặp mà không cần chờ tiến trình thật chết.
+
+Audit Before Build:
+- Đã audit đủ qua 2 agent song song ở Context — đọc thật `pipeline.py`
+  (Step 3/Step 5/`_resolve_background`), `vocal_separator.py`,
+  `transcriber.py`, `vieneu_vi.py` (pattern atexit tham chiếu), xác nhận
+  không có cơ chế tương đương nào đã tồn tại cho 3 bug này trước khi viết
+  mini-spec.
+
+Design Choice:
+- Resume-safety: TÁI DÙNG đúng pattern marker file đã có sẵn cho
+  render-mode (không phát minh cơ chế mới) — nhất quán với cách codebase đã
+  giải quyết vấn đề y hệt (cache thuộc tính nào đó của lượt chạy trước) một
+  lần trước đây.
+- Demucs quality: CHỈ báo (field mới, không gate cứng) — khác V23's
+  `quality_gate.py` (có thể BẶT gate chặn), vì không có ngưỡng nào phân
+  biệt được "tách tệ" và "video không lời thoại" một cách đáng tin — quyết
+  định kỹ thuật thuần, phù hợp Constraint 2.
+- Orphaned subprocess: `atexit` (không phải process-group/job-object Windows
+  API phức tạp hơn) — mức bảo vệ tương đương chính xác những gì VieNeu
+  worker đã có, nhất quán toàn codebase, chi phí triển khai thấp; nâng lên
+  job-object thật (bảo vệ được cả crash cứng) là nâng cấp riêng, không cần
+  thiết cho mini-spec này.
+
+Test Plan:
+- Unit thuần (không cần subprocess/model thật): `_load_cached_transcript()`
+  với transcript+marker giả (khớp/lệch ngôn ngữ/marker vắng/JSON hỏng);
+  `_ensure_render_mode()` với danh mục giọng giả (`monkeypatch` catalog,
+  tránh rơi về giọng mặc định làm 2 tên giả trùng nhau); `_build_quality_report()`
+  field mới có mặt.
+- Integration nhẹ: `_resolve_background()` với `separate_vocals` giả (viết
+  WAV thật bằng pydub — im lặng vs. có âm) qua `monkeypatch`, xác nhận
+  `_last_vocals_quality` đúng level.
+- atexit: mock `atexit.register`/`unregister`, xác nhận gọi đúng 1 lần mỗi
+  bên khi thành công (không rò rỉ đăng ký), và trên nhánh timeout (Demucs
+  GPU worker) vẫn `proc.kill()`+`proc.wait()` như hành vi `subprocess.run()`
+  cũ.
+
+Success Criteria:
+- Đổi "Ngôn ngữ gốc"/giọng đọc rồi resume: cache CŨ bị vô hiệu đúng, dự án
+  tạo trước V40 không bị ép làm lại oan (0 regression).
+- `quality_report.json` có field `background_separation` không rỗng khi
+  `bg_mode="demucs"` chạy thật; rỗng (`{}`) khi không dùng Demucs.
+- `atexit.register(proc.kill)` được gọi ngay sau khi tạo tiến trình ASR/
+  Demucs-GPU, `unregister` khi hàm kết thúc bình thường — xác nhận qua
+  test, không cần live-verify thật (không có cách an toàn mô phỏng force-
+  quit thật trong CI).
+- 0 regression toàn bộ suite hiện có.
+```
+
+### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
+
+- Khảo sát Rask AI/ElevenLabs Dubbing/HeyGen/Camb.ai/Dubverse/Vidnoz (auto-dub)
+  + Vrew/Opus Clip/Klap/CapCut (auto-video rộng hơn) — không phải mini-spec,
+  chỉ ghi lại để định hướng việc chọn mini-spec tiếp theo:
+  - **Đã ngang/hơn đối thủ**: voice cloning (V35), tách+phối lại nhạc nền
+    theo mood (Demucs, V37 — hiếm, hầu hết đối thủ chỉ duck nhạc gốc), editor
+    review trước khi render.
+  - **Lip-sync**: PoC V32a thành công 1/3 mẫu, 794s/10.7s video, sát trần
+    VRAM 4GB — nhưng cả ngành (kể cả ElevenLabs, YouTube Aloud) cũng chưa
+    hoàn thiện, KHÔNG phải chỗ VoxDub thua kém tương đối.
+  - **Bài học Vrew** (đối chuẩn gần nhất — tool auto-dub 1 ngôn ngữ, 1.2M
+    user): thắng bằng làm SÂU 1 ngôn ngữ, không phải breadth tính năng —
+    đại từ xưng hô/ngữ vực tiếng Việt là lợi thế thật mà tool 100+ ngôn ngữ
+    không tối ưu sâu nổi.
+  - **2 gap thật chủ dự án chọn ưu tiên tiếp** (2026-08-16): (1) batch xử lý
+    song song không người canh (hiện tuần tự do tranh chấp GPU — trần thông
+    lượng thật nếu muốn scale content-automation); (2) nâng chất lượng đọc
+    hiểu nguồn tiếng Anh/tiếng Trung để dịch tiếng Việt tự nhiên hơn (khác
+    V39 — V39 sửa mạch xưng hô GIỮA CÁC LÔ cùng video, đây là chất lượng
+    HIỂU NGUỒN theo từng ngôn ngữ nguồn cụ thể).
 
 ### Remaining Limits / Follow-ups của Phase G
 

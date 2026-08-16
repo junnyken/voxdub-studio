@@ -1,3 +1,4 @@
+import atexit
 import ctypes
 import json
 import os
@@ -258,6 +259,12 @@ def _transcribe_whisper_subprocess(
         encoding="utf-8",
         errors="replace",
     )
+    # mini-spec V40: đóng app giữa lúc ASR chạy (đóng cửa sổ, force-quit) từng
+    # để lại tiến trình con này chạy mồ côi — `finally` bên dưới chỉ chạy nếu
+    # tiến trình Python còn sống. `atexit` là lưới an toàn thêm cho lượt
+    # thoát tương đối êm (sys.exit của Qt app), cùng cơ chế VieNeu worker đã
+    # dùng (`vieneu_vi.py`), không bảo vệ được kill -9/crash cứng.
+    atexit.register(proc.kill)
 
     stderr_tail: deque[str] = deque(maxlen=30)
 
@@ -353,6 +360,7 @@ def _transcribe_whisper_subprocess(
     finally:
         if proc.poll() is None:
             proc.kill()
+        atexit.unregister(proc.kill)
         for s in (proc.stdout, proc.stderr):
             if s:
                 try:

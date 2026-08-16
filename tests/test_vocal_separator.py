@@ -243,3 +243,45 @@ def test_read_line_kills_hung_worker():
     else:
         raise AssertionError("phải ném RuntimeError")
     proc.kill.assert_called_once()
+
+
+# ---------------------------------------- mini-spec V40: atexit safety net --
+# Bug thật (audit 2026-08-16): đóng app giữa lúc Demucs chạy (subprocess có
+# thể sống tới 60 phút) từng để lại tiến trình con chạy mồ côi — không có
+# atexit nào giống cơ chế VieNeu worker đã dùng từ trước.
+
+def test_gpu_worker_registers_and_unregisters_atexit_kill(tmp_path):
+    fake_proc = mock.Mock()
+    fake_proc.communicate.return_value = ('{"ok": true, "device": "cuda"}', "")
+    fake_proc.returncode = 0
+
+    with mock.patch("autodub.media.vocal_separator.gpu_venv_python",
+                    return_value="/fake/venv/python"), \
+         mock.patch("autodub.media.vocal_separator.subprocess.Popen",
+                    return_value=fake_proc), \
+         mock.patch("autodub.media.vocal_separator.atexit.register") as reg, \
+         mock.patch("autodub.media.vocal_separator.atexit.unregister") as unreg:
+        ok = vocal_separator._run_demucs_gpu_worker(
+            "in.wav", "v.wav", "nv.wav", "htdemucs")
+
+    assert ok is True
+    reg.assert_called_once_with(fake_proc.kill)
+    unreg.assert_called_once_with(fake_proc.kill)
+
+
+def test_gpu_worker_kills_process_on_timeout(tmp_path):
+    import subprocess as sp
+
+    fake_proc = mock.Mock()
+    fake_proc.communicate.side_effect = sp.TimeoutExpired("cmd", 3600)
+
+    with mock.patch("autodub.media.vocal_separator.gpu_venv_python",
+                    return_value="/fake/venv/python"), \
+         mock.patch("autodub.media.vocal_separator.subprocess.Popen",
+                    return_value=fake_proc):
+        ok = vocal_separator._run_demucs_gpu_worker(
+            "in.wav", "v.wav", "nv.wav", "htdemucs")
+
+    assert ok is False
+    fake_proc.kill.assert_called_once()
+    fake_proc.wait.assert_called_once()

@@ -12,6 +12,7 @@ qua lệnh ``demucs.separate``, để không bao giờ chạm vào ``torchaudio.
 đường đó cần ``torchcodec`` từ torchaudio 2.10 trở lên, mà bản Windows của
 nó lại phụ thuộc đúng một phiên bản FFmpeg. Ở đây ghi tệp bằng ``soundfile``.
 """
+import atexit
 import json
 import os
 import subprocess
@@ -293,9 +294,22 @@ def _run_demucs_gpu_worker(
         # timeout: video 1-2h hợp lệ mất nhiều phút, nhưng CUDA init treo
         # hoặc tải model kẹt thì không được khóa pipeline vĩnh viễn.
         with GPU_LOCK:
-            result = subprocess.run(cmd, capture_output=True, encoding="utf-8",
-                                    errors="replace", timeout=3600)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, encoding="utf-8",
+                                    errors="replace")
+            # mini-spec V40: đóng app giữa lúc Demucs chạy (lên tới 60 phút,
+            # xem timeout dưới) từng để lại tiến trình con này chạy mồ côi —
+            # cùng lưới an toàn atexit đã thêm cho ASR (transcriber.py), cùng
+            # pattern VieNeu worker đã dùng từ trước.
+            atexit.register(proc.kill)
+            try:
+                stdout, stderr = proc.communicate(timeout=3600)
+            finally:
+                atexit.unregister(proc.kill)
+            result = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
     except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
         logger.warning("Demucs GPU worker quá 60 phút — chuyển sang CPU")
         return False
     try:

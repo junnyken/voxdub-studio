@@ -78,3 +78,29 @@ def test_worker_hangs_mid_transcription_raises_within_bounded_time(monkeypatch, 
 
     with pytest.raises(RuntimeError, match="không phản hồi.*giữa lúc nhận dạng"):
         transcriber_module._transcribe_whisper_subprocess("/tmp/fake.wav", "vi", settings)
+
+
+# ---------------------------------------- mini-spec V40: atexit safety net --
+# Bug thật (audit 2026-08-16): đóng app giữa lúc ASR chạy (subprocess sống
+# tới 7200s theo timeout đọc) từng để lại tiến trình con chạy mồ côi trên
+# Windows — không có atexit nào giống VieNeu worker đã dùng từ trước.
+
+def test_registers_and_unregisters_atexit_kill_on_success(monkeypatch, tmp_path):
+    worker = _fake_worker(tmp_path, body=textwrap.dedent("""
+        print(json.dumps({"seg": True, "id": 1, "text": "xin chao",
+                          "start": 0.0, "end": 1.0}), flush=True)
+        print(json.dumps({"done": True, "language": "vi", "language_prob": 0.99}),
+              flush=True)
+    """))
+    monkeypatch.setattr(transcriber_module, "_WHISPER_WORKER_SCRIPT", worker)
+    settings = _settings(monkeypatch)
+
+    registered: list = []
+    unregistered: list = []
+    monkeypatch.setattr(transcriber_module.atexit, "register", registered.append)
+    monkeypatch.setattr(transcriber_module.atexit, "unregister", unregistered.append)
+
+    transcriber_module._transcribe_whisper_subprocess("/tmp/fake.wav", "vi", settings)
+
+    assert len(registered) == 1   # đăng ký đúng 1 lần — proc.kill của worker này
+    assert registered == unregistered   # dọn sạch atexit khi hàm kết thúc bình thường

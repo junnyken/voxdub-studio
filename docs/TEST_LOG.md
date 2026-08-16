@@ -4773,3 +4773,97 @@ chưa có số liệu thật trong PoC này.
   hành vi thật). Trần `_PREV_BATCH_WAIT_S=8.0` là đề xuất kỹ thuật dựa độ
   trễ quan sát được (2-4s/lô) trong phiên audit — chưa có số liệu từ nhiều
   video thật dài hơn để tinh chỉnh.
+
+## V40 — 3 bug thật từ audit sâu toàn pipeline (Phase G)
+
+### Audit trước khi build
+
+- 2 agent song song (audit bug pipeline + khảo sát thị trường, 2026-08-16).
+  Agent audit đọc thật `pipeline.py` (resume/checkpoint), `vocal_separator.py`
+  (Demucs), `transcriber.py` (ASR subprocess), `control_server` credit/billing,
+  downloader, GUI lifecycle — xác nhận credit/billing/downloader/audio mixer/
+  GUI cancel UX đã vững (KHÔNG sửa gì ở đó). Tìm 4 bug thật, chủ dự án chọn
+  sửa 3 (#1 HIGH, #2 MEDIUM Demucs quality, #3 MEDIUM orphaned subprocess —
+  bỏ #4 LOW sai loại exception timeout hiếm gặp).
+- Xác nhận root cause thật: mọi cơ chế resume-safety trong pipeline chỉ kiểm
+  "file có tồn tại + đúng shape trên đĩa", CHƯA từng kiểm có khớp THAM SỐ
+  của lượt chạy hiện tại (ngôn ngữ nguồn, giọng đọc) hay không.
+
+### Xây dựng
+
+- `autodub/pipeline.py`:
+  - `_load_cached_transcript()` (mới, static method, tách từ khối inline cũ
+    trong `_run_impl` Step 3 — đúng pattern `_load_translation` đã có sẵn,
+    dễ test trực tiếp không cần chạy cả `_run_impl`). Marker mới
+    `.asr_lang` cạnh `transcript_original.json`, ghi lại `lang_code` NGAY
+    sau khi ASR thật chạy xong. Marker vắng (dự án trước V40) → coi khớp.
+  - `_ensure_render_mode()` (đã có từ trước cho render-mode) — thêm tham số
+    `target`/`voice`, resolve qua `voice_catalog.resolve()` (đúng tên thật
+    dùng lúc synth — tránh 2 cách viết cùng trỏ 1 giọng bị coi là "đổi"),
+    ghi dòng 2 (giọng resolve) vào marker `.render_mode` sẵn có (dòng 1 vẫn
+    `RENDER_MODE`). Marker chỉ 1 dòng (từ trước V40) → `current_voice=None`
+    → KHÔNG coi là đổi giọng (đúng Constraint 1, tránh xóa oan cache cũ).
+  - `_resolve_background()` — sau khi Demucs tách xong (nhánh local): đọc
+    `vocals.wav` bằng `wave` (stdlib, KHÔNG phải `soundfile` — CI đã cố
+    tình loại gói này khỏi cài đặt test từ V38 để tránh kéo torch), chuẩn
+    hoá mono float32 qua `np.frombuffer(..., dtype=np.int16)/32768.0`
+    (đúng `pcm_s16le` mà `_normalize()` ghi ra), chạy
+    `audio_quality.analyze()` (tái dùng NGUYÊN hàm V35, không viết ngưỡng
+    mới) → `self._last_vocals_quality`. Lỗi đo (file lạ, corrupt) bị nuốt
+    qua `except Exception` + `logger.debug` — tín hiệu PHỤ, không được làm
+    hỏng lượt tách đã thành công.
+  - `_build_quality_report()` — thêm tham số `vocals_quality`, field mới
+    `background_separation` (additive, đúng pattern `translate_review` của
+    V29 — rỗng `{}` mặc định, không đụng field cũ).
+- `autodub/speech/transcriber.py::_transcribe_whisper_subprocess()` —
+  `atexit.register(proc.kill)` ngay sau `Popen`, `atexit.unregister(...)`
+  trong `finally` đã có sẵn (cạnh chỗ kill `proc` cũ).
+- `autodub/media/vocal_separator.py::_run_demucs_gpu_worker()` — đổi
+  `subprocess.run(cmd, capture_output=True, timeout=3600)` →
+  `subprocess.Popen(...)` + `communicate(timeout=3600)` thủ công (cần
+  handle `proc` để đăng ký `atexit`) — dựng lại
+  `subprocess.CompletedProcess` để phần code sau KHÔNG đổi. Nhánh
+  `TimeoutExpired`: `communicate()` không tự kill như `subprocess.run()` đã
+  làm — thêm `proc.kill()` + `proc.wait()` thủ công để giữ đúng hành vi cũ.
+- Tests mới: `tests/test_pipeline_resume_safety.py` (15 test — marker ASR
+  lang, marker voice, quality_report field, `_resolve_background` tích
+  hợp); bổ sung `tests/test_vocal_separator.py` (2 test — atexit
+  register/unregister, kill-on-timeout) và
+  `tests/test_transcriber_watchdog.py` (1 test — atexit register/unregister
+  qua fake worker subprocess THẬT, không mock `Popen`).
+
+### Verify
+
+- **Bug thật phát hiện lúc viết test** (không phải lúc audit ban đầu): fixture
+  test "tách sạch" đầu tiên dùng sine wave full-scale trực tiếp từ
+  `pydub.generators.Sine` làm `vocals.wav` giả — trip nhầm ngưỡng CẮT TIẾNG
+  của `audio_quality.analyze()` (sine full-scale chạm biên độ ±1.0 liên tục,
+  y hệt tín hiệu bị clip thật). Không phải bug code — sửa fixture về -12dB
+  (giọng thật không bao giờ full-scale).
+- **Bug môi trường phát hiện lúc viết test**: bản nháp đầu dùng `soundfile`
+  để đọc `vocals.wav` — `ModuleNotFoundError` trong `.venv-test` vì V38 đã
+  chủ động loại `soundfile`/`demucs` khỏi cài đặt CI (tránh kéo torch, xem
+  V38 ở trên). Đổi sang đọc bằng `wave` stdlib — khớp Constraint 3 của mini-
+  spec, không cần cài thêm gì cho CI.
+- `pytest tests/test_pipeline_resume_safety.py tests/test_vocal_separator.py
+  tests/test_transcriber_watchdog.py -q`: **28 passed** (15+13+4 nhưng trùng
+  10 test cũ có sẵn trong 2 file bổ sung — tổng thực 18 test MỚI).
+- `pytest tests/ -q` (toàn bộ suite): **1118 passed, 6 skipped, 1 failed**
+  (1101→1118, đúng 18 test mới cộng dồn, 0 regression thật).
+- **1 fail còn lại** (`test_saas_client_music.py::test_generate_music_offline_raises_when_no_base_url`,
+  lỗi HTTP 403 thay vì `OfflineError` — flake phụ thuộc THỨ TỰ chạy toàn bộ
+  suite): xác nhận KHÔNG liên quan V40 bằng cách chạy lại full suite trên
+  `git stash -u` (cây sạch tuyệt đối, kể cả file test mới chưa track) —
+  **fail y hệt trên `main` gốc trước V40**, không phải regression mới. Chưa
+  điều tra tiếp nguyên nhân gốc (ngoài phạm vi V40) — cần ghi nhận riêng
+  nếu block CI thật (hiện `test.yml` không dùng `-p no:randomly`/seed cố
+  định nên thứ tự có thể trôi giữa các lần chạy).
+- **Giới hạn còn lại**: `atexit` chỉ xác nhận qua test (mock
+  register/unregister) — KHÔNG live-verify force-quit thật trên Windows
+  (không có cách an toàn mô phỏng trong CI/sandbox); không bảo vệ được
+  `kill -9`/crash cứng (đúng Constraint 4, ghi rõ trong mini-spec, không
+  phải giới hạn phát sinh ngoài dự kiến). Demucs quality signal dùng
+  ngưỡng RMS/khoảng-lặng CŨ của V35 (chưa hiệu chỉnh riêng cho nhạc
+  nền/no-vocals — ngưỡng gốc thiết kế cho giọng NGƯỜI enroll, áp dụng chéo
+  sang vocals.wav sau tách là suy luận hợp lý nhưng chưa benchmark bằng
+  video thật).

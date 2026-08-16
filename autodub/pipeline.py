@@ -138,6 +138,10 @@ class DubPipeline:
         # đường dịch TAY (không qua _auto_translate()) không bao giờ chạy
         # review, quality_report.json khi đó không có field review.
         self._last_review_trace: list[dict] = []
+        # mini-spec V40 (docs/PLAN.md, Phase G) — tín hiệu chất lượng tách
+        # nhạc nền lượt gần nhất, đọc lại bởi _build_quality_report(). Rỗng
+        # khi bg_mode != "demucs" hoặc tách thất bại (không có file để đo).
+        self._last_vocals_quality: dict = {}
         from autodub import telemetry
         telemetry_listener = telemetry.make_progress_listener(self)
 
@@ -295,6 +299,12 @@ class DubPipeline:
         # Thư mục cũ (mọi thứ phẳng ở gốc) được data_path tự nhận và giữ nguyên.
         transcript_orig_path = data_path(work_dir, "transcript_original.json",
                                          create_dir=True)
+        # mini-spec V40: marker giữ ngôn ngữ nguồn của transcript đã cache —
+        # resume sau khi SỬA "Ngôn ngữ gốc" (vd job cũ dừng giữa chừng vì
+        # chọn nhầm) phải nghe lại, không âm thầm dùng transcript sai ngôn
+        # ngữ. Không tồn tại (thư mục từ trước V40) → coi là khớp, không ép
+        # nghe lại oan cho dự án cũ.
+        asr_lang_marker = data_path(work_dir, ".asr_lang")
         transcript_dub_path = data_path(work_dir, target.transcript_name)
         audio_path = data_path(work_dir, "original_audio.wav")
 
@@ -395,26 +405,13 @@ class DubPipeline:
         # --- Step 3: Speech-to-Text (ASR) — GPU-exclusive ---
         rep.check_cancelled()
         logger.info("=" * 60)
-        segments = None
-        if os.path.exists(transcript_orig_path):
-            # Validate khi resume: file hỏng (crash giữa chừng ở bản cũ,
-            # disk full...) thì nghe lại thay vì sập cả pipeline.
-            try:
-                with open(transcript_orig_path, encoding="utf-8") as f:
-                    cached_segments = json.load(f)
-                if not (isinstance(cached_segments, list)
-                        and all(isinstance(s, dict) and "start" in s
-                                and "end" in s and "text" in s
-                                for s in cached_segments)):
-                    raise ValueError("transcript thiếu trường bắt buộc")
-                segments = cached_segments
-                logger.info(f"STEP 3: Reusing existing transcript: {transcript_orig_path}")
-                logger.info(f"Dùng lại lời thoại đã nghe từ lần chạy trước "
-                            f"({len(segments)} câu) — đỡ chờ")
-                rep.emit("asr", "skip", detail=f"{len(segments)} segments (cached)")
-            except (ValueError, json.JSONDecodeError, OSError) as e:
-                logger.warning(f"Transcript cũ hỏng ({e}) — nghe lại từ đầu")
-                segments = None
+        segments = self._load_cached_transcript(
+            transcript_orig_path, asr_lang_marker, lang_code)
+        if segments is not None:
+            logger.info(f"STEP 3: Reusing existing transcript: {transcript_orig_path}")
+            logger.info(f"Dùng lại lời thoại đã nghe từ lần chạy trước "
+                        f"({len(segments)} câu) — đỡ chờ")
+            rep.emit("asr", "skip", detail=f"{len(segments)} segments (cached)")
         if segments is None:
             # Demucs và ASR chỉ được chạy song song khi KHÔNG giành nhau
             # tài nguyên: Demucs trong tiến trình con GPU còn ASR chắc chắn
@@ -442,6 +439,8 @@ class DubPipeline:
             segments = transcribe(audio_path, lang_code, settings,
                                   whisper_cache=self._whisper_cache)
             save_transcript(segments, transcript_orig_path)
+            with open(asr_lang_marker, "w", encoding="utf-8") as f:
+                f.write(lang_code)
             generate_srt(segments, data_path(work_dir, "transcript_original.srt"),
                          text_field="text", lang_key=lang_code.split("-")[0].lower())
             logger.info(f"Nghe xong: video có {len(segments)} câu thoại")
@@ -563,7 +562,7 @@ class DubPipeline:
         logger.info(f"Bắt đầu tạo giọng đọc cho {len(segments)} câu — "
                     "bước lâu nhất, tiến độ hiện ở khung bên trái...")
         seg_dir = ensure_dir(data_path(work_dir, "segments", create_dir=True))
-        self._ensure_render_mode(work_dir, seg_dir)
+        self._ensure_render_mode(work_dir, seg_dir, target, req.voice)
         self._apply_emotion_styles(segments, target, req.voice)
         tts_results = self._synthesize_segments(target, req.voice, segments,
                                                 seg_dir, synth=tts_synth)
@@ -848,7 +847,8 @@ class DubPipeline:
         quality = self._build_quality_report(target, segments,
                                              state.get("timing") or {},
                                              settings,
-                                             review_trace=self._last_review_trace)
+                                             review_trace=self._last_review_trace,
+                                             vocals_quality=self._last_vocals_quality)
         quality_path = data_path(work_dir, "quality_report.json")
         with open(quality_path, "w", encoding="utf-8") as f:
             json.dump(quality, f, ensure_ascii=False, indent=2)
@@ -1198,6 +1198,42 @@ class DubPipeline:
                         f"(còn lại {usage['balance_after']:,})")
         return result
 
+    @staticmethod
+    def _load_cached_transcript(
+        transcript_path: str, lang_marker_path: str, lang_code: str
+    ) -> list[dict] | None:
+        """Resume-safe read of ``transcript_original.json`` — ``None`` means
+        "nghe lại từ đầu" (file thiếu, hỏng, hoặc ngôn ngữ nguồn đã đổi kể
+        từ lượt chạy sinh ra nó).
+
+        mini-spec V40 (docs/PLAN.md, Phase G): trước đây CHỈ kiểm shape JSON
+        khi resume — sửa lại "Ngôn ngữ gốc" sau khi job dừng giữa chừng (vd
+        chọn nhầm ngôn ngữ) từng âm thầm dùng lại transcript nghe SAI ngôn
+        ngữ, không có cảnh báo nào. ``lang_marker_path`` không tồn tại (thư
+        mục từ trước V40) → coi là khớp, không ép nghe lại oan dự án cũ.
+        """
+        if not os.path.exists(transcript_path):
+            return None
+        try:
+            with open(transcript_path, encoding="utf-8") as f:
+                cached_segments = json.load(f)
+            if not (isinstance(cached_segments, list)
+                    and all(isinstance(s, dict) and "start" in s
+                            and "end" in s and "text" in s
+                            for s in cached_segments)):
+                raise ValueError("transcript thiếu trường bắt buộc")
+            cached_lang = None
+            if os.path.exists(lang_marker_path):
+                with open(lang_marker_path, encoding="utf-8") as f:
+                    cached_lang = f.read().strip() or None
+            if cached_lang is not None and cached_lang != lang_code:
+                raise ValueError(
+                    f"ngôn ngữ nguồn đã đổi ({cached_lang} → {lang_code})")
+            return cached_segments
+        except (ValueError, json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Transcript cũ hỏng hoặc không khớp ({e}) — nghe lại từ đầu")
+            return None
+
     def _load_translation(
         self, path: str, original_segments: list[dict], target: TargetLang
     ) -> list[dict]:
@@ -1396,6 +1432,45 @@ class DubPipeline:
                 rep.emit("separate", "error", detail="separation failed, silent base")
             else:
                 rep.emit("separate", "done", detail=background_path)
+            # mini-spec V40: Demucs "chạy không lỗi" không có nghĩa là tách
+            # SẠCH — file có thể gần như câm (giọng bị cuốn hết vào nhạc nền)
+            # mà trước đây không có tín hiệu nào phát hiện. Tái dùng đúng
+            # heuristic RMS/khoảng-lặng đã có ở V35 (voice cloning) áp lên
+            # vocals.wav — CHỈ báo, KHÔNG chặn (video hoàn toàn không lời
+            # thoại là hợp lệ, không phải lỗi tách).
+            vocals_path = sep.get("vocals")
+            if vocals_path:
+                try:
+                    import wave as _wave
+
+                    import numpy as np
+
+                    from autodub.speech.tts.audio_quality import analyze
+
+                    # stdlib thay vì soundfile: vocals.wav luôn là PCM 16-bit
+                    # do _normalize() ghi ra (pcm_s16le) — không cần kéo thêm
+                    # dependency cho 1 phép đo phụ, không phải đường chính.
+                    with _wave.open(vocals_path, "rb") as w:
+                        raw = w.readframes(w.getnframes())
+                        sr = w.getframerate()
+                        n_channels = w.getnchannels()
+                        sampwidth = w.getsampwidth()
+                    if sampwidth != 2:
+                        raise ValueError(f"unexpected sample width {sampwidth}")
+                    wav = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                    if n_channels > 1:
+                        wav = wav.reshape(-1, n_channels).mean(axis=1)
+                    quality = analyze(wav, sr)
+                    self._last_vocals_quality = {
+                        "level": quality.level,
+                        "reasons": quality.reasons,
+                    }
+                    if quality.level != "ok":
+                        logger.warning(
+                            "Tách nhạc nền có thể chưa sạch: "
+                            + "; ".join(quality.reasons))
+                except Exception as exc:  # noqa: BLE001 — đo tín hiệu phụ, không được làm hỏng lượt tách đã thành công
+                    logger.debug(f"Không đo được chất lượng tách nhạc: {exc}")
             return background_path, 0.0
 
         if bg_mode == "duck":
@@ -1415,31 +1490,49 @@ class DubPipeline:
     # same grouping scheme. Bump when the text-to-wav mapping changes.
     RENDER_MODE = "per_fragment_v1"
 
-    def _ensure_render_mode(self, work_dir: str, seg_dir: str) -> None:
-        """Invalidate segment wavs cached under an older render scheme.
+    def _ensure_render_mode(self, work_dir: str, seg_dir: str,
+                             target: TargetLang, voice: str | None) -> None:
+        """Invalidate segment wavs cached under an older render scheme OR a
+        different resolved voice (mini-spec V40 — resume with the wizard's
+        voice changed used to silently mix old-voice cached clips with
+        new-voice fresh ones in the same output).
 
         Older runs grouped adjacent fragments into one wav keyed by the
         group's FIRST fragment id — reusing those files under the 1:1 scheme
         would play multi-line audio on a single line's slot (echoes and
-        overlaps). A marker file records the scheme; on mismatch every
-        derived wav is wiped so the run re-renders cleanly.
+        overlaps). A marker file records the scheme + resolved voice; on
+        mismatch every derived wav is wiped so the run re-renders cleanly.
         """
         import shutil
 
+        from autodub.speech.tts import voices as voice_catalog
+
+        resolved_voice = voice_catalog.resolve(self.settings, voice, target=target)
+
         marker = os.path.join(seg_dir, ".render_mode")
-        current = None
+        current_mode = None
+        current_voice = None
         if os.path.exists(marker):
             try:
                 with open(marker, encoding="utf-8") as f:
-                    current = f.read().strip()
+                    lines = f.read().splitlines()
             except OSError:
-                current = None
+                lines = []
+            current_mode = lines[0].strip() if lines else None
+            # Marker gốc (trước V40) chỉ có 1 dòng — current_voice ở lại
+            # None nghĩa là "chưa biết", KHÔNG coi là đổi giọng để tránh xóa
+            # oan cache của dự án tạo trước khi có field này.
+            current_voice = lines[1].strip() if len(lines) > 1 else None
 
+        mode_changed = current_mode != self.RENDER_MODE
+        voice_changed = current_voice is not None and current_voice != resolved_voice
         has_wavs = any(f.endswith(".wav") for f in os.listdir(seg_dir))
-        if has_wavs and current != self.RENDER_MODE:
+        if has_wavs and (mode_changed or voice_changed):
+            reason = (f"giọng đọc đổi ({current_voice} → {resolved_voice})"
+                      if voice_changed else "cơ chế gộp câu cũ")
             logger.warning(
-                "Cache giọng đọc cũ được tạo theo cơ chế gộp câu — xóa để "
-                "tạo lại từng câu 1:1 (tránh tiếng lặp/chồng lớp)."
+                f"Cache giọng đọc cũ không khớp lượt chạy này ({reason}) — "
+                "xóa để tạo lại, tránh lẫn giọng/tiếng lặp trong cùng video."
             )
             for f in os.listdir(seg_dir):
                 if f.endswith(".wav"):
@@ -1450,9 +1543,9 @@ class DubPipeline:
                                  "segments_timed")):
                     shutil.rmtree(data_path(work_dir, d), ignore_errors=True)
 
-        if current != self.RENDER_MODE:
+        if mode_changed or current_voice != resolved_voice:
             with open(marker, "w", encoding="utf-8") as f:
-                f.write(self.RENDER_MODE)
+                f.write(f"{self.RENDER_MODE}\n{resolved_voice}")
 
     def _synthesize_segments(
         self, target: TargetLang, voice: str | None,
@@ -1726,7 +1819,8 @@ class DubPipeline:
     @staticmethod
     def _build_quality_report(target: TargetLang, segments: list[dict],
                               timing_report, settings=None,
-                              review_trace: list[dict] | None = None) -> dict:
+                              review_trace: list[dict] | None = None,
+                              vocals_quality: dict | None = None) -> dict:
         """quality_report.json — tổng hợp mọi vấn đề còn lại sau render.
 
         Nguồn: TimingReport của bước đặt timeline mềm + kiểm tra budget dịch.
@@ -1738,6 +1832,13 @@ class DubPipeline:
         cho video này (rỗng nếu không chạy review, vd đường dịch tay) — lộ
         ra thành field `translate_review` cấp cao, KHÔNG đụng
         `summary`/`per_segment` đã có từ V23.
+
+        ``vocals_quality`` (mini-spec V40, docs/PLAN.md Phase G — TUỲ CHỌN,
+        ADDITIVE): tín hiệu RMS/khoảng-lặng đo trên ``vocals.wav`` sau khi
+        Demucs tách xong (rỗng nếu bg_mode khác "demucs" hoặc tách thất
+        bại) — lộ ra thành field `background_separation`, CHỈ báo, không
+        chặn (không có cách nào biết chắc video có nên có lời thoại hay
+        không mà không cần nghe thật).
         """
         from autodub.media.audio import FALLBACKS
         from autodub.text.translate_hint import effective_cps, payload_segment
@@ -1811,6 +1912,8 @@ class DubPipeline:
             # động: câu nào bị nghi vấn, AI có sửa được không, before/after.
             # Rỗng nếu review không chạy (đường dịch tay) — không gây nhiễu.
             "translate_review": review_trace or [],
+            # mini-spec V40 — xem docstring "vocals_quality" ở trên.
+            "background_separation": vocals_quality or {},
         }
 
     @staticmethod
