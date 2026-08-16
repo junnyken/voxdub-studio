@@ -71,6 +71,10 @@ def transcribe_paraformer(audio_path: str, settings: Settings) -> list[dict]:
 
     segments: list[dict] = []
     done = False
+    # mini-spec V41: mặc định True (khớp hành vi cũ nếu worker cũ không gửi
+    # field này) — chỉ hạ xuống False khi worker THẬT SỰ báo thiếu model
+    # chấm câu, tránh cảnh báo giả cho lượt chạy bình thường.
+    punctuation_available = True
     try:
         while True:
             line = reader.readline(_PARAFORMER_SEGMENT_TIMEOUT_S)
@@ -99,6 +103,7 @@ def transcribe_paraformer(audio_path: str, settings: Settings) -> list[dict]:
                             f"[{start:.1f}s-{end:.1f}s] {msg['text'][:50]}...")
             elif msg.get("done"):
                 done = True
+                punctuation_available = bool(msg.get("punctuation_available", True))
         # Thời lượng phụ thuộc độ dài video — chờ tiến trình kết thúc hẳn
         # (stdout đã EOF nên wait không thể treo vô hạn vì pipe đầy).
         proc.wait(timeout=600)
@@ -127,4 +132,15 @@ def transcribe_paraformer(audio_path: str, settings: Settings) -> list[dict]:
     if not segments:
         raise RuntimeError("Paraformer không nhận dạng được câu nào"
                            + (f"\n{tail}" if tail else ""))
+    if not punctuation_available:
+        # mini-spec V41: trước đây chỉ log ở stderr của worker con (GUI
+        # không đọc) — giờ cảnh báo NGAY tại logger chính, người dùng thấy
+        # được lý do bản dịch/TTS sau này có thể gộp nhiều câu làm một
+        # (transcript thiếu dấu câu → mất ranh giới câu). Chạy lại
+        # `scripts/setup_paraformer.py` để tải lại model chấm câu.
+        logger.warning(
+            "Model chấm câu tiếng Trung (CT-Transformer) không có — "
+            "transcript sẽ KHÔNG có dấu câu, có thể ảnh hưởng chất lượng "
+            "dịch (nhiều câu gộp làm một). Chạy lại "
+            "scripts/setup_paraformer.py để tải lại model chấm câu.")
     return segments

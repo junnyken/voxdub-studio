@@ -92,6 +92,7 @@ Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN 
 ### MISCELLANEOUS & FORMATTING
 - **Sino-Vietnamese Words**: Use only extremely common everyday Sino-Vietnamese words (e.g., "kiểm sát viên" is fine, but prefer natural spoken terms over archaic ones).
 - **Chinese Particles**: Completely remove Chinese discourse/modal particles (啊, 呢, 嘛, 吧) — do NOT translate them literally; replace with the natural Vietnamese particle called for above (or none at all).
+- **English Filler Words**: Completely remove English disfluency/filler words (um, uh, like, you know, I mean, sort of, kind of, basically, actually used as a verbal tic rather than real emphasis) — these are speech noise, not content; do NOT translate them literally (e.g. "kiểu như", "bạn biết đấy", "ừm") — drop them and let the natural Vietnamese particle called for above carry the tone instead.
 - **Regional neutrality**: default to standard/neutral Vietnamese (broadly Northern-standard vocabulary understood nationwide) unless the user-provided context explicitly asks for a regional flavor (Southern "hen"/"dữ hen", Central expressions, etc.) — never invent regional flavor unprompted.
 - **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps (e.g., "**", "..."): Translate it into a short Vietnamese spoken exclamation like "Hả.", "Ôi.", or "Chờ chút."
   * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
@@ -153,7 +154,7 @@ Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN 
 - **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit (いち, に, さん...) the way a Japanese speaker would say them aloud.
 
 ### MISCELLANEOUS & FORMATTING
-- Drop discourse/modal particles from the source that have no natural Japanese equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally — replace with the natural Japanese sentence-final particle called for above, or nothing.
+- Drop discourse/modal particles from the source that have no natural Japanese equivalent (e.g. Chinese 啊/呢/嘛/吧, English filler like "um"/"uh"/"like"/"you know") rather than translating them literally — replace with the natural Japanese sentence-final particle called for above, or nothing.
 - **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short natural spoken Japanese exclamation like "え。", "あー。", or "ちょっと待って。"
   * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
     emphasisExamples: '"本当に", "マジで", "めっちゃ", "実は"',
@@ -215,7 +216,7 @@ Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN 
 - **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way a Spanish speaker would say them aloud.
 
 ### MISCELLANEOUS & FORMATTING
-- Drop discourse/modal particles from the source that have no Spanish equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally.
+- Drop discourse/modal particles from the source that have no Spanish equivalent (e.g. Chinese 啊/呢/嘛/吧, English filler like "um"/"uh"/"like"/"you know") rather than translating them literally.
 - **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short spoken Spanish exclamation like "¿Eh?", "Ay.", or "Espera."
   * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
     emphasisExamples: '"de verdad", "en serio", "súper", "la verdad es que"',
@@ -246,7 +247,7 @@ Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN 
 - **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way a Thai speaker would say them aloud.
 
 ### MISCELLANEOUS & FORMATTING
-- Drop discourse/modal particles from the source that have no Thai equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally — replace with a natural Thai particle if one genuinely fits, or nothing.
+- Drop discourse/modal particles from the source that have no Thai equivalent (e.g. Chinese 啊/呢/嘛/吧, English filler like "um"/"uh"/"like"/"you know") rather than translating them literally — replace with a natural Thai particle if one genuinely fits, or nothing.
 - **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short natural spoken Thai exclamation like "เอ๊ะ", "โอ้", or "เดี๋ยวนะ"
   * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
     emphasisExamples: '"จริงๆ", "มากๆ", "สุดๆ", "จริงจัง"',
@@ -277,7 +278,7 @@ Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN 
 - **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way an Indonesian speaker would say them aloud.
 
 ### MISCELLANEOUS & FORMATTING
-- Drop discourse/modal particles from the source that have no Indonesian equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally — the natural Indonesian equivalents "sih"/"dong"/"deh"/"kok" may be used sparingly where the tone genuinely calls for them.
+- Drop discourse/modal particles from the source that have no Indonesian equivalent (e.g. Chinese 啊/呢/嘛/吧, English filler like "um"/"uh"/"like"/"you know") rather than translating them literally — the natural Indonesian equivalents "sih"/"dong"/"deh"/"kok" may be used sparingly where the tone genuinely calls for them.
 - **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short spoken Indonesian exclamation like "Eh?", "Oh.", or "Tunggu dulu."
   * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
     emphasisExamples: '"beneran", "banget", "serius", "sungguh"',
@@ -308,7 +309,7 @@ Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN 
 - **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way a Portuguese speaker would say them aloud.
 
 ### MISCELLANEOUS & FORMATTING
-- Drop discourse/modal particles from the source that have no Portuguese equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally.
+- Drop discourse/modal particles from the source that have no Portuguese equivalent (e.g. Chinese 啊/呢/嘛/吧, English filler like "um"/"uh"/"like"/"you know") rather than translating them literally.
 - **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short spoken Portuguese exclamation like "Hã?", "Ah.", or "Espera aí."
   * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
     emphasisExamples: '"de verdade", "sério", "muito", "na real"',
@@ -339,7 +340,7 @@ Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN 
 - **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way a French speaker would say them aloud.
 
 ### MISCELLANEOUS & FORMATTING
-- Drop discourse/modal particles from the source that have no French equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally — natural French fillers like "bon", "du coup", "en fait" may be used sparingly where the tone calls for them.
+- Drop discourse/modal particles from the source that have no French equivalent (e.g. Chinese 啊/呢/嘛/吧, English filler like "um"/"uh"/"like"/"you know") rather than translating them literally — natural French fillers like "bon", "du coup", "en fait" may be used sparingly where the tone calls for them.
 - **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short spoken French exclamation like "Hein ?", "Ah.", or "Attends."
   * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
     emphasisExamples: '"vraiment", "carrément", "trop", "en fait"',
@@ -370,7 +371,7 @@ Since this text will be read aloud by a TTS voice, format all numbers as SPOKEN 
 - **Codes read digit-by-digit**: phone numbers, room numbers, product codes — spell them out digit by digit the way a German speaker would say them aloud.
 
 ### MISCELLANEOUS & FORMATTING
-- Drop discourse/modal particles from the source that have no German equivalent (e.g. Chinese 啊/呢/嘛/吧) rather than translating them literally — natural German modal particles like "halt", "eben", "ja", "mal" may be used sparingly where the tone calls for them.
+- Drop discourse/modal particles from the source that have no German equivalent (e.g. Chinese 啊/呢/嘛/吧, English filler like "um"/"uh"/"like"/"you know") rather than translating them literally — natural German modal particles like "halt", "eben", "ja", "mal" may be used sparingly where the tone calls for them.
 - **Bleeped/Censored Segments**: If the text contains ONLY punctuation, symbols, or bleeps: translate it into a short spoken German exclamation like "Ha?", "Ach.", or "Warte mal."
   * CRITICAL: NEVER output an empty string, pure punctuation, or "..." (TTS engines will crash or reject pure punctuation).`,
     emphasisExamples: '"wirklich", "echt", "total", "tatsächlich"',
@@ -389,6 +390,7 @@ function _genericRules(targetField, targetName, domain) {
 ### NATURAL SPOKEN ${targetName.toUpperCase()} (CRITICAL RULE)
 - **Native Phrasing**: "${targetField}" MUST sound like a native ${targetName} speaker talking naturally — NOT a literal, word-for-word rendering. NEVER leave text from the source language's script in the output.
 - **Translate Meaning, NOT Words**: ALWAYS translate the underlying intent/meaning of idioms and slang as the natural ${targetName} equivalent for that register.
+- **Drop Source Noise**: discourse/modal particles from the source that have no ${targetName} equivalent (e.g. Chinese 啊/呢/嘛/吧, English filler like "um"/"uh"/"like"/"you know") are speech noise, not content — drop them rather than translating them literally.
 
 ### NAMES & NUMBERS
 - Keep standard Latin brand/product names as commonly used internationally.

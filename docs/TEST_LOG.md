@@ -4867,3 +4867,63 @@ chưa có số liệu thật trong PoC này.
   nền/no-vocals — ngưỡng gốc thiết kế cho giọng NGƯỜI enroll, áp dụng chéo
   sang vocals.wav sau tách là suy luận hợp lý nhưng chưa benchmark bằng
   video thật).
+
+## V41 — Nâng chất lượng đọc hiểu nguồn Anh/Trung (Phase G)
+
+### Audit trước khi build
+
+- Đọc thật `control_server/src/prompts/translate.js` (toàn bộ 756 dòng),
+  `autodub/speech/asr_paraformer_worker.py`, `scripts/setup_paraformer.py`,
+  `autodub/speech/transcriber.py`, `autodub/speech/paraformer_transcriber.py`
+  — xác nhận 3/5 mối lo ban đầu KHÔNG phải gap thật (ranh giới câu Paraformer
+  dựa VAD âm thanh, không thua Whisper; thành ngữ tiếng Anh đã có rule tốt;
+  prompt source-agnostic không tự nó là lỗi). 2 gap thật xác nhận bằng
+  bằng chứng dòng cụ thể — xem mini-spec `docs/PLAN.md` V41.
+
+### Xây dựng
+
+- `control_server/src/prompts/translate.js`:
+  - Block `vi` (dòng 94): thêm dòng "English Filler Words" cạnh dòng
+    "Chinese Particles" có sẵn.
+  - Block `ja`/`es`/`th`/`id`/`pt`/`fr`/`de`: mở rộng câu "Drop
+    discourse/modal particles..." có sẵn, thêm ví dụ từ đệm tiếng Anh
+    (um/uh/like/you know) cạnh ví dụ trợ từ tiếng Trung có sẵn.
+  - `_genericRules()`: thêm dòng "Drop Source Noise" mới (trước đây hàm
+    này không có rule bỏ tạp âm nguồn nào cả — không riêng gì tiếng Anh).
+  - Block `zh` (giữ nguyên, KHÔNG đụng — modal particles ĐÚNG trong tiếng
+    Trung) và block `en` (giữ nguyên, KHÔNG đụng — target=nguồn cùng là
+    tiếng Anh không có nghĩa) đều CHỦ ĐỘNG bị loại khỏi thay đổi.
+- `autodub/speech/asr_paraformer_worker.py` — message `{"done": ...}` thêm
+  field `punctuation_available: punct is not None` (biến đã có sẵn từ
+  trước, chỉ lộ ra qua giao thức stdout).
+- `autodub/speech/paraformer_transcriber.py::transcribe_paraformer()` —
+  đọc `msg.get("punctuation_available", True)` lúc nhận `"done"`
+  (mặc định `True` — worker cũ/bản build cũ chưa có field này vẫn 0
+  regression), sau khi có `segments` thật: `logger.warning(...)` rõ ràng
+  khi `False`, kèm hướng dẫn chạy lại `scripts/setup_paraformer.py`.
+
+### Verify
+
+- `node --test tests/translate-prompts.test.js`: **37 passed, 0 failed**
+  (32→37, 5 test mới V41). Lúc viết test lộ ra 1 giả định sai của chính
+  mini-spec: test đầu tiên kỳ vọng rule mới có mặt ở CẢ target=en — sai,
+  vì target=en nghĩa là dịch SANG tiếng Anh, "bỏ từ đệm tiếng Anh" không
+  có ý nghĩa ở đó (đối xứng đúng với việc target=zh không có rule "bỏ trợ
+  từ tiếng Trung"). Sửa test loại `en` khỏi danh sách kỳ vọng có rule, thêm
+  test riêng xác nhận `en` KHÔNG có rule (đúng Constraint 2).
+- `pytest tests/test_paraformer_watchdog.py -q`: **5 passed** (3→5, 2 test
+  mới V41).
+- `pytest tests/ -q` (toàn bộ suite Python): **1120 passed, 6 skipped, 1
+  failed** (1118→1120, đúng 2 test mới cộng dồn — 1 fail còn lại là flake
+  `test_saas_client_music.py` đã xác nhận có sẵn TỪ TRƯỚC V40, không phải
+  regression mới, xem TEST_LOG mục V40).
+- `npm test` (`control_server`, toàn bộ suite Node): **261 passed, 1
+  skipped, 0 failed**.
+- **Giới hạn còn lại**: chưa live-verify thật bằng video tiếng Anh có nhiều
+  từ đệm thật (um/uh/like) qua model dịch thật — test chỉ khoá NỘI DUNG
+  prompt gửi lên model (đúng quy ước dự án: prompt là hợp đồng, model tự
+  suy luận theo prompt không phải thứ test được bằng unit test). Cảnh báo
+  chấm câu Paraformer chưa live-verify thật (cần môi trường có sherpa-onnx
+  cài thật + cố tình xóa model chấm câu để tái hiện) — test dùng worker giả
+  đúng giao thức, không mock `Popen` (cùng mức độ tin cậy các test watchdog
+  khác trong repo).

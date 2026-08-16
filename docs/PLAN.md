@@ -74,6 +74,8 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 
 | V40 | Sửa 3 bug thật từ audit sâu toàn pipeline (resume-safety + Demucs quality signal + orphaned subprocess) (Phase G, chủ dự án yêu cầu 2026-08-16) | ✅ Xong | Audit 2 agent song song (bug pipeline + khảo sát thị trường) tìm 4 bug thật, chủ dự án chọn sửa 3 (bỏ #4 LOW). **#1 HIGH** resume-safety: `_load_cached_transcript()` (mới, tách từ `_run_impl`) thêm marker `.asr_lang` — đổi "Ngôn ngữ gốc" rồi resume trước đây âm thầm dùng lại transcript SAI ngôn ngữ; `_ensure_render_mode()` (đã có từ trước, mở rộng) thêm dòng 2 lưu giọng đọc đã resolve vào marker `.render_mode` có sẵn — đổi giọng rồi resume trước đây để lại .wav CŨ lẫn với .wav MỚI trong cùng video. Cả 2 đều: marker không tồn tại (dự án tạo trước V40) → coi là khớp, không ép làm lại oan. **#2 MEDIUM** Demucs không có tín hiệu chất lượng: tái dùng NGUYÊN `audio_quality.analyze()` (RMS/khoảng-lặng, đã có từ V35 cho voice cloning) áp lên `vocals.wav` sau khi tách — CHỈ báo qua field mới `background_separation` trong `quality_report.json` (additive, theo đúng pattern `translate_review` của V29), KHÔNG chặn (video không lời thoại là hợp lệ). Đọc WAV bằng `wave` stdlib (không phải `soundfile`) — CI cố tình loại `soundfile` khỏi cài đặt test (V38) để tránh kéo torch. **#3 MEDIUM** tiến trình con mồ côi: `atexit.register(proc.kill)` cho Whisper subprocess (`transcriber.py`) và Demucs GPU worker (đổi `subprocess.run`→`Popen`+`communicate` để có handle đăng ký được, `vocal_separator.py`) — cùng pattern VieNeu worker đã dùng từ trước, đóng app giữa lúc ASR/Demucs chạy giờ có thêm lưới an toàn (không bảo vệ được kill -9/crash cứng). 18 test mới (`test_pipeline_resume_safety.py` mới + bổ sung `test_vocal_separator.py`/`test_transcriber_watchdog.py`), 0 regression (1118/1119 pass Python — 1 fail còn lại là flake phụ thuộc thứ tự test có sẵn từ TRƯỚC V40, xác nhận bằng cách chạy lại full suite trên `main` sạch, xem TEST_LOG) |
 
+| V41 | Nâng chất lượng đọc hiểu nguồn Anh/Trung khi dịch sang tiếng Việt (Phase G, chủ dự án yêu cầu 2026-08-16) | ✅ Xong | Audit xác nhận: KHÔNG phải gap cấu trúc rộng (ranh giới câu Paraformer/Whisper đều dựa VAD tạm dừng âm thanh, không phải cấu trúc chữ — tiếng Trung không thua kém tiếng Anh ở điểm này); ý ngữ/thành ngữ tiếng Anh đã có rule map-theo-nghĩa tốt sẵn. 2 gap thật: **#1** `control_server/src/prompts/translate.js` đã có rule bỏ trợ từ tiếng Trung (啊/呢/嘛/吧) ở MỌI target trừ zh, nhưng KHÔNG có rule tương đương cho từ đệm tiếng Anh nói (um/uh/like/you know...) — thêm rule đối xứng vào 8/10 block (trừ zh giữ nguyên có chủ đích, trừ en vì target=nguồn=tiếng Anh không có nghĩa) + `_genericRules()` fallback. **#2** Model chấm câu CT-Transformer (Paraformer, tiếng Trung) tải lỗi lúc cài chỉ log stderr worker con (GUI không đọc) — degrade vĩnh viễn, không cảnh báo, vi phạm nguyên tắc "degrade trung thực" của CLAUDE.md. Worker (`asr_paraformer_worker.py`) thêm field `punctuation_available` vào message "done"; `paraformer_transcriber.py` đọc lại, cảnh báo rõ qua logger chính khi thiếu (mặc định `True` cho worker cũ chưa gửi field — 0 regression). 5 test mới Python (`test_paraformer_watchdog.py`) + 5 test mới Node (`translate-prompts.test.js`), 0 regression (Python 1120/1121 pass — 1 fail là flake có sẵn từ V40; Node 261/262 pass, 0 fail) |
+
 ## Tổng quan phase
 
 | Phase | Mini-spec | Trọng tâm | Thời lượng ước tính (AI-compressed, 7h/ngày) |
@@ -3788,6 +3790,127 @@ Success Criteria:
   test, không cần live-verify thật (không có cách an toàn mô phỏng force-
   quit thật trong CI).
 - 0 regression toàn bộ suite hiện có.
+```
+
+### V41 — Nâng chất lượng đọc hiểu nguồn Anh/Trung
+
+```
+V41 — Rule bỏ từ đệm tiếng Anh (đối xứng rule bỏ trợ từ tiếng Trung đã có) +
+cảnh báo khi thiếu model chấm câu Paraformer (Phase G)
+
+Context:
+- 2026-08-16, chủ dự án chọn "nâng chất lượng đọc hiểu nguồn Anh/Trung" làm
+  1 trong 2 hướng ưu tiên (cùng batch xử lý song song — chưa làm, xem
+  Remaining Limits). Khác V39 (sửa mạch xưng hô GIỮA CÁC LÔ trong CÙNG 1
+  video) — đây là chất lượng HIỂU NGUỒN theo từng ngôn ngữ nguồn cụ thể.
+- Audit thật (đọc code, không suy đoán) 5 câu hỏi:
+  1. Prompt dịch (`translate.js`) có nhận biết ngôn ngữ NGUỒN không, hay
+     hoàn toàn source-agnostic? → Source-agnostic gần như tuyệt đối
+     (`sourceLang` chỉ xuất hiện 1 lần trong câu mở đầu prompt, không dùng
+     lại). Đây LÀ nguyên nhân gốc của gap #1 bên dưới — nhưng bản thân việc
+     source-agnostic không phải lỗi (LLM đa ngôn ngữ hiện đại không cần
+     nhiều scaffolding "nguồn là X" cho ngữ pháp/thành ngữ thông thường).
+  2. Ranh giới câu Paraformer (tiếng Trung) có kém hơn Whisper (tiếng Anh)
+     không (lo ngại: tiếng Trung không có khoảng trắng/cấu trúc mệnh đề rõ
+     như tiếng Anh)? → KHÔNG — cả 2 đều cắt câu theo silero-VAD (khoảng
+     lặng ÂM THANH), không phải cấu trúc CHỮ. `asr_paraformer_worker.py`
+     dòng ~115-122 và `transcriber.py` dòng ~420-421 dùng cùng kỹ thuật.
+     Không phải gap thật.
+  3. Thành ngữ/tiếng lóng tiếng Anh → đã có rule map-theo-nghĩa tốt sẵn
+     (`translate.js` dòng 110: "Render slang/internet idioms as the
+     EQUIVALENT English idiom for the same register"). Không phải gap.
+  4. **Gap thật #1**: rule "bỏ trợ từ tiếng Trung 啊/呢/嘛/吧" đã có ở MỌI
+     target trừ zh (dòng 94/125/156/218/249/280/311/342/373) — codebase đã
+     tự nhận ra "tạp âm nguồn dịch thẳng ra target là lỗi thật" và sửa cho
+     tiếng Trung, nhưng CHƯA làm tương tự cho từ đệm tiếng Anh nói (um, uh,
+     like, you know...) — dù đây là tạp âm phổ biến NHẤT cho đúng nội dung
+     "YouTube/TikTok creator style" mà chính prompt đang nhắm tới
+     (`translate.js` dòng 64, "skip unnecessary filler" — nói MỤC TIÊU
+     nhưng thiếu RULE cụ thể cho nguồn tiếng Anh).
+  5. **Gap thật #2**: `scripts/setup_paraformer.py` dòng 128-136 tải model
+     chấm câu CT-Transformer trong `try/except` — lỗi mạng/tải dở chỉ log
+     `"!! không tải được model chấm câu ... bỏ qua"` rồi tiếp tục.
+     `asr_paraformer_worker.py` dòng ~94 mỗi lượt chạy chỉ kiểm
+     `os.path.isfile(punct_model)` — thiếu thì `punct=None` VĨNH VIỄN
+     (script cài chỉ chạy 1 lần lúc setup, không có gì kích hoạt cài lại).
+     Cảnh báo hiện tại (`asr_paraformer_worker.py` dòng 102) chỉ in ra
+     stderr của tiến trình con — GUI/log chính KHÔNG đọc stream đó, người
+     dùng không có cách nào biết transcript đang thiếu dấu câu. Vi phạm
+     đúng nguyên tắc "degrade phải trung thực, không giả im lặng" đã ghi
+     trong CLAUDE.md của project.
+
+Goal:
+1. Dịch nguồn tiếng Anh có từ đệm/tạp âm nói (um/uh/like/you know...) sang
+   bất kỳ target nào (trừ chính target=en) không được dịch thẳng ra các từ
+   này — đúng đối xứng với cách trợ từ tiếng Trung đã được xử lý.
+2. Khi Paraformer chạy THIẾU model chấm câu, người dùng phải thấy cảnh báo
+   rõ ràng ở nơi họ thực sự xem log (logger chính, không phải stderr của
+   tiến trình con), giải thích ảnh hưởng + cách khắc phục.
+
+Constraints (Guardrails):
+1. KHÔNG đổi rule trợ từ tiếng Trung đã có (0 regression V18) — chỉ THÊM
+   rule mới, không sửa/xóa rule cũ.
+2. Rule mới KHÔNG áp cho target=zh (giữ nguyên hành vi V18: modal particles
+   là ĐÚNG trong tiếng Trung nói) và KHÔNG áp cho target=en (target=nguồn
+   cùng là tiếng Anh không có ý nghĩa thực tế trong use case dubbing).
+3. Cảnh báo thiếu model chấm câu CHỈ báo, KHÔNG chặn pipeline (Paraformer
+   vẫn chạy được không dấu câu, đây là hành vi degrade ĐÃ ĐÚNG từ trước —
+   chỉ thiếu tín hiệu, không thiếu khả năng chạy).
+4. KHÔNG thêm network retry vào worker subprocess (hot path mỗi lượt dịch)
+   — rủi ro làm chậm/treo mọi video nếu mạng chập chờn; cảnh báo + hướng
+   dẫn chạy lại script cài đặt thủ công là đủ, đúng mức độ rủi ro thấp nhất
+   cho gap MEDIUM/hiếm gặp này.
+
+Scope:
+A. `control_server/src/prompts/translate.js` — thêm dòng rule "English
+   Filler Words" cạnh rule "Chinese Particles" trong block `vi` (dòng 94,
+   quan trọng nhất vì target=vi là ca thực tế chiếm đa số); mở rộng câu có
+   sẵn "Drop discourse/modal particles..." ở các block ja/es/th/id/pt/fr/de
+   để nêu thêm ví dụ từ đệm tiếng Anh; thêm dòng tương tự vào
+   `_genericRules()` fallback. KHÔNG đụng block `zh`/`en`.
+B. `autodub/speech/asr_paraformer_worker.py` — message `"done"` thêm field
+   `punctuation_available: bool` (đã tính sẵn từ biến `punct is not None`
+   có từ trước, không cần logic mới).
+C. `autodub/speech/paraformer_transcriber.py::transcribe_paraformer()` —
+   đọc field mới (mặc định `True` nếu worker cũ không gửi, tránh cảnh báo
+   giả), `logger.warning(...)` rõ ràng khi `False`, kèm hướng dẫn chạy lại
+   `scripts/setup_paraformer.py`.
+D. Tests: `translate-prompts.test.js` (V41 — rule mới có mặt ở target
+   không phải zh/en, vắng mặt ở zh/en, generic fallback cũng có);
+   `test_paraformer_watchdog.py` (V41 — worker báo thiếu chấm câu → cảnh
+   báo logger chính; worker báo có/không gửi field → không cảnh báo giả).
+
+Audit Before Build:
+- Đã audit đủ ở Context (đọc thật `translate.js` toàn bộ 756 dòng,
+  `asr_paraformer_worker.py`, `setup_paraformer.py`, `transcriber.py`,
+  `paraformer_transcriber.py`) trước khi viết mini-spec — không cần audit
+  thêm.
+
+Design Choice:
+- Rule tiếng Anh: TÁI DÙNG đúng vị trí/pattern rule tiếng Trung đã có (mở
+  rộng câu có sẵn thay vì viết khối riêng) — nhất quán, dễ maintain, không
+  phát minh cấu trúc prompt mới.
+- Cảnh báo chấm câu: chọn "chỉ báo qua logger chính" thay vì "tự động thử
+  tải lại model trong worker" — đúng Constraint 4 (không thêm network call
+  vào hot path), phù hợp mức độ nghiêm trọng thật (MEDIUM, hiếm gặp — chỉ
+  ảnh hưởng khi cài đặt ban đầu bị gián đoạn mạng).
+
+Test Plan:
+- Node: `buildTranslateSystemPrompt()` cho từng target — rule mới có mặt
+  (regex match cụm "um...uh...like...you know") ở target không phải zh/en,
+  vắng mặt ở zh (đúng exception V18) và en (đúng exception mới).
+- Python: worker giả (không mock Popen, đúng pattern có sẵn) gửi
+  `punctuation_available: false`/`true`/vắng field — xác nhận cảnh báo
+  logger đúng 1 trong 3 trường hợp, không cảnh báo giả 2 trường hợp còn
+  lại.
+
+Success Criteria:
+- 8/10 target block (trừ zh/en) có rule bỏ từ đệm tiếng Anh, không đổi
+  hành vi zh/en.
+- Paraformer thiếu model chấm câu → dòng cảnh báo xuất hiện ở
+  `autodub.paraformer` logger (nơi GUI/log chính đọc được), không chỉ ở
+  stderr worker con.
+- 0 regression toàn bộ 2 suite (Python `pytest tests/`, Node `npm test`).
 ```
 
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)

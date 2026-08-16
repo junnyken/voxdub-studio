@@ -13,7 +13,7 @@ CLI:
 stdout protocol (one JSON per line, everything else goes to stderr):
     {"ready": true}
     {"seg": true, "text": "...", "start": 1.02, "end": 4.31}
-    {"done": true, "num_segments": 42}
+    {"done": true, "num_segments": 42, "punctuation_available": true}
   | {"error": "..."}          then exit code 1
 """
 import argparse
@@ -159,7 +159,13 @@ def main() -> None:
         emit(seg.samples, seg.start)
         vad.pop()
 
-    print(json.dumps({"done": True, "num_segments": n_segments}),
+    # mini-spec V41: trước đây thiếu model chấm câu chỉ log ra stderr (worker
+    # con, GUI không đọc) — người dùng không có cách nào biết transcript này
+    # thiếu dấu câu trừ khi tự đọc log. Gắn tín hiệu vào "done" để tiến
+    # trình cha (paraformer_transcriber.py) cảnh báo đúng chỗ người dùng
+    # thấy được.
+    print(json.dumps({"done": True, "num_segments": n_segments,
+                      "punctuation_available": punct is not None}),
           file=proto_out, flush=True)
 
 

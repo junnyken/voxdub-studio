@@ -306,3 +306,47 @@ test('V18: mọi ngôn ngữ mới đều có quy tắc TTS đọc số bằng c
     assert.match(system, /NUMBERS & UNITS/, `${key} thiếu mục NUMBERS & UNITS`)
   }
 });
+
+// ------------------------------------------------------------------- V41 ----
+// Audit thật (2026-08-16): quy tắc "bỏ trợ từ tiếng Trung 啊/呢/嘛/吧" đã có ở
+// MỌI ngôn ngữ đích trừ zh (giữ nguyên có chủ đích) — nhưng KHÔNG có quy tắc
+// tương đương cho từ đệm tiếng Anh nói (um/uh/like/you know...), dù đây là
+// tạp âm nguồn phổ biến nhất cho nội dung "YouTube/TikTok creator style" mà
+// chính prompt đang nhắm tới. Thêm quy tắc đối xứng, không đổi quy tắc cũ.
+
+test('V41: quy tắc bỏ trợ từ tiếng Trung ĐI KÈM quy tắc bỏ từ đệm tiếng Anh, ở MỌI target trừ zh/en', () => {
+  // target=en bị loại có chủ đích, giống hệt zh: rule "bỏ tạp âm tiếng Anh"
+  // không có nghĩa khi CHÍNH target đó là tiếng Anh (tương tự target=zh
+  // không có rule "bỏ tạp âm tiếng Trung" — xem test riêng bên dưới).
+  const targets = ['vi', 'ja', 'es', 'th', 'id', 'pt', 'fr', 'de']
+  for (const key of targets) {
+    const system = prompts.buildTranslateSystemPrompt({
+      sourceLang: 'en-US', targetKey: key, context: {}, cpsBudget: 12.5,
+    })
+    assert.match(system, /um.*uh.*like.*you know/,
+      `${key} thiếu quy tắc bỏ từ đệm tiếng Anh (um/uh/like/you know)`)
+  }
+});
+
+test('V41: tiếng Trung (target=zh) KHÔNG có quy tắc bỏ từ đệm tiếng Anh (0 regression V18 — modal particles CORRECT here vẫn giữ nguyên)', () => {
+  const system = prompts.buildTranslateSystemPrompt({
+    sourceLang: 'en-US', targetKey: 'zh', context: {}, cpsBudget: 12.5,
+  })
+  assert.doesNotMatch(system, /um.*uh.*like.*you know/)
+  assert.match(system, /are natural, expected parts of spoken Mandarin/)
+});
+
+test('V41: tiếng Anh (target=en) KHÔNG có quy tắc bỏ từ đệm tiếng Anh (không có nghĩa khi target CHÍNH LÀ tiếng Anh — 0 regression)', () => {
+  const system = prompts.buildTranslateSystemPrompt({
+    sourceLang: 'zh-CN', targetKey: 'en', context: {}, cpsBudget: 12.5,
+  })
+  assert.doesNotMatch(system, /um.*uh.*like.*you know/)
+});
+
+test('V41: ngôn ngữ chưa có bộ quy tắc riêng (generic fallback) cũng có quy tắc bỏ tạp âm nguồn', () => {
+  const system = prompts.buildTranslateSystemPrompt({
+    sourceLang: 'en-US', targetKey: 'ko', context: {}, cpsBudget: 12.5,
+  })
+  assert.match(system, /Drop Source Noise/)
+  assert.match(system, /um.*uh.*like.*you know/)
+});

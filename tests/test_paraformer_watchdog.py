@@ -68,3 +68,41 @@ def test_worker_hangs_mid_transcription_raises_within_bounded_time(monkeypatch, 
 
     with pytest.raises(RuntimeError, match="không phản hồi.*giữa lúc nhận dạng"):
         pf_module.transcribe_paraformer("/tmp/fake.wav", settings)
+
+
+# ------------------------------------------- mini-spec V41: punctuation ----
+# Bug thật (audit 2026-08-16): model chấm câu tải lỗi lúc cài đặt trước đây
+# chỉ log ở stderr của worker con (GUI không đọc) — không có tín hiệu nào
+# tới người dùng rằng transcript tiếng Trung đang thiếu dấu câu, có thể ảnh
+# hưởng chất lượng dịch (nhiều câu gộp làm một). Worker giờ báo qua "done".
+
+def test_missing_punctuation_model_logs_clear_warning(monkeypatch, tmp_path, caplog):
+    worker = _fake_worker(tmp_path, body="""
+        print(json.dumps({"seg": True, "text": "ni hao", "start": 0.0, "end": 1.0}),
+              flush=True)
+        print(json.dumps({"done": True, "punctuation_available": False}), flush=True)
+    """)
+    monkeypatch.setattr(pf_module, "_WORKER_SCRIPT", worker)
+    settings = _settings(monkeypatch)
+
+    with caplog.at_level("WARNING", logger="autodub.paraformer"):
+        pf_module.transcribe_paraformer("/tmp/fake.wav", settings)
+
+    assert any("chấm câu" in r.message for r in caplog.records)
+
+
+def test_punctuation_available_no_warning_0_regression(monkeypatch, tmp_path, caplog):
+    """Worker báo có model chấm câu (hoặc worker cũ không gửi field này —
+    mặc định True) -> KHÔNG cảnh báo giả."""
+    worker = _fake_worker(tmp_path, body="""
+        print(json.dumps({"seg": True, "text": "ni hao", "start": 0.0, "end": 1.0}),
+              flush=True)
+        print(json.dumps({"done": True, "punctuation_available": True}), flush=True)
+    """)
+    monkeypatch.setattr(pf_module, "_WORKER_SCRIPT", worker)
+    settings = _settings(monkeypatch)
+
+    with caplog.at_level("WARNING", logger="autodub.paraformer"):
+        pf_module.transcribe_paraformer("/tmp/fake.wav", settings)
+
+    assert not any("chấm câu" in r.message for r in caplog.records)
