@@ -105,6 +105,14 @@ class DubRequest:
     #: Batch/legacy giữ False: trừ Vox theo từng lượt như cũ, không mã hóa.
     defer_export: bool = False
 
+    #: mini-spec V32b (docs/PLAN.md, Phase G) — "Đồng bộ khẩu hình" AI
+    #: (MuseTalk), GPU-only, mặc định TẮT. Chỉ có hiệu lực khi
+    #: ``skip_video=False`` VÀ ``Settings.lipsync_configured()``/
+    #: ``lipsync_gpu_available()`` đều đúng — thiếu 1 trong 2 thì degrade
+    #: trung thực (bỏ qua bước này, KHÔNG lỗi cả lượt chạy vì 1 tính năng
+    #: tuỳ chọn chưa cài, xem Constraint 2 của V32b).
+    lipsync: bool = False
+
 
 @dataclass
 class DubResult:
@@ -142,6 +150,10 @@ class DubPipeline:
         # nhạc nền lượt gần nhất, đọc lại bởi _build_quality_report(). Rỗng
         # khi bg_mode != "demucs" hoặc tách thất bại (không có file để đo).
         self._last_vocals_quality: dict = {}
+        # mini-spec V32b (docs/PLAN.md, Phase G) — kết quả bước "Đồng bộ
+        # khẩu hình" lượt gần nhất, đọc lại bởi _build_quality_report().
+        # Rỗng khi DubRequest.lipsync=False (mặc định).
+        self._last_lipsync_state: dict = {}
         from autodub import telemetry
         telemetry_listener = telemetry.make_progress_listener(self)
 
@@ -176,6 +188,19 @@ class DubPipeline:
         # Work dir of the most recent run() call (set even when the run
         # fails mid-way) — batch uses it to resume the same folder later.
         self.last_work_dir = ""
+
+    def _reset_per_run_state(self) -> None:
+        """Xoá side-channel của lượt chạy TRƯỚC — bắt buộc gọi đầu mỗi
+        ``_run_impl()``. Bug thật tìm được khi build V32b: ``pipeline`` là 1
+        instance DÙNG CHUNG cho cả batch (xem ``batch.py::run_batch`` —
+        không tạo mới mỗi video), nhưng 3 field dưới đây trước giờ chỉ khởi
+        tạo MỘT LẦN trong ``__init__()`` — video B trong cùng batch không
+        bật tính năng tương ứng vẫn thấy ``quality_report.json`` lộ dữ liệu
+        CŨ của video A liền trước. Không giới hạn riêng cho V32b — sửa luôn
+        2 field có sẵn từ V29/V40 cùng lỗi."""
+        self._last_review_trace = []
+        self._last_vocals_quality = {}
+        self._last_lipsync_state = {}
 
     def _get_synth(self, target, voice):
         from autodub.speech.tts import get_synthesizer
@@ -278,6 +303,7 @@ class DubPipeline:
         lang_code = resolve_source_lang(req.source_lang)
         logger.info(f"Source language: {lang_code} → {target.name}")
         self._log_machine_info(settings)
+        self._reset_per_run_state()
 
         # Resume an existing work_dir or create a new timestamped one
         if req.resume_dir:
@@ -704,6 +730,7 @@ class DubPipeline:
             "subtitle_mode": req.subtitle_mode,
             "blur_regions": req.blur_regions,
             "voice": req.voice,
+            "lipsync": req.lipsync,
             "elapsed_before": round(time.time() - start_time, 1),
         }
 
@@ -762,7 +789,8 @@ class DubPipeline:
         req = DubRequest(url=state.get("url"), voice=state.get("voice"),
                          skip_video=bool(state.get("skip_video")),
                          subtitle_mode=state.get("subtitle_mode", "none"),
-                         blur_regions=state.get("blur_regions") or [])
+                         blur_regions=state.get("blur_regions") or [],
+                         lipsync=bool(state.get("lipsync")))
 
         # --- Step 7: Merge video (optional) ---
         # Ghim tên giọng THẬT đã dùng (kể cả khi người dùng để mặc định),
@@ -799,6 +827,17 @@ class DubPipeline:
             render_opts.setdefault("subtitle_style", subtitle_style)
         save_render_opts(work_dir, render_opts)
         if not req.skip_video:
+            # mini-spec V32b (docs/PLAN.md, Phase G) — "Đồng bộ khẩu hình"
+            # AI, TUỲ CHỌN (mặc định TẮT). Chạy TRƯỚC bước mux hiện có: nhận
+            # (video gốc, audio đã lồng tiếng) → trả video đã đồng bộ khẩu
+            # hình để merge_video() dùng THAY video gốc — subtitle/blur/tốc
+            # độ video vẫn xử lý y hệt như trước ở bước mux, không viết lại.
+            lipsync_video_path = video_path
+            if req.lipsync:
+                rep.check_cancelled()
+                lipsync_video_path, self._last_lipsync_state = self._apply_lipsync(
+                    video_path, merged_audio_path, work_dir, settings)
+
             # Phụ đề ghi vào hình: cả câu (.srt) hay cụm chữ theo giọng đọc
             # (.ass) đều do refresh_subtitles quyết, dùng đúng bộ clip cuối
             # cùng nên chữ nhảy khớp giọng.
@@ -808,7 +847,7 @@ class DubPipeline:
                 for_burn=req.subtitle_mode == "burn")
             from autodub.media.video import merge_video
             merge_video(
-                video_path, merged_audio_path, dubbed_video_path,
+                lipsync_video_path, merged_audio_path, dubbed_video_path,
                 srt_path=burn_path,
                 subtitle_mode=req.subtitle_mode,
                 blur_regions=req.blur_regions,
@@ -849,7 +888,8 @@ class DubPipeline:
                                              state.get("timing") or {},
                                              settings,
                                              review_trace=self._last_review_trace,
-                                             vocals_quality=self._last_vocals_quality)
+                                             vocals_quality=self._last_vocals_quality,
+                                             lipsync_state=self._last_lipsync_state)
         quality_path = data_path(work_dir, "quality_report.json")
         with open(quality_path, "w", encoding="utf-8") as f:
             json.dump(quality, f, ensure_ascii=False, indent=2)
@@ -996,6 +1036,55 @@ class DubPipeline:
             logger.warning(
                 f"Diarization lỗi ({e}) — dùng 1 giọng cho toàn video như "
                 "bình thường (không ảnh hưởng phần còn lại của lượt dub).")
+
+    def _apply_lipsync(self, video_path: str, audio_path: str, work_dir: str,
+                       settings) -> tuple[str, dict]:
+        """Chạy bước "Đồng bộ khẩu hình" AI — mini-spec V32b (docs/PLAN.md,
+        Phase G). TUỲ CHỌN, mặc định TẮT, GPU-only (NGOẠI LỆ kiến trúc đầu
+        tiên so với "GPU-optional" của mọi tính năng khác — chốt chính sách
+        2026-08-12).
+
+        Trả về ``(video_path dùng cho bước mux, state để lộ ra
+        quality_report.json)``. Degrade TRUNG THỰC (Constraint 2): chưa cài
+        (.venv-lipsync/GPU)/consent-check chặn (Constraint 3, phạm vi CHỈ
+        đúng những gì V32a đã benchmark thật)/lỗi thật đều KHÔNG làm hỏng cả
+        lượt xuất video — rơi về dùng video gốc như trước V32b, nhưng LUÔN
+        ghi rõ lý do vào state để người dùng biết chắc video này có thật sự
+        được xử lý hay không, không phải lỗi mù mờ.
+        """
+        from autodub.media import lipsync as lipsync_module
+
+        if not lipsync_module.available(settings):
+            logger.info(
+                "Đồng bộ khẩu hình đang bật nhưng chưa cài (.venv-lipsync/"
+                "GPU không sẵn sàng) — xuất video như bình thường, không "
+                "đồng bộ khẩu hình. Cài qua scripts/setup_lipsync.py trên "
+                "máy có GPU NVIDIA thật.")
+            return video_path, {"status": "unavailable"}
+
+        from autodub.media.video import probe_duration_s
+        duration_s = probe_duration_s(video_path)
+        logger.info("=" * 60)
+        logger.info("STEP 6.5: Đồng bộ khẩu hình AI")
+        logger.info("Đang đồng bộ khẩu hình (GPU) — có thể mất nhiều phút, "
+                    "không phải bị treo...")
+        try:
+            output_video = lipsync_module.run(
+                video_path, audio_path, os.path.join(work_dir, "lipsync"),
+                settings, video_duration_s=duration_s)
+            return output_video, {"status": "applied"}
+        except lipsync_module.LipsyncBlocked as e:
+            logger.warning(
+                f"Đồng bộ khẩu hình bị chặn ({e.reason}): {e} — xuất video "
+                "như bình thường, không đồng bộ khẩu hình.")
+            return video_path, {
+                "status": "blocked", "reason": e.reason, "message": str(e),
+            }
+        except lipsync_module.LipsyncFailed as e:
+            logger.warning(
+                f"Đồng bộ khẩu hình lỗi: {e} — xuất video như bình thường, "
+                "không đồng bộ khẩu hình.")
+            return video_path, {"status": "failed", "message": str(e)}
 
     def _apply_emotion_styles(self, segments: list[dict], target: TargetLang,
                               run_voice: str | None) -> None:
@@ -1842,7 +1931,8 @@ class DubPipeline:
     def _build_quality_report(target: TargetLang, segments: list[dict],
                               timing_report, settings=None,
                               review_trace: list[dict] | None = None,
-                              vocals_quality: dict | None = None) -> dict:
+                              vocals_quality: dict | None = None,
+                              lipsync_state: dict | None = None) -> dict:
         """quality_report.json — tổng hợp mọi vấn đề còn lại sau render.
 
         Nguồn: TimingReport của bước đặt timeline mềm + kiểm tra budget dịch.
@@ -1861,6 +1951,13 @@ class DubPipeline:
         bại) — lộ ra thành field `background_separation`, CHỈ báo, không
         chặn (không có cách nào biết chắc video có nên có lời thoại hay
         không mà không cần nghe thật).
+
+        ``lipsync_state`` (mini-spec V32b, docs/PLAN.md Phase G — TUỲ CHỌN,
+        ADDITIVE): kết quả bước "Đồng bộ khẩu hình" nếu ``DubRequest.
+        lipsync=True`` (rỗng nếu không bật) — lộ ra thành field `lipsync`,
+        gồm ``status`` (unavailable/blocked/failed/applied) để người dùng
+        biết CHẮC video này có thật sự được xử lý hay đã tự động bỏ qua
+        (Constraint 2: degrade trung thực, không phải lỗi mù mờ).
         """
         from autodub.media.audio import FALLBACKS
         from autodub.text.translate_hint import effective_cps, payload_segment
@@ -1936,6 +2033,8 @@ class DubPipeline:
             "translate_review": review_trace or [],
             # mini-spec V40 — xem docstring "vocals_quality" ở trên.
             "background_separation": vocals_quality or {},
+            # mini-spec V32b — xem docstring "lipsync_state" ở trên.
+            "lipsync": lipsync_state or {},
         }
 
     @staticmethod

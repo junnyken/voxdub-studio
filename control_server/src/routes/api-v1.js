@@ -42,7 +42,12 @@ module.exports = async function apiV1Routes(fastify) {
       // không phải lượt gọi (khác quota/usageCount ở trên, xem Constraint 2).
       dubMinutesQuota: apiKey.dubMinutesQuota,
       dubMinutesUsed: apiKey.dubMinutesUsed,
-      dubMinutesRemaining: Math.max(0, apiKey.dubMinutesQuota - apiKey.dubMinutesUsed),
+      // V43: phút đang giữ chỗ cho job queued/running của CHÍNH key này —
+      // trừ luôn vào "còn lại" để không hiểu nhầm là dùng được ngay bây giờ.
+      dubMinutesReserved: apiKey.dubMinutesReserved || 0,
+      dubMinutesRemaining: Math.max(
+        0, apiKey.dubMinutesQuota - apiKey.dubMinutesUsed - (apiKey.dubMinutesReserved || 0),
+      ),
       lastUsedAt: apiKey.lastUsedAt,
     }
   })
@@ -182,6 +187,13 @@ module.exports = async function apiV1Routes(fastify) {
         message: 'bgMode phải là "none" hoặc "demucs".',
       })
     }
+    // V43: tuỳ chọn — caller tự khai thời lượng ước tính (phút) để giữ chỗ
+    // quota chính xác hơn mặc định cấu hình. Không hợp lệ (âm/không phải
+    // số) thì bỏ qua, rơi về mặc định — không chặn submit vì lỗi tham số
+    // phụ này.
+    const estimatedMinutesRaw = Number(request.query.estimatedMinutes)
+    const estimatedMinutes = Number.isFinite(estimatedMinutesRaw) && estimatedMinutesRaw > 0
+      ? estimatedMinutesRaw : 0
 
     const maxMb = Number(await config.get('cloud.dub.max.upload.mb')) || 300
     const data = await request.file({ limits: { fileSize: maxMb * 1024 * 1024 } })
@@ -195,7 +207,8 @@ module.exports = async function apiV1Routes(fastify) {
 
     try {
       const { job } = await dubJob.submitDubJob({
-        apiKey, fileBuffer: buffer, sourceLang, targetLang, voice, bgMode, ip: request.ip,
+        apiKey, fileBuffer: buffer, sourceLang, targetLang, voice, bgMode, estimatedMinutes,
+        ip: request.ip,
       })
       return {
         jobId: job._id,
@@ -203,6 +216,7 @@ module.exports = async function apiV1Routes(fastify) {
         async: true,
         bgMode: job.bgMode,
         estimatedCostVoxPerMinute: job.estimatedCostVox,
+        reservedMinutes: job.reservedMinutes,
       }
     } catch (err) {
       if (err instanceof dubJob.DubJobError) {

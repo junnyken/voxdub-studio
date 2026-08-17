@@ -137,6 +137,29 @@ class Settings:
     diarization_venv_python: str = ""  # mặc định: <app>/.venv-diar/Scripts/python.exe
     diarization_model_dir: str = ""    # mặc định: <app>/models/diarization
 
+    # mini-spec V32b (docs/PLAN.md, Phase G) — "Đồng bộ khẩu hình" (MuseTalk),
+    # NGOẠI LỆ KIẾN TRÚC ĐẦU TIÊN so với "GPU-optional" của mọi tính năng khác
+    # (chốt chính sách 2026-08-12) — venv riêng .venv-lipsync (GPU-only, cài
+    # qua scripts/setup_lipsync.py), mặc định TẮT, không đóng gói mặc định.
+    # Bật/tắt là lựa chọn TỪNG VIDEO (DubRequest.lipsync), không phải cấu
+    # hình toàn app — đúng cách subtitle_mode/blur_regions đã làm, không
+    # phải kiểu diarization_enabled (bật 1 lần áp cho mọi video sau đó).
+    # Phạm vi hiện tại CHỈ đúng những gì V32a đã benchmark thật (1 khuôn mặt,
+    # video ngắn) — xem docs/TEST_LOG.md mục V32a/V32b trước khi nới rộng.
+    lipsync_venv_python: str = ""      # mặc định: <app>/.venv-lipsync/Scripts/python.exe
+    lipsync_model_dir: str = ""        # mặc định: <app>/models/lipsync
+    # Ngưỡng cấu hình CHỦ ĐÍCH BẢO THỦ (đúng nguyên tắc quality_gate_*): mẫu
+    # DUY NHẤT đã benchmark thành công thật (V32a) dài 10.7s, VRAM đỉnh 96%
+    # trên card 4GB — KHÔNG có số liệu cho video dài hơn, nên trần mặc định
+    # chỉ nhỉnh hơn chút, không đoán xa. Chủ dự án tự nới sau khi tự benchmark
+    # thêm trên phần cứng của mình.
+    lipsync_max_duration_s: float = 12.0
+    # Consent-check (Constraint 3 của V32b): tỷ lệ frame KHÔNG phát hiện được
+    # khuôn mặt phải bằng 0 mới cho qua — mẫu THÀNH CÔNG duy nhất đã có
+    # (V32a) đạt đúng 0% (268/268 frame); CHƯA có số liệu về khuôn mặt góc
+    # nghiêng/nhiều người nên không nới ngưỡng này lên trên 0.
+    lipsync_max_no_face_ratio: float = 0.0
+
     # mini-spec V28 (docs/PLAN.md, Phase G) — giọng đọc tự đổi giọng điệu
     # theo cảm xúc từng câu (chỉ áp cho VieNeu, xem Constraint 4). Mặc định
     # TẮT. Đường tín hiệu THẬT ở đợt này CHỈ có heuristic văn bản local
@@ -388,6 +411,10 @@ class Settings:
             diarization_enabled=env_bool("DIARIZATION_ENABLED", "false"),
             diarization_venv_python=env("DIARIZATION_VENV_PYTHON"),
             diarization_model_dir=env("DIARIZATION_MODEL_DIR"),
+            lipsync_venv_python=env("LIPSYNC_VENV_PYTHON"),
+            lipsync_model_dir=env("LIPSYNC_MODEL_DIR"),
+            lipsync_max_duration_s=env_float("LIPSYNC_MAX_DURATION_S", "12.0"),
+            lipsync_max_no_face_ratio=env_float("LIPSYNC_MAX_NO_FACE_RATIO", "0.0"),
             emotion_voice_enabled=env_bool("EMOTION_VOICE_ENABLED", "false"),
             asr_num_threads=max(1, min(16, env_int("ASR_NUM_THREADS", "4"))),
             whisper_beam_size=max(1, min(10, env_int("WHISPER_BEAM_SIZE", "5"))),
@@ -577,6 +604,40 @@ class Settings:
         return (os.path.isfile(self.diarization_venv_python_path())
                 and os.path.isfile(os.path.join(self.diarization_model_dir_path(),
                                                 "installed_ok.json")))
+
+    def lipsync_venv_python_path(self) -> str:
+        """Trình thông dịch Python của venv dành riêng cho lip-sync (MuseTalk)."""
+        if self.lipsync_venv_python:
+            return self.lipsync_venv_python
+        exe = "Scripts/python.exe" if os.name == "nt" else "bin/python"
+        return os.path.join(app_root(), ".venv-lipsync", *exe.split("/"))
+
+    def lipsync_repo_dir_path(self) -> str:
+        """Mã nguồn MuseTalk đã vendor (xem scripts/setup_lipsync.py)."""
+        return os.path.join(app_root(), "vendor", "musetalk")
+
+    def lipsync_model_dir_path(self) -> str:
+        """Thư mục cache model MuseTalk (weights ~5-6GB)."""
+        if self.lipsync_model_dir:
+            return self.lipsync_model_dir
+        return os.path.join(app_root(), "models", "lipsync")
+
+    def lipsync_configured(self) -> bool:
+        """venv + mã nguồn + weights lip-sync đều có mặt hay chưa — pipeline
+        dùng cờ này để degrade trung thực (V32b Constraint 2), không chỉ dựa
+        vào DubRequest.lipsync."""
+        return (os.path.isfile(self.lipsync_venv_python_path())
+                and os.path.isdir(os.path.join(self.lipsync_repo_dir_path(), "musetalk"))
+                and os.path.isfile(os.path.join(self.lipsync_model_dir_path(),
+                                                "installed_ok.json")))
+
+    def lipsync_gpu_available(self) -> bool:
+        """GPU NVIDIA thật có mặt hay chưa (V32b Constraint 1 — tính năng
+        CHỈ bật được khi phát hiện GPU, không có đường CPU fallback). Kiểm
+        NHẸ (chỉ `nvidia-smi` có mặt) — không đo VRAM cụ thể ở đây, việc đó
+        thuộc về script cài đặt (xem scripts/setup_lipsync.py)."""
+        import shutil as _shutil
+        return _shutil.which("nvidia-smi") is not None
 
     def whisper_venv_python_path(self) -> str:
         """Trình thông dịch Python của venv dành riêng cho Whisper."""

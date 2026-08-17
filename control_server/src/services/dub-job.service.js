@@ -57,24 +57,77 @@ function jobPaths(jobId) {
 }
 
 /**
+ * Giữ chỗ N phút quota trên `apiKeyId`, atomic — mini-spec V43. Điều kiện
+ * `dubMinutesUsed + dubMinutesReserved + reserveMinutes <= dubMinutesQuota`
+ * nằm NGAY trong query của `findOneAndUpdate` (cùng kỹ thuật `balance:
+ * {$gte}` của `credit.service.js`), nên nhiều request song song từ CÙNG 1
+ * key chỉ đúng số job vừa đủ quota được lọt qua — không còn đọc-rồi-quyết
+ * như trước (gap V42 phát hiện). Trả về key đã cập nhật, hoặc `null` nếu
+ * không còn đủ chỗ (caller quyết định thông báo gì).
+ */
+async function reserveDubMinutes(apiKeyId, reserveMinutes) {
+  return ApiKey.findOneAndUpdate(
+    {
+      _id: apiKeyId,
+      $expr: {
+        $lte: [
+          { $add: ['$dubMinutesUsed', '$dubMinutesReserved', reserveMinutes] },
+          '$dubMinutesQuota',
+        ],
+      },
+    },
+    { $inc: { dubMinutesReserved: reserveMinutes } },
+    { new: true },
+  )
+}
+
+/** Trả lại N phút đã giữ chỗ (job xong/lỗi/hết hạn) — no-op an toàn nếu 0. */
+async function releaseDubMinutes(apiKeyId, reservedMinutes) {
+  if (!reservedMinutes) return
+  await ApiKey.updateOne({ _id: apiKeyId }, { $inc: { dubMinutesReserved: -reservedMinutes } })
+}
+
+/**
  * Tạo job mới. V34b: chặn (402) nếu API key chưa được cấp quota phút dub
- * nào hoặc đã dùng hết (`dubMinutesUsed >= dubMinutesQuota`) — kiểm TRƯỚC
- * khi submit vì durationS thật chỉ biết được SAU khi job chạy xong (không
- * có ffprobe ở Node để biết trước). Vox thật được trừ SAU, ở
- * `chargeDubUsage()` (gọi từ `completeJob()`) — `estimatedCostVox` ở đây
- * chỉ để tham khảo lúc submit, KHÔNG phải số tiền cuối cùng.
+ * nào hoặc đã dùng hết. V43: kiểm tra giờ là GIỮ CHỖ atomic (không phải
+ * đọc-rồi-quyết) — mỗi job giữ trước `estimatedMinutes` (caller tự khai vì
+ * họ thường biết thời lượng file của họ) hoặc mặc định cấu hình nếu không
+ * khai (không có ffprobe ở Node để tự đo — Constraint 3 của V34a). Đây CHỈ
+ * là ngưỡng chặn submit tràn lan — Vox/phút thật luôn tính lại SAU, ở
+ * `chargeDubUsage()` (gọi từ `completeJob()`) theo durationS worker đo
+ * được; `estimatedCostVox` ở đây chỉ để tham khảo lúc submit.
  */
 async function submitDubJob({
-  apiKey, fileBuffer, sourceLang, targetLang, voice = '', bgMode = 'none', ip = '',
+  apiKey, fileBuffer, sourceLang, targetLang, voice = '', bgMode = 'none',
+  estimatedMinutes = 0, ip = '',
 }) {
   if (!(await config.get('cloud.dub.enabled'))) {
     throw new DubJobError('CLOUD_DUB_DISABLED', 'API lồng tiếng đang tắt.', 409)
   }
-  if (apiKey.dubMinutesUsed >= apiKey.dubMinutesQuota) {
+
+  const cfg = await config.getMany([
+    'cloud.dub.reservation.default.minutes', 'cloud.dub.reservation.max.minutes',
+  ])
+  const declared = Math.round(Number(estimatedMinutes)) || 0
+  const reserveMinutes = Math.min(
+    Math.max(declared > 0 ? declared : cfg['cloud.dub.reservation.default.minutes'], 1),
+    cfg['cloud.dub.reservation.max.minutes'],
+  )
+
+  const reserved = await reserveDubMinutes(apiKey._id, reserveMinutes)
+  if (!reserved) {
+    // Đọc lại số thật (tham số `apiKey` truyền vào có thể đã cũ — chính
+    // race condition này là lý do V43 tồn tại) để báo đúng con số hiện tại.
+    const fresh = await ApiKey.findById(apiKey._id).lean()
+    const used = (fresh && fresh.dubMinutesUsed) || 0
+    const heldByOthers = (fresh && fresh.dubMinutesReserved) || 0
+    const quota = (fresh && fresh.dubMinutesQuota) || 0
     throw new DubJobError('DUB_QUOTA_EXCEEDED',
-      `Đã dùng hết quota phút lồng tiếng (${apiKey.dubMinutesUsed}/${apiKey.dubMinutesQuota} phút). `
+      `Không đủ quota phút lồng tiếng còn trống (đã dùng ${used}, đang giữ chỗ `
+      + `${heldByOthers} phút cho job khác, hạn mức ${quota} phút). `
       + 'Liên hệ quản trị để cấp thêm quota.', 402)
   }
+
   const ttlHours = Number(await config.get('cloud.dub.ttl.hours')) || 2
   const perMinuteKey = bgMode === 'demucs'
     ? 'credit.cost.cloud.dub.vox.per.minute.demucs'
@@ -85,28 +138,42 @@ async function submitDubJob({
   // tránh trạng thái nửa vời đã áp dụng ở render-job.service.js.
   const jobId = new mongoose.Types.ObjectId()
   const paths = jobPaths(String(jobId))
-  await fs.mkdir(paths.dir, { recursive: true })
-  await fs.writeFile(paths.input, fileBuffer)
 
-  const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000)
-  const job = await DubApiJob.create({
-    _id: jobId,
-    apiKeyId: apiKey._id,
-    status: 'queued',
-    sourceLang,
-    targetLang,
-    voice,
-    bgMode,
-    inputPath: paths.input,
-    estimatedCostVox: estimate,
-    expiresAt,
-  })
+  let job
+  try {
+    await fs.mkdir(paths.dir, { recursive: true })
+    await fs.writeFile(paths.input, fileBuffer)
+
+    const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000)
+    job = await DubApiJob.create({
+      _id: jobId,
+      apiKeyId: apiKey._id,
+      status: 'queued',
+      sourceLang,
+      targetLang,
+      voice,
+      bgMode,
+      inputPath: paths.input,
+      estimatedCostVox: estimate,
+      reservedMinutes: reserveMinutes,
+      expiresAt,
+    })
+  } catch (err) {
+    // Tạo job hỏng SAU khi đã giữ chỗ thành công — người gọi không được
+    // phép mất chỗ quota vì lỗi phía chúng ta (cùng nguyên tắc rollback của
+    // activation.service.js khi grant() hỏng sau khi đã chốt key).
+    await releaseDubMinutes(apiKey._id, reserveMinutes)
+    throw err
+  }
 
   await audit.log({
     action: 'cloud_dub.submit',
     actor: `apikey:${String(apiKey._id).slice(-8)}`,
     target: String(job._id),
-    after: { status: job.status, estimatedCostVox: estimate, sourceLang, targetLang, bgMode },
+    after: {
+      status: job.status, estimatedCostVox: estimate, reservedMinutes: reserveMinutes,
+      sourceLang, targetLang, bgMode,
+    },
     ip,
   })
 
@@ -120,8 +187,13 @@ async function submitDubJob({
  * docstring model). Làm tròn LÊN phút (1 giây cũng tính đủ 1 phút — phút
  * là đơn vị tính phí nhỏ nhất, tối thiểu 1 phút/job để job cực ngắn không
  * miễn phí do làm tròn xuống 0).
+ *
+ * V43: `reservedMinutes` (số phút job này đã giữ chỗ lúc submit) được giải
+ * phóng TRONG CÙNG một `$inc` với việc cộng usage thật — 1 lệnh nguyên tử,
+ * không có khoảng hở giữa "giải phóng" và "trừ thật" mà request khác có
+ * thể chen vào.
  */
-async function chargeDubUsage(apiKeyId, jobId, bgMode, durationS) {
+async function chargeDubUsage(apiKeyId, jobId, bgMode, durationS, reservedMinutes = 0) {
   const perMinuteKey = bgMode === 'demucs'
     ? 'credit.cost.cloud.dub.vox.per.minute.demucs'
     : 'credit.cost.cloud.dub.vox.per.minute'
@@ -129,9 +201,12 @@ async function chargeDubUsage(apiKeyId, jobId, bgMode, durationS) {
   const minutesCharged = Math.max(1, Math.ceil(Number(durationS) / 60))
   const costVox = minutesCharged * pricePerMinute
 
+  const inc = { dubMinutesUsed: minutesCharged }
+  if (reservedMinutes) inc.dubMinutesReserved = -reservedMinutes
+
   const updatedKey = await ApiKey.findOneAndUpdate(
     { _id: apiKeyId },
-    { $inc: { dubMinutesUsed: minutesCharged } },
+    { $inc: inc },
     { new: true },
   )
   if (!updatedKey) return { minutesCharged, costVox, dubMinutesUsedAfter: minutesCharged }
@@ -201,12 +276,16 @@ async function completeJob(jobId, workerId, { outputPath, metrics }) {
   // cố tình báo durationS=0 — nhưng job KHÔNG có durationS thật (worker cũ)
   // thì thà bỏ qua billing còn hơn charge sai).
   if (durationS > 0) {
-    const charge = await chargeDubUsage(job.apiKeyId, jobId, job.bgMode, durationS)
+    const charge = await chargeDubUsage(job.apiKeyId, jobId, job.bgMode, durationS, job.reservedMinutes)
     job = await DubApiJob.findOneAndUpdate(
       { _id: jobId },
       { $set: { costVox: charge.costVox } },
       { new: true },
     ).lean()
+  } else if (job.reservedMinutes) {
+    // Không tính phí (đúng nhánh trên) nhưng job VẪN đã xong — chỗ đã giữ
+    // phải được trả lại, không thì rò rỉ quota vĩnh viễn (V43).
+    await releaseDubMinutes(job.apiKeyId, job.reservedMinutes)
   }
 
   await audit.log({
@@ -225,6 +304,8 @@ async function failJob(jobId, workerId, error) {
     { new: true },
   ).lean()
   if (job) {
+    // Job lỗi = không dùng phút nào — trả lại TOÀN BỘ chỗ đã giữ (V43).
+    await releaseDubMinutes(job.apiKeyId, job.reservedMinutes)
     await audit.log({
       action: 'cloud_dub.fail',
       actor: `worker:${workerId}`,
@@ -279,9 +360,50 @@ async function sweepStaleRunning(log = null) {
         },
         { new: true },
       ).lean()
-      if (updated) failed += 1
+      if (updated) {
+        failed += 1
+        await releaseDubMinutes(updated.apiKeyId, updated.reservedMinutes)
+      }
     } catch (err) {
       if (log) log.warn({ err, jobId: j._id }, 'quét dub job running quá hạn heartbeat thất bại')
+    }
+  }
+  return failed
+}
+
+/**
+ * Sweeper V43: job kẹt ở `queued` quá `expiresAt` (không worker nào rảnh
+ * claim kịp trong TTL) — không có sweeper nào từng dọn nhánh này trước đây
+ * vì hậu quả trước V43 chỉ là "job vẫn nằm đó chờ", vô hại. Từ V43, job
+ * `queued` giữ chỗ quota thật ngay lúc submit — không giải phóng thì rò rỉ
+ * quota vĩnh viễn cho job không bao giờ chạy. Chuyển `failed` (đúng ý nghĩa
+ * hơn "xoá âm thầm" — caller poll `GET /dub/:jobId` vẫn thấy lý do rõ).
+ */
+async function sweepStaleQueued(log = null) {
+  const stale = await DubApiJob.find(
+    { status: 'queued', expiresAt: { $lt: new Date() } },
+    { _id: 1 },
+  ).limit(200).lean()
+  let failed = 0
+  for (const j of stale) {
+    try {
+      const updated = await DubApiJob.findOneAndUpdate(
+        { _id: j._id, status: 'queued', expiresAt: { $lt: new Date() } },
+        {
+          $set: {
+            status: 'failed',
+            completedAt: new Date(),
+            error: 'Không worker nào nhận job trong thời hạn — job tự động chuyển lỗi, không treo mãi.',
+          },
+        },
+        { new: true },
+      ).lean()
+      if (updated) {
+        failed += 1
+        await releaseDubMinutes(updated.apiKeyId, updated.reservedMinutes)
+      }
+    } catch (err) {
+      if (log) log.warn({ err, jobId: j._id }, 'quét dub job queued quá hạn TTL thất bại')
     }
   }
   return failed
@@ -301,4 +423,7 @@ module.exports = {
   cleanupJob,
   sweepExpired,
   sweepStaleRunning,
+  sweepStaleQueued,
+  reserveDubMinutes,
+  releaseDubMinutes,
 }

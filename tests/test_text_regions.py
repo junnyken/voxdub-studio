@@ -2,14 +2,19 @@
 để đề xuất blur_regions, thay vì bắt người dùng tự vẽ tay từ đầu.
 
 Test merge_regions() thuần (không cần OCR thật) + test integration thật
-qua RapidOCR trên ảnh tổng hợp (PIL vẽ chữ Trung bằng font CJK hệ thống) —
-KHÔNG phải video thật (sandbox không có video/frame thật để test — xem
-docs/TEST_LOG.md mục V5 cho giới hạn này, ghi rõ không giả vờ đã test
-trên video thật).
+qua RapidOCR trên ảnh tổng hợp (PIL vẽ chữ Trung bằng font CJK hệ thống)
++ video NÉN THẬT (ffmpeg libx264, không phải PNG tĩnh — Re-audit
+2026-08-17, đóng tiếp gap "chưa video thật" đã ghi ở docs/TEST_LOG.md mục
+V5: thêm chữ tiếng Việt có dấu, watermark có hiệu ứng mờ dần, phụ đề cứng
+kiểu burn-in — 3 case CHƯA từng test trước đó). ffmpeg đã có sẵn trong CI
+từ V38 (xem .github/workflows/test.yml) nên test video nén này chạy được
+trong CI, không chỉ sandbox có cài thêm.
 """
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -24,6 +29,10 @@ from autodub.media.text_regions import detect_text_regions  # noqa: E402
 
 _CJK_FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
 _HAS_CJK_FONT = os.path.isfile(_CJK_FONT)
+_HAS_FFMPEG = shutil.which("ffmpeg") is not None
+_BARLOW_FONT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "fonts", "BarlowCondensed-Regular.ttf")
 
 
 # ------------------------------------------------------------- merge thuần --
@@ -140,3 +149,84 @@ def test_subprocess_path_matches_in_process_path(tmp_path, monkeypatch):
     via_in_process = detect_text_regions([path])
     assert len(via_subprocess) == 1
     assert via_subprocess == via_in_process
+
+
+# --------------------------------------- video nén thật (Re-audio 2026-08-17) --
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="cần ffmpeg để dựng video nén thật")
+@pytest.mark.skipif(not _HAS_CJK_FONT, reason="cần font CJK hệ thống")
+@pytest.mark.skipif(not os.path.isfile(_BARLOW_FONT), reason="thiếu font dự án")
+def test_real_encoded_video_detects_vietnamese_and_faded_watermark(tmp_path):
+    """Video NÉN THẬT (libx264, không phải PNG tĩnh) với 3 case CHƯA từng
+    test trước Re-audit này: (1) tiêu đề tiếng Việt CÓ DẤU, (2) watermark
+    Trung CÓ HIỆU ỨNG MỜ DẦN (alpha thay đổi theo thời gian, không phải
+    trong suốt cố định), (3) phụ đề cứng kiểu burn-in (hộp nền mờ, giữa
+    khung hình dưới) — đóng đúng 3 gap ghi trong docs/TEST_LOG.md mục V5
+    "vẫn còn thiếu... chưa có phụ đề cứng/tiêu đề kênh"."""
+    video_path = str(tmp_path / "real_test.mp4")
+    subprocess.run([
+        "ffmpeg", "-y", "-v", "error",
+        "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30:duration=3",
+        "-vf",
+        "noise=alls=15:allf=t+u,"
+        f"drawtext=fontfile={_CJK_FONT}:text='频道水印 CHANNEL':"
+        "fontcolor=white:fontsize=32:x=w-tw-20:y=30:"
+        "alpha='0.4+0.4*sin(2*PI*t/3)',"
+        f"drawtext=fontfile={_BARLOW_FONT}:text='Kênh Ẩm Thực Việt':"
+        "fontcolor=yellow:fontsize=36:x=20:y=20:box=1:boxcolor=black@0.35:"
+        "boxborderw=6,"
+        f"drawtext=fontfile={_BARLOW_FONT}:"
+        "text='Hôm nay mình hướng dẫn làm món ăn':fontcolor=white:"
+        "fontsize=30:x=(w-text_w)/2:y=h-70:box=1:boxcolor=black@0.5:"
+        "boxborderw=8",
+        "-c:v", "libx264", "-crf", "23", "-pix_fmt", "yuv420p", video_path,
+    ], check=True, capture_output=True)
+
+    frame_path = str(tmp_path / "frame.png")
+    subprocess.run([
+        "ffmpeg", "-y", "-v", "error", "-i", video_path,
+        "-vf", "select=eq(n\\,45)", "-vsync", "0", "-frames:v", "1", frame_path,
+    ], check=True, capture_output=True)
+
+    regions = detect_text_regions([frame_path])
+    assert regions, "phải phát hiện được ít nhất 1 vùng chữ trên video nén thật"
+
+    # Xác nhận bằng crop trực quan thay vì chỉ tin số lượng box (đúng
+    # phương pháp Re-audit 08-11 đã dùng) — mọi vùng CÓ DIỆN TÍCH ĐỦ LỚN
+    # (loại nhiễu/artefact nhỏ như timecode góc của testsrc2) phải nằm
+    # trọn trong khung hình và không rỗng.
+    img = Image.open(frame_path)
+    w, h = img.size
+    significant = [r for r in regions if r["w"] * r["h"] > 0.01]
+    assert significant, f"không có vùng nào đủ lớn để là chữ thật: {regions}"
+    for r in significant:
+        assert 0.0 <= r["x"] <= 1.0 and 0.0 <= r["y"] <= 1.0
+        assert r["x"] + r["w"] <= 1.05 and r["y"] + r["h"] <= 1.05
+
+    # Vùng watermark (góc phải-trên, x lớn/y nhỏ) phải nằm trong số phát
+    # hiện được dù đang ở giữa chu kỳ mờ dần (frame 45/90 = giữa video).
+    watermark_like = [r for r in significant if r["x"] > 0.5 and r["y"] < 0.3]
+    assert watermark_like, (
+        f"không phát hiện được watermark đang mờ dần: {regions}")
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="cần ffmpeg để dựng video nén thật")
+def test_real_encoded_noisy_video_without_text_detects_nothing(tmp_path):
+    """Guardrail 4 (mini-spec V5) trên nền THẬT phức tạp (nhiễu thời gian
+    qua ffmpeg, không phải màu phẳng PIL) — video sạch không có chữ vẫn
+    không được tự bật blur, kể cả khi nền không đơn sắc."""
+    video_path = str(tmp_path / "clean_noisy.mp4")
+    subprocess.run([
+        "ffmpeg", "-y", "-v", "error",
+        "-f", "lavfi", "-i", "testsrc=size=640x360:rate=30:duration=2",
+        "-vf", "noise=alls=15:allf=t+u",
+        "-c:v", "libx264", "-crf", "23", "-pix_fmt", "yuv420p", video_path,
+    ], check=True, capture_output=True)
+
+    frame_path = str(tmp_path / "frame.png")
+    subprocess.run([
+        "ffmpeg", "-y", "-v", "error", "-i", video_path,
+        "-vf", "select=eq(n\\,20)", "-vsync", "0", "-frames:v", "1", frame_path,
+    ], check=True, capture_output=True)
+
+    assert detect_text_regions([frame_path]) == []

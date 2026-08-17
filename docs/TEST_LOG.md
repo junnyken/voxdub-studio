@@ -183,6 +183,23 @@ billing, cần 1 mini-spec riêng, có môi trường staging đầy đủ (ffmp
 control_server thật) để regression-test luồng hold end-to-end, không chỉ unit
 test như V2 này.
 
+### Re-audit 2026-08-17 — cân nhắc lại, GIỮ NGUYÊN (đúng kết luận gốc)
+
+Đếm lại cụ thể (grep thật, không suy đoán): `HOLD`/`USAGE` vẫn được đọc
+trực tiếp ở đúng **20 chỗ trong 5 file** (`translate_saas.py`,
+`translate_review.py`, `translate_hint.py`, `content/generator.py`,
+`pipeline.py`) — gồm cả `HOLD.key` (khóa AES-256-GCM giải mã transcript/
+cache) và `hold_id` (truyền cho SaaS để đối soát billing), không chỉ vài
+chỗ hold-cụ-thể như V2 gốc từng giả định. Môi trường phiên này lúc này ĐÃ
+có `ffmpeg`/mạng thật (khác lúc audit V2 gốc) nhưng VẪN thiếu GPU + key AI
+thật + `control_server` thật — đúng 3 điều kiện gốc đã nêu là cần để
+regression-test an toàn luồng hold end-to-end. Đã báo cụ thể cho chủ dự
+án trước khi động vào; **quyết định: GIỮ NGUYÊN, không refactor** — đây là
+code xử lý tiền/mã hóa thật, refactor thuần kiến trúc không mang lại lợi
+ích chức năng nào, rủi ro thật không tương xứng khi không kiểm chứng được
+đầy đủ. Nợ kỹ thuật này vẫn còn nguyên, ghi nhận lại thay vì giả vờ đã
+đóng.
+
 ## V3 — Minh bạch Local-vs-SaaS
 
 **2026-08-10.** Audit `autodub_gui/first_run.py` (màn chào lần đầu) phát
@@ -581,6 +598,72 @@ trên video dài thật (ngưỡng đề xuất "< 10% tổng thời gian pipeli
 video 5 phút" — chưa benchmark), và chưa test 3-5 video đa dạng theo đúng
 Test Plan gốc (chỉ 1 video watermark, chưa có phụ đề cứng/tiêu đề kênh).
 Bước tiếp theo cần video thật từ TikTok/Douyin/YouTube thật để đóng hẳn.
+
+### Re-audit 2026-08-17 — video nén thật đa dạng hơn, đóng thêm 3 gap
+
+Sandbox này có mạng thật nhưng KHÔNG có cách tải video TikTok/Douyin/
+YouTube thật mà không dấy lên câu hỏi bản quyền/redistribution cho nội
+dung của người khác — thay vào đó dựng video **nén thật** (ffmpeg
+`libx264`, không phải PNG tĩnh) phức tạp hơn hẳn đợt 08-11: nền có NHIỄU
+THỜI GIAN (`noise=alls=15:allf=t+u`, không phải màu phẳng/testsrc đơn
+giản) + 3 loại chữ overlay CÙNG LÚC, đúng 3 case Test Plan gốc từng liệt
+kê nhưng chưa test: watermark Trung **CÓ HIỆU ỨNG MỜ DẦN THẬT** (alpha dao
+động theo thời gian qua biểu thức ffmpeg, không phải trong suốt cố định),
+tiêu đề kênh **tiếng Việt CÓ DẤU** (trước giờ chỉ test tiếng Trung), phụ đề
+cứng kiểu burn-in (hộp nền mờ, giữa khung hình dưới — CHƯA từng test).
+
+**Kết quả THẬT (RapidOCR thật, không mock):**
+- Cả 3 loại chữ đều phát hiện đúng, xác nhận bằng crop trực quan (không
+  chỉ tin số IoU — đúng phương pháp 08-11): "Kênh Ẩm Thực Việt" (tiêu đề,
+  full dấu tiếng Việt đọc đúng), "频道水印 CHANNEL" (watermark, phát hiện
+  được NGAY CẢ khi đang ở giữa chu kỳ mờ dần — alpha ~0.4-0.8 tại frame
+  test), "Hôm nay mình sẽ hướng dẫn các bạn làm món ăn" (phụ đề cứng, full
+  dấu, đọc đúng nguyên văn).
+- **Phát hiện mới**: 1 false positive trên hoa văn góc của `testsrc2`
+  (pattern QR-giống-chữ tự sinh của chính nguồn test, KHÔNG phải watermark
+  tôi vẽ) — confidence `0.793`, THẤP HƠN RÕ RỆT mọi phát hiện thật (đều
+  ≥`0.98`). Chưa đủ dữ liệu (1 điểm) để chốt ngưỡng lọc confidence — ghi
+  nhận làm đầu vào cho quyết định sau nếu muốn thêm bộ lọc, không tự thêm
+  ngưỡng dựa trên 1 mẫu.
+- Guardrail 4 xác nhận lại trên nền THẬT phức tạp (nhiễu thời gian qua
+  ffmpeg, không chỉ màu phẳng PIL như test gốc): video sạch không chữ vẫn
+  trả về rỗng.
+- **Đóng một phần gap "chưa đo % thời gian"**: đo được `1.25s/frame` OCR
+  thật (3 frame/3.74s). Xác nhận `autodub_gui/style_dialog.py::_OcrWorker`
+  CHỈ quét đúng 3 frame đại diện (đầu/giữa/cuối) bất kể video dài bao
+  nhiêu — chi phí OCR vì vậy gần như HẰNG SỐ (~4s) không phụ thuộc thời
+  lượng video, không phải % tăng theo độ dài như lo ngại ban đầu. Chưa đo
+  trên video ĐỘ PHÂN GIẢI cao hơn 720p (có thể chậm hơn theo kích thước
+  ảnh, chưa kiểm chứng).
+- CI đã có sẵn `ffmpeg` từ V38 (`.github/workflows/test.yml`) nên 2 test
+  mới dùng video nén thật chạy được trong CI thật, không chỉ sandbox có
+  cài thêm — `rapidocr-onnxruntime`/`fonts-wqy-zenhei` vẫn CHƯA có trong
+  CI (không nằm trong `requirements.txt`, quyết định có chủ đích từ V38 để
+  tránh kéo dependency nặng) nên 2 test này **skip trong CI**, chỉ chạy khi
+  môi trường có đủ 2 gói đó (đúng `skipif` pattern các test OCR khác trong
+  cùng file đã dùng từ đầu, không phải regression mới).
+
+**Xây dựng:** `tests/test_text_regions.py` — 2 test mới
+(`test_real_encoded_video_detects_vietnamese_and_faded_watermark`,
+`test_real_encoded_noisy_video_without_text_detects_nothing`), tự dựng
+video bằng `subprocess`+ffmpeg trong `tmp_path` (không commit file nhị
+phân nào vào repo).
+
+**Verify:** `pytest tests/test_text_regions.py -q`: **11 passed** (9→11).
+`pytest tests/ -q` toàn bộ (môi trường đã cài `rapidocr-onnxruntime`+
+`fonts-wqy-zenhei`+`ffmpeg`+`libegl1` bổ sung — xem Re-audit GUI của V32b
+cùng ngày): **1163 passed, 5 skipped, 1 failed** (1132→1163, đúng 31 test
+mới cộng dồn từ cả 2 việc trong phiên — 2 của V5 + 29 của V32b — 0
+regression, 1 fail còn lại đúng flake có sẵn từ V40).
+
+**Vẫn còn thiếu (chưa đổi so với 08-11, trung thực):** vẫn KHÔNG PHẢI
+watermark/phụ đề THẬT từ TikTok/Douyin/YouTube thật (rủi ro bản quyền nội
+dung người khác, không thử trong phiên này) — mọi video test đều tự dựng
+bằng ffmpeg. Chưa test độ phân giải cao hơn 720p, chưa test góc nghiêng/
+watermark hình ảnh (logo) thay vì chữ, chưa test video dài thật (chỉ dùng
+video 2-8 giây cho mục đích kỹ thuật). Bước đóng hẳn gap này vẫn cần chủ
+dự án cung cấp ≥1 video thật từ chính nền tảng nguồn (họ có quyền dùng nội
+dung của họ, khác việc tôi tự tải nội dung của người thứ ba).
 
 ## V8 — Kiến trúc TTS pluggable đa ngôn ngữ đích (PROOF OF CONCEPT)
 
@@ -4983,3 +5066,360 @@ chưa có số liệu thật trong PoC này.
   trình vận hành đẩy batch job vào `worker-dub` để scale thật — đây là
   quyết định hạ tầng/quy mô của chủ dự án, cần bàn riêng trước khi viết
   mini-spec tiếp theo.
+
+## Re-audit 2026-08-17 — Bộ lọc `note` cho danh sách activation key (Phase G, phát hiện lúc bàn license-sharing)
+
+### Audit trước khi build
+
+- Chủ dự án nêu nhu cầu "1 công ty mua 1 gói dùng chung cho N máy". Audit đầy
+  đủ trước khi code lộ ra: mô hình chia sẻ Vox qua 1 pool dùng chung (License
+  entity mới, sửa `deduct()`/`grant()`) là khả thi nhưng **rủi ro cao** — nó
+  sửa lại đúng bất biến cốt lõi mà `activation.service.js:6` gọi là "bất di
+  bất dịch" (1 key = 1 device, ép ở tầng dữ liệu) và trùng đúng phạm vi mà
+  `admin.js:158-163` đã tự gọi là "ngoại lệ DUY NHẤT" (endpoint
+  `POST /devices/:fingerprint/transfer`, chuyển toàn bộ số dư, chỉ qua tay
+  admin). Đây là tín hiệu rõ ràng: dự án đã cố tình KHÔNG xây pool dùng chung
+  trước đây.
+- Chủ dự án chọn hướng nhẹ hơn: N activation key độc lập trong 1 lô, không
+  đụng `credit.service.js`. Audit tiếp `website/src/pages/admin/Keys.jsx` +
+  `control_server/src/routes/admin.js:233-259` xác nhận **tính năng này đã
+  tồn tại sẵn** — `POST /keys` đã nhận `count` (1-100), phát N mã độc lập
+  cùng 1 `note`, admin panel đã có form + hiển thị/copy toàn bộ N mã. Không
+  cần code gì cho phần lõi.
+- Gap thật duy nhất còn lại: `GET /keys` chỉ lọc theo `status`/`code`, không
+  lọc theo `note` — muốn tìm lại "lô N mã đã phát cho công ty X" phải kéo
+  danh sách bằng mắt.
+
+### Xây dựng
+
+- `control_server/src/routes/admin.js` — `GET /keys` thêm query `note`,
+  lọc bằng `RegExp(escapeRe(note), 'i')` (đúng pattern `code` đã có, không
+  phát minh cách lọc mới).
+- `website/src/pages/admin/Keys.jsx` — thêm ô tìm theo ghi chú (form riêng,
+  cạnh ô tìm mã), state `note` đồng bộ qua URL query param (đúng pattern
+  `code`/`status` có sẵn). Sửa kèm 1 chỗ thiếu sót phát hiện khi thêm: nút
+  phân trang (`Pager onPage`) trước đó không giữ lại `code`/filter khi sang
+  trang — giờ giữ đủ `status`/`code`/`note`.
+- `website/src/api/client.js` — không đổi (`adminApi.keys(params)` đã
+  forward nguyên object query, chỉ cần thêm field ở caller).
+- `docs/API.md` — cập nhật contract `GET /keys`.
+
+### Verify
+
+- `tests/admin-keys-note-filter.test.js` (4 test mới): lọc đúng theo note,
+  không phân biệt hoa/thường, kết hợp `status` là AND (không phải OR), không
+  truyền `note` vẫn trả toàn bộ như cũ.
+- `npm test` (control_server, toàn bộ suite): **265 passed, 1 skipped, 0
+  failed** (261→265, đúng 4 test mới, 0 regression).
+- `npm run build` (website): biên dịch sạch, 0 lỗi JSX.
+
+### Remaining Limits
+
+- Không có `batchId`/`groupId` chính thức liên kết N key cùng 1 lô — dựa vào
+  `note` giống hệt nhau làm khoá tìm kiếm (đủ dùng cho quy mô admin thao tác
+  tay hiện tại, chưa cần model mới).
+- Pool Vox dùng chung thật (chia sẻ động giữa các máy, không phải N ví độc
+  lập) vẫn CHƯA làm — chủ dự án đã xác nhận chấp nhận đánh đổi này (N ví
+  riêng, không lãng phí Vox thừa từ máy này sang máy khác) để không chạm vào
+  bất biến billing cốt lõi. Nếu sau này thật sự cần pool dùng chung, đó là 1
+  mini-spec riêng, rủi ro cao, cần thiết kế race-condition kỹ hơn nhiều so
+  với đợt audit này.
+
+## V43 — Hold/reserve system cho quota phút dub (Phase G, chủ dự án yêu cầu 2026-08-17, đóng gap V42)
+
+### Audit trước khi build
+
+- V42 (mục trên) đã xác nhận gap thật: `dub-job.service.js:73` (cũ) kiểm
+  `dubMinutesUsed >= dubMinutesQuota` là đọc-rồi-quyết, KHÔNG atomic —
+  `dubMinutesUsed` chỉ `$inc` SAU khi job hoàn tất (`chargeDubUsage()`,
+  gọi từ `completeJob()`), nên N job submit gần như đồng thời từ CÙNG 1 key
+  đều đọc thấy quota còn trống, có thể vượt xa hạn mức khi tất cả hoàn tất.
+- Đọc `hold.service.js` (hệ giữ-chỗ Vox có sẵn cho luồng app desktop) để
+  tái dùng đúng pattern: giữ chỗ atomic lúc submit (`findOneAndUpdate` có
+  điều kiện trong chính query), giải phóng lúc kết thúc, không có "hoàn/
+  truy thu" phức tạp.
+- Xác nhận ràng buộc thật KHÔNG đổi được: Node không có ffprobe (Constraint
+  3 của V34a), nên không biết chính xác thời lượng video trước khi worker
+  chạy — không thể giữ chỗ đúng-100%-chính-xác như hold Vox (vốn biết chắc
+  số segment ngay sau ASR). Quyết định: cho caller TỰ KHAI
+  `estimatedMinutes` (họ thường biết file của chính họ), fallback về mặc
+  định cấu hình nếu không khai — đây là ngưỡng CHẶN SUBMIT TRÀN LAN, không
+  phải số tiền cuối; Vox/phút thật luôn tính lại theo `durationS` worker đo
+  được, không đổi.
+
+### Xây dựng
+
+- `ApiKey.js` — field mới `dubMinutesReserved`.
+- `DubApiJob.js` — field mới `reservedMinutes` (lưu đúng số đã giữ lúc
+  submit, để completeJob/failJob/sweeper giải phóng đúng con số dù config
+  đổi giữa lúc submit và lúc job kết thúc).
+- `config.service.js` — `cloud.dub.reservation.default.minutes` (5),
+  `cloud.dub.reservation.max.minutes` (240, kẹp trần chống caller khai số
+  phi thực tế).
+- `dub-job.service.js`:
+  - `reserveDubMinutes()`/`releaseDubMinutes()` (mới) — atomic qua
+    `$expr: {$lte: [{$add: [used, reserved, N]}, quota]}` trong chính
+    query `findOneAndUpdate`, cùng kỹ thuật `balance: {$gte}` của
+    `credit.service.js`.
+  - `submitDubJob()` — giữ chỗ TRƯỚC khi ghi file/tạo job; lỗi ghi
+    file/tạo doc SAU khi đã giữ chỗ → rollback giải phóng (cùng nguyên tắc
+    rollback của `activation.service.js` khi `grant()` hỏng sau khi chốt
+    key). Thông báo lỗi 402 đọc lại `ApiKey` THẬT (không dùng tham số
+    `apiKey` truyền vào — đó chính là dữ liệu cũ gây race trước đây).
+  - `chargeDubUsage()` — thêm tham số `reservedMinutes`, giải phóng +
+    cộng usage thật trong CÙNG một `$inc` (1 lệnh nguyên tử, không có
+    khoảng hở giữa "giải phóng" và "trừ thật").
+  - `completeJob()` — nhánh `durationS === 0` (worker cũ, không tính phí)
+    giờ vẫn giải phóng reservation — thiếu bước này sẽ rò rỉ quota vĩnh
+    viễn.
+  - `failJob()` — giải phóng toàn bộ reservation (job lỗi = không dùng
+    phút nào).
+  - `sweepStaleRunning()` — giải phóng reservation của job bị sweep do mất
+    heartbeat.
+  - `sweepStaleQueued()` (mới) — gap chưa từng tồn tại trước V43 (job kẹt
+    ở `queued` quá `expiresAt` trước đây vô hại, giờ giữ chỗ quota thật nên
+    phải có sweeper riêng) — chuyển `failed` + giải phóng, nối vào cùng
+    timer `cloud.dub.sweep.interval.minutes` trong `server.js`.
+- `routes/api-v1.js` — `POST /dub` nhận `estimatedMinutes` (query, tuỳ
+  chọn); `GET /me` lộ thêm `dubMinutesReserved`, `dubMinutesRemaining` trừ
+  luôn phần đang giữ chỗ.
+- `docs/API.md` — thêm mục `/dub*` (trước đây CHƯA từng viết tài liệu, dù
+  đã tồn tại từ V34a) + cập nhật `/me`; sửa luôn câu mô tả cũ "KHÔNG có
+  ASR/TTS/video qua API này" đã lỗi thời từ khi V34a mở `/dub`.
+
+### Verify
+
+- `tests/dub-quota-reservation.test.js` (12 test mới): mặc định cấu hình
+  áp dụng đúng khi không khai; caller khai đúng số; kẹp trần khi khai vượt
+  quá; giá trị âm/0/NaN rơi về mặc định an toàn; **race thật** — quota=12,
+  5 job cùng khai 5 phút bắn gần như đồng thời → đúng 2 job lọt qua (10),
+  3 job bị từ chối đúng lỗi `DUB_QUOTA_EXCEEDED` (tái hiện đúng kịch bản
+  V42 mô tả rồi xác nhận đã đóng); `completeJob` giải phóng+charge cùng
+  lúc, số usage THẬT khác hẳn số đã giữ chỗ; `durationS=0` vẫn giải phóng;
+  `failJob`/`sweepStaleRunning`/`sweepStaleQueued` đều giải phóng đúng,
+  không đụng job khác còn sống; rollback khi tạo job hỏng sau khi đã giữ
+  chỗ; thông báo lỗi phản ánh đúng số đang bị job khác giữ.
+- `pytest`... (N/A — mini-spec này KHÔNG chạm `autodub/`, chỉ `control_server`).
+- `npm test` (control_server, toàn bộ suite, kể cả 2 file test V34a/V34b cũ
+  `dub-job.service.test.js`/`api-v1-dub-route.test.js`): **277 passed, 1
+  skipped, 0 failed** (265→277, đúng 12 test mới, 0 regression — xác nhận
+  cả state machine cũ (claim/heartbeat/complete/fail/sweep) lẫn route HTTP
+  thật qua `app.inject` đều không đổi hành vi ngoài phần reservation mới).
+
+### Remaining Limits
+
+- **Không có ffprobe ở Node** (ràng buộc kiến trúc có sẵn từ V34a, không
+  phải giới hạn mới của V43) — nếu caller không tự khai `estimatedMinutes`
+  hoặc khai sai (thấp hơn thật nhiều), việc giữ chỗ chỉ bảo vệ đúng mức
+  caller khai, KHÔNG đảm bảo tuyệt đối không vượt quota khi nhiều job dài
+  submit đồng thời mà không khai — billing thật SAU khi job xong vẫn luôn
+  đúng/atomic (không đổi), chỉ có nguy cơ vượt quota MỀM ở mức thấp hơn
+  hẳn so với trước V43 (trước đây không giới hạn concurrent submit nào cả).
+- Chưa có UI admin hiển thị `dubMinutesReserved` trong danh sách API key
+  (`website/src/pages/admin/` — trang quản lý `ApiKey` hiện chưa tồn tại
+  UI riêng, chỉ có API `/v1/admin/api-keys`) — không trong phạm vi V43,
+  developer tự xem qua `GET /me`.
+
+## V32b — Build lip-sync production, GIỚI HẠN đúng phạm vi V32a (Phase G, chủ dự án chọn 2026-08-17)
+
+### Audit trước khi build
+
+- Guardrail GỐC của V32b (viết trong chính mini-spec ở `docs/PLAN.md`):
+  *"V32a phải hoàn thành với khuyến nghị 'go' kèm số liệu benchmark thật —
+  KHÔNG được mở nếu V32a chưa đáp ứng."* Đối chiếu thực tế: V32a mới chạy
+  **1/3 mẫu bắt buộc** (mặt thẳng, dùng video mẫu MuseTalk — chưa phải
+  video VoxDub thật), **chưa có đánh giá chất lượng bằng mắt nào**, VRAM
+  đỉnh đo được 96% (rất sát trần 4GB), và **chưa từng có phát biểu go/no-go
+  chính thức** nào từ chủ dự án. Đã báo rõ việc này TRƯỚC khi code — chủ
+  dự án xác nhận chấp nhận rủi ro, đổi lại chọn hướng THU HẸP PHẠM VI CỨNG
+  (chỉ đúng những gì đã benchmark thành công) thay vì khung đầy đủ ban đầu.
+- `sandbox này KHÔNG có GPU` (`nvidia-smi` không tồn tại) — mọi code ở đây
+  viết dựa trên đọc lại logic ĐÃ CHỨNG MINH của harness nghiên cứu
+  (`scripts/research/lipsync_poc.py`, 8 bug môi trường live-verify thật ở
+  V32a), KHÔNG tự chạy được lại để xác nhận trên GPU thật trong phiên này.
+
+### Xây dựng
+
+- `autodub/config.py` (`Settings`) — field mới `lipsync_venv_python`/
+  `lipsync_model_dir`/`lipsync_max_duration_s` (mặc định 12.0 — chỉ nhỉnh
+  hơn chút so với mẫu 10.7s DUY NHẤT đã benchmark thành công, không đoán
+  xa)/`lipsync_max_no_face_ratio` (mặc định 0.0 — đúng bằng kết quả mẫu
+  thành công đó, 268/268 frame). Method `lipsync_venv_python_path()`/
+  `lipsync_repo_dir_path()` (`vendor/musetalk/`, KHÁC
+  `scripts/research/musetalk_repo/` của V32a — quy ước `models/<engine>/`
+  đã dùng cho Whisper/VieNeu/Paraformer/Diarization)/`lipsync_model_dir_path()`
+  (`models/lipsync/`)/`lipsync_configured()`/`lipsync_gpu_available()` —
+  cùng pattern `diarization_configured()` đã có.
+- `scripts/setup_lipsync.py` (mới) — chuyển thể TRỰC TIẾP từ
+  `setup_lipsync_poc.py` (V32a), CHỈ đổi đường dẫn cài đặt
+  (`scripts/research/` tạm thời → `vendor/`+`models/` ổn định) — giữ
+  NGUYÊN VẸN cả 6 bước cài đặt + ghim commit MuseTalk + toàn bộ ghi chú rủi
+  ro thật đã biết, không viết lại quy trình đã live-verify.
+- `autodub/media/lipsync_worker.py` (mới) — worker chạy TRONG
+  `.venv-lipsync` (numpy pin xung đột, phải tách venv — lý do cũ từ V32a),
+  chuyển thể TRỰC TIẾP 3 hàm đã live-verify của
+  `scripts/research/lipsync_poc.py` (`consent_check`/`run_inference`/
+  `watermark`) thành 1 worker giao thức JSON qua stdout (đúng pattern
+  `demucs_worker.py`/`asr_paraformer_worker.py`) — giữ nguyên mọi fix thật
+  (Python 3.10, `--use_float16 --batch_size 4`, mã thoát MuseTalk không
+  đáng tin nên tự kiểm 3 điều, ép UTF-8, `yaml.safe_dump`...). Consent-check
+  chạy TRƯỚC inference (Constraint 3 gốc), chặn ngay nếu `no_face_ratio`
+  vượt trần truyền vào — không tốn công GPU cho video ngoài phạm vi.
+  Watermark 2 LỚP (chữ đè + metadata ẩn, không chỉ 1 trong 2 như PoC thử
+  nghiệm) — Constraint 4 gốc: không có code path nào bỏ qua được.
+- `autodub/media/lipsync.py` (mới) — module phía venv chính, gọi worker
+  qua subprocess (`GPU_LOCK` + `atexit.register(proc.kill)`, cùng pattern
+  `vocal_separator.py::_run_demucs_gpu_worker()` đã dùng từ V40). 3
+  exception rõ ràng: `LipsyncUnavailable` (chưa cài), `LipsyncBlocked`
+  (consent-check/trần thời lượng chặn — chính sách, không phải lỗi),
+  `LipsyncFailed` (lỗi thật). `check_duration()` chặn SỚM trước khi mở
+  subprocess nếu biết trước video vượt trần (Constraint 6 gốc — không mở
+  case chưa benchmark).
+- `autodub/pipeline.py`:
+  - `DubRequest.lipsync: bool = False` (mới, theo pattern `subtitle_mode`/
+    `blur_regions` — lựa chọn TỪNG VIDEO, không phải cấu hình toàn app như
+    `diarization_enabled`).
+  - `_apply_lipsync()` (mới, đặt cạnh `_apply_diarization()`) — chạy
+    NGAY TRƯỚC `merge_video()` (Step 7), nhận (video gốc, audio đã lồng
+    tiếng) → trả (video dùng cho mux, state báo cáo). Degrade TRUNG THỰC
+    (Constraint 2 gốc): chưa cài/bị chặn/lỗi đều KHÔNG làm hỏng cả lượt
+    xuất, chỉ rơi về video gốc như trước V32b — nhưng LUÔN log rõ +
+    ghi state, không phải lỗi mù mờ.
+  - `_build_quality_report()` thêm tham số `lipsync_state` (additive, đúng
+    pattern `vocals_quality` của V40) → field `lipsync` mới trong
+    `quality_report.json`.
+  - **Bug thật tìm được khi wiring** (không giới hạn riêng V32b): `pipeline`
+    là 1 instance DÙNG CHUNG cho cả batch (`batch.py::run_batch` không tạo
+    mới mỗi video), nhưng `_last_review_trace`/`_last_vocals_quality` (từ
+    V29/V40) và `_last_lipsync_state` mới đều chỉ khởi tạo 1 LẦN trong
+    `__init__()` — video B trong cùng batch không bật tính năng tương ứng
+    vẫn lộ dữ liệu CŨ của video A liền trước trong `quality_report.json`.
+    Sửa: `_reset_per_run_state()` (mới) gọi đầu mỗi `_run_impl()`.
+- `autodub/cli.py` — `--lipsync` (action store_true) qua `_add_dub_request_args`
+  (áp dụng cho cả `dub` và `batch`, KHÔNG thêm cho `watch` — đúng tiền lệ
+  `--multi-speaker` cũng không có ở `watch`).
+- `.gitignore` — `/vendor/musetalk/` (mã nguồn vendor thật, không phải
+  submodule — cùng lý do `scripts/research/musetalk_repo/` đã loại từ V32a).
+
+### Verify
+
+- `tests/test_lipsync.py` (14 test) — `available()`/`check_duration()` đúng
+  logic ngưỡng; `run()` mock `subprocess.Popen` đầy đủ: thành công trả
+  đúng đường dẫn output + atexit register/unregister, consent-blocked ném
+  `LipsyncBlocked` đúng reason, inference lỗi ném `LipsyncFailed`, worker
+  không trả JSON hợp lệ, file kết quả báo có nhưng không tồn tại, timeout
+  kill tiến trình + ném lỗi rõ.
+- `tests/test_pipeline_lipsync.py` (8 test) — `_apply_lipsync()` degrade
+  đúng ở cả 3 nhánh (chưa cài/bị chặn/lỗi) mà KHÔNG crash, video gốc được
+  giữ nguyên; thành công trả đúng video đã xử lý; `quality_report.json`
+  field `lipsync` rỗng mặc định, phản ánh đúng state khi có; **xác nhận
+  bug reset thật đã sửa** (`_reset_per_run_state()` xoá sạch cả 3 field).
+- `pytest tests/ -q` — chạy lần đầu thiếu `ffmpeg`/`libEGL.so.1`/
+  `libGL.so.1` hệ thống (9 file GUI lỗi collection, `test_audio_merger.py`
+  và 3 file khác fail vì thiếu ffmpeg thật). **Cài bổ sung
+  `ffmpeg`/`libegl1`/`libxkbcommon0`/`libfontconfig1`/`libdbus-1-3` qua
+  `apt-get` (môi trường sandbox, không phải thay đổi trong repo) + chạy
+  với `QT_QPA_PLATFORM=offscreen`** — unlock toàn bộ suite trước đó không
+  chạy được. Sau khi unlock: **1145 passed, 6 skipped, 1 failed**
+  (1123→1145, đúng 22 test mới, 0 regression — 1 fail còn lại đúng flake
+  đã ghi nhận từ V40, xác nhận y hệt trên `main` gốc qua `git stash -u`).
+- `py_compile` toàn bộ file Python mới + import thật `Settings`/
+  `DubRequest`/`DubPipeline` qua `.venv-test` — không lỗi cú pháp/import.
+- **Bug thật tìm được nhờ unlock GUI test**: `.env.example` thêm
+  `LIPSYNC_MAX_DURATION_S`/`LIPSYNC_MAX_NO_FACE_RATIO` nhưng chưa khai vào
+  `settings_fields.py` (`test_every_example_key_is_editable_or_exempt` bắt
+  được ngay) — sửa bằng cách thêm vào `EXEMPT_KEYS` (đúng tiền lệ
+  `WHISPER_BEAM_SIZE`: "nút vặn nâng cao cho người biết việc, ai cần thì
+  sửa thẳng .env" — nhất quán vì tính năng CHƯA có nút GUI để mở khoá các
+  ngưỡng này).
+- **CHƯA chạy được thật trên GPU** — sandbox không có GPU (đúng giới hạn
+  V32a/V30 đã ghi). Mọi test ở trên đều mock `subprocess.Popen`, KHÔNG gọi
+  MuseTalk thật.
+
+### Remaining Limits
+
+- **CHƯA live-verify trên GPU thật với ĐƯỜNG CODE PRODUCTION này** (khác
+  với harness nghiên cứu `scripts/research/lipsync_poc.py` đã live-verify
+  ở V32a) — đây là việc LỚN NHẤT còn lại. Chủ dự án cần tự chạy
+  `scripts/setup_lipsync.py` rồi 1 lượt `voxdub dub --lipsync` thật trên
+  GPU trước khi coi tính năng này production-ready, không chỉ "code xong".
+- ~~CHƯA có GUI toggle~~ **[ĐÃ ĐÓNG — Re-audit cùng phiên, xem bên dưới]**.
+- **CHƯA có billing Vox riêng cho lip-sync** — đúng Constraint 5 của mini-
+  spec gốc: chi phí compute GPU cao hơn hẳn tính năng audio-only khác, cần
+  mô hình giá riêng chốt cùng chủ dự án (quyết định kinh doanh, không tự
+  đoán). Hiện tại tính năng chạy MIỄN PHÍ về Vox nếu bật qua CLI — PHẢI
+  chốt giá trước khi mở rộng ra người dùng thật/GUI.
+- **Phạm vi CỐ TÌNH hẹp hơn khung mini-spec gốc**: chỉ 1 khuôn mặt phát
+  hiện được ở MỌI frame (`lipsync_max_no_face_ratio=0.0`), video ≤12s
+  (`lipsync_max_duration_s`) — góc nghiêng/nhiều người/video dài đều bị
+  `consent_check`/`check_duration()` CHẶN CỨNG cho tới khi có số liệu
+  benchmark mới (V32a chưa chạy 2/3 mẫu còn lại). Không suy đoán MuseTalk
+  xử lý nhiều khuôn mặt/frame ra sao (chưa có bằng chứng từ việc đọc mã
+  nguồn — `get_landmark_and_bbox()` chỉ xác nhận trả về 1 bbox/frame,
+  KHÔNG rõ hành vi khi ảnh có ≥2 mặt) — ngưỡng 0% no-face hiện tại KHÔNG
+  tự động bảo vệ khỏi trường hợp nhiều mặt nếu MuseTalk vẫn "phát hiện
+  được" 1 trong số đó ở mọi frame; đây là giới hạn thật của consent-check
+  hiện có, cần nghiên cứu thêm nếu muốn mở nhiều người sau này.
+- VRAM 96% trên card 4GB (V32a) vẫn là RẤT SÁT TRẦN — `lipsync_max_duration_s`
+  mặc định 12.0 là ước tính THẬN TRỌNG dựa trên đúng 1 điểm dữ liệu, chưa
+  có công thức đáng tin cậy nối thời lượng video → VRAM cần. Chủ dự án nên
+  tự benchmark thêm trên phần cứng của mình trước khi nới trần này.
+
+### Re-audit (cùng phiên 2026-08-17) — GUI toggle, đóng gap "CHƯA có GUI"
+
+Sau khi viết xong phần trên, phát hiện sandbox này ĐÃ CÓ mạng thật và
+quyền `apt-get` — lý do "không verify được PySide6" không còn đúng nữa.
+Cài bổ sung `ffmpeg`/`libegl1`/`libxkbcommon0`/`libfontconfig1`/
+`libdbus-1-3` (gói hệ thống, không phải thay đổi trong repo) + chạy với
+`QT_QPA_PLATFORM=offscreen` — unlock toàn bộ 9 file test GUI trước đó lỗi
+collection. Quay lại làm nốt GUI thay vì giữ nguyên quyết định cũ.
+
+**Xây dựng:**
+- `autodub_gui/pages/new_project_steps.py` (`VoiceStep`, bước 4 "Giọng đọc
+  & phụ đề") — ô `QCheckBox` mới "Đồng bộ khẩu hình AI theo giọng đọc mới
+  (GPU)", ẩn mặc định (`set_lipsync_available()` gọi từ trang cha mới hiện
+  — đúng nguyên tắc "không thêm UI cho tính năng chưa khả dụng" của
+  `cloud_render` đã có từ V12). Tự tắt + khoá khi bật "Chỉ xuất âm thanh"
+  (`_on_audio_only`, lip-sync xử lý pixel video nên vô nghĩa khi bỏ ghép
+  video). `values()`/`load()` đọc/ghi đúng field `lipsync`.
+- `autodub_gui/pages/new_project_page.py` — `_refresh_lipsync_info()` (gọi
+  1 lần lúc dựng trang, đúng thứ tự sau `_refresh_cloud_render_info()`),
+  đọc `Settings.lipsync_configured()`/`lipsync_gpu_available()` thật. Nối
+  `lipsync=bool(data.get("lipsync", False))` vào `DubRequest(...)`. Thêm 1
+  dòng tóm tắt "Đồng bộ khẩu hình AI" ở bước cuối (chỉ hiện khi đã bật).
+- **Bug thật tìm được nhờ unlock GUI test**: `.env.example` đã thêm
+  `LIPSYNC_MAX_DURATION_S`/`LIPSYNC_MAX_NO_FACE_RATIO` nhưng chưa khai vào
+  `settings_fields.py` — `test_every_example_key_is_editable_or_exempt`
+  bắt được ngay lúc chạy full suite lần đầu sau khi unlock. Sửa: thêm vào
+  `EXEMPT_KEYS` (đúng tiền lệ `WHISPER_BEAM_SIZE` — "nút vặn nâng cao cho
+  người biết việc, ai cần thì sửa thẳng .env"), nhất quán vì 2 ngưỡng này
+  vẫn chưa có ô chỉnh riêng trong trang Cài đặt.
+
+**Verify:**
+- `tests/test_voice_step_lipsync.py` (7 test mới) — ẩn/hiện đúng theo
+  `set_lipsync_available()`; **guardrail cứng xác nhận bằng test**: ép
+  `setChecked(True)` trực tiếp bỏ qua `set_lipsync_available()` vẫn KHÔNG
+  làm `values()["lipsync"]` thành `True` (không có đường nào bật tính năng
+  mà GUI chưa xác nhận đủ điều kiện); available→unavailable tự uncheck;
+  tương tác với "Chỉ xuất âm thanh" đúng cả 2 chiều; `load()` chỉ khôi phục
+  trạng thái đã lưu khi đang available.
+- **Smoke test toàn app thật** (`AUTODUB_SMOKE=1`, không chỉ 1 widget đứng
+  riêng): `_smoke_report()` dựng ĐỦ mọi trang (kể cả trang Tạo dự án chứa
+  `VoiceStep` sửa ở trên và trang Cài đặt chứa `settings_fields.py` sửa ở
+  trên) — thoát mã 0, không crash.
+- `pytest tests/ -q` (toàn bộ suite, giờ chạy đủ KHÔNG cần loại trừ file
+  nào — baseline sạch qua `git stash -u` xác nhận **1123 passed**, cùng 1
+  fail flake có sẵn từ V40): sau toàn bộ V32b (backend + GUI):
+  **1152 passed, 6 skipped, 1 failed** (1123→1152, đúng 29 test mới — 22
+  backend + 7 GUI — 0 regression thật).
+
+**Remaining Limits cập nhật sau Re-audit:**
+- Editor có đường re-export ĐỘC LẬP (`autodub/editor.py::rebuild_output()`/
+  `rebuild_subtitles()`, gọi thẳng `merge_video()` không qua
+  `pipeline.py::_export_phase()`) — CHƯA nối lip-sync vào đường này. Có
+  chủ đích: lip-sync tốn hàng chục phút GPU, re-chạy mỗi lần chỉnh phụ đề
+  trong Editor là sai mô hình (nên CACHE kết quả lip-sync lần dub gốc rồi
+  tái dùng, không chạy lại) — cần 1 quyết định thiết kế riêng, không phải
+  mở rộng đơn giản.
+- Vẫn CHƯA live-verify GPU thật + CHƯA billing Vox (xem 2 mục Remaining
+  Limits phía trên, không đổi).

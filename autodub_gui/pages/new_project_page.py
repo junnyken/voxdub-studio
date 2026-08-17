@@ -104,6 +104,7 @@ class NewProjectPage(BasePage):
         self._build()
         self._load_draft()
         self._refresh_cloud_render_info()
+        self._refresh_lipsync_info()
         REGISTRY.job_changed.connect(self._sync_live_stepper)
 
     # -- Dựng giao diện ------------------------------------------------
@@ -410,7 +411,8 @@ class NewProjectPage(BasePage):
              + (f" · xử lý trên cloud (+{self._cloud_render_cost} Vox)"
                 if data.get("cloud_render") else "")),
             ("Chỉ xuất âm thanh", "có" if data["skip_video"] else "không"),
-        ]
+        ] + ([("Đồng bộ khẩu hình AI", "có, kèm watermark (GPU, chạy lâu hơn)")]
+             if data.get("lipsync") else [])
 
     def preload_file(self, path: str) -> None:
         """Điền sẵn tệp video khi người dùng kéo thả ở Trang chủ."""
@@ -534,6 +536,20 @@ class NewProjectPage(BasePage):
         self._cloud_render_cost = info["cost_vox"]
         self.step_recognize.set_cloud_render_info(
             True, enabled_on_server=info["enabled"], cost_vox=info["cost_vox"])
+
+    def _refresh_lipsync_info(self) -> None:
+        """Ẩn/hiện ô "Đồng bộ khẩu hình AI" ở bước Giọng đọc & phụ đề (mini-
+        spec V32b) — chỉ hiện khi máy có GPU NVIDIA thật VÀ đã cài
+        `.venv-lipsync` (`scripts/setup_lipsync.py`), cùng nguyên tắc "không
+        thêm UI cho tính năng chưa khả dụng" của `_refresh_cloud_render_info()`.
+        """
+        try:
+            settings = self._settings_provider()
+        except Exception:  # noqa: BLE001 — cấu hình hỏng thì ẩn hẳn ô chọn
+            self.step_voice.set_lipsync_available(False)
+            return
+        self.step_voice.set_lipsync_available(
+            settings.lipsync_configured() and settings.lipsync_gpu_available())
 
     # -- Nghe thử và kiểu phụ đề ---------------------------------------
     def _preview_voice(self, voice: str) -> None:
@@ -659,6 +675,7 @@ class NewProjectPage(BasePage):
             blur_regions=list(self._blur_regions),
             subtitle_style=(self._subtitle_style
                             or self._base_style(data["subtitle_preset"])),
+            lipsync=bool(data.get("lipsync", False)),
             # Luồng wizard: dừng ở ranh giới Xuất video, chờ người dùng chốt.
             defer_export=True,
         )

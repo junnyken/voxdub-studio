@@ -92,6 +92,13 @@ def _add_dub_request_args(parser: argparse.ArgumentParser) -> None:
                              "giọng riêng (mini-spec V26 — cần cài trước qua "
                              "scripts/setup_diarization.py; gán tự động "
                              "round-robin, không có UI để chọn tay)")
+    parser.add_argument("--lipsync", action="store_true",
+                        help="Đồng bộ khẩu hình AI theo giọng đã lồng tiếng "
+                             "(mini-spec V32b — GPU NVIDIA BẮT BUỘC, cần cài "
+                             "trước qua scripts/setup_lipsync.py; phạm vi "
+                             "hiện tại CHỈ 1 khuôn mặt/video ngắn, tự động "
+                             "bỏ qua bước này nếu chưa cài/không đạt điều "
+                             "kiện, không làm hỏng cả lượt dub)")
 
 
 def _progress_fn(as_json: bool):
@@ -148,6 +155,7 @@ def _cmd_dub(args: argparse.Namespace) -> int:
         resume_dir=args.resume_dir,
         subtitle_mode=args.subtitle_mode,
         target=args.target,
+        lipsync=args.lipsync,
     )
     try:
         result = pipeline.run(req)
@@ -231,6 +239,7 @@ def _cmd_batch(args: argparse.Namespace) -> int:
         output_dir=args.output_dir,
         subtitle_mode=args.subtitle_mode,
         target=args.target,
+        lipsync=args.lipsync,
     )
 
     def observer(index, total, item, status, detail):

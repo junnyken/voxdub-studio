@@ -53,6 +53,11 @@ const dubApiJobSchema = new mongoose.Schema({
   // khảo lúc submit (trước khi biết durationS thật).
   estimatedCostVox: { type: Number, default: 0 },
   costVox: { type: Number, default: 0 },
+  // Mini-spec V43 — số phút đã giữ chỗ trên `ApiKey.dubMinutesReserved` lúc
+  // submit job này. Lưu lại để completeJob()/failJob()/sweeper giải phóng
+  // ĐÚNG con số đã giữ (không đoán lại), kể cả khi config reservation đổi
+  // giữa lúc submit và lúc job kết thúc.
+  reservedMinutes: { type: Number, default: 0 },
   workerId: { type: String, default: '' },
   heartbeatAt: { type: Date, default: null },
   startedAt: { type: Date, default: null },

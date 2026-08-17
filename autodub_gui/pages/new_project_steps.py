@@ -568,8 +568,25 @@ class VoiceStep(_StepPanel):
         self.audio_only.setToolTip(
             "Bật khi bạn tự dựng video ở phần mềm khác và chỉ cần tiếng Việt "
             "cùng tệp phụ đề.")
-        self.audio_only.toggled.connect(lambda _c: self.changed.emit())
+        self.audio_only.toggled.connect(self._on_audio_only)
         self.body.addWidget(self.audio_only)
+
+        # Đồng bộ khẩu hình AI (mini-spec V32b, docs/PLAN.md Phase G) — CHỈ
+        # hiện khi máy có GPU đủ mạnh VÀ đã cài .venv-lipsync
+        # (set_lipsync_available() gọi từ trang cha, đúng nguyên tắc "không
+        # thêm UI cho tính năng chưa khả dụng" — cùng cách cloud_render đã
+        # làm ở RecognizeStep). Ẩn mặc định.
+        self.lipsync = QCheckBox("Đồng bộ khẩu hình AI theo giọng đọc mới (GPU)")
+        self.lipsync.setToolTip(
+            "Chỉnh miệng trong video khớp với giọng tiếng Việt mới — chạy "
+            "lâu hơn NHIỀU (có thể gấp hàng chục lần thời lượng video) và "
+            "cần GPU NVIDIA thật. Phạm vi hiện tại: video ngắn, 1 khuôn mặt "
+            "nhìn thẳng — video khác dạng này sẽ tự bỏ qua bước này, không "
+            "báo lỗi. Video luôn có watermark AI, không tắt được.")
+        self.lipsync.toggled.connect(lambda _c: self.changed.emit())
+        self.lipsync.setVisible(False)
+        self._lipsync_available = False
+        self.body.addWidget(self.lipsync)
 
         self.status = QLabel("")
         self.status.setWordWrap(True)
@@ -632,6 +649,23 @@ class VoiceStep(_StepPanel):
     def set_summary(self, text: str) -> None:
         self.summary.setText(text)
 
+    def set_lipsync_available(self, available: bool) -> None:
+        """Gọi từ trang cha sau khi đọc ``Settings.lipsync_configured()``/
+        ``lipsync_gpu_available()`` (mini-spec V32b) — ẩn hẳn ô chọn nếu
+        máy chưa cài/không có GPU đủ mạnh, đúng nguyên tắc degrade trung
+        thực (không hiện tuỳ chọn không dùng được)."""
+        self._lipsync_available = available
+        self.lipsync.setVisible(available)
+        if not available:
+            self.lipsync.setChecked(False)
+
+    def _on_audio_only(self, checked: bool) -> None:
+        # Lip-sync xử lý PIXEL video — vô nghĩa khi chỉ xuất âm thanh.
+        self.lipsync.setEnabled(not checked)
+        if checked:
+            self.lipsync.setChecked(False)
+        self.changed.emit()
+
     def values(self) -> dict:
         # Không mở phần đổi giọng thì trả về rỗng — pipeline sẽ tự dùng
         # giọng mặc định trong Cài đặt.
@@ -642,6 +676,8 @@ class VoiceStep(_StepPanel):
             "subtitle_mode": self.mode.current_key(),
             "subtitle_preset": self.preset.current_key(),
             "skip_video": self.audio_only.isChecked(),
+            "lipsync": (self.lipsync.isChecked()
+                       if self._lipsync_available else False),
         }
 
     def load(self, data: dict) -> None:
@@ -666,6 +702,8 @@ class VoiceStep(_StepPanel):
         self.mode.set_key(data.get("subtitle_mode", fb_mode))
         self.preset.set_key(data.get("subtitle_preset", fb_preset))
         self.audio_only.setChecked(bool(data.get("skip_video", False)))
+        if self._lipsync_available:
+            self.lipsync.setChecked(bool(data.get("lipsync", False)))
         self._refresh_default_label()
 
 

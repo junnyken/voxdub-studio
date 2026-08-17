@@ -367,6 +367,16 @@ EXEMPT_KEYS: dict[str, str] = {
     "VOXDUB_API_URL": "địa chỉ máy chủ được nhúng cứng vào bản đóng gói; "
                       "chỉ đọc từ .env khi chạy từ mã nguồn (dev), người "
                       "dùng cuối không đổi được và không cần đổi",
+    "LIPSYNC_MAX_DURATION_S": "nút vặn nâng cao cho người biết việc (trần "
+                              "thời lượng video cho phép chạy Đồng bộ khẩu "
+                              "hình AI, mini-spec V32b) — tính năng CHƯA có "
+                              "nút bật ở GUI (chỉ CLI --lipsync), nên chưa "
+                              "hợp lý hiện nút chỉnh ngưỡng ở đây; ai cần "
+                              "thì sửa thẳng trong .env",
+    "LIPSYNC_MAX_NO_FACE_RATIO": "nút vặn nâng cao cho người biết việc "
+                                 "(ngưỡng consent-check của Đồng bộ khẩu "
+                                 "hình AI, mini-spec V32b) — cùng lý do "
+                                 "LIPSYNC_MAX_DURATION_S ở trên",
 }
 
 

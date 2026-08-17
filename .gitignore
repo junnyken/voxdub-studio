@@ -38,6 +38,11 @@ linkdouyin.txt
 /scripts/research/musetalk_repo/
 /scripts/research/lipsync_poc_output/
 
+# Production lip-sync (mini-spec V32b) — mã nguồn MuseTalk vendor THẬT
+# (khong phai submodule, xem scripts/setup_lipsync.py). Weights nam trong
+# models/lipsync/ da bi loai boi /models/ o tren.
+/vendor/musetalk/
+
 # Giong nguoi dung tu them (voices/preset_voices_vn/ VAN duoc commit)
 voices/custom/
 voices/*.wav

@@ -21,6 +21,13 @@
  * — tính năng dub qua API là OPT-IN, admin phải cấp quota rõ ràng qua
  * `/v1/admin`, không tự động mở cho API key hiện có (Constraint 2 của
  * V34b: 3 hệ billing độc lập, key cũ chỉ dùng V31 không bị ảnh hưởng gì).
+ *
+ * `dubMinutesReserved` (mini-spec V43, docs/PLAN.md) — đóng gap race
+ * condition mà V42 phát hiện: `dubMinutesUsed` chỉ `$inc` SAU khi job hoàn
+ * tất, nên nhiều job submit đồng thời từ CÙNG 1 key đều đọc thấy quota còn
+ * trống dù tổng thời lượng thật sẽ vượt xa. Field này giữ chỗ NGAY lúc
+ * submit (atomic, cùng kỹ thuật `balance: {$gte}` của `credit.service.js`),
+ * giải phóng lúc job xong/lỗi/hết hạn — xem `dub-job.service.js`.
  */
 const mongoose = require('mongoose')
 
@@ -34,6 +41,7 @@ const apiKeySchema = new mongoose.Schema({
   usageCount: { type: Number, default: 0 },
   dubMinutesQuota: { type: Number, default: 0 },
   dubMinutesUsed: { type: Number, default: 0 },
+  dubMinutesReserved: { type: Number, default: 0 },
   lastUsedAt: { type: Date, default: null },
   createdIp: { type: String, default: '' },
 }, { timestamps: true })

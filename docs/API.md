@@ -239,7 +239,7 @@ bộ vẫn trả `{success:true}` (giao dịch đã ghi ở PayOS, đối chiế
 | `PATCH /devices/:fingerprint/status` | `{status:active\|blocked, reason?}` — khóa tăng `tokenVersion` (thu hồi token ngay) |
 | `POST /devices/:fingerprint/credit` | `{delta (int), reason}` — cộng/trừ tay, ghi AuditLog |
 | `POST /devices/:fingerprint/transfer` | `{toFingerprint, reason}` — chuyển toàn bộ số dư, khóa máy nguồn |
-| `GET /keys?status&code&page&limit` | Danh sách key |
+| `GET /keys?status&code&note&page&limit` | Danh sách key (`note` lọc theo ghi chú, không phân biệt hoa/thường — tìm lại cả lô key phát cho 1 khách) |
 | `POST /keys` | `{vox, count? (default 1, max 100), note?}` — phát key tay |
 | `DELETE /keys/:code` | Thu hồi key (`409` nếu đã `used`) |
 | `GET /orders?status&orderCode&page&limit` | Danh sách đơn (ẩn `accessToken`) |
@@ -267,19 +267,25 @@ Auth: header `Authorization: Bearer <apiKey>` (`vx_live_...`, cấp qua
 identity THỨ 2, SONG SONG với device-fingerprint của app desktop — hoàn
 toàn tách biệt, không đụng `/v1/ai/*`.
 
-**Phạm vi CHỦ ĐÍCH hẹp: CHỈ dịch văn bản** (tái dùng đúng luồng dịch phụ đề
-V14, không gắn "video context"). KHÔNG có ASR/TTS/video qua API này — hạ
-tầng đó chưa tồn tại server-side (xem "Audit Before Build" của V31 trong
-docs/PLAN.md: ASR/TTS hiện 100% chạy trên máy người dùng app desktop,
-không có server nào làm thay).
+**Phạm vi ban đầu (V31) CHỦ ĐÍCH hẹp: CHỈ dịch văn bản** (tái dùng đúng luồng
+dịch phụ đề V14, không gắn "video context"). **Mở rộng ở V34a→V34b**: thêm
+`/dub*` — ASR+dịch+TTS+mux đầy đủ, chạy trên `control_server/worker-dub/`
+(Docker, CPU-only) — KHÔNG còn đúng câu "KHÔNG có ASR/TTS/video qua API
+này" của bản audit V31 gốc nữa, xem "Audit Before Build" của V34a trong
+docs/PLAN.md để biết bối cảnh mở rộng.
 
-Billing: mỗi API key có `quota`/`usageCount` riêng (KHÔNG dùng chung ví Vox
-với app desktop — `CreditLedger`/`Device` không bị đụng tới bởi API này).
+Billing: mỗi API key có `quota`/`usageCount` riêng cho `/translate` (KHÔNG
+dùng chung ví Vox với app desktop). `/dub*` dùng CẶP FIELD RIÊNG
+`dubMinutesQuota`/`dubMinutesUsed` (đơn vị PHÚT video, khác "lượt gọi") —
+2 hệ billing độc lập trên cùng 1 `ApiKey`, xem Constraint 2 của V34b.
 
 ### `GET /me`
 Xem thông tin + quota của CHÍNH API key đang xác thực (không lộ key khác).
 
-Response 200: `{orgName, status, quota, usageCount, remaining, lastUsedAt}`
+Response 200: `{orgName, status, quota, usageCount, remaining, dubMinutesQuota,
+dubMinutesUsed, dubMinutesReserved, dubMinutesRemaining, lastUsedAt}`
+— `dubMinutesReserved` (V43) là phút đang giữ chỗ cho job `queued`/`running`
+của chính key này; `dubMinutesRemaining` đã trừ luôn phần này.
 
 ### `POST /translate`
 Body: `{sourceFlores, targetFlores (mã FLORES-200, vd "vie_Latn"), sourceName?, targetName?, items: [{id, text}]}`
@@ -294,6 +300,32 @@ Lỗi:
   `/v1/ai/translate-subtitle`)
 - `429 QUOTA_EXCEEDED` — hết quota, kèm `{quota, usageCount}`
 - `503 AI_UNAVAILABLE` — mô hình dịch tạm thời không phản hồi
+
+### `POST /dub?sourceLang&targetLang&voice?&bgMode?&estimatedMinutes?` (mini-spec V34a→V34b→V43)
+Upload video (`multipart/form-data`, field bất kỳ có `filename`, giới hạn
+`cloud.dub.max.upload.mb`). `bgMode` = `none` | `demucs`. `estimatedMinutes`
+(V43, tuỳ chọn) — caller tự khai thời lượng ước tính (phút) để giữ chỗ
+quota chính xác hơn; không khai thì dùng mặc định cấu hình
+`cloud.dub.reservation.default.minutes` (kẹp trần
+`cloud.dub.reservation.max.minutes`). Đây CHỈ là ngưỡng chặn submit tràn
+lan — **Vox/phút trừ thật luôn tính lại SAU** theo `durationS` worker đo
+được (`chargeDubUsage`), không phụ thuộc số đã khai.
+
+TRẢ VỀ NGAY (không đợi xử lý xong — dub mất nhiều phút):
+Response 200: `{jobId, status:"queued", async:true, bgMode, estimatedCostVoxPerMinute, reservedMinutes}`
+
+Lỗi:
+- `409 CLOUD_DUB_DISABLED` — tính năng đang tắt
+- `402 DUB_QUOTA_EXCEEDED` — không đủ quota phút còn trống (đã dùng + đang
+  giữ chỗ cho job khác + job này ước tính > hạn mức)
+- `400 MISSING_LANG` / `400 BAD_BG_MODE` / `400 NO_FILE` / `400 EMPTY_FILE`
+
+### `GET /dub/:jobId`
+Response 200: `{jobId, status, error?, metrics? (khi done), costVox? (khi done), expiresAt}`
+
+### `GET /dub/:jobId/result`
+Tải video kết quả — **xoá file NGAY sau khi trả** (chính sách dữ liệu V9).
+`409 NOT_READY` nếu chưa `done`; `410 RESULT_EXPIRED` nếu đã tải/quá TTL.
 
 ## Model (`src/models/`) — dựng lại 2026-08-10, xem `docs/TEST_LOG.md` V0
 

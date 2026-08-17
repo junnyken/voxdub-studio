@@ -52,6 +52,7 @@ Orchestrator: `pipeline.py` (`DubPipeline.run()`, ~1946 dòng).
 | Timing/khớp thời gian | `speech/align.py`, `media/timing.py`, `media/retime.py` | Render 1:1 theo segment; "soft timing fit" đẩy đoạn tràn vào khoảng lặng trước, nén `atempo` là phương án cuối (có trần); karaoke chạy lại Whisper `base` trên chính audio TTS để lấy word-level timestamp |
 | Phụ đề | `text/srt.py`, `text/ass_karaoke.py`, `media/subtitle.py` | SRT + ASS karaoke (word-pop/fade/highlight), 6 preset style |
 | Mux video | `media/video.py` | ffmpeg, auto-detect hardware encoder (NVENC→QSV→AMF→libx264, test bằng encode thật 1 frame) |
+| Đồng bộ khẩu hình (tuỳ chọn) | `media/lipsync.py`, `media/lipsync_worker.py` | MuseTalk qua subprocess `.venv-lipsync` — **NGOẠI LỆ kiến trúc: GPU-only, không có đường CPU fallback** (mọi engine khác trong bảng này đều GPU-optional). Mặc định TẮT (`DubRequest.lipsync`), phạm vi CỐ TÌNH hẹp (1 khuôn mặt, video ≤12s) — xem `docs/TEST_LOG.md` mục V32a/V32b, **CHƯA live-verify GPU thật trên đường code production, CHƯA có GUI**. |
 | "Che chữ gốc" | `media/subtitle.py` (`blur_filter`) | **Chỉ là `boxblur` ffmpeg trên rectangle người dùng tự vẽ tay trong GUI (`style_dialog.py`) — không phải OCR/inpainting tự động.** |
 | Editor | `editor.py` (~1200 dòng) | Sửa từng câu: split/merge/add/delete, re-synth từng đoạn, đổi giọng riêng đoạn, lịch sử export |
 | Batch | `batch.py` | Xử lý nhiều URL, prefetch pipelining, resume an toàn (`batch_state.json`) |

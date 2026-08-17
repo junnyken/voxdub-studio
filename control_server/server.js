@@ -105,13 +105,19 @@ async function main() {
     await config.get('cloud.dub.sweep.interval.minutes')) || 2
   const dubSweepTimer = setInterval(async () => {
     try {
-      const [expired, staleFailed] = await Promise.all([
+      const [expired, staleFailed, staleQueued] = await Promise.all([
         dubJobService.sweepExpired(app.log),
         dubJobService.sweepStaleRunning(app.log),
+        // V43: job kẹt ở queued quá TTL cũng phải giải phóng quota đã giữ
+        // chỗ (dubMinutesReserved) — xem docstring sweepStaleQueued().
+        dubJobService.sweepStaleQueued(app.log),
       ])
       if (expired > 0) app.log.info({ expired }, 'đã dọn dub job hết hạn TTL')
       if (staleFailed > 0) {
         app.log.warn({ staleFailed }, 'đã chuyển failed dub job kẹt ở running (worker mất kết nối)')
+      }
+      if (staleQueued > 0) {
+        app.log.warn({ staleQueued }, 'đã chuyển failed dub job kẹt ở queued (không worker nhận kịp TTL)')
       }
     } catch (err) {
       app.log.warn({ err }, 'vòng quét dub job thất bại')

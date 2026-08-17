@@ -102,6 +102,16 @@ const DEFAULTS = {
   // Phase G — xem Constraint 6 của V34b).
   'credit.cost.cloud.dub.vox.per.minute': 150,
   'credit.cost.cloud.dub.vox.per.minute.demucs': 250,
+  // Mini-spec V43 (docs/PLAN.md) — giữ chỗ quota phút dub lúc submit (đóng
+  // gap race condition V42 phát hiện). KHÔNG có ffprobe ở Node (Constraint
+  // 3 của V34a) nên không biết thời lượng thật trước khi worker chạy —
+  // caller CÓ THỂ tự khai `estimatedMinutes` (họ thường biết file của
+  // chính họ dài bao lâu); không khai thì dùng mặc định dưới đây. Đây là
+  // NGƯỠNG GIỮ CHỖ để chặn submit tràn lan, KHÔNG phải số tiền cuối — số
+  // tiền cuối luôn tính lại THẬT theo durationS worker đo được
+  // (`chargeDubUsage`), không đổi.
+  'cloud.dub.reservation.default.minutes': 5,
+  'cloud.dub.reservation.max.minutes': 240,
   // Mini-spec V37 (docs/PLAN.md) — nhạc nền/hiệu ứng âm thanh AI qua
   // ElevenLabs (Sound Effects v2 + Music v2). Bật/tắt qua
   // `cloud.music_match.enabled` — mặc định TẮT (Constraint 2 của V37: tính

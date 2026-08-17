@@ -132,6 +132,7 @@ function IssueModal({ open, onClose, onDone }) {
 export default function Keys() {
   const [params, setParams] = useSearchParams()
   const [codeSearch, setCodeSearch] = useState(params.get('code') || '')
+  const [noteSearch, setNoteSearch] = useState(params.get('note') || '')
   const [issuing, setIssuing] = useState(false)
   const [revoking, setRevoking] = useState(null)
   const [revokeError, setRevokeError] = useState('')
@@ -139,14 +140,17 @@ export default function Keys() {
   const page = Number(params.get('page')) || 1
   const status = params.get('status') || ''
   const code = params.get('code') || ''
+  const note = params.get('note') || ''
 
   const { data, error, loading, reload } = useFetch(
-    () => adminApi.keys({ page, limit: LIMIT, status, code }),
-    [page, status, code])
+    () => adminApi.keys({
+      page, limit: LIMIT, status, code, note,
+    }),
+    [page, status, code, note])
 
   function setFilter(next) {
     setParams(Object.fromEntries(Object.entries({
-      status, code, ...next, page: '1',
+      status, code, note, ...next, page: '1',
     }).filter(([, v]) => v)))
   }
 
@@ -183,6 +187,18 @@ export default function Keys() {
             placeholder="VOX-XXXX-XXXX-XXXX"
             value={codeSearch}
             onChange={(e) => setCodeSearch(e.target.value.toUpperCase())}
+          />
+          <button type="submit" className="btn-ghost text-xs px-3">Tìm</button>
+        </form>
+        <form
+          className="flex gap-2 flex-1 min-w-[220px]"
+          onSubmit={(e) => { e.preventDefault(); setFilter({ note: noteSearch }) }}
+        >
+          <input
+            className="input flex-1"
+            placeholder="Tìm theo ghi chú (vd: Công ty ABC)"
+            value={noteSearch}
+            onChange={(e) => setNoteSearch(e.target.value)}
           />
           <button type="submit" className="btn-ghost text-xs px-3">Tìm</button>
         </form>
@@ -278,7 +294,7 @@ export default function Keys() {
             page={page}
             total={data.total}
             limit={LIMIT}
-            onPage={(p) => setParams({ page: String(p), status, code })}
+            onPage={(p) => setParams({ page: String(p), status, code, note })}
           />
         </div>
       )}

@@ -217,10 +217,13 @@ module.exports = async function adminRoutes(fastify) {
 
   // ---------------------------------------------------------------- key --
   fastify.get('/keys', async (request) => {
-    const { status = '', code = '', page = 1, limit = 20 } = request.query
+    const {
+      status = '', code = '', note = '', page = 1, limit = 20,
+    } = request.query
     const filter = {}
     if (status) filter.status = status
     if (code) filter.code = new RegExp(escapeRe(code.toUpperCase()), 'i')
+    if (note) filter.note = new RegExp(escapeRe(note), 'i')
     const skip = (Math.max(1, Number(page)) - 1) * Number(limit)
     const [data, total] = await Promise.all([
       ActivationKey.find(filter).sort({ createdAt: -1 }).skip(skip).limit(Number(limit)).lean(),
