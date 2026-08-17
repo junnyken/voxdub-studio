@@ -21,6 +21,9 @@ const gateway = require('../services/ai-gateway.service')
 const config = require('../services/config.service')
 const ApiKey = require('../models/ApiKey')
 const dubJob = require('../services/dub-job.service')
+const {
+  SOURCE_LANGS, TARGET_LANGS, isValidSourceLang, isValidTargetLang,
+} = require('../utils/dub-langs')
 
 module.exports = async function apiV1Routes(fastify) {
   fastify.addHook('preHandler', requireApiKey)
@@ -185,6 +188,23 @@ module.exports = async function apiV1Routes(fastify) {
       return reply.code(400).send({
         code: 'BAD_BG_MODE',
         message: 'bgMode phải là "none" hoặc "demucs".',
+      })
+    }
+    // Chặn NGAY tại cửa vào: mã sai mà lọt qua đây thì phải chờ hết bước ASR
+    // (tốn quota + vài phút CPU của worker) mới hỏng, kèm lỗi mơ hồ không chỉ
+    // ra được sai ở đâu. Lưu ý 2 tham số dùng 2 định dạng khác nhau — xem
+    // utils/dub-langs.js.
+    if (!isValidSourceLang(sourceLang)) {
+      return reply.code(400).send({
+        code: 'BAD_SOURCE_LANG',
+        message: `sourceLang "${sourceLang}" không hỗ trợ. Hợp lệ: ${SOURCE_LANGS.join(', ')}.`,
+      })
+    }
+    if (!isValidTargetLang(targetLang)) {
+      return reply.code(400).send({
+        code: 'BAD_TARGET_LANG',
+        message: `targetLang "${targetLang}" không hỗ trợ — cần khoá ngắn `
+          + `(vd "vi"), không phải mã BCP-47. Hợp lệ: ${TARGET_LANGS.join(', ')}.`,
       })
     }
     // V43: tuỳ chọn — caller tự khai thời lượng ước tính (phút) để giữ chỗ

@@ -113,6 +113,18 @@ class DubRequest:
     #: tuỳ chọn chưa cài, xem Constraint 2 của V32b).
     lipsync: bool = False
 
+    def __post_init__(self) -> None:
+        # Chuẩn hoá NGAY tại cửa vào: `SOURCE_LANG_MAP` hỗ trợ chính thức cả
+        # dạng ngắn ("vi", "en", "zh") lẫn BCP-47 đầy đủ, nhưng trước đây chỉ
+        # bước ASR gọi `resolve_source_lang()` còn các bước sau vẫn đọc giá
+        # trị THÔ. Hệ quả thật (bắt được lúc test e2e 2026-08-17): gửi "vi"
+        # thì ASR chạy bình thường nhưng `translate_local.is_available()` tra
+        # `flores_code("vi")` ra None → cả lượt âm thầm rẽ sang dịch tay
+        # (`translate_pending`) sau khi đã tốn nguyên bước ASR. Chuẩn hoá một
+        # lần ở đây thì mọi bước phía sau thấy cùng một giá trị; hàm này
+        # idempotent ("vi-VN" → "vi-VN") nên chỗ gọi cũ không đổi hành vi.
+        self.source_lang = resolve_source_lang(self.source_lang)
+
 
 @dataclass
 class DubResult:
