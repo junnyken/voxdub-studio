@@ -4358,6 +4358,70 @@ Lưu ý khi chạy thật: lợi ích tỉ lệ với thời gian upload; mạng
 nhỏ thì gần như không khác, mạng nhà + video vài trăm MB thì cắt được gần
 trọn thời gian upload khỏi tổng thời gian chạy.
 
+## Phase H — Trải nghiệm người dùng cuối (2026-08-18+, chủ dự án chọn sau khi xem app thật)
+
+Chủ dự án xem lại app v3.0.1 đang chạy trên Windows và chọn 4 hướng, theo thứ
+tự: (1) cập nhật bản mới → (2) nghe thử 30 giây → (3) hồ sơ nhân vật xuyên
+tập → (4) extension làm mặt tiền. Hai hướng bị GẠT có lý do rõ: sinh video AI
+từ kịch bản (sản phẩm khác, cần GPU farm, không có lợi thế cạnh tranh) và dub
+thời gian thực trên trình duyệt (kiến trúc streaming, gần như sản phẩm thứ 2).
+
+### V56 — Nghe thử 30 giây trước khi chạy cả video
+
+```
+V56 — Dub thử một đoạn đầu để duyệt giọng/xưng hô (Phase H, 2026-08-18)
+
+Context:
+- Quy trình hiện tại: wizard 6 bước → chạy hết video 20 phút → mới phát hiện
+  giọng không hợp hoặc xưng hô sai → làm lại từ đầu. Đây là vòng lặp lãng phí
+  lớn nhất của người dùng, thấy rõ khi xem app thật.
+- `pipeline.py:360` (`_resolve_video`) là điểm DUY NHẤT giải quyết nguồn video
+  cho CẢ file local lẫn link (link đã tải xong ở bước này). Cắt clip ngay sau
+  đó là tái dùng toàn bộ pipeline phía sau, không viết logic mới.
+- `_unique_new_folder_name` (V42) đã lo chống trùng thư mục.
+
+Goal:
+- Nghe được kết quả lồng tiếng của 30 giây đầu trước khi cam kết chạy cả video.
+
+Constraints (Guardrails):
+1. KHÔNG viết pipeline riêng cho preview — cắt clip rồi chạy đúng pipeline cũ.
+2. Thư mục preview phải PHÂN BIỆT ĐƯỢC với dự án thật, không bao giờ bị nhầm
+   là bản cuối (người dùng đăng nhầm bản 30 giây lên kênh là hỏng thật).
+3. KHÔNG đụng vào nhánh `resume_dir` — preview luôn là lượt chạy mới.
+4. Tính phí trung thực: preview vẫn tốn Vox theo số câu trong đoạn đó, phải
+   nói trước chứ không được ngầm hiểu là miễn phí.
+5. Clip cắt hỏng (ffmpeg lỗi/video ngắn hơn N giây) phải báo rõ, KHÔNG âm thầm
+   rơi về chạy full — người dùng đang cố tránh đúng chuyện đó.
+6. Video ngắn hơn N giây thì preview = cả video, không phải lỗi.
+
+Scope:
+A. Domain model: `DubRequest.preview_seconds: int = 0`.
+B. Services/engine: `autodub/preview.py` (cắt clip bằng ffmpeg, giữ nguyên
+   codec khi có thể); chèn 1 bước vào `_run_impl` ngay sau `_resolve_video`.
+C. API contract: không đổi (thuần desktop).
+D. UI surfaces: CLI `--preview-seconds N`; GUI nút "Nghe thử 30 giây".
+E. Tests: cắt đúng tham số, thư mục tách biệt, video ngắn, ffmpeg hỏng.
+
+Design Choice:
+- Cắt bằng `-t N` + `-c copy` (không mã hoá lại) → gần như tức thì kể cả với
+  video 2 GB. `-c copy` cắt theo keyframe nên độ dài có thể lệch chút — chấp
+  nhận được vì đây là bản nghe thử, không phải bản giao.
+- Thư mục có hậu tố `-preview30s` NGAY TRONG TÊN: người dùng mở thư mục kết
+  quả là biết ngay cái nào là thử, không phải đoán theo thời gian tạo.
+
+Test Plan:
+- Unit: dựng lệnh ffmpeg đúng; video ngắn hơn N vẫn chạy; ffmpeg lỗi → ném
+  lỗi rõ chứ không trả về đường dẫn rác.
+- Integration: `DubRequest(preview_seconds=30)` tạo thư mục có hậu tố và dùng
+  clip làm nguồn; `preview_seconds=0` giữ NGUYÊN hành vi cũ (0 regression).
+- Live: cắt thật bằng ffmpeg trên video thật, kiểm thời lượng bằng ffprobe.
+
+Success Criteria:
+- Chạy preview 30s trên video dài không tốn thời gian tải/tách nhạc cả video.
+- Không có đường nào khiến bản preview bị nhầm là bản cuối.
+- `preview_seconds=0` → mọi thứ y như trước.
+```
+
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
 
 - Khảo sát Rask AI/ElevenLabs Dubbing/HeyGen/Camb.ai/Dubverse/Vidnoz (auto-dub)

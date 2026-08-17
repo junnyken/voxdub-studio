@@ -6513,3 +6513,73 @@ Suite: **Python 1185 pass / 0 fail**, **Node 325 test (324 pass, 1 skip, 0 fail)
 - Worker chỉ nhận biết huỷ ở nhịp heartbeat (mặc định vài giây) — huỷ xong
   còn chạy thêm vài giây là bình thường.
 - Chưa live-verify huỷ trên prod (cần API key + một job chạy thật).
+
+## V56 — Nghe thử 30 giây trước khi chạy cả video (Phase H, 2026-08-18)
+
+### Audit Before Build
+
+Xem app thật (v3.0.1) mới thấy rõ vòng lặp lãng phí lớn nhất: wizard 6 bước →
+chạy hết video 20 phút → phát hiện giọng không hợp hoặc xưng hô sai → làm lại
+từ đầu.
+
+Đọc `pipeline.py` tìm điểm chèn: `_resolve_video()` gọi ở **dòng 360** là chỗ
+DUY NHẤT giải quyết nguồn video, phục vụ CẢ file local lẫn link (link đã tải
+xong tại đây). Cắt clip ngay sau dòng đó là tái dùng toàn bộ pipeline phía sau
+— không có nhánh xử lý riêng nào phải bảo trì song song.
+
+### Design Choice
+
+**Không có "pipeline preview" riêng.** Chỉ cắt clip rồi giao cho đúng pipeline
+cũ. Một nhánh song song sẽ dần trôi khác nhánh chính, tới lúc nào đó bản nghe
+thử không còn phản ánh bản thật — mất luôn mục đích của tính năng.
+
+**`-c copy`, không mã hoá lại**: cắt gần như tức thì kể cả video vài GB. Đánh
+đổi có chủ đích: cắt theo keyframe nên độ dài lệch vài phần mười giây — chấp
+nhận được cho bản nghe thử.
+
+**Hậu tố nằm TRONG TÊN thư mục** (`-preview30s`), không phải file đánh dấu bên
+trong: mở thư mục kết quả là biết ngay cái nào chỉ là bản thử. Đăng nhầm bản
+30 giây lên kênh là hỏng thật.
+
+**Cắt hỏng thì BÁO LỖI, tuyệt đối không rơi về chạy cả video.** Người dùng bấm
+"nghe thử" chính là để tránh chạy cả video; tự ý chạy full sẽ tốn đúng thứ họ
+đang cố tiết kiệm.
+
+**Tách `apply_folder_suffix()` ra `preview.py`** để test thẳng quy tắc đặt tên
+— chạy cả pipeline chỉ để kiểm một cái tên thư mục là quá đắt, mà đây lại đúng
+chỗ quyết định bản thử có bị nhầm thành bản cuối hay không.
+
+### Changed Files
+
+- `autodub/preview.py` (mới) — cắt clip + quy tắc đặt tên
+- `autodub/pipeline.py` — `DubRequest.preview_seconds`; hậu tố thư mục; 1 bước
+  cắt ngay sau `_resolve_video`
+- `autodub/cli.py` — `--preview-seconds N`
+- `autodub_gui/pages/new_project_page.py` — nút "Nghe thử 30 giây"
+- `tests/test_preview_clip.py` (8 test), `tests/test_new_project_preview_button.py` (5 test)
+
+### Tests (13 mới)
+
+Cắt clip: hậu tố hiện trong tên và dự án thật KHÔNG bị nhận nhầm; `0` giữ
+nguyên tên cũ (0 regression); `seconds<=0` bị từ chối; **ffmpeg lỗi → ném lỗi
+kèm lý do thật, không trả về video gốc**; file rỗng cũng tính là hỏng; lệnh
+phải dùng `-c copy` + `-t N`; **cắt THẬT bằng ffmpeg rồi đo lại bằng ffprobe**
+(video 12s → clip 5s); video 3s mà xin 30s → không phải lỗi.
+
+GUI: nút ẩn ở các bước đầu; hiện ở bước cuối; **ẩn khi đang «chạy tiếp dự án
+cũ»** (nghe thử lại 30 giây đầu của dự án đã chạy là vô nghĩa); bản thử dùng
+ĐÚNG giọng/nhạc nền người dùng đã chọn và `defer_export=False` (wizard bình
+thường dừng trước bước Xuất video — giữ nếp đó thì không có gì để nghe); form
+chưa hợp lệ thì không chạy gì.
+
+Toàn suite: **1198 passed, 6 skipped, 0 failed**; smoke test toàn app exit 0.
+
+### Remaining Limits
+
+- Preview vẫn tốn Vox cho số câu trong đoạn đó — đã nói rõ trong tooltip và
+  help của CLI, nhưng CHƯA hiện con số ước tính cụ thể trước khi bấm.
+- Chưa cho chọn đoạn giữa video (luôn là N giây ĐẦU). Video có intro dài thì
+  đoạn đầu có thể không đại diện — cần thêm tham số bắt đầu nếu gặp thật.
+- 30 giây là hằng số trong GUI (CLI thì tuỳ ý). Chưa có ô chỉnh trong Cài đặt.
+- CHƯA chạy thật đầu-cuối trên máy Windows có GPU/giọng đầy đủ — mới verify
+  bước cắt bằng ffmpeg thật + toàn bộ đường dẫn code bằng test.

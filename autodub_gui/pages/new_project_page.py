@@ -61,6 +61,10 @@ _STEP_TO_INDEX = {
 
 # Chỉ số hai bước đặc biệt của trình hướng dẫn.
 _RUN_INDEX = 4
+
+#: V56 — độ dài đoạn nghe thử. 30 giây đủ nghe ra giọng và cách xưng hô
+#: mà vẫn rẻ; dài hơn thì mất luôn ý nghĩa "thử nhanh".
+PREVIEW_SECONDS = 30
 _EXPORT_INDEX = 5
 
 
@@ -234,10 +238,21 @@ class NewProjectPage(BasePage):
         self.btn_stop = DangerButton("Dừng")
         self.btn_stop.clicked.connect(self._cancel)
         self.btn_stop.setVisible(False)
+        # V56 — nghe thử đoạn đầu trước khi cam kết chạy cả video. Chỉ hiện ở
+        # bước cuối (lúc đã chọn xong giọng/xưng hô), vì đó mới là lúc câu hỏi
+        # "nghe thử đã đúng chưa" có nghĩa.
+        self.btn_preview = GhostButton(f"Nghe thử {PREVIEW_SECONDS} giây")
+        self.btn_preview.setToolTip(
+            f"Chỉ lồng tiếng {PREVIEW_SECONDS} giây đầu để nghe giọng và cách "
+            "xưng hô trước khi chạy cả video. Kết quả nằm ở thư mục riêng có "
+            "chữ «preview», KHÔNG phải bản cuối. Vẫn tốn Vox cho phần đó.")
+        self.btn_preview.clicked.connect(self._start_preview)
+        self.btn_preview.setVisible(False)
         row.addWidget(self.btn_back)
         row.addWidget(self.btn_clear_draft)
         row.addStretch()
         row.addWidget(self.btn_stop)
+        row.addWidget(self.btn_preview)
         row.addWidget(self.btn_next)
         return row
 
@@ -336,6 +351,11 @@ class NewProjectPage(BasePage):
 
     def _refresh_footer(self) -> None:
         self.btn_next.setText(self._next_label())
+        # Chỉ có nghĩa ở bước cuối, và không áp dụng cho «chạy tiếp dự án cũ»
+        # (dự án đó đã chạy rồi, nghe thử lại 30 giây đầu là vô nghĩa).
+        at_run_step = self.pages.currentIndex() == _RUN_INDEX
+        is_resume = self.step_video.source.current_key() == "resume"
+        self.btn_preview.setVisible(at_run_step and not is_resume)
 
     def _on_form_changed(self) -> None:
         self._draft_timer.start()
@@ -730,6 +750,23 @@ class NewProjectPage(BasePage):
         request = self._build_request()
         if request is not None:
             self._launch(request)
+
+    def _start_preview(self) -> None:
+        """Chạy thử đoạn đầu (mini-spec V56).
+
+        Dùng ĐÚNG cấu hình người dùng vừa chọn — nghe thử bằng giọng khác
+        cấu hình thật thì không nói lên điều gì.
+        """
+        request = self._build_request()
+        if request is None:
+            return
+        request.preview_seconds = PREVIEW_SECONDS
+        # Wizard bình thường dừng ở ranh giới Xuất video chờ người dùng chốt;
+        # bản nghe thử phải chạy thẳng ra video, nếu không thì chẳng có gì để
+        # nghe.
+        request.defer_export = False
+        TOASTS.info(f"Đang lồng tiếng thử {PREVIEW_SECONDS} giây đầu…")
+        self._launch(request)
 
     def _resume_after_translation(self) -> None:
         if self._result is None:

@@ -82,6 +82,12 @@ def _add_dub_request_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--resume-dir", default=None,
                         help="Chạy tiếp 1 work_dir dở dang có sẵn")
+    parser.add_argument("--preview-seconds", type=int, default=0,
+                        help="NGHE THỬ: chỉ lồng tiếng N giây đầu để duyệt "
+                             "giọng/xưng hô trước khi chạy cả video "
+                             "(mini-spec V56). Kết quả nằm trong thư mục có "
+                             "hậu tố -previewNs, KHÔNG phải bản cuối. Vẫn tốn "
+                             "Vox theo số câu trong đoạn đó. 0 = chạy bình thường")
     parser.add_argument("--json", action="store_true",
                         help="In tiến trình dạng NDJSON (1 dòng JSON/sự kiện) ra stderr")
     parser.add_argument("--quality-gate", action="store_true",
@@ -156,6 +162,7 @@ def _cmd_dub(args: argparse.Namespace) -> int:
         subtitle_mode=args.subtitle_mode,
         target=args.target,
         lipsync=args.lipsync,
+        preview_seconds=args.preview_seconds,
     )
     try:
         result = pipeline.run(req)

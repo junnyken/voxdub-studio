@@ -99,6 +99,10 @@ class DubRequest:
     # ("vi"/"en"). Mặc định "vi" giữ hành vi trước mini-spec V8/V11.
     target: str = "vi"
 
+    #: mini-spec V56 — chỉ lồng tiếng N GIÂY ĐẦU để nghe thử trước khi cam
+    #: kết chạy cả video. 0 = chạy bình thường (mặc định, 0 regression).
+    preview_seconds: int = 0
+
     #: Luồng wizard: giữ chỗ Vox sau ASR, chạy tới hết ghép audio rồi DỪNG
     #: (``status="export_pending"``) — file trung gian trả phí nằm trên đĩa
     #: dưới dạng mã hóa cho tới khi người dùng bấm Xuất video (commit hold).
@@ -327,6 +331,11 @@ class DubPipeline:
         else:
             output_dir = req.output_dir or self.default_output_dir(target)
             base_name = datetime.now().strftime("%Y%m%d%H%M%S") + target.folder_suffix
+            # V56: hậu tố nằm NGAY TRONG tên thư mục — mở thư mục kết quả là
+            # biết ngay cái nào chỉ là bản nghe thử. Đăng nhầm bản 30 giây lên
+            # kênh là hỏng thật.
+            from autodub.preview import apply_folder_suffix
+            base_name = apply_folder_suffix(base_name, req.preview_seconds)
             folder_name = self._unique_new_folder_name(output_dir, base_name)
             work_dir = ensure_dir(os.path.join(output_dir, folder_name))
             logger.info(f"Output folder: {work_dir}")
@@ -358,6 +367,14 @@ class DubPipeline:
         if req.url:
             logger.info("Đang tải video về máy...")
         video_path = self._resolve_video(work_dir, req.url, req.file_path)
+        if req.preview_seconds > 0:
+            # V56: cắt SAU khi đã có video thật trên đĩa — chỗ này phục vụ cả
+            # link (đã tải xong ở trên) lẫn file local, nên chỉ cần một điểm
+            # chèn duy nhất cho cả hai đường vào.
+            from autodub.preview import make_preview_clip
+            video_path = make_preview_clip(video_path, work_dir, req.preview_seconds)
+            logger.info("Chế độ NGHE THỬ %ss — kết quả KHÔNG phải bản cuối",
+                        req.preview_seconds)
         logger.info(f"Video: {video_path}")
         logger.info(f"Đã có video: {os.path.basename(video_path)}")
         rep.emit("acquire", "done", detail=video_path)
