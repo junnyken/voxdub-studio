@@ -48,6 +48,24 @@ cp "$SRC/dub_worker.py" "$TARGET/dub_worker.py"
 sed 's#^COPY control_server/worker-dub/dub_worker\.py /app/dub_worker\.py#COPY dub_worker.py /app/dub_worker.py#' \
   "$SRC/Dockerfile" > "$TARGET/Dockerfile"
 
+# requirements.txt CHỈ để VAYS auto-detect nhận diện đây là app Python (xác
+# nhận thật lúc deploy 2026-08-17: có Dockerfile thôi KHÔNG đủ, detector đòi
+# requirements.txt/package.json làm tín hiệu) — Dockerfile vẫn tự pip install
+# trực tiếp như cũ, KHÔNG dùng file này, giữ nguyên logic cài đặt đã test.
+cat > "$TARGET/requirements.txt" <<'EOF'
+# Chỉ để nền tảng VAYS auto-detect app Python — KHÔNG dùng để cài đặt thật.
+# Dockerfile tự pip install trực tiếp (xem control_server/worker-dub/Dockerfile
+# trên main). Danh sách dưới đây PHẢI khớp các gói trong Dockerfile đó.
+torch>=2.0.0,<3.0
+pydub>=0.25.1,<2.0
+numpy>=1.24,<3.0
+python-dotenv>=1.0.1,<2.0
+requests>=2.31.0,<3.0
+cryptography>=42.0.0
+demucs>=4.0.0,<5.0
+soundfile>=0.13.0,<0.14
+EOF
+
 {
   echo "# ============================================================="
   echo "# FILE SINH TỰ ĐỘNG cho nhánh $BRANCH — KHÔNG sửa tay."
