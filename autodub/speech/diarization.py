@@ -34,12 +34,22 @@ class DiarizationError(Exception):
     về single-voice (Constraint 2 của V26: không giả vờ có mà gán bừa)."""
 
 
-def diarize(audio_path: str, settings: Settings) -> list[dict]:
+def diarize(audio_path: str, settings: Settings,
+            with_embeddings: bool = False):
     """Chạy diarization worker trên ``audio_path``.
 
     Trả về danh sách các khoảng nói theo thời gian, sắp theo thứ tự worker
     phát ra: ``[{"start": float, "end": float, "speaker": "SPEAKER_00"}, ...]``.
     Raise :class:`DiarizationError` nếu thất bại.
+
+    ``with_embeddings=True`` (mini-spec V59) trả thêm bản đồ
+    ``{speaker: [float, ...]}`` — vector đặc trưng giọng do chính pyannote
+    tính sẵn khi gom nhóm người nói. Mặc định ``False`` để mọi caller cũ (và
+    test V26) giữ nguyên chữ ký trả về là 1 danh sách.
+
+    Bản pyannote cũ không hỗ trợ thì bản đồ này RỖNG — caller phải tự lo
+    đường lui (hồ sơ nhân vật rơi về khớp bằng cao độ giọng), không được coi
+    embedding là chắc chắn có.
     """
     cmd = [
         settings.diarization_venv_python_path(),
@@ -68,6 +78,7 @@ def diarize(audio_path: str, settings: Settings) -> list[dict]:
     reader = WatchedLineReader(proc)
 
     segments: list[dict] = []
+    embeddings: dict[str, list[float]] = {}
     done = False
     try:
         while True:
@@ -89,6 +100,12 @@ def diarize(audio_path: str, settings: Settings) -> list[dict]:
                     "end": float(msg["end"]),
                     "speaker": str(msg["speaker"]),
                 })
+            elif msg.get("embedding"):
+                vector = msg.get("vector") or []
+                if vector:
+                    embeddings[str(msg["speaker"])] = [float(x) for x in vector]
+            elif msg.get("warn"):
+                logger.info("Diarization: %s", msg["warn"])
             elif msg.get("done"):
                 done = True
     except SubprocessTimeoutError as e:
@@ -104,7 +121,10 @@ def diarize(audio_path: str, settings: Settings) -> list[dict]:
 
     num_speakers = len({s["speaker"] for s in segments})
     logger.info(f"Diarization xong: {len(segments)} khoảng nói, "
-               f"{num_speakers} người nói")
+               f"{num_speakers} người nói"
+               + (f", {len(embeddings)} embedding" if embeddings else ""))
+    if with_embeddings:
+        return segments, embeddings
     return segments
 
 

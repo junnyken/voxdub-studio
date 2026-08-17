@@ -6673,3 +6673,80 @@ Toàn suite: **1216 passed, 6 skipped, 0 failed**; smoke test toàn app exit 0.
   thêm model, là quyết định khác.
 - **Chưa live-verify trên series thật** (cần diarization thật chạy qua nhiều
   tập). Toàn bộ verify hiện nay là test với F0 dựng sẵn.
+
+
+## V58–V60 — Hoàn thiện hồ sơ nhân vật (Phase H, 2026-08-18)
+
+Chủ dự án chốt cả 3 giới hạn V57 để lại trong một lượt.
+
+### V58 — Quy ước dịch của series đè cài đặt chung
+
+Quyết định: **hồ sơ thắng**. Lý do: chọn hồ sơ "Phim A" là đang nói "lần này
+tôi làm phim A", nên quy ước của phim A phải thắng mặc định toàn app.
+
+Nhưng chỉ đè bằng trường hồ sơ **CÓ điền** — trường trống KHÔNG xoá cài đặt
+chung. Chọn một hồ sơ mới lập (chưa điền gì) mà mất sạch xưng hô đã cấu hình
+là kiểu mất mát âm thầm tệ nhất. Và sửa TẠI CHỖ trên settings của lượt chạy,
+không ghi xuống `.env`: hồ sơ chỉ có hiệu lực cho lượt này.
+
+### V59 — Khớp bằng speaker embedding
+
+**Phát hiện quyết định toàn bộ thiết kế**: `diarize_worker.py` chạy pyannote
+`speaker-diarization-3.1`, mà pipeline đó **vốn đã tính embedding bên trong**
+để gom nhóm người nói — trước V59 vector đó bị vứt đi. `return_embeddings=True`
+lấy đúng nó ra: **không thêm model, không tốn thêm thời gian xử lý**. Chủ dự
+án chấp nhận "thêm model" nhưng hoá ra không cần trả cái giá đó.
+
+Thiết kế 2 vòng, KHÔNG trộn: embedding (cosine ≥ 0.72) xét trước và trọn vẹn,
+xong mới tới F0 cho những ai còn lại. Cosine 0.9 và lệch 3Hz không so sánh
+được với nhau — gộp chung một bảng xếp hạng là sai về bản chất.
+
+Degrade 3 tầng: pyannote cũ không có `return_embeddings` → worker cảnh báo và
+chạy tiếp không embedding; hồ sơ v1 không có vector → khớp bằng F0; người nói
+thiếu embedding → cũng rơi về F0. Không đường nào làm hỏng lượt dub.
+
+### V60 — Hồ sơ nhân vật lên GUI
+
+Ô nhập chữ ở bước cuối wizard, **chỉ hiện khi tách người nói đang bật** (bày
+ra lúc tính năng đó tắt là hứa suông — nếp V53). Ô nhập chứ không phải danh
+sách chọn: gõ tên mới = tạo hồ sơ mới, gõ lại tên cũ = dùng tiếp, không cần
+một màn quản lý riêng.
+
+### 2 bug THẬT do test bắt
+
+1. **Tên hồ sơ tiếng Việt đụng nhau.** `_slug()` bản đầu vứt mọi ký tự ngoài
+   ASCII nên «Phim Cổ Trang» và «Phim Có Trang» **cùng ra `phim-c-trang`** —
+   hai series ghi đè hồ sơ của nhau, trộn lẫn nhân vật. Với tên tiếng Việt
+   đây là chuyện thường ngày chứ không phải ca hiếm. Sửa 2 tầng: bỏ dấu ĐÚNG
+   cách (Cổ → Co) cho tên đọc được, cộng 6 ký tự băm của tên gốc để hai tên
+   khác nhau không bao giờ chung file.
+2. **Stub `diarize` trong test V26 lệch chữ ký thật** sau khi thêm
+   `with_embeddings` → 4 test đỏ. Sửa stub cho khớp API mới (không bẻ code
+   cho vừa test): API nội bộ đổi có chủ đích thì stub phải đổi theo.
+
+### Tests (+14, tổng 1230)
+
+Embedding: **tách đúng hai người cùng giới chênh 4Hz** (đúng chỗ F0 chắc chắn
+lẫn — lý do V59 tồn tại); dưới ngưỡng thì không gán bừa; **embedding thắng F0
+khi hai bên mâu thuẫn**; hồ sơ v1 không có vector vẫn khớp bằng F0; embedding
+được làm mượt chứ không đè; nhân vật mới lưu vector đã chuẩn hoá; file v1 và
+file có field lạ đều nạp được.
+
+Đặt tên: hai tên tiếng Việt khác nhau KHÔNG chung file; cùng một tên luôn ra
+cùng file (nếu không thì tập 2 không tìm thấy hồ sơ tập 1).
+
+GUI: ô ẩn khi tách người nói tắt, hiện khi bật; tên hồ sơ tới được request và
+được cắt khoảng trắng; để trống = hành vi cũ.
+
+**1230 passed, 6 skipped, 0 failed**; smoke test toàn app exit 0.
+
+### Remaining Limits
+
+- **CHƯA live-verify embedding thật**: cần `.venv-diar` + HF token + video
+  nhiều người nói. Phần khớp/ghi nhớ đã test bằng vector dựng sẵn, nhưng
+  đường lấy embedding từ pyannote (`return_embeddings=True`) mới chỉ đọc tài
+  liệu API chứ chưa chạy thật — ĐÂY LÀ RỦI RO CÒN LẠI LỚN NHẤT của V59.
+- Ngưỡng cosine 0.72 chọn theo khoảng giá trị điển hình của pyannote, chưa
+  hiệu chỉnh trên dữ liệu thật của dự án.
+- GUI chưa có màn xem/sửa danh sách nhân vật trong hồ sơ (vẫn phải mở file
+  JSON). Đủ dùng để chạy, chưa đủ để quản lý một series dài.

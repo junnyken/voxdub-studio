@@ -13,7 +13,7 @@ from dataclasses import replace
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
+    QHBoxLayout, QLineEdit, QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from autodub.media.subtitle import PRESET_CHOICES
@@ -241,6 +241,19 @@ class NewProjectPage(BasePage):
         # V56 — nghe thử đoạn đầu trước khi cam kết chạy cả video. Chỉ hiện ở
         # bước cuối (lúc đã chọn xong giọng/xưng hô), vì đó mới là lúc câu hỏi
         # "nghe thử đã đúng chưa" có nghĩa.
+        # V60 — hồ sơ nhân vật của series (V57/V59). Ô nhập chữ chứ không
+        # phải danh sách chọn: người dùng gõ tên series mới là tạo hồ sơ mới,
+        # gõ lại tên cũ là dùng tiếp — không phải qua một màn quản lý riêng.
+        self.profile_input = QLineEdit()
+        self.profile_input.setPlaceholderText("Hồ sơ nhân vật (vd: Phim A)")
+        self.profile_input.setToolTip(
+            "Dub cả một series thì điền cùng một tên ở mọi tập: nhân vật đã "
+            "gặp sẽ nhận lại ĐÚNG giọng tập trước, kèm xưng hô và thuật ngữ "
+            "riêng của series.\nChỉ có tác dụng khi bật tách người nói.\n"
+            "Để trống = không dùng hồ sơ.")
+        self.profile_input.setMaximumWidth(220)
+        self.profile_input.setVisible(False)
+
         self.btn_preview = GhostButton(f"Nghe thử {PREVIEW_SECONDS} giây")
         self.btn_preview.setToolTip(
             f"Chỉ lồng tiếng {PREVIEW_SECONDS} giây đầu để nghe giọng và cách "
@@ -252,6 +265,7 @@ class NewProjectPage(BasePage):
         row.addWidget(self.btn_clear_draft)
         row.addStretch()
         row.addWidget(self.btn_stop)
+        row.addWidget(self.profile_input)
         row.addWidget(self.btn_preview)
         row.addWidget(self.btn_next)
         return row
@@ -356,6 +370,10 @@ class NewProjectPage(BasePage):
         at_run_step = self.pages.currentIndex() == _RUN_INDEX
         is_resume = self.step_video.source.current_key() == "resume"
         self.btn_preview.setVisible(at_run_step and not is_resume)
+        # Hồ sơ nhân vật chỉ có nghĩa khi tách được người nói — bày ra lúc
+        # tính năng đó đang tắt là hứa suông (đúng nếp V53).
+        self.profile_input.setVisible(
+            at_run_step and not is_resume and self._multi_speaker_on())
 
     def _on_form_changed(self) -> None:
         self._draft_timer.start()
@@ -696,6 +714,8 @@ class NewProjectPage(BasePage):
             subtitle_style=(self._subtitle_style
                             or self._base_style(data["subtitle_preset"])),
             lipsync=bool(data.get("lipsync", False)),
+            # V60: hồ sơ nhân vật của series (V57/V59).
+            character_profile=self.profile_input.text().strip(),
             # Luồng wizard: dừng ở ranh giới Xuất video, chờ người dùng chốt.
             defer_export=True,
         )
@@ -750,6 +770,13 @@ class NewProjectPage(BasePage):
         request = self._build_request()
         if request is not None:
             self._launch(request)
+
+    def _multi_speaker_on(self) -> bool:
+        """Tách người nói (V26) có đang bật không — đọc từ cấu hình thật."""
+        try:
+            return bool(getattr(self._settings_provider(), "diarization_enabled", False))
+        except Exception:  # noqa: BLE001 — cấu hình hỏng thì coi như tắt
+            return False
 
     def _start_preview(self) -> None:
         """Chạy thử đoạn đầu (mini-spec V56).

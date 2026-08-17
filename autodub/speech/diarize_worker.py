@@ -76,8 +76,28 @@ def main() -> None:
         _die(f"Không nạp được model diarization ({e})")
         return
 
+    # Mini-spec V59: xin luôn EMBEDDING của từng người nói.
+    #
+    # `speaker-diarization-3.1` vốn ĐÃ tính embedding bên trong để gom nhóm —
+    # trước V59 nó bị vứt đi, và hồ sơ nhân vật (V57) phải khớp người bằng F0
+    # trung vị, một heuristic thô dễ lẫn hai người cùng giới. `return_embeddings`
+    # lấy đúng vector đó ra: KHÔNG thêm model, không thêm thời gian xử lý.
+    #
+    # pyannote cũ hơn 3.1 không có tham số này → chạy lại bản không embedding
+    # thay vì chết (người dùng cài từ trước vẫn dub được, chỉ mất phần khớp
+    # chính xác).
+    embeddings = None
+    speaker_order: list[str] = []
     try:
-        diarization = pipeline(args.audio)
+        try:
+            diarization, embeddings = pipeline(args.audio, return_embeddings=True)
+            speaker_order = list(diarization.labels())
+        except TypeError:
+            print(json.dumps({
+                "warn": "pyannote bản này không hỗ trợ return_embeddings — "
+                        "hồ sơ nhân vật sẽ khớp bằng cao độ giọng như trước.",
+            }), flush=True)
+            diarization = pipeline(args.audio)
     except Exception as e:  # noqa: BLE001 — lỗi thật lúc xử lý audio
         _die(f"Diarization thất bại ({e})")
         return
@@ -91,6 +111,20 @@ def main() -> None:
             "end": round(float(turn.end), 3),
             "speaker": str(speaker),
         }), flush=True)
+
+    if embeddings is not None and speaker_order:
+        # `embeddings` là mảng (num_speakers, dim) xếp theo `diarization.labels()`.
+        # Gửi kèm nhãn để phía nhận không phải đoán thứ tự.
+        try:
+            for index, label in enumerate(speaker_order):
+                vector = [round(float(x), 6) for x in embeddings[index]]
+                print(json.dumps({
+                    "embedding": True, "speaker": str(label), "vector": vector,
+                }), flush=True)
+        except (IndexError, TypeError, ValueError) as e:
+            print(json.dumps({
+                "warn": f"Không đọc được embedding người nói ({e}) — bỏ qua.",
+            }), flush=True)
 
     print(json.dumps({"done": True, "num_speakers": len(speakers)}), flush=True)
 

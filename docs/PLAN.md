@@ -4492,6 +4492,60 @@ Success Criteria:
 - Không truyền hồ sơ → không có gì thay đổi so với hôm nay.
 ```
 
+### V58–V60 — Hoàn thiện hồ sơ nhân vật (3 quyết định của chủ dự án)
+
+```
+V58 — Quy ước dịch của series đè cài đặt chung (Phase H, 2026-08-18)
+V59 — Khớp nhân vật bằng speaker embedding thay F0
+V60 — Hồ sơ nhân vật lên GUI
+
+Context:
+- V57 để lại đúng 3 giới hạn, chủ dự án chốt cả 3 trong một lượt:
+  (1) xưng hô/thuật ngữ trong hồ sơ chưa áp → "hồ sơ đè cài đặt chung";
+  (2) F0 là heuristic thô → "dùng speaker embedding, thêm model";
+  (3) chưa có GUI → "làm trong GUI".
+- Phát hiện quyết định V59: `diarize_worker.py` chạy pyannote
+  `speaker-diarization-3.1`, mà pipeline đó **vốn đã tính embedding bên
+  trong** để gom nhóm người nói — trước V59 nó bị vứt đi. Nên có embedding
+  thật mà KHÔNG phải thêm model nào, không tốn thêm thời gian xử lý.
+
+Goal:
+- Nhân vật được nhận lại chính xác (không lẫn hai người cùng giới), quy ước
+  của series tự áp, và người dùng cuối chạm được từ giao diện.
+
+Constraints (Guardrails):
+1. Hồ sơ đè cài đặt chung, NHƯNG chỉ với trường hồ sơ CÓ điền — trường trống
+   không được xoá cài đặt của người dùng.
+2. Sửa cấu hình TẠI CHỖ cho lượt chạy, KHÔNG ghi xuống `.env`.
+3. Embedding và F0 là hai thang đo khác nhau — không trộn trong cùng một
+   lượt xếp hạng.
+4. Hồ sơ lập trước V59 (không có embedding) phải dùng tiếp được, không bắt
+   làm lại.
+5. pyannote bản cũ không hỗ trợ `return_embeddings` → degrade về F0, không
+   chết.
+6. Ô hồ sơ trên GUI chỉ hiện khi tách người nói đang bật (nếp V53).
+
+Design Choice:
+- **Embedding xét TRƯỚC và trọn vẹn, xong mới tới F0**: cosine 0.9 và lệch
+  3Hz không so sánh được với nhau, gộp chung một bảng xếp hạng là sai.
+- Ngưỡng cosine 0.72 — pyannote cho cùng người thường >0.8, người khác <0.5;
+  0.72 nghiêng về phía thận trọng vì khớp sai tệ hơn không khớp.
+- Embedding lưu dạng đã chuẩn hoá, cập nhật bằng trung bình động rồi chuẩn
+  hoá lại (cùng lý do làm mượt F0).
+- GUI dùng Ô NHẬP CHỮ chứ không phải danh sách chọn: gõ tên series mới là
+  tạo hồ sơ mới, gõ lại tên cũ là dùng tiếp — không cần màn quản lý riêng.
+
+Success Criteria:
+- Hai người cùng giới chênh F0 dưới ngưỡng vẫn được tách đúng bằng embedding.
+- Hồ sơ v1 (chưa có embedding) vẫn khớp được bằng F0.
+- Chọn hồ sơ thì xưng hô của series thắng cài đặt chung, nhưng không xoá gì.
+```
+
+**Kết quả (2026-08-18)**: ✅ Cả 3. **2 bug thật tìm được**: (a) tên hồ sơ
+tiếng Việt bị băm mất dấu nên «Phim Cổ Trang» và «Phim Có Trang» cùng ra một
+file — hai series ghi đè hồ sơ của nhau; (b) `_apply_character_profile` đọc
+`req` ngoài scope (đã nêu ở V57). 1230 test, 0 fail. Xem `docs/TEST_LOG.md`.
+
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
 
 - Khảo sát Rask AI/ElevenLabs Dubbing/HeyGen/Camb.ai/Dubverse/Vidnoz (auto-dub)

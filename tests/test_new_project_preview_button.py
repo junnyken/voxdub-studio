@@ -86,3 +86,59 @@ def test_nothing_launches_when_the_form_is_incomplete(page, monkeypatch):
     page._start_preview()
 
     assert not launched, "form chưa hợp lệ thì không được chạy gì cả"
+
+
+# --- V60: ô hồ sơ nhân vật ------------------------------------------------
+
+def test_profile_input_hidden_when_multi_speaker_is_off(page, monkeypatch):
+    """Bày ra lúc tách người nói đang tắt là hứa suông (đúng nếp V53)."""
+    monkeypatch.setattr(page, "_multi_speaker_on", lambda: False)
+    page._go_to_step(npp._RUN_INDEX)
+
+    assert page.profile_input.isHidden()
+
+
+def test_profile_input_shows_when_multi_speaker_is_on(page, monkeypatch):
+    monkeypatch.setattr(page, "_multi_speaker_on", lambda: True)
+    page._go_to_step(npp._RUN_INDEX)
+
+    assert not page.profile_input.isHidden()
+
+
+def _make_form_valid(page, monkeypatch, tmp_path):
+    """Cho form qua được bước kiểm tra nguồn video.
+
+    `_build_request()` từ chối khi bước 1 chưa hợp lệ (đúng như vậy) — test
+    này quan tâm tới việc tên hồ sơ có tới được request hay không, nên chỉ mở
+    đúng cánh cửa đó.
+    """
+    video = tmp_path / "v.mp4"
+    video.write_bytes(b"x")
+    monkeypatch.setattr(page.step_video, "is_complete", lambda: (True, ""))
+    values = dict(page.values())
+    values.update(source="file", file_path=str(video), url="")
+    monkeypatch.setattr(page, "values", lambda: values)
+
+
+def test_profile_name_reaches_the_request(page, monkeypatch, tmp_path):
+    monkeypatch.setattr(page, "_multi_speaker_on", lambda: True)
+    page._go_to_step(npp._RUN_INDEX)
+    _make_form_valid(page, monkeypatch, tmp_path)
+    page.profile_input.setText("  Phim Cổ Trang  ")
+
+    req = page._build_request()
+
+    assert req is not None
+    assert req.character_profile == "Phim Cổ Trang", "phải cắt khoảng trắng thừa"
+
+
+def test_empty_profile_means_no_profile(page, monkeypatch, tmp_path):
+    monkeypatch.setattr(page, "_multi_speaker_on", lambda: True)
+    page._go_to_step(npp._RUN_INDEX)
+    _make_form_valid(page, monkeypatch, tmp_path)
+    page.profile_input.setText("")
+
+    req = page._build_request()
+
+    assert req is not None
+    assert req.character_profile == "", "để trống = hành vi cũ, không hồ sơ"

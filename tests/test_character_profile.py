@@ -13,6 +13,8 @@ import json
 
 import pytest
 
+import pathlib
+
 from autodub.character_profile import (
     MATCH_TOLERANCE_HZ,
     Character,
@@ -157,7 +159,7 @@ def test_corrupt_profile_degrades_and_is_never_overwritten(tmp_path):
     là xoá mất công sức của họ.
     """
     path = CharacterProfile.path_for(str(tmp_path), "Phim A")
-    path_obj = tmp_path / "phim-a.json"
+    path_obj = pathlib.Path(path)
     path_obj.write_text("{ hỏng cú pháp", encoding="utf-8")
 
     loaded = CharacterProfile.load(str(tmp_path), "Phim A")
@@ -175,11 +177,161 @@ def test_profile_file_is_human_editable_json(tmp_path):
     profile = _profile()
     profile.save(str(tmp_path))
 
-    raw = json.loads((tmp_path / "phim-a.json").read_text(encoding="utf-8"))
+    profile_path = pathlib.Path(CharacterProfile.path_for(str(tmp_path), "Phim A"))
+    raw = json.loads(profile_path.read_text(encoding="utf-8"))
     assert raw["characters"][0]["name"] == "Nam chính"
     raw["characters"][0]["name"] = "Lý Tứ"
-    (tmp_path / "phim-a.json").write_text(
-        json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    profile_path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
 
     reloaded = CharacterProfile.load(str(tmp_path), "Phim A")
     assert [c.name for c in reloaded.characters] == ["Lý Tứ", "Nữ chính"]
+
+
+# --- V59: khớp bằng speaker embedding ------------------------------------
+
+def _vec(*values) -> list[float]:
+    """Vector ngắn cho dễ đọc — cosine không quan tâm số chiều."""
+    return list(values)
+
+
+def _profile_with_embeddings() -> CharacterProfile:
+    return CharacterProfile(
+        name="Phim C",
+        characters=[
+            Character(name="Nam chính", voice="Bùi Thiện", median_f0=120.0,
+                      embedding=_vec(1.0, 0.0, 0.0), episodes=2),
+            Character(name="Nam phụ", voice="Bùi Thành", median_f0=124.0,
+                      embedding=_vec(0.0, 1.0, 0.0), episodes=2),
+        ],
+    )
+
+
+def test_embedding_separates_two_men_with_almost_identical_pitch():
+    """Đây là LÝ DO V59 tồn tại — chỗ mà F0 chắc chắn lẫn.
+
+    Hai người cùng giới, F0 chênh 4Hz (trong ngưỡng ±18Hz của V57) nên khớp
+    bằng F0 rất dễ đảo người. Embedding thì tách bạch hoàn toàn.
+    """
+    profile = _profile_with_embeddings()
+
+    matched = profile.match_speakers(
+        pitches={"S0": 123.0, "S1": 121.0},
+        embeddings={"S0": _vec(0.0, 0.99, 0.01),      # rõ ràng là Nam phụ
+                    "S1": _vec(0.98, 0.02, 0.0)},     # rõ ràng là Nam chính
+    )
+
+    assert matched == {"S0": "Nam phụ", "S1": "Nam chính"}
+
+
+def test_embedding_below_threshold_is_not_forced():
+    profile = _profile_with_embeddings()
+
+    matched = profile.match_speakers(
+        pitches={},                                   # không có F0 để rơi về
+        embeddings={"S0": _vec(0.5, 0.5, 0.7071)},    # cosine ~0.5 với cả hai
+    )
+
+    assert matched == {}, "dưới ngưỡng thì là người mới, không gán bừa"
+
+
+def test_falls_back_to_pitch_when_profile_has_no_embeddings():
+    """Hồ sơ lập trước V59 vẫn phải dùng được — không bắt làm lại từ đầu."""
+    old_profile = CharacterProfile(
+        name="Hồ sơ cũ",
+        characters=[Character(name="Nam chính", voice="Bùi Thiện",
+                              median_f0=115.0, episodes=5)],
+    )
+
+    matched = old_profile.match_speakers(
+        pitches={"S0": 116.0}, embeddings={"S0": _vec(1.0, 0.0, 0.0)})
+
+    assert matched == {"S0": "Nam chính"}
+
+
+def test_embedding_wins_over_pitch_when_they_disagree():
+    """Trộn 2 thang đo là sai — embedding phải được xét trọn vẹn TRƯỚC."""
+    profile = _profile_with_embeddings()
+
+    # F0 nói S0 giống "Nam chính" (120 vs 120), embedding nói là "Nam phụ".
+    matched = profile.match_speakers(
+        pitches={"S0": 120.0},
+        embeddings={"S0": _vec(0.02, 0.99, 0.0)},
+    )
+
+    assert matched == {"S0": "Nam phụ"}, "embedding chính xác hơn, phải thắng"
+
+
+def test_embedding_is_remembered_and_smoothed():
+    profile = _profile_with_embeddings()
+
+    profile.remember({"S0": "Nam chính"}, {"S0": 120.0}, {"S0": "Bùi Thiện"},
+                     embeddings={"S0": _vec(0.0, 1.0, 0.0)})
+
+    nam = next(c for c in profile.characters if c.name == "Nam chính")
+    # Trộn 75% vector cũ (1,0,0) + 25% vector mới (0,1,0) → vẫn nghiêng hẳn
+    # về chiều cũ, không nhảy hẳn sang vector của một tập.
+    assert nam.embedding[0] > nam.embedding[1], (
+        f"phải làm mượt chứ không đè: {nam.embedding}"
+    )
+
+
+def test_new_character_stores_a_normalised_embedding():
+    profile = CharacterProfile(name="Mới")
+
+    profile.remember({}, {"S0": 130.0}, {"S0": "Giọng X"},
+                     embeddings={"S0": _vec(3.0, 4.0, 0.0)})   # norm = 5
+
+    new = profile.characters[0]
+    assert abs(sum(x * x for x in new.embedding) - 1.0) < 1e-6, (
+        "lưu dạng đã chuẩn hoá để so cosine không phụ thuộc độ dài vector"
+    )
+
+
+def test_old_profile_file_without_embedding_field_still_loads(tmp_path):
+    """Hồ sơ v1 (trước V59) phải nạp được, không nổ vì thiếu field."""
+    import json as _json
+    path = pathlib.Path(CharacterProfile.path_for(str(tmp_path), "Cũ"))
+    path.write_text(_json.dumps({
+        "version": 1, "name": "Cũ",
+        "characters": [{"name": "A", "voice": "V", "median_f0": 110.0,
+                        "gender": "male", "episodes": 3}],
+    }), encoding="utf-8")
+
+    loaded = CharacterProfile.load(str(tmp_path), "Cũ")
+
+    assert loaded.characters[0].name == "A"
+    assert loaded.characters[0].embedding == []
+
+
+def test_unknown_future_fields_are_ignored_not_fatal(tmp_path):
+    import json as _json
+    path = pathlib.Path(CharacterProfile.path_for(str(tmp_path), "Mới"))
+    path.write_text(_json.dumps({
+        "version": 99, "name": "Mới",
+        "characters": [{"name": "A", "voice": "V", "truong_la": 123}],
+    }), encoding="utf-8")
+
+    loaded = CharacterProfile.load(str(tmp_path), "Mới")
+    assert loaded.characters[0].name == "A"
+
+
+def test_vietnamese_names_do_not_collide(tmp_path):
+    """Bug thật tìm được khi làm V59.
+
+    Bản đầu vứt mọi ký tự ngoài ASCII nên «Phim Cổ Trang» và «Phim Có Trang»
+    cùng ra một tên file — hai series ghi đè hồ sơ của nhau, trộn lẫn nhân
+    vật. Với tên tiếng Việt thì đây là chuyện thường ngày.
+    """
+    a = CharacterProfile.path_for(str(tmp_path), "Phim Cổ Trang")
+    b = CharacterProfile.path_for(str(tmp_path), "Phim Có Trang")
+
+    assert a != b, "hai tên khác nhau KHÔNG được dùng chung một file hồ sơ"
+    assert "co-trang" in a, f"tên file vẫn phải đọc được: {a}"
+
+
+def test_same_name_always_maps_to_the_same_file(tmp_path):
+    """Ổn định giữa các lần chạy — nếu không thì tập 2 không tìm thấy hồ sơ."""
+    first = CharacterProfile.path_for(str(tmp_path), "Phim Cổ Trang")
+    second = CharacterProfile.path_for(str(tmp_path), "Phim Cổ Trang")
+
+    assert first == second

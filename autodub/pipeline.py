@@ -1029,7 +1029,10 @@ class DubPipeline:
         try:
             self._reporter.emit("asr", "progress",
                                 detail="Đang tách giọng theo người nói...")
-            diar_segments = diarize(audio_path, settings)
+            # V59: xin luôn embedding — pyannote đã tính sẵn khi gom nhóm
+            # người nói, không tốn thêm thời gian xử lý nào.
+            diar_segments, speaker_embeddings = diarize(
+                audio_path, settings, with_embeddings=True)
             assign_speakers(segments, diar_segments)
             speaker_labels = sorted({
                 seg["speaker_label"] for seg in segments
@@ -1076,7 +1079,8 @@ class DubPipeline:
             profile_name = character_profile or ""
             if profile_name:
                 voice_map = self._apply_character_profile(
-                    profile_name, settings, pitches, genders, voice_map)
+                    profile_name, settings, pitches, genders, voice_map,
+                    embeddings=speaker_embeddings)
 
             apply_segment_voices(segments, voice_map)
             gendered = sum(1 for lbl in speaker_labels if genders.get(lbl))
@@ -1092,7 +1096,8 @@ class DubPipeline:
 
     def _apply_character_profile(self, profile_name: str, settings,
                                  pitches: dict, genders: dict,
-                                 voice_map: dict) -> dict:
+                                 voice_map: dict,
+                                 embeddings: dict | None = None) -> dict:
         """Áp hồ sơ nhân vật của series lên bản đồ giọng (mini-spec V57).
 
         Nhân vật khớp được → dùng lại ĐÚNG giọng tập trước. Người nói lạ giữ
@@ -1107,7 +1112,17 @@ class DubPipeline:
 
             profiles_dir = self._profiles_dir(settings)
             profile = CharacterProfile.load(profiles_dir, profile_name)
-            matched = profile.match_speakers(pitches)
+
+            # V58: quy ước dịch của series đè cài đặt chung (chủ dự án chốt
+            # 2026-08-18) — chỉ với những trường hồ sơ CÓ điền.
+            from autodub.character_profile import apply_translation_context
+            applied = apply_translation_context(profile, settings)
+            if applied:
+                logger.info("Hồ sơ «%s» áp quy ước riêng của series: %s",
+                            profile_name, ", ".join(applied))
+
+            embeddings = embeddings or {}
+            matched = profile.match_speakers(pitches, embeddings)
 
             for speaker, character in matched.items():
                 voice = profile.voice_for(character)
@@ -1115,11 +1130,13 @@ class DubPipeline:
                     voice_map[speaker] = voice
             logger.info(
                 "Hồ sơ nhân vật «%s»: nhận lại %d/%d người nói từ các tập "
-                "trước (%d người mới).",
+                "trước (%d người mới), khớp bằng %s.",
                 profile_name, len(matched), len(pitches),
-                len(pitches) - len(matched))
+                len(pitches) - len(matched),
+                "embedding giọng" if embeddings else "cao độ giọng (F0)")
 
-            profile.remember(matched, pitches, voice_map, genders)
+            profile.remember(matched, pitches, voice_map, genders,
+                             embeddings=embeddings)
             profile.save(profiles_dir)
         except Exception as err:      # noqa: BLE001 — xem docstring
             logger.warning(
