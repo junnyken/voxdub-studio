@@ -385,6 +385,20 @@ mức thì xoá file cụt + trả `413` thay vì báo "xong" với video hỏng
 đường DUY NHẤT, không rẽ nhánh theo môi trường — chạy đúng cả trong
 `docker-compose` lẫn khi 2 service ở 2 máy khác nhau.
 
+## `GET /v1/admin/storage` — dung lượng kho file job (mini-spec V50)
+
+Header `X-Admin-Token`. Từ V45 video nằm TRONG database (GridFS) nên DB phình
+theo lượng job; không có chỗ nhìn thì chỉ biết khi hết dung lượng.
+
+Response: `{files, totalBytes, totalMb, oldestUploadedAt, orphanFiles,
+orphanBytes, orphanChunks, warnMb, overWarnThreshold}`.
+
+2 con số đáng theo dõi hơn cả tổng dung lượng:
+- `orphanFiles` — file không còn job nào trỏ tới → sweeper sót việc.
+- `orphanChunks` — chunk không thuộc bản ghi file nào. Đây là rác VÔ HÌNH với
+  mọi cách dọn theo tên file; đã rò rỉ thật một lần khi upload đứt giữa chừng
+  (rà chéo 2026-08-17, đã sửa bằng `abort()` + xoá theo `files_id`).
+
 ## `GET /v1/admin/backup` — sao lưu toàn bộ dữ liệu (mini-spec V48)
 
 Header `X-Admin-Token`. Trả về **NDJSON nén gzip** dạng tải file
@@ -403,7 +417,14 @@ Khôi phục: `node scripts/restore-backup.js <file.ndjson.gz> [--wipe]`
 `--wipe` xoá sạch collection trước khi nhập). Kéo định kỳ:
 `VOXDUB_ADMIN_TOKEN=... scripts/backup-pull.sh ~/voxdub-backups 14`.
 
-**KHÔNG nằm trong bản sao lưu**: `APP_ENCRYPTION_KEY`. Khoá nhà cung cấp AI
+**KHÔNG nằm trong bản sao lưu (1)**: kho file job GridFS (`dubfiles.files`/
+`dubfiles.chunks`, xem V45). Rà chéo 2026-08-17 phát hiện V48 vốn duyệt MỌI
+collection nên sau V45 nó nuốt luôn byte video đang xử lý dở — bản sao lưu
+phình theo lượng job đang chạy. Loại ra là đúng: file job là tạm (xoá ngay
+khi khách tải, TTL 2 giờ), còn bản ghi job trong `dubapijobs` vẫn được sao
+lưu bình thường.
+
+**KHÔNG nằm trong bản sao lưu (2)**: `APP_ENCRYPTION_KEY`. Khoá nhà cung cấp AI
 trong DB đã mã hoá bằng khoá đó và khoá đó chỉ sống ở biến môi trường — mất
 file dump KHÔNG đồng nghĩa lộ khoá nhà cung cấp, nhưng khôi phục sang máy
 chủ có `APP_ENCRYPTION_KEY` khác thì các khoá đó thành rác và phải nhập lại.

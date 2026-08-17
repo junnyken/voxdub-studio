@@ -36,6 +36,24 @@ function isSystemCollection(name) {
 }
 
 /**
+ * Kho file job (GridFS, mini-spec V45) — CỐ Ý loại khỏi bản sao lưu.
+ *
+ * Rà chéo 2026-08-17 phát hiện: V48 viết TRƯỚC V45 nên `exportLines()` duyệt
+ * mọi collection và sau V45 thì nuốt luôn `dubfiles.chunks` — tức toàn bộ
+ * byte video đang xử lý dở, base64 hoá, phình bản sao lưu theo lượng job
+ * đang chạy (đo thật: 1 video 600 KB làm dump nhảy lên ~830 KB).
+ *
+ * Loại ra là ĐÚNG chứ không phải tiết kiệm dung lượng: file job vốn tạm —
+ * xoá ngay khi khách tải xong, TTL 2 giờ — khôi phục lại một video của phiên
+ * làm việc 3 ngày trước không có ý nghĩa gì, trong khi bản ghi job trong
+ * `dubapijobs` (thứ ĐÁNG khôi phục) vẫn được sao lưu bình thường.
+ */
+function isJobBlobCollection(name) {
+  const { BUCKET } = require('./job-storage.service')
+  return name === `${BUCKET}.files` || name === `${BUCKET}.chunks`
+}
+
+/**
  * Sinh từng dòng NDJSON của toàn bộ DB. Generator (không trả mảng) để
  * người gọi pipe thẳng vào gzip → HTTP response, giữ bộ nhớ phẳng bất kể
  * DB to cỡ nào.
@@ -46,7 +64,7 @@ async function* exportLines() {
 
   const collections = (await db.listCollections().toArray())
     .map((c) => c.name)
-    .filter((n) => !isSystemCollection(n))
+    .filter((n) => !isSystemCollection(n) && !isJobBlobCollection(n))
     .sort()
 
   // Dòng đầu là siêu dữ liệu: biết bản dump sinh lúc nào, từ DB nào, gồm

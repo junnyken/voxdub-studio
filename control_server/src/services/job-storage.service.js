@@ -86,6 +86,15 @@ async function remove(key) {
   return files.length
 }
 
+/** Xoá mọi chunk thuộc về một lượt ghi (kể cả khi bản ghi file chưa/không
+ * bao giờ được tạo). */
+async function chunksOf(fileId) {
+  if (!fileId) return 0
+  const { db } = mongoose.connection
+  const res = await db.collection(`${BUCKET}.chunks`).deleteMany({ files_id: fileId })
+  return res.deletedCount || 0
+}
+
 /** Mọi khoá đang có trong kho — dùng cho test "không sót file mồ côi" và
  * cho việc soi dung lượng khi cần. */
 async function listAll() {
@@ -117,8 +126,22 @@ async function stats() {
   }
   const orphans = files.filter((f) => !owned.has(f.filename))
 
+  // Chunk KHÔNG thuộc bản ghi file nào — loại rác nguy hiểm nhất vì mọi cách
+  // dọn theo filename đều không thấy nó. Đây chính là thứ đã rò rỉ thật khi
+  // upload đứt giữa chừng (rà chéo 2026-08-17); đếm ra đây để lần sau phát
+  // hiện bằng số liệu chứ không phải bằng may mắn.
+  const { db } = mongoose.connection
+  const knownIds = new Set(files.map((f) => String(f._id)))
+  const chunkOwners = await db.collection(`${BUCKET}.chunks`).distinct('files_id')
+  const orphanChunkOwners = chunkOwners.filter((id) => !knownIds.has(String(id)))
+  const orphanChunks = orphanChunkOwners.length
+    ? await db.collection(`${BUCKET}.chunks`)
+      .countDocuments({ files_id: { $in: orphanChunkOwners } })
+    : 0
+
   return {
     files: files.length,
+    orphanChunks,
     totalBytes,
     totalMb: Math.round((totalBytes / 1024 / 1024) * 10) / 10,
     oldestUploadedAt: oldest,
@@ -138,9 +161,26 @@ async function removeJob(jobId) {
  * `writeUploadStream`, ở đây chỉ cắm vào cách xoá/đo của GridFS.
  */
 async function writeUploadToStorage(fileStream, key, { maxMb, makeError, label = 'File' }) {
+  const dest = await openWrite(key)
   return writeUploadStream(fileStream, {
-    dest: await openWrite(key),
-    cleanup: () => remove(key).catch(() => {}),
+    dest,
+    // Dọn 2 tầng, thiếu tầng nào cũng rò rỉ:
+    //  - `abort()` xoá các CHUNK đã ghi dở. GridFS chỉ tạo bản ghi file lúc
+    //    stream `finish`, nên upload đứt giữa chừng để lại chunk KHÔNG có
+    //    chủ — `remove(key)` tìm theo filename nên không bao giờ thấy chúng,
+    //    và bộ đếm mồ côi của V50 (đếm file) cũng không thấy. Đo thật: 1 lần
+    //    đứt kết nối để lại 9 chunk nằm vĩnh viễn trong database.
+    //  - `remove(key)` cho ca stream ĐÃ finish rồi mới hỏng (vd `truncated`),
+    //    lúc đó bản ghi file có thật và `abort()` không còn tác dụng.
+    cleanup: async () => {
+      try { await dest.abort() } catch { /* stream đã đóng — rơi xuống 2 bước dưới */ }
+      await remove(key).catch(() => {})
+      // Quét lần cuối theo `files_id`: chỉ `abort()` thôi vẫn sót — đo thật
+      // là 1 chunk còn lại, do chunk đang bay được flush song song với lượt
+      // huỷ. Xoá theo id là cách DUY NHẤT tóm được chunk không có bản ghi
+      // file (tìm theo filename không bao giờ thấy chúng).
+      await chunksOf(dest.id).catch(() => {})
+    },
     getSize: () => size(key),
     maxMb,
     makeError,

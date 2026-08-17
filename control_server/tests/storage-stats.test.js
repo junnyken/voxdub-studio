@@ -72,6 +72,7 @@ test('kho rỗng: mọi con số là 0, không nổ', async () => {
   assert.equal(body.files, 0)
   assert.equal(body.totalBytes, 0)
   assert.equal(body.orphanFiles, 0)
+  assert.equal(body.orphanChunks, 0)
   assert.equal(body.overWarnThreshold, false)
 })
 
@@ -99,6 +100,21 @@ test('file KHÔNG còn job nào trỏ tới bị đếm là mồ côi', async ()
   await DubApiJob.deleteOne({ _id: job._id })
   body = (await getStorage()).json()
   assert.equal(body.orphanFiles, 2)
+})
+
+test('chunk không thuộc file nào được đếm riêng (rác vô hình với mọi cách dọn theo tên)', async () => {
+  const mongoose = require('mongoose')
+  await jobWithFile(1024)
+
+  // Mô phỏng đúng thứ rò rỉ thật khi upload đứt: chunk còn, bản ghi file thì
+  // không bao giờ được tạo.
+  await mongoose.connection.db.collection('dubfiles.chunks').insertOne({
+    files_id: new mongoose.Types.ObjectId(), n: 0, data: Buffer.alloc(16),
+  })
+
+  const body = (await getStorage()).json()
+  assert.equal(body.orphanChunks, 1, 'phải thấy chunk mồ côi')
+  assert.equal(body.orphanFiles, 0, 'chunk mồ côi KHÁC file mồ côi — không được lẫn')
 })
 
 test('ngưỡng cảnh báo đọc từ cấu hình', async () => {

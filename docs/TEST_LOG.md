@@ -6045,3 +6045,50 @@ Tổng: control_server **314 test (313 pass, 1 skip, 0 fail)**, website
   render nằm trên đĩa nên không vào thống kê này.
 - Chưa có cảnh báo chủ động khi vượt ngưỡng (chỉ trả cờ `overWarnThreshold`,
   phải có người gọi endpoint mới biết).
+
+## Rà chéo sau V50 — 2 lỗi thật do V45 và V48 giẫm chân nhau (2026-08-17)
+
+Không phải mini-spec: rà lại chính 10 commit đã ship trong ngày, vì tất cả
+đều đụng tiền hoặc dữ liệu khách. Cách làm: viết test cho 2 NGHI VẤN trước,
+rồi mới kết luận — 1 cái đúng ngay, 1 cái ban đầu "pass" nhưng là pass giả.
+
+### Lỗi 1 — bản sao lưu nuốt luôn byte video
+
+V48 (sao lưu) viết TRƯỚC V45 (đưa video vào GridFS trong chính database), nên
+`exportLines()` duyệt mọi collection không phải `system.*` và sau V45 thì hút
+luôn `dubfiles.chunks`. Đo thật: 1 video 600 KB làm bản dump nhảy lên ~830 KB
+(base64 phình thêm ~33%). Với vài job đang chạy, bản "sao lưu dữ liệu kinh
+doanh" biến thành bản sao video tạm.
+
+Sửa: loại `<bucket>.files`/`<bucket>.chunks` khỏi bản dump. Đây là quyết định
+ĐÚNG chứ không phải tiết kiệm dung lượng — file job vốn tạm (xoá ngay khi
+khách tải xong, TTL 2 giờ), khôi phục lại video của phiên làm việc hôm kia
+không có ý nghĩa gì; bản ghi job trong `dubapijobs` (thứ đáng khôi phục) vẫn
+được sao lưu bình thường.
+
+### Lỗi 2 — upload đứt giữa chừng để lại chunk mồ côi VĨNH VIỄN
+
+GridFS chỉ tạo bản ghi file lúc stream `finish`. Upload đứt nửa chừng để lại
+các chunk KHÔNG có chủ: `remove(key)` tìm theo filename nên không bao giờ
+thấy, và bộ đếm mồ côi của V50 (đếm file) cũng không thấy. Rác vô hình với
+mọi cách dọn hiện có.
+
+**Bài học về cách viết test**: bản test ĐẦU TIÊN của lỗi này *pass* — nhưng
+pass giả, vì nguồn dữ liệu giả lập lỗi ngay trong lượt `read()` đầu tiên nên
+chưa chunk nào kịp ghi xuống DB. Sửa test thành nhả 8 lượt 300 KB theo nhịp
+macrotask rồi mới đứt → lộ ra **9 chunk** nằm lại.
+
+Sửa 3 tầng (thiếu tầng nào cũng rò):
+1. `dest.abort()` — xoá chunk đã ghi dở (giảm 9 → 1).
+2. `remove(key)` — cho ca stream ĐÃ finish rồi mới hỏng (vd `truncated`), lúc
+   đó bản ghi file có thật và `abort()` vô tác dụng.
+3. Xoá theo `files_id` — tóm nốt chunk được flush song song với lượt huỷ
+   (chính là chunk thứ 9 còn sót sau bước 1). Chạy lại 3 lần đều sạch.
+
+Kèm theo: `GET /v1/admin/storage` thêm `orphanChunks`, để lần sau thứ này tái
+diễn thì phát hiện bằng số liệu chứ không phải bằng may mắn.
+
+### Kết quả
+
+`control_server`: **317 test (316 pass, 1 skip, 0 fail)**, chạy 2 lượt liên
+tiếp đều sạch. Không đụng website (39 test giữ nguyên).
