@@ -4941,6 +4941,12 @@ chưa có số liệu thật trong PoC này.
   điều tra tiếp nguyên nhân gốc (ngoài phạm vi V40) — cần ghi nhận riêng
   nếu block CI thật (hiện `test.yml` không dùng `-p no:randomly`/seed cố
   định nên thứ tự có thể trôi giữa các lần chạy).
+  > **[ĐÃ TRUY RA GỐC 2026-08-17 — KHÔNG phải flake]** Xem mục "Test suite
+  > gọi thẳng vào production" ở cuối tài liệu. Tóm tắt: `.env` của máy phát
+  > triển trỏ `VOXDUB_API_URL` về máy chủ THẬT, `Settings.load()` bơm nó vào
+  > `os.environ` qua `load_dotenv`, nên test "offline" rơi về URL thật và
+  > GỌI MẠNG. 403 (V40) và 402 (hôm nay) chỉ là 2 câu trả lời khác nhau của
+  > cùng một máy chủ thật. Đã chặn bằng `tests/conftest.py`.
 - **Giới hạn còn lại**: `atexit` chỉ xác nhận qua test (mock
   register/unregister) — KHÔNG live-verify force-quit thật trên Windows
   (không có cách an toàn mô phỏng trong CI/sandbox); không bảo vệ được
@@ -6272,3 +6278,66 @@ Baseline trước/sau: **936 → 952 pass**, 0 regression.
 - Tải kết quả vẫn nằm trên luồng chính: trong lúc tải video N, không nộp
   thêm. Chồng cả tải lẫn nộp cần luồng riêng — thêm độ phức tạp mà lợi ích
   nhỏ hơn hẳn bước vừa làm, để lại nếu đo thật thấy đáng.
+
+
+## Test suite gọi thẳng vào PRODUCTION — truy ra gốc của "flake V40" (2026-08-17)
+
+### Phát hiện thế nào
+
+Cài `PySide6`/`numpy`/`pydub` vào sandbox để chạy được suite GUI tại chỗ
+(trước đó 15 file lỗi collection nên chỉ CI mới chạy đủ). Suite đầy đủ ra
+**1168 pass / 1 fail** — đúng một test, và đúng cái test đã bị gọi là "flake
+có sẵn từ V40" suốt 5 mini-spec liền.
+
+Chạy riêng thì PASS, chạy cả suite thì FAIL → phụ thuộc thứ tự. Nhưng đọc
+dòng lỗi thật mới thấy điều đáng sợ hơn hẳn một flake:
+
+```
+resp = <Response [402]>
+```
+
+Đây là **response thật từ máy chủ thật**. Test tên là "offline" mà lại gọi
+mạng.
+
+### Nguyên nhân gốc
+
+1. `.env` của máy phát triển (chính README hướng dẫn tạo) có
+   `VOXDUB_API_URL=https://voxdub-app.cmc-1.vibenode.matbao.ai` — **máy chủ
+   production**.
+2. `Settings.load()` gọi `load_dotenv()`, mà `load_dotenv` **bơm thẳng vào
+   `os.environ`** của cả tiến trình — không phải đọc riêng cho object đó.
+3. Chỉ cần MỘT test bất kỳ trong suite gọi `Settings.load()` là từ đó trở đi
+   mọi test khác đều thấy biến môi trường đó.
+4. `SaasClient(base_url="")` có nhánh dự phòng `base_url or resolve_api_url()`
+   — và `resolve_api_url()` đọc đúng biến vừa bị rò.
+5. Kết quả: test kiểm nhánh offline lại **đăng ký một thiết bị trên
+   production và gọi một endpoint TÍNH PHÍ** (`/v1/ai/music`). 402 là máy chủ
+   trả lời "không đủ credit" — nghĩa là mọi bước trước đó đã chạy thật.
+
+Vì sao trốn được lâu như vậy: **CI không có `.env`** nên trên CI biến đó
+không tồn tại và test luôn xanh. Nó chỉ hỏng trên máy người phát triển —
+đúng chỗ không ai coi là "thật".
+
+### Vì sao đây không phải chuyện nhỏ
+
+- Suite đã tạo thiết bị rác trên database production mỗi lần ai đó chạy
+  `pytest` trên máy có `.env`.
+- Nếu thiết bị đó có số dư, một lượt chạy test có thể **tiêu tiền thật**.
+- Suốt V40→V41→V42→V32b→V5, mỗi báo cáo đều ghi "1 fail còn lại là flake có
+  sẵn" — một lời giải thích nghe hợp lý đã che mất một lỗ hổng an toàn.
+
+### Sửa
+
+`tests/conftest.py` (mới): xoá `VOXDUB_API_URL`/`VOXDUB_API_KEY` khỏi
+`os.environ` ở `pytest_configure` (trước khi import module test) **và** trong
+một fixture `autouse` trước từng test. Test nào cần địa chỉ máy chủ thì phải
+tự đặt bằng `monkeypatch.setenv` — tường minh và tự dọn.
+
+Sau khi sửa: **1169 passed, 6 skipped, 0 failed** — lần đầu tiên suite Python
+sạch tuyệt đối tại chỗ (trước đó luôn có "1 fail đã biết").
+
+### Việc cần chủ dự án kiểm
+
+Trên production có thể có vài `Device` rác do các lượt chạy test trước đây
+tạo ra (fingerprint từ test). Xem `/v1/admin/devices` và xoá nếu thấy —
+tôi không kiểm được vì cần `ADMIN_TOKEN`.
