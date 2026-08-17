@@ -29,6 +29,7 @@ const DubUsageLedger = require('../models/DubUsageLedger')
 const ApiKey = require('../models/ApiKey')
 const config = require('./config.service')
 const audit = require('./audit.service')
+const { writeUploadToDisk } = require('../utils/upload-stream')
 
 class DubJobError extends Error {
   constructor(code, message, statusCode = 400) {
@@ -98,7 +99,7 @@ async function releaseDubMinutes(apiKeyId, reservedMinutes) {
  * được; `estimatedCostVox` ở đây chỉ để tham khảo lúc submit.
  */
 async function submitDubJob({
-  apiKey, fileBuffer, sourceLang, targetLang, voice = '', bgMode = 'none',
+  apiKey, fileStream, sourceLang, targetLang, voice = '', bgMode = 'none',
   estimatedMinutes = 0, ip = '',
 }) {
   if (!(await config.get('cloud.dub.enabled'))) {
@@ -142,7 +143,13 @@ async function submitDubJob({
   let job
   try {
     await fs.mkdir(paths.dir, { recursive: true })
-    await fs.writeFile(paths.input, fileBuffer)
+    // V44: ghi theo dòng, KHÔNG `toBuffer()` — xem `utils/upload-stream.js`
+    // cho số đo RSS trước/sau và lý do tồn tại.
+    await writeUploadToDisk(fileStream, paths.input, {
+      maxMb: Number(await config.get('cloud.dub.max.upload.mb')) || 300,
+      makeError: (code, message, statusCode) => new DubJobError(code, message, statusCode),
+      label: 'File video',
+    })
 
     const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000)
     job = await DubApiJob.create({
@@ -163,6 +170,11 @@ async function submitDubJob({
     // phép mất chỗ quota vì lỗi phía chúng ta (cùng nguyên tắc rollback của
     // activation.service.js khi grant() hỏng sau khi đã chốt key).
     await releaseDubMinutes(apiKey._id, reserveMinutes)
+    // Ghi theo dòng nên hỏng giữa chừng là để lại file CỤT trên đĩa mà
+    // không có document nào trỏ tới — sweeper dọn theo job nên sẽ không bao
+    // giờ thấy nó. Dọn ngay tại đây, cùng lý do `unlink` bản cụt ở
+    // `POST /internal/dub-jobs/:id/output`.
+    await fs.rm(paths.dir, { recursive: true, force: true }).catch(() => {})
     throw err
   }
 

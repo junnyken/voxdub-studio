@@ -27,6 +27,7 @@ const mongoose = require('mongoose')
 const RenderJob = require('../models/RenderJob')
 const config = require('./config.service')
 const audit = require('./audit.service')
+const { writeUploadToDisk } = require('../utils/upload-stream')
 
 class RenderJobError extends Error {
   constructor(code, message, statusCode = 400) {
@@ -61,7 +62,7 @@ function jobPaths(jobId) {
  * file input, đặt job vào `queued` rồi TRẢ VỀ NGAY (V12 — bất đồng bộ
  * thật, không giữ HTTP mở chờ Demucs chạy xong như V9).
  */
-async function submitDemucsJob({ device, fileBuffer, ip = '' }) {
+async function submitDemucsJob({ device, fileStream, ip = '' }) {
   if (!(await config.get('cloud.render.enabled'))) {
     throw new RenderJobError('CLOUD_RENDER_DISABLED',
       'Xử lý trên cloud đang tắt.', 409)
@@ -69,25 +70,44 @@ async function submitDemucsJob({ device, fileBuffer, ip = '' }) {
   const cost = Number(await config.get('credit.cost.cloud.demucs')) || 0
   const ttlHours = Number(await config.get('cloud.render.ttl.hours')) || 2
 
-  const credit = require('./credit.service')
-  const idempotencyKey = `cloud-demucs-${device.fingerprint}-${Date.now()}`
-  let charged = { charged: 0, balanceAfter: device.balance }
-  if (cost > 0) {
-    charged = await credit.deduct(device.fingerprint, cost, {
-      type: 'usage',
-      idempotencyKey,
-      description: 'Tách nhạc nền trên cloud (Demucs)',
-      metadata: { stage: 'demucs', ip },
-    })
-  }
-
   // Sinh sẵn _id để biết đường dẫn file TRƯỚC khi ghi document — tránh
   // trạng thái nửa vời "job đã tạo nhưng chưa có inputPath" (schema đòi
   // inputPath bắt buộc, đúng ra không nên tồn tại lúc nào field đó rỗng).
   const jobId = new mongoose.Types.ObjectId()
   const paths = jobPaths(String(jobId))
   await fs.mkdir(paths.dir, { recursive: true })
-  await fs.writeFile(paths.input, fileBuffer)
+
+  // V44: nhận file THEO DÒNG (trước đây route `toBuffer()` cả 200 MB vào
+  // RAM — xem `utils/upload-stream.js`). Ghi file ĐỨNG TRƯỚC trừ credit, đảo
+  // ngược thứ tự cũ: khi còn buffer ở route thì upload quá cỡ bị chặn TRƯỚC
+  // khi vào service nên không bao giờ trừ nhầm; ghi theo dòng thì lỗi
+  // 413/rỗng chỉ lộ ra ở giữa chừng, mà trừ tiền rồi mới hỏng là mất tiền
+  // của khách. Tiền luôn là bước SAU CÙNG trước khi tạo job.
+  await writeUploadToDisk(fileStream, paths.input, {
+    maxMb: 200,
+    makeError: (code, message, statusCode) => new RenderJobError(code, message, statusCode),
+    label: 'File audio',
+  })
+
+  const credit = require('./credit.service')
+  const idempotencyKey = `cloud-demucs-${device.fingerprint}-${Date.now()}`
+  let charged = { charged: 0, balanceAfter: device.balance }
+  if (cost > 0) {
+    try {
+      charged = await credit.deduct(device.fingerprint, cost, {
+        type: 'usage',
+        idempotencyKey,
+        description: 'Tách nhạc nền trên cloud (Demucs)',
+        metadata: { stage: 'demucs', ip },
+      })
+    } catch (err) {
+      // Không đủ credit (hoặc lỗi khác) sau khi đã ghi file: dọn ngay, nếu
+      // không file mồ côi nằm lại vĩnh viễn vì không job nào trỏ tới nên
+      // `sweepExpired` không bao giờ thấy.
+      await fs.rm(paths.dir, { recursive: true, force: true }).catch(() => {})
+      throw err
+    }
+  }
 
   const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000)
   const job = await RenderJob.create({

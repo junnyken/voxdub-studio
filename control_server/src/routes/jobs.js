@@ -34,14 +34,13 @@ module.exports = async function jobsRoutes(fastify) {
     if (!data) {
       return reply.code(400).send({ code: 'NO_FILE', message: 'Thiếu file audio.' })
     }
-    const buffer = await data.toBuffer()
-    if (!buffer.length) {
-      return reply.code(400).send({ code: 'EMPTY_FILE', message: 'File audio rỗng.' })
-    }
 
     try {
+      // V44: truyền STREAM, không `toBuffer()`. `EMPTY_FILE`/`UPLOAD_TOO_LARGE`
+      // giờ do service ném ra dưới dạng `RenderJobError` (bắt ở catch bên
+      // dưới) — mã lỗi và HTTP status giữ nguyên như trước.
       const { job, balanceAfter } = await renderJob.submitDemucsJob({
-        device: request.device, fileBuffer: buffer, ip: request.ip,
+        device: request.device, fileStream: data.file, ip: request.ip,
       })
       return {
         jobId: job._id,

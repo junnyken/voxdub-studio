@@ -330,6 +330,12 @@ Lỗi:
   không hỗ trợ, response kèm luôn danh sách hợp lệ. Chặn NGAY tại cửa vào:
   trước đây chuỗi bất kỳ cũng lọt, job chạy hết bước ASR (tốn quota + vài
   phút CPU worker) mới hỏng với lỗi mơ hồ không chỉ ra được sai ở đâu
+- `413 UPLOAD_TOO_LARGE` (mini-spec V44) — file vượt
+  `cloud.dub.max.upload.mb`. Server nhận theo dòng nên chỉ biết khi đã đọc
+  quá hạn mức: bản cụt trên đĩa bị xoá, quota giữ chỗ được trả lại, KHÔNG
+  job nào được tạo. Cùng mã lỗi này áp dụng cho `POST /v1/jobs/demucs`
+  (hạn mức 200 MB) — cũng chuyển sang nhận theo dòng ở V44, và ở đó thứ tự
+  đã đảo thành "ghi file xong mới trừ Vox" để upload hỏng không mất tiền
 
 ### `GET /dub/:jobId`
 Response 200: `{jobId, status, error?, metrics? (khi done), costVox? (khi done), expiresAt}`

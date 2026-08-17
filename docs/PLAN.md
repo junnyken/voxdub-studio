@@ -3916,6 +3916,88 @@ Success Criteria:
 - 0 regression toàn bộ 2 suite (Python `pytest tests/`, Node `npm test`).
 ```
 
+### V44 — Nhận file upload theo dòng thay vì nuốt trọn vào RAM
+
+```
+V44 — Streaming upload cho 2 route nhận file (Phase G, phát hiện khi audit
+hạ tầng sau khi chuyển sang Vibe Host 2026-08-17)
+
+Context:
+- docs/ARCH.md §2.3 (hosted dub API + worker-dub), docs/API.md mục /api/v1.
+- Nền tảng thật: container `voxdub-app` 1 CPU / 1 GB RAM (Vibe Host), rate
+  limit 5 request/phút/key trên cả 2 route nhận file.
+- Quyết định kiến trúc phải giữ: Mongo là nguồn sự thật duy nhất; file job
+  nằm trên đĩa cục bộ (nền tảng không có volume bền vững); mã lỗi và HTTP
+  status của API công khai không được đổi.
+
+Goal:
+- Một upload đúng hạn mức không bao giờ hạ được máy chủ vì bộ nhớ.
+
+Constraints (Guardrails):
+1. Không nới `cloud.dub.max.upload.mb` / hạn mức 200 MB của demucs.
+2. Không đổi hợp đồng API: vẫn multipart/form-data, vẫn NO_FILE/EMPTY_FILE
+   đúng mã cũ, thêm đúng 1 mã mới UPLOAD_TOO_LARGE (413).
+3. Hỏng giữa chừng KHÔNG được để lại file cụt, không giữ chỗ quota vĩnh
+   viễn, không trừ tiền khách.
+4. Không viết cơ chế streaming mới — tái dùng pattern đã chạy thật ở
+   `POST /internal/dub-jobs/:id/output` (`pipeline()` + kiểm `truncated`).
+5. Không đụng logic tính tiền/định giá; chỉ đổi THỨ TỰ khi thứ tự cũ thành
+   bẫy mất tiền.
+
+Scope:
+A. Domain model: không đổi.
+B. Services/engine: `utils/upload-stream.js` mới (dùng chung);
+   `dub-job.service.js` + `render-job.service.js` nhận `fileStream`.
+C. API contract: thêm `413 UPLOAD_TOO_LARGE` cho `POST /api/v1/dub` và
+   `POST /v1/jobs/demucs`.
+D. UI surfaces: không có (API thuần).
+E. Tests: `tests/dub-upload-stream.test.js` + cập nhật 3 file test cũ sang
+   chữ ký stream.
+
+Audit Before Build:
+- `api-v1.js:218` và `jobs.js:37` đều `await data.toBuffer()` rồi truyền
+  Buffer xuống service — chặng khách → server là chỗ DUY NHẤT còn buffer,
+  chặng worker ⇄ server đã stream từ 2026-08-17 (`ea49859`).
+- Gap đo được (không suy đoán): 1 upload 250 MB đẩy RSS tiến trình tăng
+  **485,3 MB** (toBuffer gom mảnh rồi `concat` nên đỉnh gấp đôi kích thước
+  file). Trong container 1 GB, 2 upload đồng thời là OOM.
+- Gap phụ phát hiện khi sửa: `submitDemucsJob` trừ credit TRƯỚC khi ghi
+  file. Với buffer thì vô hại (route đã chặn file quá cỡ từ trước), nhưng
+  chuyển sang stream thì lỗi 413 xảy ra SAU khi đã trừ → mất tiền khách.
+
+Design Choice:
+- 1 hàm dùng chung `writeUploadToDisk(stream, dest, {maxMb, makeError, label})`
+  thay vì mỗi service tự viết: 2 route có cùng failure mode, khác nhau chỉ ở
+  lớp lỗi domain (`DubJobError`/`RenderJobError`) nên truyền factory lỗi vào.
+- Xử lý CẢ 2 hành vi quá-hạn-mức của `@fastify/multipart` (cắt ngang im lặng
+  đặt cờ `truncated`, và ném `FST_REQ_FILE_TOO_LARGE`) vì cấu hình mặc định
+  khác nhau giữa các phiên bản — không đoán, gom cả hai về 1 lỗi.
+- `submitDemucsJob`: đảo thành ghi file → trừ credit → tạo job. Tiền luôn là
+  bước sau cùng. Trừ hỏng thì xoá luôn thư mục job (file mồ côi không có
+  document trỏ tới nên sweeper không bao giờ dọn được).
+
+Test Plan:
+- Unit/Integration: upload 3 MB đi qua HTTP thật → byte trên đĩa khớp CHÍNH
+  XÁC; vượt hạn mức → 413 + không file cụt + không job; quota giữ chỗ được
+  trả lại; file rỗng → 400 EMPTY_FILE; demucs vượt 200 MB → 413 + số dư Vox
+  KHÔNG đổi.
+- Regression: mã ngôn ngữ sai vẫn bị chặn trước khi đọc file (không phá
+  V43/`93c6878`); toàn bộ suite `control_server`.
+- Live verification: đo RSS thật của tiến trình server (đo TỪ NGOÀI qua
+  /proc, không đo trong cùng process — lần đo đầu sai vì client fetch chung
+  process làm RSS gộp cả bộ đệm phía gửi).
+
+Success Criteria:
+- 1 upload 250 MB làm RSS tăng < 50 MB (trước: 485 MB).
+- Không có đường nào để lại file cụt hoặc trừ tiền cho upload hỏng.
+- 0 regression trên suite control_server.
+```
+
+**Kết quả (2026-08-17)**: ✅ Xong. RSS đỉnh khi nhận 250 MB: **485,3 MB →
+34,6 MB** (đo lại sau refactor: 36,5 MB) — đo ngoài process qua `/proc/<pid>/
+VmRSS`, cùng file, cùng máy, chỉ khác code. 293 test control_server (292
+pass, 1 skip, 0 fail). Xem `docs/TEST_LOG.md` mục V44.
+
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
 
 - Khảo sát Rask AI/ElevenLabs Dubbing/HeyGen/Camb.ai/Dubverse/Vidnoz (auto-dub)

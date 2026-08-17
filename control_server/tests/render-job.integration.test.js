@@ -24,6 +24,7 @@ const assert = require('node:assert')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
+const { Readable } = require('node:stream')
 const { spawnSync } = require('node:child_process')
 
 const { setTestEnv, startDb, stopDb, clearDb } = require('./helpers/db')
@@ -77,10 +78,16 @@ function fakeWavBuffer() {
   return Buffer.concat([header, data])
 }
 
+// V44: `submitDemucsJob` nhận STREAM thay vì Buffer — stream chỉ đọc được 1
+// lần nên mỗi lần gọi phải dựng mới.
+function fakeWavStream() {
+  return Readable.from([fakeWavBuffer()])
+}
+
 test('submitDemucsJob: thiếu Vox thì từ chối, không tạo job, không ghi file', async () => {
   const device = await makeDevice('a'.repeat(64), 10)
   await assert.rejects(
-    () => renderJob.submitDemucsJob({ device, fileBuffer: fakeWavBuffer() }),
+    () => renderJob.submitDemucsJob({ device, fileStream: fakeWavStream() }),
     (err) => err.code === 'INSUFFICIENT_CREDIT',
   )
   const count = await RenderJob.countDocuments({ fingerprint: device.fingerprint })
@@ -91,7 +98,7 @@ test('submitDemucsJob: tắt cloud.render.enabled thì từ chối rõ ràng', a
   const device = await makeDevice('b'.repeat(64), 1000)
   await config.set('cloud.render.enabled', false)
   await assert.rejects(
-    () => renderJob.submitDemucsJob({ device, fileBuffer: fakeWavBuffer() }),
+    () => renderJob.submitDemucsJob({ device, fileStream: fakeWavStream() }),
     (err) => err.code === 'CLOUD_RENDER_DISABLED',
   )
 })
@@ -101,7 +108,7 @@ test('submitDemucsJob (V12): trả về NGAY status=queued, KHÔNG chạy Demucs
   const cost = await config.get('credit.cost.cloud.demucs')
 
   const { job, balanceAfter } = await renderJob.submitDemucsJob({
-    device, fileBuffer: fakeWavBuffer(),
+    device, fileStream: fakeWavStream(),
   })
 
   assert.equal(job.status, 'queued', 'V12 phải trả về queued ngay, không đợi xử lý')
@@ -276,7 +283,7 @@ test('luồng worker thật: submit → claim → chạy Demucs thật (subproce
     const cost = await config.get('credit.cost.cloud.demucs')
 
     const { job: submitted, balanceAfter } = await renderJob.submitDemucsJob({
-      device, fileBuffer: fakeWavBuffer(),
+      device, fileStream: fakeWavStream(),
     })
     assert.equal(submitted.status, 'queued')
     assert.equal(balanceAfter, 1000 - cost)

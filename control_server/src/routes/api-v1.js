@@ -220,14 +220,13 @@ module.exports = async function apiV1Routes(fastify) {
     if (!data) {
       return reply.code(400).send({ code: 'NO_FILE', message: 'Thiếu file video.' })
     }
-    const buffer = await data.toBuffer()
-    if (!buffer.length) {
-      return reply.code(400).send({ code: 'EMPTY_FILE', message: 'File video rỗng.' })
-    }
 
     try {
+      // V44: truyền STREAM, không `toBuffer()` — xem `writeUploadToDisk()`.
+      // `EMPTY_FILE`/`UPLOAD_TOO_LARGE` giờ do service ném ra dưới dạng
+      // `DubJobError` (bắt ở catch bên dưới), giữ nguyên mã lỗi cũ.
       const { job } = await dubJob.submitDubJob({
-        apiKey, fileBuffer: buffer, sourceLang, targetLang, voice, bgMode, estimatedMinutes,
+        apiKey, fileStream: data.file, sourceLang, targetLang, voice, bgMode, estimatedMinutes,
         ip: request.ip,
       })
       return {

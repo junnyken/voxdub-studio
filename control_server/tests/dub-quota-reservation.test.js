@@ -13,6 +13,7 @@ const assert = require('node:assert')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
+const { Readable } = require('node:stream')
 
 const { setTestEnv, startDb, stopDb, clearDb } = require('./helpers/db')
 setTestEnv()
@@ -34,15 +35,17 @@ function makeApiKey(dubMinutesQuota = 100) {
   })
 }
 
-function fakeBuffer() {
-  return Buffer.from('fake-mp4-bytes')
+// V44: `submitDubJob` nhận STREAM (không còn Buffer) — route truyền thẳng
+// `data.file` của @fastify/multipart xuống, không `toBuffer()` nữa.
+function fakeStream() {
+  return Readable.from([Buffer.from('fake-mp4-bytes')])
 }
 
 test('submitDubJob: giữ chỗ đúng mặc định cấu hình khi không khai estimatedMinutes', async () => {
   const apiKey = await makeApiKey(100)
   const defaultMinutes = await config.get('cloud.dub.reservation.default.minutes')
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeBuffer(), sourceLang: 'en-US', targetLang: 'vi',
+    apiKey, fileStream: fakeStream(), sourceLang: 'en-US', targetLang: 'vi',
   })
   assert.equal(job.reservedMinutes, defaultMinutes)
 
@@ -53,7 +56,7 @@ test('submitDubJob: giữ chỗ đúng mặc định cấu hình khi không khai
 test('submitDubJob: caller tự khai estimatedMinutes -> giữ đúng số đã khai', async () => {
   const apiKey = await makeApiKey(100)
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeBuffer(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 30,
+    apiKey, fileStream: fakeStream(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 30,
   })
   assert.equal(job.reservedMinutes, 30)
   const fresh = await ApiKey.findById(apiKey._id).lean()
@@ -64,7 +67,7 @@ test('submitDubJob: estimatedMinutes vượt trần cấu hình -> bị kẹp v�
   const apiKey = await makeApiKey(10000)
   const maxMinutes = await config.get('cloud.dub.reservation.max.minutes')
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeBuffer(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 999999,
+    apiKey, fileStream: fakeStream(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 999999,
   })
   assert.equal(job.reservedMinutes, maxMinutes)
 })
@@ -74,7 +77,7 @@ test('submitDubJob: estimatedMinutes âm/0/NaN -> rơi về mặc định, khôn
   const defaultMinutes = await config.get('cloud.dub.reservation.default.minutes')
   for (const bad of [-5, 0, NaN]) {
     const { job } = await dubJob.submitDubJob({
-      apiKey, fileBuffer: fakeBuffer(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: bad,
+      apiKey, fileStream: fakeStream(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: bad,
     })
     assert.equal(job.reservedMinutes, defaultMinutes)
   }
@@ -86,7 +89,7 @@ test('reserveDubMinutes: atomic — N submit đồng thời chỉ đúng số v�
   // submit gần như đồng thời (đây chính là race trước V43).
   const apiKey = await makeApiKey(12)
   const attempts = await Promise.allSettled(Array.from({ length: 5 }, () => dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeBuffer(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 5,
+    apiKey, fileStream: fakeStream(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 5,
   })))
 
   const fulfilled = attempts.filter((a) => a.status === 'fulfilled')
@@ -105,7 +108,7 @@ test('completeJob: giải phóng reservation VÀ cộng usage thật trong cùng
   const apiKey = await makeApiKey(100)
   const perMinute = await config.get('credit.cost.cloud.dub.vox.per.minute')
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeBuffer(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 20,
+    apiKey, fileStream: fakeStream(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 20,
   })
   let fresh = await ApiKey.findById(apiKey._id).lean()
   assert.equal(fresh.dubMinutesReserved, 20)
@@ -127,7 +130,7 @@ test('completeJob: giải phóng reservation VÀ cộng usage thật trong cùng
 test('completeJob: durationS=0 (worker cũ) -> vẫn giải phóng reservation dù không tính phí', async () => {
   const apiKey = await makeApiKey(100)
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeBuffer(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 15,
+    apiKey, fileStream: fakeStream(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 15,
   })
   await dubJob.claimNextJob('worker-1')
   const paths = dubJob.jobPaths(job._id)
@@ -142,7 +145,7 @@ test('completeJob: durationS=0 (worker cũ) -> vẫn giải phóng reservation d
 test('failJob: job lỗi -> giải phóng TOÀN BỘ reservation, không trừ usage', async () => {
   const apiKey = await makeApiKey(100)
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeBuffer(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 25,
+    apiKey, fileStream: fakeStream(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 25,
   })
   await dubJob.claimNextJob('worker-1')
   await dubJob.failJob(job._id, 'worker-1', new Error('pipeline crashed'))
@@ -210,11 +213,11 @@ test('submitDubJob: tạo job hỏng SAU khi đã giữ chỗ -> rollback, khôn
 test('DUB_QUOTA_EXCEEDED: thông báo phản ánh đúng cả phần đang giữ chỗ bởi job khác', async () => {
   const apiKey = await makeApiKey(10)
   await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeBuffer(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 8,
+    apiKey, fileStream: fakeStream(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 8,
   })
   await assert.rejects(
     () => dubJob.submitDubJob({
-      apiKey, fileBuffer: fakeBuffer(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 5,
+      apiKey, fileStream: fakeStream(), sourceLang: 'en-US', targetLang: 'vi', estimatedMinutes: 5,
     }),
     (err) => {
       assert.equal(err.code, 'DUB_QUOTA_EXCEEDED')

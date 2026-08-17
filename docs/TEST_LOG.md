@@ -5549,3 +5549,113 @@ Download.jsx:7` trỏ `releases/latest`.
   Đúng quy trình đã dùng ở lượt `v3.0.1`.
 - Điều kiện tiên quyết đã kiểm tra thật trước khi tag: CI `Test (Python +
   Node)` `success` trên đúng `6111899`; node test local 286/287 pass.
+
+## V44 — Nhận file upload theo dòng thay vì nuốt trọn vào RAM (Phase G, 2026-08-17)
+
+### Audit Before Build
+
+Đọc code, không suy đoán: `api-v1.js:218` (`POST /api/v1/dub`, hạn mức
+`cloud.dub.max.upload.mb` = 300) và `jobs.js:37` (`POST /v1/jobs/demucs`,
+hạn mức 200 MB cứng) đều gọi `await data.toBuffer()` rồi truyền nguyên
+Buffer xuống service. Chặng khách → server là chỗ DUY NHẤT còn buffer —
+chặng worker ⇄ server đã chuyển sang stream cùng ngày (`ea49859`).
+
+**Gap đo được bằng thực nghiệm** (không phải suy luận): dựng server thật
+(in-memory Mongo), upload 1 file 250 MB bằng `curl`, lấy mẫu `VmRSS` của
+tiến trình server mỗi 20ms **từ ngoài** qua `/proc/<pid>/status`:
+
+| Code | Baseline RSS | Peak RSS | Delta |
+|---|---|---|---|
+| Trước V44 (`toBuffer`) | 146,1 MB | 643,0 MB | **485,3 MB** |
+| Sau V44 (stream) | 125,6 MB | 161,0 MB | **34,6 MB** |
+| Sau V44, đo lại sau refactor | 126,0 MB | 163,3 MB | **36,5 MB** |
+
+Delta gần gấp đôi kích thước file vì `toBuffer()` gom từng mảnh rồi
+`Buffer.concat` — tồn tại đồng thời cả mảng mảnh lẫn bản ghép. Container
+prod `voxdub-app` có **1 GB RAM** và rate limit cho phép **5 request/phút/
+key** → 2 upload lớn đồng thời đủ giết cả tiến trình, kéo theo mọi job đang
+chạy của mọi khách.
+
+**Sai lầm khi đo, ghi lại để lần sau không lặp**: lần đo đầu chạy client
+`fetch` trong CÙNG process với server → RSS gộp cả bộ đệm phía gửi, ra
+"279 MB" cho bản stream và suýt kết luận nhầm là bản sửa không ăn thua.
+Phải tách client ra process khác (curl) và đo server từ ngoài.
+
+**Gap phụ phát hiện khi sửa**: `submitDemucsJob()` trừ credit TRƯỚC khi ghi
+file. Với buffer thì vô hại (route đã chặn file quá cỡ trước khi vào
+service), nhưng chuyển sang stream thì 413 xảy ra SAU khi đã trừ → khách
+mất Vox cho một upload không bao giờ thành job.
+
+### Design Choice
+
+`src/utils/upload-stream.js` (mới) — 1 hàm dùng chung cho cả 2 route, vì
+cùng failure mode, chỉ khác lớp lỗi domain nên truyền factory
+`makeError(code, message, statusCode)` vào thay vì viết 2 bản. Tái dùng
+NGUYÊN pattern đã chạy thật ở `POST /internal/dub-jobs/:id/output`:
+`pipeline()` + kiểm `truncated` + xoá bản cụt.
+
+Xử lý CẢ 2 hành vi quá-hạn-mức của `@fastify/multipart` (cắt ngang im lặng
+đặt cờ `truncated`, và ném `FST_REQ_FILE_TOO_LARGE`) — cấu hình mặc định
+khác nhau giữa các phiên bản, không đoán bản này đang chạy kiểu nào.
+
+`submitDemucsJob()` đảo thứ tự: ghi file → trừ credit → tạo job. Tiền luôn
+là bước sau cùng; trừ hỏng thì xoá thư mục job ngay (file mồ côi không có
+document trỏ tới nên `sweepExpired` không bao giờ dọn được).
+
+### Changed Files
+
+- `control_server/src/utils/upload-stream.js` (mới)
+- `control_server/src/services/dub-job.service.js` — `fileBuffer` →
+  `fileStream`, dọn thư mục job khi hỏng giữa chừng
+- `control_server/src/services/render-job.service.js` — `fileBuffer` →
+  `fileStream`, đảo thứ tự ghi-file/trừ-credit + rollback file
+- `control_server/src/routes/api-v1.js`, `control_server/src/routes/jobs.js`
+  — bỏ `toBuffer()`, truyền `data.file`
+- `control_server/tests/dub-upload-stream.test.js` (mới, 6 test)
+- 3 file test cũ chuyển sang chữ ký stream (`dub-job.service.test.js`,
+  `dub-quota-reservation.test.js`, `render-job.integration.test.js`) —
+  stream chỉ đọc được 1 lần nên helper phải dựng mới mỗi lần gọi, khác
+  Buffer dùng lại được.
+
+### New API/DB/State
+
+`413 UPLOAD_TOO_LARGE` trên `POST /api/v1/dub` và `POST /v1/jobs/demucs`.
+Không có field/collection/enum mới.
+
+### Tests
+
+`tests/dub-upload-stream.test.js` — 6 test, đi qua HTTP thật (không gọi
+thẳng service):
+
+1. upload 3 MB → byte trên đĩa khớp CHÍNH XÁC + nội dung nguyên vẹn
+2. vượt hạn mức → 413 + KHÔNG để lại file cụt + không tạo job
+3. vượt hạn mức → quota giữ chỗ được trả lại (không kẹt vĩnh viễn)
+4. file rỗng → 400 `EMPTY_FILE` + trả lại quota
+5. demucs vượt 200 MB → 413 + **số dư Vox không đổi** (khoá lại gap phụ)
+6. regression: mã ngôn ngữ sai vẫn bị chặn TRƯỚC khi đọc file (V44 không
+   phá `93c6878`), không giữ chỗ quota, không tạo thư mục job
+
+**2 fail đầu tiên là lỗi TEST, không phải lỗi code** — các test dùng chung
+`DUB_UPLOAD_DIR` nên thư mục job của test trước bị assert "không để lại
+file cụt" tính nhầm là rác của chính nó; sửa bằng dọn đĩa trong
+`beforeEach`.
+
+Toàn bộ suite: **293 test, 292 pass, 1 skip, 0 fail** (`npm test`).
+
+### Live Verification
+
+Chưa chạy trên prod tại thời điểm viết mục này — đo trên server thật dựng
+tại chỗ (cùng mã, in-memory Mongo). Xác nhận prod sau khi redeploy: xem
+mục bổ sung bên dưới.
+
+### Remaining Limits
+
+- Hạn mức 200 MB của `/v1/jobs/demucs` vẫn HARDCODE trong route (khác
+  `/api/v1/dub` đọc từ `cloud.dub.max.upload.mb`). Không đưa vào config ở
+  đợt này vì đổi hạn mức là quyết định vận hành, không phải hệ quả của việc
+  chuyển sang stream.
+- Khách không đủ Vox giờ vẫn upload xong toàn bộ file rồi mới bị từ chối
+  (trước đây bị chặn sớm hơn nhờ buffer). Đánh đổi có chủ đích: bản cũ vẫn
+  nuốt trọn file vào RAM trước khi từ chối, tức tệ hơn về đúng thứ đang
+  sửa. Muốn chặn sớm phải kiểm tra số dư trước khi đọc body — thêm 1 truy
+  vấn/1 request, để lại nếu có bằng chứng bị lạm dụng thật.

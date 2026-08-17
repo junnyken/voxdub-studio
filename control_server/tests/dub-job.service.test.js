@@ -18,6 +18,7 @@ const assert = require('node:assert')
 const fs = require('node:fs')
 const path = require('node:path')
 const os = require('node:os')
+const { Readable } = require('node:stream')
 
 const { setTestEnv, startDb, stopDb, clearDb } = require('./helpers/db')
 setTestEnv()
@@ -40,8 +41,10 @@ async function makeApiKey(orgName = 'Test Org', dubMinutesQuota = 100) {
   })
 }
 
-function fakeMp4Buffer() {
-  return Buffer.from('fake-mp4-bytes-for-test')
+// V44: `submitDubJob` nhận STREAM thay vì Buffer — mỗi lần gọi phải tạo
+// stream MỚI (stream chỉ đọc được 1 lần, khác Buffer dùng lại được).
+function fakeMp4Stream() {
+  return Readable.from([Buffer.from('fake-mp4-bytes-for-test')])
 }
 
 test('submitDubJob: tắt cloud.dub.enabled thì từ chối rõ ràng, không tạo job', async () => {
@@ -49,7 +52,7 @@ test('submitDubJob: tắt cloud.dub.enabled thì từ chối rõ ràng, không t
   await config.set('cloud.dub.enabled', false)
   await assert.rejects(
     () => dubJob.submitDubJob({
-      apiKey, fileBuffer: fakeMp4Buffer(), sourceLang: 'en-US', targetLang: 'vi',
+      apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
     }),
     (err) => err.code === 'CLOUD_DUB_DISABLED',
   )
@@ -61,7 +64,7 @@ test('submitDubJob: hết quota phút dub (mặc định 0, opt-in) → 402, kh�
   const apiKey = await makeApiKey('No Quota Org', 0)
   await assert.rejects(
     () => dubJob.submitDubJob({
-      apiKey, fileBuffer: fakeMp4Buffer(), sourceLang: 'en-US', targetLang: 'vi',
+      apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
     }),
     (err) => err.code === 'DUB_QUOTA_EXCEEDED' && err.statusCode === 402,
   )
@@ -74,7 +77,7 @@ test('submitDubJob: trả về NGAY status=queued, gắn đúng bgMode, KHÔNG �
   const estimate = await config.get('credit.cost.cloud.dub.vox.per.minute')
 
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeMp4Buffer(), sourceLang: 'en-US', targetLang: 'vi',
+    apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
     voice: 'Minh Trang', bgMode: 'none',
   })
 
@@ -98,7 +101,7 @@ test('submitDubJob: trả về NGAY status=queued, gắn đúng bgMode, KHÔNG �
 test('submitDubJob: bgMode mặc định "none" nếu không truyền', async () => {
   const apiKey = await makeApiKey()
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeMp4Buffer(), sourceLang: 'en-US', targetLang: 'vi',
+    apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
   })
   assert.equal(job.bgMode, 'none')
 })
@@ -107,7 +110,7 @@ test('claimNextJob → completeJob: state machine đầy đủ, metrics ghi đú
   const apiKey = await makeApiKey()
   const perMinute = await config.get('credit.cost.cloud.dub.vox.per.minute')
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeMp4Buffer(), sourceLang: 'en-US', targetLang: 'vi',
+    apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
   })
 
   const claimed = await dubJob.claimNextJob('worker-1')
@@ -145,7 +148,7 @@ test('completeJob: durationS rất ngắn vẫn tính tối thiểu 1 phút (kh�
   const apiKey = await makeApiKey()
   const perMinute = await config.get('credit.cost.cloud.dub.vox.per.minute')
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeMp4Buffer(), sourceLang: 'en-US', targetLang: 'vi',
+    apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
   })
   await dubJob.claimNextJob('worker-1')
   const paths = dubJob.jobPaths(job._id)
@@ -164,7 +167,7 @@ test('completeJob: bgMode=demucs tính theo đơn giá demucs (khác none)', asy
   const apiKey = await makeApiKey()
   const perMinuteDemucs = await config.get('credit.cost.cloud.dub.vox.per.minute.demucs')
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeMp4Buffer(), sourceLang: 'en-US', targetLang: 'vi', bgMode: 'demucs',
+    apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi', bgMode: 'demucs',
   })
   await dubJob.claimNextJob('worker-1')
   const paths = dubJob.jobPaths(job._id)
@@ -179,7 +182,7 @@ test('completeJob: bgMode=demucs tính theo đơn giá demucs (khác none)', asy
 test('completeJob: durationS=0 (worker cũ/lỗi) → KHÔNG tính phí, không tạo ledger', async () => {
   const apiKey = await makeApiKey()
   const { job } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeMp4Buffer(), sourceLang: 'en-US', targetLang: 'vi',
+    apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
   })
   await dubJob.claimNextJob('worker-1')
   const paths = dubJob.jobPaths(job._id)
@@ -198,7 +201,7 @@ test('completeJob: durationS=0 (worker cũ/lỗi) → KHÔNG tính phí, không 
 test('chargeDubUsage: atomic — 5 job "hoàn tất" đồng thời cộng dồn đúng, không mất cập nhật', async () => {
   const apiKey = await makeApiKey('Concurrent Org', 1000)
   const jobs = await Promise.all(Array.from({ length: 5 }, () => dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeMp4Buffer(), sourceLang: 'en-US', targetLang: 'vi',
+    apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
   })))
 
   await Promise.all(jobs.map((j) => dubJob.chargeDubUsage(apiKey._id, j.job._id, 'none', 60)))
@@ -211,11 +214,11 @@ test('chargeDubUsage: atomic — 5 job "hoàn tất" đồng thời cộng dồn
 test('claimNextJob: 2 job queued → FIFO (job cũ nhất trước)', async () => {
   const apiKey = await makeApiKey()
   const { job: first } = await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeMp4Buffer(), sourceLang: 'en-US', targetLang: 'vi',
+    apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
   })
   await new Promise((r) => setTimeout(r, 10))
   await dubJob.submitDubJob({
-    apiKey, fileBuffer: fakeMp4Buffer(), sourceLang: 'en-US', targetLang: 'vi',
+    apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
   })
 
   const claimed = await dubJob.claimNextJob('worker-1')
