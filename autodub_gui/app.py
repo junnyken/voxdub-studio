@@ -30,7 +30,7 @@ from autodub_gui.ui.toast import TOASTS
 
 APP_NAME = "VoxDub Studio"
 APP_TAGLINE = "Lồng tiếng video bằng AI"
-APP_VERSION = "3.0.1"
+APP_VERSION = "3.1.0"
 
 # -- Danh mục trang ----------------------------------------------------
 ROW_HOME, ROW_NEW, ROW_PROJECTS, ROW_BATCH, ROW_DOWNLOAD = 0, 1, 2, 3, 4
