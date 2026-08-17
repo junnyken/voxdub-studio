@@ -44,6 +44,9 @@ STATUS_PENDING = "pending"
 STATUS_SUCCESS = "success"
 STATUS_FAILED = "failed"
 STATUS_REFUNDED = "refunded"
+# V55: người dùng chủ động dừng. Khác `failed` (hỏng) và khác `pending`
+# (chưa tới lượt) — báo cáo phải nói đúng chuyện gì đã xảy ra.
+STATUS_CANCELLED = "cancelled"
 
 
 @dataclass
@@ -82,6 +85,10 @@ class BatchReport:
     @property
     def refunded(self) -> list[ItemResult]:
         return [i for i in self.items if i.status == STATUS_REFUNDED]
+
+    @property
+    def cancelled(self) -> list[ItemResult]:
+        return [i for i in self.items if i.status == STATUS_CANCELLED]
 
     @property
     def skipped(self) -> list[ItemResult]:
@@ -193,6 +200,7 @@ def run_cloud_batch(
     job_timeout_s: float = 3600.0,
     retry_done: bool = False,
     queue_ahead: int = 2,
+    cancel_event=None,
     on_progress: Callable[[str], None] | None = None,
 ) -> BatchReport:
     """Nộp lần lượt từng video, chờ xong, tải kết quả về ``output_dir``.
@@ -398,9 +406,37 @@ def run_cloud_batch(
             stop_submitting = False
             report.stopped_early = ""
 
+    def _cancelled() -> bool:
+        return bool(cancel_event is not None and cancel_event.is_set())
+
+    def _cancel_inflight() -> None:
+        """Huỷ THẬT trên máy chủ mọi job đang chờ/đang chạy của lượt này.
+
+        Không có bước này thì "Dừng" chỉ là đóng cửa sổ của mình: job vẫn
+        chạy trên máy chủ và vẫn tính tiền khi xong.
+        """
+        for item in inflight:
+            try:
+                if client.cancel(item.job_id):
+                    say(f"Đã huỷ job {item.job_id} trên máy chủ")
+            except CloudDubError as err:
+                say(f"Không huỷ được job {item.job_id}: {err}")
+            item.status = STATUS_CANCELLED
+            state[_key(item)] = {"status": STATUS_CANCELLED, "jobId": item.job_id}
+        inflight.clear()
+        _save_state(state_path, state)
+
     _fill_queue()
     while inflight:
+        if _cancelled():
+            report.stopped_early = "Đã dừng theo yêu cầu."
+            _cancel_inflight()
+            break
         _drain_one()
+        if _cancelled():
+            report.stopped_early = "Đã dừng theo yêu cầu."
+            _cancel_inflight()
+            break
         _fill_queue()
 
     return report
@@ -439,6 +475,7 @@ def format_report(report: BatchReport) -> str:
         f"Xong: {len(report.succeeded)}",
         f"Hỏng: {len(report.failed)}",
         f"Máy chủ mất kết quả (đã hoàn phí, gửi lại được): {len(report.refunded)}",
+        f"Đã huỷ: {len(report.cancelled)}",
         f"Chưa chạy: {len(report.skipped)}",
     ]
     if report.stopped_early:

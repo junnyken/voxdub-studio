@@ -105,12 +105,33 @@ def claim_next_job() -> dict | None:
     return result.get("job")
 
 
-def _heartbeat_loop(job_id: str, stop: threading.Event) -> None:
+# Nhịp kiểm "job còn của mình không" trong lúc chờ tiến trình dub (V55).
+CANCEL_POLL_S = 5.0
+
+
+class _FinishedProc:
+    """Gói kết quả Popen cho giống `subprocess.run` — phần code đọc
+    stdout/stderr bên dưới giữ nguyên, không phải viết lại."""
+
+    def __init__(self, returncode, stdout, stderr):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _heartbeat_loop(job_id: str, stop: threading.Event,
+                    lost: threading.Event | None = None) -> None:
     while not stop.wait(HEARTBEAT_INTERVAL_S):
         result = _post(f"/internal/dub-jobs/{job_id}/heartbeat", {"workerId": WORKER_ID})
         if result is not None and not result.get("ok"):
             print(f"[dub_worker] Job {job_id} không còn do worker này giữ "
-                 "(sweeper đã coi là chết) — dừng heartbeat.", flush=True)
+                 "(khách đã huỷ, hoặc sweeper coi là chết) — dừng heartbeat.", flush=True)
+            # V55: báo ra ngoài để bên xử lý GIẾT tiến trình dub luôn. Trước
+            # đây chỉ dừng heartbeat rồi vẫn chạy tới hết: khách bấm Huỷ mà
+            # máy chủ vẫn cày hết video, tốn CPU cho một kết quả chắc chắn bị
+            # vứt đi.
+            if lost is not None:
+                lost.set()
             return
 
 
@@ -169,7 +190,7 @@ def upload_output(job_id: str, video_path: str) -> str | None:
         return None
 
 
-def run_dub(job: dict) -> dict:
+def run_dub(job: dict, lost: threading.Event | None = None) -> dict:
     """Spawn `python3 -m autodub.cli dub` — engine headless V22, KHÔNG viết
     lại pipeline riêng (Design Choice của V34a). Trả về
     {"ok": True, "video_path": ..., "metrics": {...}} hoặc {"ok": False, "error": ...}.
@@ -204,8 +225,24 @@ def run_dub(job: dict) -> dict:
         cmd += ["--voice", job["voice"]]
 
     t0 = time.monotonic()
-    proc = subprocess.run(cmd, capture_output=True, text=True, cwd="/app")
+    # Popen chứ không subprocess.run: chỉ có cầm process mới giết được nó khi
+    # khách huỷ giữa chừng (V55).
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, cwd="/app")
+    while True:
+        try:
+            stdout, stderr = proc.communicate(timeout=CANCEL_POLL_S)
+            break
+        except subprocess.TimeoutExpired:
+            if lost is not None and lost.is_set():
+                print(f"[dub_worker] Job {job['jobId']} đã bị huỷ — giết tiến trình dub.",
+                      flush=True)
+                proc.kill()
+                proc.communicate()
+                return {"ok": False, "cancelled": True,
+                        "error": "Job bị huỷ trong lúc đang xử lý."}
     elapsed_ms = int((time.monotonic() - t0) * 1000)
+    proc = _FinishedProc(proc.returncode, stdout, stderr)
 
     last_line = (proc.stdout or "").strip().split("\n")[-1] if proc.stdout else ""
     try:
@@ -242,12 +279,13 @@ def process_job(job: dict) -> None:
     print(f"[dub_worker] Nhận job {job_id} ({job['sourceLang']}->{job['targetLang']})", flush=True)
 
     stop_heartbeat = threading.Event()
+    lost = threading.Event()
     hb_thread = threading.Thread(
-        target=_heartbeat_loop, args=(job_id, stop_heartbeat), daemon=True)
+        target=_heartbeat_loop, args=(job_id, stop_heartbeat, lost), daemon=True)
     hb_thread.start()
 
     try:
-        result = run_dub(job)
+        result = run_dub(job, lost)
         if result.get("ok"):
             # Đẩy kết quả TRONG KHI heartbeat còn chạy: file cỡ trăm MB nên
             # upload mất vài phút, tắt heartbeat trước sẽ để sweeper
@@ -266,6 +304,13 @@ def process_job(job: dict) -> None:
     finally:
         stop_heartbeat.set()
         hb_thread.join(timeout=5)
+
+    if result.get("cancelled"):
+        # Không gọi /fail: job đã ở trạng thái `cancelled` phía máy chủ, báo
+        # fail chỉ tạo tiếng ồn và có thể ghi đè một trạng thái ĐÚNG bằng một
+        # trạng thái SAI ("hỏng" khác hẳn "khách đổi ý").
+        print(f"[dub_worker] Job {job_id} dừng theo yêu cầu huỷ.", flush=True)
+        return
 
     if result.get("ok"):
         _post(f"/internal/dub-jobs/{job_id}/complete", {

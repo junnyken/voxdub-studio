@@ -6462,3 +6462,54 @@ Toàn suite: **1183 passed, 6 skipped, 0 failed**; smoke test toàn app exit 0.
   vấn đề pháp lý/lạm dụng, là quyết định của chủ dự án.
 - Vẫn chưa có nút Dừng thật cho chế độ máy chủ (job đã nộp vẫn chạy và vẫn
   tính tiền) — cần endpoint huỷ job phía máy chủ.
+
+
+## V55 — Huỷ job thật (Phase G, 2026-08-17)
+
+### Audit Before Build
+
+Giới hạn ghi ở V53/V54: *"chưa có nút Dừng thật cho chế độ máy chủ — job đã
+nộp vẫn chạy và vẫn bị tính tiền dù người dùng đóng app"*. Ai lỡ nộp nhầm 20
+video thì không có cách nào chặn.
+
+Đọc worker trước khi thiết kế: `run_dub()` spawn `python3 -m autodub.cli dub`
+bằng `subprocess.run` — tức là CÓ tiến trình con để giết, huỷ thật khả thi
+chứ không phải chỉ đánh dấu trạng thái. `_heartbeat_loop` đã biết phát hiện
+"job không còn của mình" nhưng chỉ dừng heartbeat rồi vẫn để job chạy tới hết.
+
+### Design Choice
+
+**Điều kiện `apiKeyId` nằm TRONG câu update**, không kiểm ở tầng route: huỷ
+job của người khác nặng hơn hẳn xem trộm, nên phải đi cùng một lệnh nguyên tử
+chứ không dựa vào thứ tự if/else.
+
+**409 gộp 3 ca** (không tồn tại / không phải của bạn / đã kết thúc): phân biệt
+sẽ để lộ jobId người khác có tồn tại hay không, chỉ cần dò là biết.
+
+**Không tính tiền job huỷ** — không cần cơ chế hoàn: `chargeDubUsage` chỉ chạy
+trong `completeJob`, mà `completeJob` đòi `status:'running'`. Job đã sang
+`cancelled` thì worker báo xong muộn bị từ chối. Test khoá đúng điều này.
+
+**Worker dừng thật**: `subprocess.run` → `Popen` + vòng `communicate(timeout)`
+để còn kiểm cờ huỷ; heartbeat bị từ chối thì `proc.kill()`. Và khi bị huỷ thì
+KHÔNG gọi `/fail` — job đã ở trạng thái đúng (`cancelled`), báo fail chỉ ghi
+đè một trạng thái đúng bằng một trạng thái sai.
+
+### Tests (10 mới: 8 Node + 2 Python)
+
+Node: huỷ job chờ (trả quota + xoá file); huỷ job đang chạy; **worker báo
+"xong" sau khi huỷ → bị từ chối, KHÔNG tính tiền, không sinh sổ cái**; KHÔNG
+huỷ được job của key khác; job đã xong → 409 và không đụng quota; huỷ 2 lần
+không trả quota 2 lần; jobId sai định dạng → 409 chứ không 500; thiếu key → 401.
+
+Python: bấm Dừng → gửi lệnh huỷ THẬT lên máy chủ cho mọi job đang chờ, đánh
+dấu `cancelled` (KHÔNG phải `failed` — người dùng đổi ý không phải lỗi); video
+đã tải xong trước khi dừng vẫn tính là xong.
+
+Suite: **Python 1185 pass / 0 fail**, **Node 325 test (324 pass, 1 skip, 0 fail)**.
+
+### Remaining Limits
+
+- Worker chỉ nhận biết huỷ ở nhịp heartbeat (mặc định vài giây) — huỷ xong
+  còn chạy thêm vài giây là bình thường.
+- Chưa live-verify huỷ trên prod (cần API key + một job chạy thật).

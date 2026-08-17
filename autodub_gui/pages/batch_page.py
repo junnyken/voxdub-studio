@@ -794,7 +794,10 @@ class BatchPage(BasePage):
         REGISTRY.start_job(
             ActiveJob(kind="batch",
                       title=f"Máy chủ xử lý {len(sources)} video"),
-            on_cancel=lambda: None)
+            # V55: Dừng nay huỷ THẬT job trên máy chủ (trả lại quota, không
+            # tính tiền) — trước đây chỉ đóng cửa sổ của mình trong khi máy
+            # chủ vẫn cày tiếp và vẫn tính tiền lúc xong.
+            on_cancel=self._cancel)
         worker.start()
 
     def _on_cloud_finished(self, report) -> None:

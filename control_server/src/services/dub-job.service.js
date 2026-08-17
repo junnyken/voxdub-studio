@@ -520,6 +520,55 @@ async function sweepStaleQueued(log = null) {
   return failed
 }
 
+/**
+ * Huỷ job theo yêu cầu của KHÁCH (mini-spec V55).
+ *
+ * Trước V55 không có đường huỷ nào: bấm Dừng trên app chỉ đóng cửa sổ của
+ * mình, còn job vẫn chạy trên máy chủ và vẫn tính tiền khi xong. Với người
+ * lỡ nộp nhầm 20 video thì đó là mất tiền không có cách nào chặn.
+ *
+ * Điều kiện `apiKeyId` nằm TRONG câu update, không kiểm ở tầng route: huỷ
+ * job của người khác là chuyện nghiêm trọng hơn hẳn xem trộm, nên đi cùng
+ * một lệnh nguyên tử chứ không dựa vào thứ tự if/else ở nơi gọi.
+ *
+ * KHÔNG tính tiền job bị huỷ: `chargeDubUsage` chỉ chạy trong `completeJob`,
+ * mà `completeJob` đòi `status: 'running'` — job đã sang `cancelled` thì
+ * worker có báo xong muộn cũng bị từ chối. Phần quota đã giữ chỗ được trả
+ * lại ngay tại đây.
+ */
+async function cancelJob(apiKeyId, jobId) {
+  let job
+  try {
+    job = await DubApiJob.findOneAndUpdate(
+      { _id: jobId, apiKeyId, status: { $in: ['queued', 'running'] } },
+      {
+        $set: {
+          status: 'cancelled',
+          completedAt: new Date(),
+          error: 'Khách hàng đã huỷ job này.',
+        },
+      },
+      { new: true },
+    ).lean()
+  } catch (err) {
+    // jobId sai định dạng không được thành 500 (cùng bẫy CastError đã xử lý
+    // ở `getRunningJobForWorker`).
+    if (err && err.name === 'CastError') return null
+    throw err
+  }
+  if (!job) return null
+
+  await releaseDubMinutes(job.apiKeyId, job.reservedMinutes)
+  await cleanupJob(job._id)
+  await audit.log({
+    action: 'cloud_dub.cancel',
+    actor: `apikey:${String(apiKeyId).slice(-8)}`,
+    target: String(job._id),
+    after: { status: 'cancelled', releasedMinutes: job.reservedMinutes },
+  })
+  return job
+}
+
 module.exports = {
   DubJobError,
   ensureUploadDir,
@@ -532,6 +581,7 @@ module.exports = {
   heartbeat,
   completeJob,
   failJob,
+  cancelJob,
   markDelivered,
   refundLostResult,
   cleanupJob,

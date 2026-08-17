@@ -259,6 +259,25 @@ module.exports = async function apiV1Routes(fastify) {
     }
   })
 
+  // --- Huỷ job (mini-spec V55) --------------------------------------------
+  fastify.post('/dub/:jobId/cancel', async (request, reply) => {
+    const job = await dubJob.cancelJob(request.apiKey._id, request.params.jobId)
+    if (!job) {
+      // Gộp "không tìm thấy" với "không huỷ được nữa" vào cùng một câu trả
+      // lời: phân biệt hai ca này sẽ để lộ job của người khác có tồn tại hay
+      // không (chỉ cần dò jobId là biết).
+      return reply.code(409).send({
+        code: 'CANNOT_CANCEL',
+        message: 'Job không tồn tại, không thuộc về bạn, hoặc đã kết thúc.',
+      })
+    }
+    return {
+      jobId: job._id,
+      status: job.status,
+      releasedMinutes: job.reservedMinutes,
+    }
+  })
+
   // --- Tải video kết quả — xoá file NGAY sau khi trả (cùng chính sách dữ ---
   // liệu đã áp dụng cho cloud rendering V9, xem docs/TEST_LOG.md) ----------
   fastify.get('/dub/:jobId/result', async (request, reply) => {

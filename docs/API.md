@@ -353,6 +353,21 @@ Lỗi:
   (hạn mức 200 MB) — cũng chuyển sang nhận theo dòng ở V44, và ở đó thứ tự
   đã đảo thành "ghi file xong mới trừ Vox" để upload hỏng không mất tiền
 
+### `POST /dub/:jobId/cancel` (mini-spec V55)
+Huỷ job đang `queued` hoặc `running` của CHÍNH API key đang xác thực.
+Response 200: `{jobId, status:"cancelled", releasedMinutes}` — quota giữ chỗ
+được trả lại ngay, file input bị dọn, và job **không bao giờ bị tính tiền**
+(`completeJob` đòi `status:'running'` nên worker báo xong muộn cũng bị từ
+chối). Trạng thái mới `cancelled` tách khỏi `failed`: "người dùng đổi ý" khác
+"hỏng".
+
+`409 CANNOT_CANCEL` gộp chung 3 ca — không tồn tại, không thuộc về bạn, hoặc
+đã kết thúc. Cố ý không phân biệt: trả lời khác nhau sẽ để lộ jobId của người
+khác có tồn tại hay không.
+
+Worker cũng dừng THẬT: heartbeat bị từ chối → worker giết tiến trình dub đang
+chạy thay vì cày hết rồi mới biết kết quả bị vứt.
+
 ### `GET /dub/:jobId`
 Response 200: `{jobId, status, error?, metrics? (khi done), costVox? (khi done), expiresAt}`
 

@@ -968,6 +968,7 @@ class CloudBatchWorker(QThread):
     def __init__(self, source_dir, output_dir, *, source_lang: str,
                  target_lang: str, voice: str = "", bg_mode: str = "none",
                  retry_done: bool = False, queue_ahead: int = 2, parent=None):
+        self._cancel_event = threading.Event()
         super().__init__(parent)
         self._source = source_dir
         self._output = output_dir
@@ -977,6 +978,10 @@ class CloudBatchWorker(QThread):
         self._bg_mode = bg_mode
         self._retry_done = retry_done
         self._queue_ahead = queue_ahead
+
+    def cancel(self) -> None:
+        """Yêu cầu dừng — runner sẽ huỷ THẬT các job trên máy chủ (V55)."""
+        self._cancel_event.set()
 
     def run(self) -> None:
         from autodub.cloud_batch import run_cloud_batch
@@ -991,6 +996,7 @@ class CloudBatchWorker(QThread):
                 bg_mode=self._bg_mode,
                 retry_done=self._retry_done,
                 queue_ahead=self._queue_ahead,
+                cancel_event=self._cancel_event,
                 on_progress=lambda msg: self.log.emit(msg, 20),
             )
         except CloudDubError as err:

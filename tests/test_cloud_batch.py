@@ -50,6 +50,7 @@ class FakeServerState:
         # Trình tự sự kiện có thứ tự — thứ duy nhất chứng minh được "worker
         # không nằm không" là ai xảy ra TRƯỚC ai.
         self.events: list[tuple[str, str]] = []
+        self.cancels: list[str] = []
 
 
 def _make_handler(state: FakeServerState):
@@ -112,6 +113,12 @@ def _make_handler(state: FakeServerState):
         def do_POST(self):                     # noqa: N802
             if not self.path.startswith("/api/v1/dub"):
                 return self._json(404, {"code": "NOT_FOUND"})
+            if self.path.endswith("/cancel"):
+                job_id = self.path.split("/")[-2]
+                state.cancels.append(job_id)
+                state.jobs[job_id] = "cancelled"
+                return self._json(200, {"jobId": job_id, "status": "cancelled",
+                                        "releasedMinutes": 5})
             length = int(self.headers.get("content-length") or 0)
             self.rfile.read(length)
             if (state.quota_relief_after_downloads
@@ -541,3 +548,57 @@ def test_state_key_for_a_link_is_the_link_itself(server, tmp_path, monkeypatch):
 
     state = json.loads((out / "cloud_batch_state.json").read_text(encoding="utf-8"))
     assert "https://youtu.be/abc" in state["items"]
+
+
+# --- V55: dừng thật, huỷ job trên máy chủ --------------------------------
+
+
+def test_stop_cancels_inflight_jobs_on_the_server(server, tmp_path):
+    """Bấm Dừng phải HUỶ job trên máy chủ, không chỉ đóng cửa sổ của mình.
+
+    Không huỷ thật thì máy chủ vẫn cày tiếp và vẫn tính tiền lúc xong — đúng
+    thứ V55 sinh ra để chặn.
+    """
+    import threading
+
+    src = _videos(tmp_path, 3)
+    out = tmp_path / "out"
+    stop = threading.Event()
+    stop.set()                    # dừng ngay từ đầu, đơn giản và tất định
+
+    report = run_cloud_batch(src, out, source_lang="en-US", target_lang="vi",
+                             client=_client(server), poll_interval=0.01,
+                             cancel_event=stop, queue_ahead=2)
+
+    assert server.cancels, "phải gửi lệnh huỷ lên máy chủ"
+    assert set(server.cancels) <= {j for _k, j in server.events if _k == "submit"}
+    assert report.stopped_early
+    assert report.cancelled, "job đang chờ phải được đánh dấu ĐÃ HUỶ"
+    assert not report.failed, "huỷ theo ý người dùng KHÔNG phải lỗi"
+
+
+def test_stop_leaves_already_finished_videos_alone(server, tmp_path):
+    """Video đã tải xong trước khi bấm Dừng vẫn phải tính là xong."""
+    import threading
+
+    src = _videos(tmp_path, 3)
+    out = tmp_path / "out"
+    stop = threading.Event()
+
+    real_client = _client(server)
+    original_download = real_client.download
+
+    def download_then_stop(job_id, dest):
+        size = original_download(job_id, dest)
+        stop.set()                # dừng NGAY SAU video đầu tiên
+        return size
+
+    real_client.download = download_then_stop
+
+    report = run_cloud_batch(src, out, source_lang="en-US", target_lang="vi",
+                             client=real_client, poll_interval=0.01,
+                             cancel_event=stop, queue_ahead=2)
+
+    assert len(report.succeeded) == 1, "video đã xong không được biến thành huỷ"
+    assert report.succeeded[0].bytes_written == len(RESULT_BYTES)
+    assert report.cancelled or report.skipped, "phần còn lại phải được báo đúng"

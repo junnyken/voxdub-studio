@@ -210,6 +210,25 @@ class CloudDubClient:
             self._raise_for_payload(resp)
         return resp.json()
 
+    def cancel(self, job_id: str) -> bool:
+        """Huỷ job (mini-spec V55). True nếu máy chủ nhận huỷ.
+
+        409 = job không còn huỷ được (đã xong/đã huỷ) — KHÔNG ném lỗi: người
+        dùng bấm Dừng lúc job vừa xong là chuyện bình thường, không phải sự
+        cố cần báo động.
+        """
+        try:
+            resp = requests.post(f"{self.base_url}/api/v1/dub/{job_id}/cancel",
+                                 headers=self._headers, timeout=self.timeout)
+        except requests.RequestException as err:
+            raise self._as_domain_error(err, "Không gửi được lệnh huỷ") from err
+        if resp.status_code == 200:
+            return True
+        if resp.status_code == 409:
+            return False
+        self._raise_for_payload(resp)
+        return False
+
     def download(self, job_id: str, dest: Path) -> int:
         """Tải kết quả về ``dest``, trả về số byte. Ghi qua file tạm rồi mới đổi tên.
 

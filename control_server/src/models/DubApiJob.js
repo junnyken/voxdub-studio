@@ -26,7 +26,10 @@ const dubApiJobSchema = new mongoose.Schema({
   apiKeyId: { type: mongoose.Schema.Types.ObjectId, ref: 'ApiKey', required: true, index: true },
   status: {
     type: String,
-    enum: ['queued', 'running', 'done', 'failed'],
+    // `cancelled` (V55): khách chủ động huỷ. Tách khỏi `failed` vì đây
+  // KHÔNG phải lỗi — báo cáo và hỗ trợ phải phân biệt được "hỏng"
+  // với "người dùng đổi ý", và job huỷ thì không bao giờ tính tiền.
+  enum: ['queued', 'running', 'done', 'failed', 'cancelled'],
     default: 'queued',
   },
   sourceLang: { type: String, required: true },
