@@ -81,6 +81,17 @@ const DEFAULTS = {
   // (guardrail 5) thay vì treo mãi ở `running`.
   'cloud.render.heartbeat.stale.minutes': 5,
   'cloud.render.sweep.interval.minutes': 2,
+  // V50 — job `queued` quá lâu mà không worker nào nhận thì tự fail VÀ hoàn
+  // Vox. Trước V50 không ai đụng tới trạng thái `queued`: khách trả tiền,
+  // job nằm im vĩnh viễn, không cả dấu vết lỗi.
+  'cloud.render.queue.stale.minutes': 15,
+  // V50 — ngưỡng cảnh báo dung lượng kho file job (GridFS, xem V45). Gói
+  // hiện tại có 20 GB dùng chung cho cả DB nên 2 GB là mức đáng nhìn lại,
+  // không phải mức nguy hiểm.
+  'storage.warn.mb': 2048,
+  // V50 — trước đây hạn mức này hardcode ở 2 chỗ (route + service) nên sửa 1
+  // chỗ là lệch chỗ kia; dub vốn đã đọc từ config, render thì chưa.
+  'cloud.render.max.upload.mb': 200,
   // Mini-spec V34a (docs/PLAN.md, Phase G) — PoC hạ tầng API lồng tiếng đầy
   // đủ. Constraint 1: KHÔNG billing thật ở PoC này — con số dưới đây CHỈ để
   // LOG chi phí giả định (audit.log), không bao giờ trừ Vox/quota thật.

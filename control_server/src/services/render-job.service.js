@@ -84,7 +84,7 @@ async function submitDemucsJob({ device, fileStream, ip = '' }) {
   // 413/rỗng chỉ lộ ra ở giữa chừng, mà trừ tiền rồi mới hỏng là mất tiền
   // của khách. Tiền luôn là bước SAU CÙNG trước khi tạo job.
   await writeUploadToDisk(fileStream, paths.input, {
-    maxMb: 200,
+    maxMb: Number(await config.get('cloud.render.max.upload.mb')) || 200,
     makeError: (code, message, statusCode) => new RenderJobError(code, message, statusCode),
     label: 'File audio',
   })
@@ -274,6 +274,71 @@ async function sweepStaleRunning(log = null) {
   return failed
 }
 
+/**
+ * Sweeper (mini-spec V50): job nằm `queued` quá lâu mà KHÔNG worker nào nhận
+ * — chuyển `failed` VÀ **hoàn lại Vox**.
+ *
+ * Lỗ hổng thật lúc audit 2026-08-17: `sweepExpired` chỉ dọn `done`/`failed`,
+ * `sweepStaleRunning` chỉ lo `running` — không ai đụng tới `queued`. Cộng
+ * với việc Vox bị trừ NGAY lúc nộp và hiện KHÔNG có worker render nào được
+ * triển khai, một job bấm nhầm sẽ nằm `queued` vĩnh viễn: khách mất tiền,
+ * không có kết quả, không có cả dấu vết lỗi để hỏi.
+ *
+ * Ranh giới hoàn tiền (cố ý khác `failJob`): chỉ hoàn khi **không có gì
+ * chạy cả**. Job đã được worker nhận rồi mới hỏng thì giữ nguyên chính sách
+ * cũ "đã tốn tài nguyên máy chủ, không hoàn" (docs/API.md) — trừ tiền cho
+ * việc đã làm là hợp lý, trừ tiền cho việc chưa từng bắt đầu thì không.
+ */
+async function sweepStaleQueued(log = null) {
+  const staleMinutes = Number(await config.get('cloud.render.queue.stale.minutes')) || 15
+  const staleBefore = new Date(Date.now() - staleMinutes * 60 * 1000)
+  const stale = await RenderJob.find(
+    { status: 'queued', createdAt: { $lt: staleBefore } },
+    { _id: 1, fingerprint: 1, creditCharged: 1 },
+  ).limit(200).lean()
+
+  let failed = 0
+  for (const j of stale) {
+    try {
+      // Điều kiện `status: 'queued'` nằm TRONG câu update: 2 lượt sweep chạy
+      // chồng nhau (hoặc worker vừa kịp claim) không được phép hoàn 2 lần.
+      const updated = await RenderJob.findOneAndUpdate(
+        { _id: j._id, status: 'queued', createdAt: { $lt: staleBefore } },
+        {
+          $set: {
+            status: 'failed',
+            completedAt: new Date(),
+            error: `Không máy xử lý nào nhận việc trong ${staleMinutes} phút — job tự chuyển lỗi và Vox đã được hoàn lại.`,
+          },
+        },
+        { new: true },
+      ).lean()
+      if (!updated) continue
+      failed += 1
+
+      if (updated.creditCharged > 0) {
+        const credit = require('./credit.service')
+        // `idempotencyKey` theo jobId: dù có gọi lại bằng đường nào cũng chỉ
+        // cộng đúng một lần vào sổ cái.
+        await credit.refund(updated.fingerprint, updated.creditCharged, {
+          idempotencyKey: `cloud-demucs-refund-${updated._id}`,
+          description: 'Hoàn Vox: tách nhạc trên cloud không có máy xử lý nhận việc',
+          metadata: { stage: 'demucs', jobId: String(updated._id) },
+        })
+        await audit.log({
+          action: 'cloud_render.demucs.refund',
+          actor: `device:${updated.fingerprint.slice(0, 8)}`,
+          target: String(updated._id),
+          after: { refunded: updated.creditCharged, reason: 'no_worker' },
+        })
+      }
+    } catch (err) {
+      if (log) log.warn({ err, jobId: j._id }, 'quét render job queued quá hạn thất bại')
+    }
+  }
+  return failed
+}
+
 module.exports = {
   RenderJobError,
   ensureUploadDir,
@@ -287,4 +352,5 @@ module.exports = {
   cleanupJob,
   sweepExpired,
   sweepStaleRunning,
+  sweepStaleQueued,
 }

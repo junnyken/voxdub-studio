@@ -4171,6 +4171,64 @@ không thử được nếu không có Windows" mới đóng được MỘT NỬ
 nhưng vẫn cần key. Nửa còn lại (dùng thử công khai) là quyết định kinh doanh,
 xem Guardrail 2.
 
+### V50 — Cloud render không được im lặng nuốt tiền + nhìn được dung lượng kho
+
+```
+V50 — Vá lỗ mất tiền của /v1/jobs/demucs + giám sát kho GridFS (Phase G,
+2026-08-17, phát hiện khi rà "còn việc gì chưa làm" sau V49)
+
+Context:
+- `/v1/jobs/demucs` trừ Vox NGAY lúc nộp, chính sách ghi rõ "mất tiền cả khi
+  job fail, không hoàn" (docs/API.md) — hợp lý khi job THẬT SỰ chạy.
+- Nhưng: `sweepExpired` chỉ dọn `done`/`failed`, `sweepStaleRunning` chỉ lo
+  `running`. KHÔNG AI đụng tới `queued`.
+- Và: trên Vibe Host hiện chỉ có 2 service (`voxdub-app`, `voxdub-dub-worker`)
+  — **không có worker render nào**, trong khi `cloud.render.enabled` = true và
+  GUI vẫn hiện ô "Xử lý tách nhạc trên cloud".
+- V45 đưa file job dub vào GridFS → video giờ nằm trong database, chưa có
+  chỗ nào nhìn thấy dung lượng.
+
+Goal:
+- Khách không bao giờ mất Vox cho một việc chưa từng chạy, và dung lượng kho
+  phải nhìn được trước khi nó thành sự cố.
+
+Constraints (Guardrails):
+1. GIỮ chính sách cũ: job đã được worker nhận rồi mới hỏng thì KHÔNG hoàn
+   (đã tốn tài nguyên thật). Chỉ hoàn khi chưa có gì chạy.
+2. Hoàn tiền phải idempotent — 2 lượt sweep chồng nhau không được cộng 2 lần.
+3. Không tự ý bật/tắt tính năng trên prod (cần ADMIN_TOKEN + là quyết định
+   của chủ dự án).
+4. Không chuyển kho file của render sang GridFS trong đợt này — worker render
+   đọc/ghi theo ĐƯỜNG DẪN FILE (thiết kế V12, chưa được chuyển sang HTTP như
+   dub-worker), đổi kho mà không đổi transport là làm hỏng một service không
+   test được.
+5. Hạn mức upload không được tồn tại ở 2 nơi.
+
+Scope:
+A. Domain model: không đổi.
+B. Services/engine: `renderJob.sweepStaleQueued()` (fail + hoàn Vox),
+   `storage.stats()`.
+C. API contract: `GET /v1/admin/storage`; 2 config mới
+   (`cloud.render.queue.stale.minutes`, `storage.warn.mb`) + 1 config đưa
+   hardcode vào (`cloud.render.max.upload.mb`).
+D. UI surfaces: không.
+E. Tests: 8 test hoàn phí + 5 test dung lượng + 8 test render trang /thu-dub.
+
+Success Criteria:
+- Job queued quá ngưỡng: chuyển failed VÀ số dư về đúng như trước khi nộp.
+- Job đã chạy/đã xong: tuyệt đối không hoàn.
+- Quét nhiều lần: đúng 1 dòng hoàn trong sổ cái.
+- Admin nhìn được tổng dung lượng + số file MỒ CÔI (file không còn job trỏ tới).
+```
+
+**Kết quả (2026-08-17)**: ✅ Xong. 13 test backend mới (8 hoàn phí + 5 dung
+lượng), 8 test render mới cho `/thu-dub`. Tổng: control_server **314 test
+(313 pass, 1 skip, 0 fail)**, website **39 test** (từ 31).
+**Cần chủ dự án quyết**: hiện KHÔNG có worker render nào chạy → nên (a) triển
+khai 1 worker render, hoặc (b) tắt `cloud.render.enabled` để không ai bấm vào
+một tính năng không thể chạy. V50 chỉ đảm bảo tiền được trả lại, không thay
+được quyết định đó. Xem `docs/TEST_LOG.md` mục V50.
+
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
 
 - Khảo sát Rask AI/ElevenLabs Dubbing/HeyGen/Camb.ai/Dubverse/Vidnoz (auto-dub)
@@ -4195,8 +4253,15 @@ xem Guardrail 2.
 
 ### Remaining Limits / Follow-ups của Phase G
 
-- **[ĐÃ XONG 2026-08-15] `control_server` production monitoring/backup cơ
-  bản** — bật `health_check_enabled` đúng path `/health` (mặc định Coolify
+- **[HẾT HIỆU LỰC TỪ 2026-08-17 — đọc cảnh báo trước khi tin mục này]**
+  Toàn bộ đoạn dưới đây mô tả monitoring + backup **của Coolify**. Ngày
+  2026-08-17 dự án chuyển sang Vibe Host nên **mất trắng cả hai**: không còn
+  Sentinel, không còn backup hàng ngày. Đừng đọc lướt thấy "ĐÃ XONG" rồi tưởng
+  dữ liệu vẫn được sao lưu. Thay thế: mini-spec **V48** (endpoint
+  `GET /v1/admin/backup` + `scripts/backup-pull.sh`) — nhưng V48 là sao lưu
+  KÉO, phải có một máy NGOÀI đặt cron gọi nó thì mới thật sự có bản sao lưu.
+- **[ĐÃ XONG 2026-08-15, chỉ đúng trên Coolify] `control_server` production
+  monitoring/backup cơ bản** — bật `health_check_enabled` đúng path `/health` (mặc định Coolify
   để tắt, trỏ `/`) — Coolify's Sentinel (đã bật sẵn cấp server) giờ có tín
   hiệu healthy/unhealthy chính xác. Backup MongoDB hàng ngày (3h sáng, lưu
   local trên server, giữ 14 bản/30 ngày) — live-verify thật bằng cách đổi

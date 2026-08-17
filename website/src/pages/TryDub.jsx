@@ -235,11 +235,17 @@ export default function TryDub() {
       <form onSubmit={submit} className="mt-6 rounded-lg border border-slate-200 p-5">
         <h2 className="font-semibold">2. Video và ngôn ngữ</h2>
 
+        {/* Nhãn tường minh: test render bắt được ô này vốn không có nhãn nào
+            — trình đọc màn hình cũng chỉ đọc được "chưa chọn tệp". */}
+        <label htmlFor="trydub-file" className="mt-3 block text-sm font-medium">
+          Video cần lồng tiếng
+        </label>
         <input
+          id="trydub-file"
           type="file"
           accept="video/*"
           onChange={(e) => setFile(e.target.files[0] || null)}
-          className="mt-3 block w-full text-sm"
+          className="mt-1 block w-full text-sm"
         />
         {file && (
           <p className={`mt-1 text-sm ${tooBig ? 'text-rose-600' : 'text-slate-600'}`}>

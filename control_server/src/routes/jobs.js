@@ -18,6 +18,7 @@
  * autodub_gui chưa gọi route này lần nào) — đây là client thật ĐẦU TIÊN.
  */
 const renderJob = require('../services/render-job.service')
+const config = require('../services/config.service')
 
 module.exports = async function jobsRoutes(fastify) {
   const { requireDevice } = require('../middleware/auth.middleware')
@@ -28,9 +29,11 @@ module.exports = async function jobsRoutes(fastify) {
   fastify.post('/demucs', {
     config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
   }, async (request, reply) => {
-    const data = await request.file({
-      limits: { fileSize: 200 * 1024 * 1024 },   // 200 MB — đủ audio 1 video dài
-    })
+    // V50: hạn mức đọc từ cấu hình (`cloud.render.max.upload.mb`) thay vì
+    // hardcode 2 chỗ như trước — sửa 1 chỗ mà quên chỗ kia là cách sinh ra
+    // "chặn ở tầng này, lọt ở tầng kia".
+    const maxMb = Number(await config.get('cloud.render.max.upload.mb')) || 200
+    const data = await request.file({ limits: { fileSize: maxMb * 1024 * 1024 } })
     if (!data) {
       return reply.code(400).send({ code: 'NO_FILE', message: 'Thiếu file audio.' })
     }

@@ -29,6 +29,7 @@ const gateway = require('../services/ai-gateway.service')
 const audit = require('../services/audit.service')
 const holdService = require('../services/hold.service')
 const backup = require('../services/backup.service')
+const storage = require('../services/job-storage.service')
 const { createApiKey } = require('../services/api-key.service')
 const { encrypt } = require('../utils/crypto')
 
@@ -692,6 +693,25 @@ module.exports = async function adminRoutes(fastify) {
       action: 'admin.apikey.revoke', target: String(key._id), ip: request.ip,
     })
     return { ok: true }
+  })
+
+  // ---------------------------------------------------- dung lượng kho ---
+  /**
+   * Dung lượng kho file job (mini-spec V50). Từ V45 video nằm TRONG database
+   * (GridFS) — tiện vì bền vững qua redeploy, nhưng cũng nghĩa là DB phình
+   * theo lượng job. Không có chỗ nhìn thì chỉ phát hiện khi hết dung lượng.
+   *
+   * `orphanFiles` > 0 nghĩa là có file không còn job nào trỏ tới — sweeper
+   * sót việc, cần xem log; đây là con số đáng theo dõi hơn cả tổng dung lượng.
+   */
+  fastify.get('/storage', async () => {
+    const s = await storage.stats()
+    const warnMb = Number(await config.get('storage.warn.mb')) || 2048
+    return {
+      ...s,
+      warnMb,
+      overWarnThreshold: s.totalMb > warnMb,
+    }
   })
 
   // ------------------------------------------------------- sao lưu DB ---

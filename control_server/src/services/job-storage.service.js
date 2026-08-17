@@ -93,6 +93,40 @@ async function listAll() {
   return files.map((f) => f.filename)
 }
 
+/**
+ * Thống kê dung lượng kho (mini-spec V50) — video giờ nằm TRONG database
+ * (V45), nên nếu không ai nhìn thì DB phình âm thầm tới lúc hết chỗ mới
+ * biết. Trả về đủ để cảnh báo sớm: tổng byte, số file, file cũ nhất, và
+ * phần mồ côi (file không còn job nào trỏ tới — dấu hiệu sweeper sót việc).
+ */
+async function stats() {
+  const files = await bucket().find({}).toArray()
+  const totalBytes = files.reduce((sum, f) => sum + (f.length || 0), 0)
+  const oldest = files.reduce(
+    (min, f) => (!min || f.uploadDate < min ? f.uploadDate : min), null,
+  )
+
+  // Job nào còn sống thì khoá của nó còn "có chủ"; khoá không thuộc job nào
+  // là rác — đúng thứ cần biết sớm chứ không phải khi hết dung lượng.
+  const DubApiJob = require('../models/DubApiJob')
+  const jobs = await DubApiJob.find({}, { _id: 1 }).lean()
+  const owned = new Set()
+  for (const j of jobs) {
+    owned.add(inputKey(String(j._id)))
+    owned.add(outputKey(String(j._id)))
+  }
+  const orphans = files.filter((f) => !owned.has(f.filename))
+
+  return {
+    files: files.length,
+    totalBytes,
+    totalMb: Math.round((totalBytes / 1024 / 1024) * 10) / 10,
+    oldestUploadedAt: oldest,
+    orphanFiles: orphans.length,
+    orphanBytes: orphans.reduce((sum, f) => sum + (f.length || 0), 0),
+  }
+}
+
 /** Xoá mọi file của 1 job (input + output) — dùng khi dọn job. */
 async function removeJob(jobId) {
   return (await remove(inputKey(jobId))) + (await remove(outputKey(jobId)))
@@ -125,5 +159,6 @@ module.exports = {
   remove,
   removeJob,
   listAll,
+  stats,
   writeUploadToStorage,
 }

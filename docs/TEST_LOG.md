@@ -5941,3 +5941,107 @@ nhận thấy đủ 4 chặng (kiểm key → tải lên → queued/running → 
   test component (đúng hiện trạng ghi trong `docs/ARCH.md`).
 - Trang chỉ phục vụ luồng dub. Các tính năng chỉ có trên desktop (lip-sync
   V32b, OCR che chữ V5, editor từng câu) vẫn không chạm được từ web.
+
+## V50 — Cloud render không im lặng nuốt tiền + giám sát kho (Phase G, 2026-08-17)
+
+### Audit Before Build
+
+Rà "còn việc gì chưa làm" sau V49 thì lộ ra một lỗ hổng nặng hơn thứ đang
+định sửa (vốn chỉ định chuyển file render sang GridFS cho bền vững):
+
+1. `/v1/jobs/demucs` **trừ Vox NGAY lúc nộp**, chính sách ghi rõ "mất tiền
+   cả khi job fail, không hoàn" — hợp lý khi job thật sự chạy.
+2. Nhưng đọc kỹ 2 sweeper: `sweepExpired` lọc
+   `status: {$in: ['done','failed']}`, `sweepStaleRunning` lọc
+   `status: 'running'`. **Không ai đụng tới `queued`.**
+3. Và `list_projects` trên Vibe Host chỉ có `voxdub-app` +
+   `voxdub-dub-worker` — **không có worker render nào tồn tại**, trong khi
+   `/v1/config/app` trả `cloudRenderEnabled: true` và GUI vẫn hiện ô "Xử lý
+   tách nhạc trên cloud".
+
+Cộng lại: bấm ô đó = mất 50 Vox, job nằm `queued` vĩnh viễn, không kết quả,
+không cả một dòng lỗi để người dùng biết mà hỏi. Đây không phải rủi ro giả
+định — nó là hành vi hiện tại của hệ thống đang chạy.
+
+### Design Choice
+
+**Ranh giới hoàn tiền** là phần khó, không phải cơ chế hoàn: chỉ hoàn khi
+**chưa có gì chạy** (job chưa từng được worker nhận). Job đã `running` rồi
+hỏng vẫn giữ nguyên chính sách cũ — trừ tiền cho việc đã làm là hợp lý, trừ
+tiền cho việc chưa từng bắt đầu thì không. Vì vậy 4 trong 8 test là nhóm
+"KHÔNG được hoàn".
+
+Idempotent 2 lớp: điều kiện `status: 'queued'` nằm TRONG `findOneAndUpdate`
+(2 lượt sweep chồng nhau chỉ 1 lượt thắng), và `idempotencyKey` theo jobId ở
+tầng sổ cái.
+
+**Cố ý KHÔNG chuyển kho file render sang GridFS đợt này** (dù V45 vừa làm
+đúng việc đó cho dub): worker render đọc/ghi theo ĐƯỜNG DẪN FILE — thiết kế
+V12, chưa từng được chuyển sang HTTP như dub-worker hôm nay. Đổi kho mà không
+đổi transport là làm hỏng một service tôi không có cách nào test (không được
+triển khai, không chạy được torch/demucs tại chỗ). Ghi thành Remaining Limit
+thay vì ship mù.
+
+Về dung lượng: `orphanFiles` (file không còn job nào trỏ tới) là con số đáng
+theo dõi hơn cả tổng dung lượng — nó là dấu hiệu sweeper sót việc, xuất hiện
+TRƯỚC khi hết chỗ.
+
+### Changed Files
+
+- `control_server/src/services/render-job.service.js` — `sweepStaleQueued()`
+- `control_server/src/services/job-storage.service.js` — `stats()`
+- `control_server/src/routes/admin.js` — `GET /v1/admin/storage`
+- `control_server/src/routes/jobs.js` + `render-job.service.js` — hạn mức
+  upload đọc từ config thay vì hardcode ở 2 chỗ
+- `control_server/src/services/config.service.js` — 3 config mới
+- `control_server/server.js` — nối `sweepStaleQueued` vào lịch quét render
+- `control_server/tests/render-stale-queued-refund.test.js` (8 test, mới)
+- `control_server/tests/storage-stats.test.js` (5 test, mới)
+- `website/src/pages/TryDub.test.jsx` (8 test, mới) + `src/test-setup.js`
+  + `vitest.config.js` + 3 devDependency testing-library
+- `website/src/pages/TryDub.jsx` — thêm nhãn cho ô chọn file
+- `docs/PLAN.md` — sửa mục backup "ĐÃ XONG 2026-08-15" thành cảnh báo HẾT
+  HIỆU LỰC (đó là tính năng Coolify, mất khi chuyển nền tảng)
+
+### Tests
+
+Hoàn phí (8): hoàn đúng số Vox + chuyển `failed`; ghi đúng 1 dòng vào sổ cái;
+quét 2 lần chỉ hoàn 1 lần; **không** đụng job mới nộp; **không** hoàn job
+`running`; **không** hoàn job `done`; job miễn phí vẫn fail nhưng không tạo
+dòng hoàn rỗng; ngưỡng đọc từ config.
+
+Dung lượng (5): kho rỗng không nổ; đếm đúng file/byte; **file mồ côi** được
+đếm riêng (kể cả khi job bị xoá sau); ngưỡng cảnh báo từ config; 401 khi
+thiếu token.
+
+Trang `/thu-dub` (8): ngôn ngữ đổ TỪ MÁY CHỦ (không hardcode); giá đổi theo
+chế độ nhạc nền; file quá cỡ bị chặn TRƯỚC khi gửi; chưa có key thì không gửi
+được; key đúng hiện quota; key sai hiện đúng thông báo máy chủ;
+**API key không bao giờ vào localStorage**; máy chủ tắt tính năng thì khoá nút.
+
+**2 lỗi thật do test bắt được:**
+1. `createdAt` là **immutable** trong Mongoose nên `Model.updateOne($set)` bỏ
+   qua KHÔNG BÁO LỖI — test back-date job cứ tưởng đã tạo job cũ, sweeper báo
+   "0 job", suýt kết luận nhầm là logic sai. Phải đi thẳng qua
+   `Model.collection.updateOne`.
+2. Ô chọn file trên `/thu-dub` **không có nhãn nào** — `getByLabelText` không
+   tìm thấy. Đã sửa ở TRANG (thêm `<label htmlFor>`) chứ không lách trong
+   test: trình đọc màn hình trước đó chỉ đọc được "chưa chọn tệp".
+
+Tổng: control_server **314 test (313 pass, 1 skip, 0 fail)**, website
+**39 test** (từ 31), build sạch.
+
+### Remaining Limits
+
+- **Không có worker render nào đang chạy** — V50 chỉ đảm bảo khách được hoàn
+  tiền sau 15 phút chờ, KHÔNG làm tính năng chạy được. Chủ dự án cần chọn:
+  (a) triển khai 1 worker render (cần CPU/RAM — gói hiện tại đã dùng 3.5/4
+  core, 5.5/8 GB), hoặc (b) tắt `cloud.render.enabled` để không ai bấm vào
+  một tính năng không thể chạy. Đổi config cần `ADMIN_TOKEN`.
+- **File render vẫn nằm trên đĩa container** → vẫn mất qua redeploy. Chỉ nên
+  làm cùng lúc với việc chuyển worker render sang HTTP transport (như
+  dub-worker đã làm), và chỉ khi worker đó thật sự tồn tại để test.
+- `GET /v1/admin/storage` mới chỉ đếm kho của **dub** (`dubfiles`); file
+  render nằm trên đĩa nên không vào thống kê này.
+- Chưa có cảnh báo chủ động khi vượt ngưỡng (chỉ trả cờ `overWarnThreshold`,
+  phải có người gọi endpoint mới biết).

@@ -85,6 +85,8 @@ async function main() {
       const [expired, staleFailed] = await Promise.all([
         renderJobService.sweepExpired(app.log),
         renderJobService.sweepStaleRunning(app.log),
+        // V50 — job không worker nào nhận: fail + hoàn Vox.
+        renderJobService.sweepStaleQueued(app.log),
       ])
       if (expired > 0) app.log.info({ expired }, 'đã dọn render job hết hạn TTL')
       if (staleFailed > 0) {
