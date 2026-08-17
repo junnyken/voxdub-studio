@@ -48,8 +48,9 @@ ROW_SUBTITLE_TRANSLATE = 12  # Dịch phụ đề rời (mini-spec V14, docs/PLA
 ROW_EDITOR_LAUNCHER = 13
 
 ROW_ACCOUNT = 14    # Tài khoản: ví Vox, kích hoạt mã, lịch sử
+ROW_CHARACTERS = 15  # Hồ sơ nhân vật xuyên tập (mini-spec V62)
 
-PAGE_COUNT = 15
+PAGE_COUNT = 16
 
 # (số thứ tự, nhãn ở thanh bên, tiêu đề trang, mô tả trang, biểu tượng, nhóm)
 PAGES: list[tuple[int, str, str, str, object, str]] = [
@@ -88,6 +89,9 @@ PAGES: list[tuple[int, str, str, str, object, str]] = [
     (ROW_SUBTITLE_TRANSLATE, "Dịch phụ đề",  "Dịch phụ đề rời",
      "Dịch 1 file .srt/.vtt độc lập, không cần dự án lồng tiếng nào",
      icons.captions, "tools"),
+    (ROW_CHARACTERS, "Hồ sơ nhân vật", "Hồ sơ nhân vật",
+     "Giữ cùng một giọng cho cùng một nhân vật qua nhiều tập",
+     icons.user, "tools"),
     # Nhóm "second" — HỆ THỐNG
     (ROW_ACCOUNT,   "Tài khoản",         "Tài khoản",
      "Số Vox còn lại, kích hoạt mã và lịch sử sử dụng",
@@ -122,7 +126,7 @@ _PREWARM_ORDER = (ROW_HELP, ROW_SETTINGS, ROW_NEW, ROW_PROJECTS,
                   ROW_BATCH, ROW_DOWNLOAD, ROW_EDITOR,
                   ROW_VOICE, ROW_TRANSLATE, ROW_SUBTITLE, ROW_QUALITY,
                   ROW_SUBTITLE_TRANSLATE,
-                  ROW_EDITOR_LAUNCHER, ROW_ACCOUNT)
+                  ROW_EDITOR_LAUNCHER, ROW_ACCOUNT, ROW_CHARACTERS)
 _PREWARM_START_MS = 700     # chờ khung hình đầu vẽ xong rồi mới dựng
 _PREWARM_GAP_MS = 250       # nghỉ giữa hai trang để giao diện luôn mượt
 _PREFLIGHT_DELAY_MS = 1200  # kiểm tra máy sau khi cửa sổ đã hiện xong
@@ -345,6 +349,9 @@ class MainWindow(QMainWindow):
                 SubtitleTranslatePage,
             )
             page = SubtitleTranslatePage(self._fresh_settings, self.pages)
+        elif row == ROW_CHARACTERS:
+            from autodub_gui.pages.character_page import CharacterPage
+            page = CharacterPage(self._fresh_settings, self.pages)
         elif row == ROW_ACCOUNT:
             from autodub_gui.pages.account_page import AccountPage
             page = AccountPage(self._fresh_settings, self.pages)

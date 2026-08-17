@@ -6823,3 +6823,77 @@ trường (đặt 0.99 thì cosine 0.98 không còn khớp).
 - `setup_diarization.py` vẫn cài không ghim phiên bản. Không ghim là có chủ
   đích (để nhận bản vá), và worker giờ chịu được cả 2 dòng — nhưng nếu
   pyannote 5.x đổi tiếp thì phải sửa lại chỗ chuẩn hoá này.
+
+
+## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
+
+### V62 — Trang quản lý hồ sơ nhân vật
+
+Xem/đổi tên/đổi giọng/xoá nhân vật + sửa quy ước dịch của series. Cố ý KHÔNG
+cho tạo hồ sơ rỗng: hồ sơ sinh ra khi dub tập đầu, tạo rỗng ở đây chỉ đẻ thêm
+hồ sơ không ai dùng.
+
+Cột **"Nhận diện"** nói rõ nhân vật nào khớp bằng embedding (chính xác) và
+nhân vật nào mới chỉ có cao độ (dễ lẫn với người cùng giới) — người dùng biết
+chỗ nào đáng nghi thay vì tin mù vào danh sách.
+
+Chặn khi lưu: tên trùng và tên rỗng. Cả hai phá chính cơ chế khớp —
+`voice_for()` lấy cái đầu tiên, `remember()` cập nhật nhầm người.
+
+**Bug tự soi ra khi rà lại (đã sửa)**: đang sửa dở mà đổi sang series khác thì
+nạp đè luôn, **mọi thứ vừa gõ biến mất không một lời nào**. Mất dữ liệu âm
+thầm là kiểu tệ nhất: người dùng chỉ phát hiện khi mở lại và thấy tên cũ. Giờ
+có cờ "chưa lưu" + hỏi lại, và bấm «Ở lại để lưu» thì combo quay về đúng hồ sơ
+đang sửa chứ không trôi mất.
+
+### V63 — "Chạy như lần trước"
+
+Hoá ra 90% đã có sẵn: nháp `draft_project.json` lưu toàn bộ lựa chọn và tự nạp
+lúc mở app. Thứ thiếu chỉ là **đường tắt**: chọn video xong bấm một nút, nhảy
+thẳng bước cuối và chạy. Nút chỉ hiện ở bước 1, chỉ khi THẬT SỰ có nháp cũ, và
+không hiện ở bước cuối (chỗ đó đã có nút "Bắt đầu lồng tiếng" — hai nút cùng
+nghĩa cạnh nhau chỉ làm người dùng phân vân).
+
+### V64 — "Đáng sửa trước" + mở thẳng Editor
+
+`autodub/quality_rank.py` (mới) — hàm thuần, tách hẳn khỏi GUI vì quy tắc xếp
+hạng là thứ đáng test kỹ và sẽ còn chỉnh.
+
+Thang điểm cố ý thô và **giải thích được**: chồng tiếng (nghe là biết ngay) >
+đọc nhanh (giọng bị ép, >1.3 là nghe rõ méo) > dài quá chỗ trống (nhẹ nhất).
+Công thức tinh vi mà không ai kiểm chứng nổi thì tệ hơn thang thô có lý do.
+
+Thứ tự **ổn định** (cùng điểm → theo số câu tăng dần): hai lần mở cùng một báo
+cáo phải ra cùng thứ tự, nếu không người dùng tưởng dữ liệu đang đổi.
+
+### Tests (+32, tổng 1265 Python)
+
+V62 (12): liệt kê + nạp hồ sơ; cột "nhận diện" phân biệt embedding/cao độ;
+cột số liệu bị KHOÁ; đổi tên lưu được mà **không mất embedding/số tập**; tên
+trùng bị chặn và **không ghi đè file**; tên rỗng bị chặn; xoá phải hỏi và tôn
+trọng nút Huỷ; xoá không chọn dòng thì cảnh báo chứ không nổ; chưa có hồ sơ
+thì giải thích cách tạo; **đổi series khi đang sửa dở phải hỏi**; đã lưu rồi
+thì không hỏi nữa.
+
+V63 (5): ẩn khi chưa có lần chạy trước; hiện ở bước 1; ẩn ở bước cuối; chưa
+chọn video thì từ chối; **nhảy sang bước cuối TRƯỚC khi chạy** (bấm xong mà
+vẫn đứng ở bước 1 thì người dùng tưởng nút hỏng).
+
+V64 (15): chồng tiếng xếp trên câu hơi dài; đọc nhanh hơn xếp trên đọc chậm;
+câu sạch = 0 điểm và **không lọt vào danh sách**; giới hạn 5; **thứ tự ổn
+định**; dữ liệu rác không làm nổ; mô tả liệt kê đủ vấn đề; thẻ không dựng khi
+không có gì đáng sửa; nút mở Editor đi qua đúng cửa sổ chính; cảnh báo khi
+chưa chọn dự án; degrade khi trang được dựng ngoài cửa sổ chính.
+
+**1265 passed, 6 skipped, 0 failed** (Python) + **325 test Node (324 pass, 1
+skip, 0 fail)**; smoke test toàn app exit 0.
+
+### Remaining Limits
+
+- V62 chưa cho gộp 2 nhân vật (khi hệ thống tách nhầm một người thành hai).
+  Cần một thao tác "gộp" riêng — xoá một cái là mất embedding đã tích luỹ.
+- V64 mở Editor ở mức DỰ ÁN, chưa nhảy tới đúng câu. Editor hiện chưa có API
+  chọn câu theo id; thêm được nhưng là thay đổi ở trang khác.
+- V63 dùng lại nháp gần nhất, chưa có "hồ sơ cấu hình" đặt tên (vd cấu hình
+  cho phim vs cho vlog). Đủ cho việc lặp hằng ngày, chưa đủ cho nhiều loại
+  nội dung song song.

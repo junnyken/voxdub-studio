@@ -293,6 +293,31 @@ class CharacterProfile:
             by_name[name] = new
 
 
+def list_profiles(profiles_dir: str) -> list[str]:
+    """Tên các hồ sơ đã có, sắp theo bảng chữ cái.
+
+    Đọc TÊN THẬT bên trong file chứ không suy từ tên file: tên file là slug
+    đã bỏ dấu + băm (xem `_slug`), không đọc ngược ra «Phim Cổ Trang» được.
+    Hồ sơ hỏng bị bỏ qua im lặng ở đây — trang quản lý chỉ liệt kê thứ mở
+    được, còn cảnh báo hỏng là việc của lúc nạp để dub.
+    """
+    if not os.path.isdir(profiles_dir):
+        return []
+    names: list[str] = []
+    for filename in sorted(os.listdir(profiles_dir)):
+        if not filename.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(profiles_dir, filename), encoding="utf-8") as fh:
+                raw = json.load(fh)
+            name = str(raw.get("name") or "").strip()
+            if name:
+                names.append(name)
+        except (OSError, ValueError):
+            continue
+    return sorted(set(names), key=str.lower)
+
+
 def apply_translation_context(profile: "CharacterProfile", settings) -> list[str]:
     """Áp xưng hô/thuật ngữ/ngữ cảnh của series LÊN cấu hình của lượt chạy.
 

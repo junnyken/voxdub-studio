@@ -106,6 +106,9 @@ class NewProjectPage(BasePage):
         self._draft_timer.setInterval(_DRAFT_DEBOUNCE_MS)
         self._draft_timer.timeout.connect(self._save_draft)
         self._build()
+        # V63: có nháp thật (lần chạy trước) hay không — quyết định có bày
+        # nút "Chạy như lần trước" hay không.
+        self._has_previous_config = os.path.isfile(self._draft_path())
         self._load_draft()
         self._refresh_cloud_render_info()
         self._refresh_lipsync_info()
@@ -254,6 +257,16 @@ class NewProjectPage(BasePage):
         self.profile_input.setMaximumWidth(220)
         self.profile_input.setVisible(False)
 
+        # V63 — bỏ qua 6 bước cho việc lặp lại hằng ngày. Nháp đã lưu sẵn
+        # toàn bộ lựa chọn lần trước (và tự nạp lúc mở app), nên thứ duy nhất
+        # còn thiếu là đường tắt: chọn video xong bấm chạy luôn.
+        self.btn_run_as_last = PrimaryButton("Chạy như lần trước")
+        self.btn_run_as_last.setToolTip(
+            "Dùng lại toàn bộ lựa chọn của lần chạy trước (giọng, nhạc nền, "
+            "phụ đề, ngôn ngữ) — chỉ cần chọn video mới ở bước 1.")
+        self.btn_run_as_last.clicked.connect(self._run_as_last)
+        self.btn_run_as_last.setVisible(False)
+
         self.btn_preview = GhostButton(f"Nghe thử {PREVIEW_SECONDS} giây")
         self.btn_preview.setToolTip(
             f"Chỉ lồng tiếng {PREVIEW_SECONDS} giây đầu để nghe giọng và cách "
@@ -265,6 +278,7 @@ class NewProjectPage(BasePage):
         row.addWidget(self.btn_clear_draft)
         row.addStretch()
         row.addWidget(self.btn_stop)
+        row.addWidget(self.btn_run_as_last)
         row.addWidget(self.profile_input)
         row.addWidget(self.btn_preview)
         row.addWidget(self.btn_next)
@@ -369,6 +383,12 @@ class NewProjectPage(BasePage):
         # (dự án đó đã chạy rồi, nghe thử lại 30 giây đầu là vô nghĩa).
         at_run_step = self.pages.currentIndex() == _RUN_INDEX
         is_resume = self.step_video.source.current_key() == "resume"
+        # Chỉ có nghĩa ở bước 1 (chọn video xong là chạy được ngay) và khi
+        # THẬT SỰ có lần chạy trước để dùng lại. Lần đầu mở app mà bày nút
+        # "như lần trước" là vô nghĩa.
+        self.btn_run_as_last.setVisible(
+            self.pages.currentIndex() == 0 and not is_resume
+            and self._has_previous_config)
         self.btn_preview.setVisible(at_run_step and not is_resume)
         # Hồ sơ nhân vật chỉ có nghĩa khi tách được người nói — bày ra lúc
         # tính năng đó đang tắt là hứa suông (đúng nếp V53).
@@ -770,6 +790,20 @@ class NewProjectPage(BasePage):
         request = self._build_request()
         if request is not None:
             self._launch(request)
+
+    def _run_as_last(self) -> None:
+        """Chạy ngay bằng cấu hình lần trước (mini-spec V63).
+
+        Không sửa gì trong cấu hình — nháp đã nạp sẵn lúc mở app, người dùng
+        chỉ vừa đổi video. Nhảy sang bước cuối TRƯỚC khi chạy để họ thấy tiến
+        trình, thay vì bấm xong rồi đứng nhìn bước 1 không đổi gì.
+        """
+        ok, reason = self.step_video.is_complete()
+        if not ok:
+            TOASTS.warn(reason)
+            return
+        self._go_to_step(_RUN_INDEX)
+        self._start()
 
     def _multi_speaker_on(self) -> bool:
         """Tách người nói (V26) có đang bật không — đọc từ cấu hình thật."""

@@ -19,9 +19,11 @@ from PySide6.QtWidgets import (
 from autodub.workdir import data_path
 from autodub_gui import icons, tokens
 from autodub_gui.pages import BasePage
+from autodub_gui.ui.buttons import GhostButton
 from autodub_gui.ui.cards import Card, StatCard
 from autodub_gui.ui.empty import EmptyState, LoadingState
 from autodub_gui.ui.style import clear_background
+from autodub_gui.ui.toast import TOASTS
 
 _TABLE_MIN_H = 300   # chiều cao tối thiểu bảng chi tiết segment
 
@@ -186,6 +188,16 @@ class QualityPage(BasePage):
             token_card = self._build_token_card(translate_usage)
             self._body_layout.insertWidget(1, token_card)
 
+        # V64 — "5 câu đáng sửa nhất" đứng TRƯỚC bảng đầy đủ.
+        #
+        # Video 300 câu có thể ra 40 dòng "cần xem lại", và người dùng không
+        # biết bắt đầu từ đâu — bảng liệt kê đủ nhưng không trả lời được câu
+        # hỏi thật sự của họ: "sửa cái nào trước?".
+        top = self._build_top_issues(per_segment)
+        if top is not None:
+            self._body_layout.insertWidget(
+                2 if translate_usage else 1, top)
+
         # Bảng chi tiết các câu có vấn đề
         if per_segment:
             table = self._build_segment_table(per_segment)
@@ -256,6 +268,59 @@ class QualityPage(BasePage):
             card.body.addLayout(row)
 
         return card
+
+    def _build_top_issues(self, segments: list[dict]) -> QWidget | None:
+        """Thẻ «câu đáng sửa nhất» kèm nút mở thẳng Trình chỉnh sửa."""
+        from autodub.quality_rank import worst_segments
+
+        worst = worst_segments(segments, limit=5)
+        if not worst:
+            return None
+
+        card = Card(padding=tokens.SP_4, spacing=tokens.SP_2)
+        card.add_header(f"Đáng sửa trước ({len(worst)} câu)")
+
+        for seg in worst:
+            row = QHBoxLayout()
+            row.setSpacing(tokens.SP_2)
+
+            label = QLabel(
+                f"Câu {seg.get('id', '?')} — {seg['issue']}\n"
+                f"{str(seg.get('text') or seg.get('text_vi') or '')[:90]}")
+            label.setWordWrap(True)
+            row.addWidget(label, 1)
+
+            btn = GhostButton("Mở để sửa")
+            btn.setToolTip("Mở dự án này trong Trình chỉnh sửa để sửa câu đó")
+            btn.clicked.connect(self._open_in_editor)
+            row.addWidget(btn)
+
+            holder = QWidget()
+            holder.setLayout(row)
+            # `Card` chỉ có `add_header`; phần thân thêm thẳng vào `card.body`
+            # (đúng cách các thẻ khác trong trang này đang dùng).
+            card.body.addWidget(holder)
+        return card
+
+    def _current_work_dir(self) -> str:
+        """Thư mục dự án đang xem — lấy từ chính ô chọn dự án ở đầu trang."""
+        return str(self.project_combo.currentData() or "")
+
+    def _open_in_editor(self) -> None:
+        """Mở dự án đang xem trong Trình chỉnh sửa.
+
+        Đi qua cửa sổ chính (`open_editor`) chứ không tự dựng editor: chỉ có
+        nó biết cách chuyển trang và cập nhật banner dự án đang mở.
+        """
+        work_dir = self._current_work_dir()
+        if not work_dir:
+            TOASTS.warn("Chưa chọn dự án nào.")
+            return
+        window = self.window()
+        if hasattr(window, "open_editor"):
+            window.open_editor(work_dir)
+        else:
+            TOASTS.warn("Không mở được Trình chỉnh sửa từ đây.")
 
     def _build_segment_table(self, segments: list[dict]) -> QWidget:
         card = Card(padding=tokens.SP_4, spacing=tokens.SP_2)

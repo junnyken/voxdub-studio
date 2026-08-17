@@ -142,3 +142,56 @@ def test_empty_profile_means_no_profile(page, monkeypatch, tmp_path):
 
     assert req is not None
     assert req.character_profile == "", "để trống = hành vi cũ, không hồ sơ"
+
+
+# --- V63: "Chạy như lần trước" -------------------------------------------
+
+def test_shortcut_hidden_when_there_is_no_previous_run(page):
+    """Lần đầu mở app mà bày nút «như lần trước» là vô nghĩa."""
+    page._has_previous_config = False
+    page._go_to_step(0)
+
+    assert page.btn_run_as_last.isHidden()
+
+
+def test_shortcut_shows_at_step_one_when_a_draft_exists(page):
+    page._has_previous_config = True
+    page._go_to_step(0)
+
+    assert not page.btn_run_as_last.isHidden()
+
+
+def test_shortcut_hidden_on_later_steps(page):
+    """Ở bước cuối đã có nút «Bắt đầu lồng tiếng» rồi — hai nút cùng nghĩa
+    cạnh nhau chỉ làm người dùng phân vân."""
+    page._has_previous_config = True
+    page._go_to_step(npp._RUN_INDEX)
+
+    assert page.btn_run_as_last.isHidden()
+
+
+def test_shortcut_refuses_when_no_video_chosen(page, monkeypatch):
+    warned = []
+    monkeypatch.setattr(npp.TOASTS, "warn", lambda m, *a, **k: warned.append(m))
+    started = []
+    monkeypatch.setattr(page, "_start", lambda: started.append(True))
+    monkeypatch.setattr(page.step_video, "is_complete",
+                        lambda: (False, "Chưa chọn video"))
+
+    page._run_as_last()
+
+    assert not started, "chưa có video thì không được chạy"
+    assert warned == ["Chưa chọn video"]
+
+
+def test_shortcut_jumps_to_the_run_step_before_starting(page, monkeypatch, tmp_path):
+    """Bấm xong mà vẫn đứng ở bước 1 thì người dùng tưởng nút hỏng."""
+    order = []
+    monkeypatch.setattr(page.step_video, "is_complete", lambda: (True, ""))
+    monkeypatch.setattr(page, "_go_to_step",
+                        lambda i: order.append(("step", i)))
+    monkeypatch.setattr(page, "_start", lambda: order.append(("start", None)))
+
+    page._run_as_last()
+
+    assert order == [("step", npp._RUN_INDEX), ("start", None)]

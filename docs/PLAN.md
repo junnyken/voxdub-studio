@@ -4546,6 +4546,52 @@ tiếng Việt bị băm mất dấu nên «Phim Cổ Trang» và «Phim Có Tra
 file — hai series ghi đè hồ sơ của nhau; (b) `_apply_character_profile` đọc
 `req` ngoài scope (đã nêu ở V57). 1230 test, 0 fail. Xem `docs/TEST_LOG.md`.
 
+### V62–V64 — Ba việc chủ dự án chọn sau khi xem app thật
+
+```
+V62 — Trang quản lý hồ sơ nhân vật (Phase H, 2026-08-18)
+V63 — "Chạy như lần trước": bỏ qua 6 bước wizard cho việc lặp hằng ngày
+V64 — Báo cáo chất lượng chủ động: "5 câu đáng sửa nhất" + mở thẳng Editor
+
+Context:
+- V57–V61 dựng xong phần máy của hồ sơ nhân vật nhưng muốn đổi tên
+  `SPEAKER_00` thành «Lý Tứ» vẫn phải mở file JSON bằng tay.
+- Nháp (`draft_project.json`) ĐÃ lưu sẵn toàn bộ lựa chọn và tự nạp lúc mở
+  app — thứ còn thiếu chỉ là đường tắt tới nút chạy.
+- Trang Báo cáo chất lượng liệt kê MỌI câu có vấn đề: video 300 câu ra 40
+  dòng, không trả lời được câu hỏi thật "sửa cái nào trước?".
+
+Constraints (Guardrails):
+1. V62 KHÔNG cho tạo hồ sơ rỗng — hồ sơ sinh ra khi dub tập đầu.
+2. Cột số liệu hệ thống đo (số tập, cách nhận diện) phải KHOÁ, gõ tay vào chỉ
+   tạo dữ liệu sai.
+3. Tên nhân vật trùng/rỗng phải bị chặn khi lưu — chúng phá chính cơ chế khớp.
+4. V63 chỉ hiện khi THẬT SỰ có lần chạy trước.
+5. V64 không được đưa câu "không có gì để sửa" vào danh sách đáng sửa.
+6. Quy tắc xếp hạng phải là hàm thuần, test được, không chôn trong code dựng
+   bảng.
+
+Design Choice:
+- V62 hiện cột "Nhận diện" nói rõ nhân vật nào khớp bằng embedding (chính
+  xác) và nhân vật nào chỉ có cao độ (dễ lẫn) — người dùng biết chỗ nào đáng
+  nghi thay vì tin mù.
+- V64 thang điểm CỐ Ý thô và giải thích được: chồng tiếng > đọc nhanh > dài
+  quá chỗ trống, xếp theo mức khó chịu KHI XEM. Công thức tinh vi mà không ai
+  kiểm chứng nổi thì tệ hơn.
+- Thứ tự xếp hạng ổn định (cùng điểm → theo số câu): hai lần mở cùng một báo
+  cáo phải ra cùng thứ tự, nếu không người dùng tưởng dữ liệu đang đổi.
+
+Success Criteria:
+- Đổi tên nhân vật trong GUI, tập sau vẫn nhận đúng người (embedding/số tập
+  không mất).
+- Chọn video xong bấm 1 nút là chạy với đúng cấu hình lần trước.
+- Mở báo cáo là thấy ngay 5 câu nên sửa, bấm là vào thẳng Editor.
+```
+
+**Kết quả (2026-08-18)**: ✅ Cả 3. **1 bug tự soi ra và sửa**: đổi series khi
+đang sửa dở làm mất trắng thay đổi, không một lời cảnh báo. 1265 test Python
+(+32), 325 test Node, 0 fail. Xem `docs/TEST_LOG.md`.
+
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
 
 - Khảo sát Rask AI/ElevenLabs Dubbing/HeyGen/Camb.ai/Dubverse/Vidnoz (auto-dub)
