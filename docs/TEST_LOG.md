@@ -6341,3 +6341,64 @@ sạch tuyệt đối tại chỗ (trước đó luôn có "1 fail đã biết")
 Trên production có thể có vài `Device` rác do các lượt chạy test trước đây
 tạo ra (fingerprint từ test). Xem `/v1/admin/devices` và xoá nếu thấy —
 tôi không kiểm được vì cần `ADMIN_TOKEN`.
+
+
+## V53 — Chế độ "xử lý trên máy chủ" trên GUI (Phase G, 2026-08-17)
+
+### Audit Before Build
+
+V51/V52 mới có ở CLI nên người dùng cuối chưa chạm được. Đọc `batch_page.py`
+và 2 tiền lệ đã có trong dự án cho tính năng "chỉ chạy được khi đủ điều
+kiện": ô "Xử lý tách nhạc trên cloud" (V12) và ô lip-sync (V32b) — cả hai đều
+**ẩn hẳn** khi máy chưa đủ điều kiện thay vì hiện ra rồi báo lỗi lúc bấm.
+
+Phải cài `PySide6`/`numpy`/`pydub` vào sandbox mới chạy được test GUI tại chỗ
+(trước đó 15 file lỗi collection). Chính việc cài này lộ ra bug suite gọi vào
+production — xem mục riêng phía trên.
+
+### Design Choice
+
+**Khoá đúng những gì máy chủ không làm.** Máy chủ chỉ làm lồng tiếng + nhạc
+nền; phụ đề, "chỉ xuất âm thanh", "giữ bộ giọng giữa các video" và "mức giảm
+tiếng gốc" đều không áp dụng. Để chúng bật mà vô tác dụng là hứa suông:
+người dùng chọn phụ đề rồi nhận video không phụ đề và không hiểu vì sao. Khoá
+kèm một dòng ghi chú nói rõ ranh giới.
+
+**Chặn liên kết kèm lời giải thích.** API máy chủ nhận file tải lên, không tự
+tải video từ URL. Âm thầm bỏ qua những dòng đó là kiểu hỏng tệ nhất — người
+dùng tưởng đã chạy hết.
+
+**Không giả vờ có tiến trình theo giai đoạn.** `BatchWorker` phát
+`ProgressEvent` theo từng bước pipeline; `CloudBatchWorker` thì không có gì
+để phát vì không bước nào chạy trên máy này — chỉ chuyển tiếp dòng nhật ký từ
+máy chủ. Bịa ra thanh tiến trình giai đoạn sẽ là nói dối về nơi công việc
+đang diễn ra.
+
+### Tests (7 mới, GUI offscreen)
+
+ô ẩn khi chưa cấu hình / hiện khi đã cấu hình; bật lên khoá đúng 4 tuỳ chọn +
+hiện ghi chú; tắt đi khôi phục lại; liên kết bị từ chối KÈM lý do và không
+nộp gì; file nằm ở 2 thư mục khác nhau bị từ chối rõ ràng; worker nhận đúng
+tuỳ chọn người dùng đã chọn (thư mục nguồn, `bg_mode`, thư mục kết quả riêng).
+
+**1 bug thật do test bắt**: gọi `self.opt_voice.current_name()` — `VoicePicker`
+không hề có hàm đó (API thật là `voice()`). Nếu không có test GUI thì lỗi này
+chỉ nổ đúng lúc người dùng bấm Bắt đầu ở chế độ máy chủ, tức là ở tay khách.
+
+**2 lỗi trong chính test** (ghi lại vì dễ lặp): `BatchItem` dùng
+`url=`/`file_path=` chứ không có `key=` (key là property suy ra); và
+`isVisibleTo()` luôn False khi trang chưa `show()` — thứ cần kiểm là
+`isHidden()` (bị ẩn CÓ CHỦ Ý), không phải "mắt có nhìn thấy không".
+
+Toàn suite: **1176 passed, 6 skipped, 0 failed**. Smoke test toàn app
+(`AUTODUB_SMOKE=1`, dựng đủ mọi trang kể cả trang Batch vừa sửa): **exit 0**.
+
+### Remaining Limits
+
+- **Chưa click thử thật** — cần API key để ô này hiện ra ở máy thật.
+- Chế độ máy chủ chạy theo THƯ MỤC (lấy thư mục cha của các file đã chọn),
+  chưa nhận danh sách file rải rác nhiều nơi. Ràng buộc đến từ
+  `run_cloud_batch` chứ không phải GUI; nới thì phải sửa cả hai.
+- Chưa có nút Dừng thật cho chế độ máy chủ: job đã nộp vẫn chạy trên máy chủ
+  dù người dùng đóng app (và vẫn bị tính tiền). Dừng đúng nghĩa cần một
+  endpoint huỷ job phía máy chủ — chưa có.

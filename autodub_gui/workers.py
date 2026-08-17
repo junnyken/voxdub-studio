@@ -950,3 +950,53 @@ class MusicSfxWorker(QThread):
                 self.failed.emit(f"Loại thao tác không hợp lệ: {self._kind}")
         except Exception as e:  # noqa: BLE001
             self.failed.emit(str(e))
+
+
+class CloudBatchWorker(QThread):
+    """Đẩy cả loạt video lên MÁY CHỦ xử lý (mini-spec V53, dùng V51/V52).
+
+    Khác `BatchWorker` ở chỗ căn bản: không có pipeline nào chạy trên máy này
+    — chỉ upload, chờ, tải kết quả. Nên không có `ProgressEvent` theo giai
+    đoạn (tách nhạc/nghe chép/…) mà chỉ có dòng nhật ký từ máy chủ; giả vờ
+    hiện thanh tiến trình theo giai đoạn ở đây sẽ là bịa.
+    """
+
+    log = Signal(str, int)
+    finished_ok = Signal(object)      # BatchReport
+    failed = Signal(str)
+
+    def __init__(self, source_dir, output_dir, *, source_lang: str,
+                 target_lang: str, voice: str = "", bg_mode: str = "none",
+                 retry_done: bool = False, queue_ahead: int = 2, parent=None):
+        super().__init__(parent)
+        self._source = source_dir
+        self._output = output_dir
+        self._source_lang = source_lang
+        self._target_lang = target_lang
+        self._voice = voice
+        self._bg_mode = bg_mode
+        self._retry_done = retry_done
+        self._queue_ahead = queue_ahead
+
+    def run(self) -> None:
+        from autodub.cloud_batch import run_cloud_batch
+        from autodub.cloud_dub import CloudDubError
+
+        try:
+            report = run_cloud_batch(
+                self._source, self._output,
+                source_lang=self._source_lang,
+                target_lang=self._target_lang,
+                voice=self._voice,
+                bg_mode=self._bg_mode,
+                retry_done=self._retry_done,
+                queue_ahead=self._queue_ahead,
+                on_progress=lambda msg: self.log.emit(msg, 20),
+            )
+        except CloudDubError as err:
+            self.failed.emit(str(err))
+            return
+        except Exception as err:  # noqa: BLE001 — luồng nền không được chết câm
+            self.failed.emit(f"Lỗi không lường trước: {err}")
+            return
+        self.finished_ok.emit(report)

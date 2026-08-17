@@ -37,7 +37,7 @@ from autodub_gui.ui.progress import ThinProgressBar
 from autodub_gui.ui.table import Column, DataTable
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.widgets import LogPanel
-from autodub_gui.workers import BatchWorker
+from autodub_gui.workers import BatchWorker, CloudBatchWorker
 from autodub_gui.ui.style import clear_background
 from autodub_gui.log_text import Narrator, error_line
 
@@ -67,6 +67,19 @@ _PAUSE_TOOLTIP = ("Dừng lại — video đang xử lý sẽ tiếp tục từ 
                   "bạn chạy lại, phần đã làm không mất.")
 
 QUEUE_FILE = "batch_queue.json"     # danh sách chờ, sống qua các lần mở app
+
+
+def _cloud_dub_configured() -> bool:
+    """Có đủ địa chỉ máy chủ + API key để đẩy batch lên không.
+
+    Bọc trong hàm riêng để test thay được, và để lỗi import (môi trường
+    thiếu `requests` chẳng hạn) không làm sập cả trang.
+    """
+    try:
+        from autodub.cloud_dub import is_configured
+        return is_configured()
+    except Exception:  # noqa: BLE001 — thiếu điều kiện thì coi như không có
+        return False
 
 
 class BatchPage(BasePage):
@@ -265,12 +278,52 @@ class BatchPage(BasePage):
             [self.opt_lang, self.opt_voice, self.opt_bg, self.opt_duck,
              self.opt_subtitle, self._build_style_block()]))
 
+        # V53 — đẩy lên máy chủ. Theo đúng nếp của "Xử lý tách nhạc trên
+        # cloud" (V12) và ô lip-sync (V32b): ẨN hẳn khi máy chưa đủ điều
+        # kiện, không hiện ra rồi báo lỗi lúc bấm.
+        self.chk_cloud = QCheckBox("Xử lý trên máy chủ (không dùng máy này)")
+        self.chk_cloud.setToolTip(
+            "Gửi từng video lên máy chủ VoxDub xử lý, máy bạn chỉ tải lên và "
+            "tải kết quả về. Cần API key lồng tiếng (VOXDUB_API_KEY).")
+        self.lbl_cloud_note = QLabel(
+            "Máy chủ chỉ nhận FILE trên máy (không nhận liên kết), và chỉ làm "
+            "lồng tiếng + nhạc nền — phụ đề, chỉ-xuất-âm-thanh và kiểu chữ "
+            "không áp dụng.")
+        self.lbl_cloud_note.setWordWrap(True)
+        self.lbl_cloud_note.setVisible(False)
+        self.chk_cloud.toggled.connect(self._on_cloud_toggled)
+        self._cloud_available = _cloud_dub_configured()
+        self.chk_cloud.setVisible(self._cloud_available)
+
         self.chk_audio_only = QCheckBox("Chỉ xuất âm thanh và phụ đề")
         self.chk_reuse = QCheckBox("Giữ bộ giọng giữa các video để chạy nhanh hơn")
         self.chk_reuse.setChecked(True)
         self.chk_retry = QCheckBox("Làm lại cả những video đã xong")
         section.add_layout(self._grid(
-            [self.chk_audio_only, self.chk_reuse, self.chk_retry]))
+            [self.chk_audio_only, self.chk_reuse, self.chk_retry,
+             self.chk_cloud]))
+        section.add_widget(self.lbl_cloud_note)
+
+    def _on_cloud_toggled(self, on: bool) -> None:
+        """Khoá đúng những ô máy chủ KHÔNG làm.
+
+        Để chúng bật mà không có tác dụng là hứa suông: người dùng chọn phụ
+        đề rồi nhận video không phụ đề, không hiểu vì sao. Khoá kèm ghi chú
+        thì họ biết ngay ranh giới.
+        """
+        self.lbl_cloud_note.setVisible(on)
+        for widget in (self.opt_subtitle, self.chk_audio_only, self.chk_reuse):
+            widget.setEnabled(not on)
+        # Nhạc nền: máy chủ chỉ có bỏ hẳn hoặc tách bằng Demucs, không có
+        # "giảm tiếng gốc" — nên thanh trượt ducking vô nghĩa ở chế độ này.
+        if on:
+            self.opt_duck.setEnabled(False)
+        else:
+            self.opt_duck.setEnabled(self.opt_bg.current_key() == "duck")
+
+    def cloud_mode(self) -> bool:
+        """Có đang ở chế độ đẩy lên máy chủ không (dùng cho test + _launch)."""
+        return bool(self._cloud_available and self.chk_cloud.isChecked())
 
     @staticmethod
     def _grid(widgets: list[QWidget]) -> QGridLayout:
@@ -646,6 +699,9 @@ class BatchPage(BasePage):
         return confirmed
 
     def _launch(self, items: list[BatchItem]) -> None:
+        if self.cloud_mode():
+            self._launch_cloud(items)
+            return
         if self.is_running():
             TOASTS.warn("Đang có video chạy dở. Hãy đợi xong hoặc bấm Dừng.")
             return
@@ -684,6 +740,70 @@ class BatchPage(BasePage):
                       title=f"Xử lý hàng loạt {len(items)} video"),
             on_cancel=self._cancel)
         worker.start()
+
+
+    def _launch_cloud(self, items: list[BatchItem]) -> None:
+        """Đẩy lên máy chủ (mini-spec V53). Chặn TRƯỚC những gì không làm được."""
+        from pathlib import Path
+
+        if self.is_running():
+            TOASTS.warn("Đang có việc chạy dở. Hãy đợi xong hoặc bấm Dừng.")
+            return
+
+        links = [it for it in items if not Path(it.key).is_file()]
+        if links:
+            # Máy chủ nhận file tải lên, không tự tải video từ liên kết. Nói
+            # thẳng thay vì âm thầm bỏ qua những dòng đó.
+            TOASTS.warn(
+                f"{len(links)} mục là liên kết — máy chủ chỉ nhận file trên "
+                "máy. Hãy tải video về trước, hoặc bỏ chọn «Xử lý trên máy chủ».")
+            return
+
+        files = [Path(it.key) for it in items]
+        parents = {f.parent for f in files}
+        if len(parents) > 1:
+            TOASTS.warn("Chế độ máy chủ hiện chạy theo THƯ MỤC — hãy chọn các "
+                        "video nằm cùng một thư mục.")
+            return
+
+        settings = self._settings_provider()
+        output_dir = Path(getattr(settings, "output_dir", "") or "output") / "cloud"
+
+        self.log.reset_log()
+        self._set_running(True)
+
+        worker = CloudBatchWorker(
+            parents.pop(), output_dir,
+            source_lang=self.opt_lang.current_key(),
+            target_lang=getattr(settings, "target_lang", "vi") or "vi",
+            # `voice()` là API thật của VoicePicker — bản đầu tôi gọi
+            # `current_name()` (không tồn tại), test GUI bắt được ngay.
+            voice=self.opt_voice.voice() or "",
+            bg_mode=("demucs" if self.opt_bg.current_key() in ("demucs", "keep")
+                     else "none"),
+            retry_done=self.chk_retry.isChecked(),
+        )
+        worker.log.connect(self.log.append_log)
+        worker.finished_ok.connect(self._on_cloud_finished)
+        worker.failed.connect(self._on_failed)
+        worker.finished.connect(self._on_worker_done)
+        self._worker = worker
+        REGISTRY.start_job(
+            ActiveJob(kind="batch",
+                      title=f"Máy chủ xử lý {len(files)} video"),
+            on_cancel=lambda: None)
+        worker.start()
+
+    def _on_cloud_finished(self, report) -> None:
+        from autodub.cloud_batch import format_report
+
+        for line in format_report(report).splitlines():
+            self.log.append_log(line, 20)
+        if report.failed or report.stopped_early:
+            TOASTS.warn(f"Xong {len(report.succeeded)} video, "
+                        f"{len(report.failed)} hỏng — xem nhật ký.")
+        else:
+            TOASTS.info(f"Máy chủ đã xử lý xong {len(report.succeeded)} video.")
 
     def _cancel(self) -> None:
         if self._worker is None or not self._worker.isRunning():
