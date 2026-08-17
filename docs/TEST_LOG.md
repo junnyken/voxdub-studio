@@ -5423,3 +5423,129 @@ collection. Quay lại làm nốt GUI thay vì giữ nguyên quyết định cũ
   mở rộng đơn giản.
 - Vẫn CHƯA live-verify GPU thật + CHƯA billing Vox (xem 2 mục Remaining
   Limits phía trên, không đổi).
+
+## Chuyển nền tảng Coolify → Vibe Host + hardening lớp hosted dub (2026-08-17)
+
+Không phải mini-spec theo kế hoạch — phát sinh từ việc chủ dự án chuyển
+toàn bộ hạ tầng sang Vibe Host. Việc chuyển nền tảng lộ ra 3 bug THẬT có
+sẵn trong code (không phải lỗi nền tảng), sửa hết cùng phiên.
+
+### Bug portability lộ ra lúc chuyển (3 cái, đều đã sửa)
+
+1. **`worker-dub` bị health-check giết** — `dub_worker.py` là background
+   poller thuần, không mở HTTP; Vibe Host kiểm tra port 3000 không thấy ai
+   nghe → `NotOnNet` → crash loop. Thêm `_start_health_server()` (stdlib
+   `ThreadingHTTPServer`) chạy song song vòng poll. Commit `13d98ca`.
+2. **`control_server/server.js:41` mặc định `HOST=127.0.0.1`** — trong
+   container thì không ai ngoài nối được. `docker-compose.yml` che lỗi này
+   suốt vì ghi đè `HOST: 0.0.0.0` ở tầng `environment:`; nền tảng tự sinh
+   compose riêng thì KHÔNG có. Bake `ENV HOST=0.0.0.0` + `ENV PORT=3001` vào
+   `control_server/Dockerfile` (compose vẫn thắng → 0 thay đổi hành vi cũ).
+   Commit `b77b3df`.
+3. **`APP_ENCRYPTION_KEY` nền tảng tự sinh không đúng 64 hex** mà
+   `server.js:23-26` bắt buộc → crash loop. Không phải bug code (validation
+   đúng), nhưng ghi lại vì sẽ lặp lại ở mọi nền tảng có tính năng "tự sinh
+   secret": key có ràng buộc ĐỊNH DẠNG thì phải set tay
+   (`openssl rand -hex 32`), khác `JWT_SECRET` giá trị nào cũng chạy.
+
+### Bỏ phụ thuộc volume dùng chung — truyền file qua HTTP (`ea49859`)
+
+V34b gốc giả định `control_server` và `worker-dub` thấy chung 1 thư mục.
+Giả định này sai ngay khi rời `docker-compose`. Thay bằng
+`GET /internal/dub-jobs/:id/input` + `POST /internal/dub-jobs/:id/output`,
+gác bằng `getRunningJobForWorker()` (đúng điều kiện
+`{_id, workerId, status:'running'}` heartbeat/complete đã dùng), bẫy
+`CastError` → `409` để jobId sai định dạng không thành `500`.
+
+- Stream 2 chiều, KHÔNG `toBuffer()` (video hàng trăm MB); upload bị cắt
+  do vượt hạn mức → xoá file cụt + `413`, không báo "xong" với video hỏng.
+- HTTP là đường DUY NHẤT, không rẽ nhánh theo môi trường — compose local và
+  deploy tách máy chạy cùng mã.
+- **Bẫy đã tránh**: `process_job` bản cũ tắt heartbeat TRƯỚC khi ghi kết
+  quả; upload trăm MB mất vài phút nên `sweepStaleRunning` sẽ fail job giữa
+  chừng → chuyển upload vào TRONG lúc heartbeat còn sống.
+- **Verify thật đầu-cuối trên prod**: submit video 8s qua `POST /api/v1/dub`
+  → job `done`, `inputBytes: 83600` khớp CHÍNH XÁC file gửi lên,
+  `outputBytes: 126797`, tải kết quả về `ffprobe` ra h264+aac 8.82s thật.
+
+### Bug ngôn ngữ nguồn âm thầm rẽ nhánh dịch tay (`93c6878`)
+
+Phát hiện lúc test e2e trên prod. `SOURCE_LANG_MAP` vốn hỗ trợ CẢ dạng ngắn
+(`vi`) lẫn BCP-47, nhưng `pipeline.py:303` chỉ gọi `resolve_source_lang()`
+cho bước ASR, còn dòng 538 truyền `req.source_lang` THÔ vào `_auto_translate`
+→ `flores_code("vi")` = `None` → âm thầm rẽ sang `translate_pending` SAU KHI
+đã chạy hết ASR (tốn trọn thời gian xử lý rồi mới hỏng).
+
+- Sửa tại cửa vào bằng `DubRequest.__post_init__` chuẩn hoá đúng 1 lần (hàm
+  idempotent nên mọi chỗ gọi cũ không đổi).
+- **Bằng chứng trước/sau**: cùng job `sourceLang=vi` — trước `failed` +
+  `translate_pending`, sau `done` + video 126797 bytes.
+- Kèm theo: `POST /api/v1/dub` trước đây nhận chuỗi BẤT KỲ cho 2 tham số
+  ngôn ngữ → thêm `control_server/src/utils/dub-langs.js`, trả
+  `400 BAD_SOURCE_LANG`/`BAD_TARGET_LANG` kèm danh sách hợp lệ. Danh sách là
+  bản sao TAY của `autodub/languages.py` nên `tests/dub-langs.test.js` đọc
+  thẳng file Python để chặn trôi lệch (tự skip trên nhánh deploy rút gọn
+  không có `autodub/`).
+- **Contract dễ nhầm, ghi lại**: `sourceLang` nhận `vi` HOẶC `vi-VN`;
+  `targetLang` CHỈ nhận khoá ngắn `vi` — 2 định dạng khác nhau ở 2 tham số
+  đứng cạnh nhau.
+
+### Tự hoàn phí khi kết quả biến mất trước lúc giao (`6111899`)
+
+**Chứng minh bằng thực nghiệm, không phải suy đoán**: job `done`, tải kết
+quả trước redeploy → `200`; redeploy xong tải lại đúng job đó → `410
+RESULT_EXPIRED`, file biến mất dù Mongo vẫn `done` và ví ĐÃ trừ 150 Vox.
+Tức khách trả tiền mà không lấy được hàng nếu redeploy đúng lúc. Thông báo
+lỗi cũ còn gây hiểu nhầm ("đã tải trước đó hoặc quá hạn TTL").
+
+Vibe Host **không có volume bền vững** — xác nhận dứt điểm qua dashboard
+(tab "Cấu hình" chỉ có Tên miền/Tài nguyên/Biến môi trường; tab "Cài đặt"
+chỉ có Giới hạn IP + Xoá project) và MCP cũng không có tool volume. Chủ dự
+án chốt phương án hoàn phí tự động thay vì chờ nền tảng có volume.
+
+- `refundLostResult()` hoàn số phút đã trừ, ghi dòng ĐẢO (số âm) vào
+  `DubUsageLedger` để sổ cái giữ append-only. Claim quyền hoàn nằm TRONG
+  điều kiện `findOneAndUpdate` → poll nhiều lần chỉ hoàn đúng 1 lần.
+- **Phần khó là KHÔNG hoàn nhầm**: file mất còn 2 lý do chính đáng — đã tải
+  xong rồi `cleanupJob` dọn, và hết TTL. Thêm field `deliveredAt` (đặt lúc
+  stream đóng) + điều kiện `now < expiresAt` để loại 2 ca đó.
+- **Viết test lòi ra thêm 1 race**: request thua cuộc rơi xuống nhánh "đã
+  tải trước đó hoặc hết hạn" → báo SAI cho khách vừa được hoàn; sửa bằng
+  đọc lại job sau khi thua claim.
+- `tests/dub-refund-lost-result.test.js` (189 dòng) phủ cả 3 ca không-hoàn +
+  cách ly cross-key.
+- **Live-verified trên prod đúng kịch bản gây thiệt hại**: `dubMinutesUsed`
+  3 → job trừ thành 4 → redeploy làm mất file → khách gọi `/result` →
+  `410 RESULT_LOST_REFUNDED` + `minutesRefunded: 1` → quota về lại 3.
+
+### Kết quả test
+
+`node --test tests/*.test.js` trong `control_server`: **287 test, 286 pass,
+1 skip, 0 fail**. CI GitHub Actions (`Test (Python + Node)`) `success` trên
+đúng commit `6111899` — pytest chạy đủ trên `ubuntu-latest` (sandbox local
+thiếu `numpy`/`PySide6` nên không chạy được Python suite tại chỗ, dựa vào
+CI thật thay vì bỏ qua).
+
+### Remaining Limits
+
+- **Kết quả job vẫn không bền vững** — hoàn phí là lưới an toàn, không phải
+  cách chữa. Chữa thật cần object storage (S3-compatible), xem `docs/PLAN.md`.
+- **Sao lưu MongoDB chưa bật lại sau khi rời Coolify** — cơ chế backup hàng
+  ngày ghi "ĐÃ XONG 2026-08-15" là của Coolify, chuyển nền tảng là mất. DB
+  đang giữ ví/credit khách + key nhà cung cấp AI đã mã hoá.
+- **PayOS + Brevo chưa cấu hình trên nền tảng mới** → thanh toán và email
+  đang tắt (degrade sạch, không crash).
+
+## V47 — Phát hành v3.1.0 (2026-08-17)
+
+21 commit đã vào `main` sau tag `v3.0.1` (V39, V40, V41, V42, V43, V32b,
+V5 + toàn bộ hardening hosted dub ở trên) nhưng **không người dùng nào chạm
+được** — `release.yml` chỉ build khi push tag, và `website/src/pages/
+Download.jsx:7` trỏ `releases/latest`.
+
+- Bump `APP_VERSION` (`autodub_gui/app.py:33`) `3.0.1` → `3.1.0` TRƯỚC khi
+  tag — `autodub/updates.py:58` so `tag_name` của GitHub với hằng số này,
+  tag v3.1.0 mà quên bump thì bản mới sẽ tự báo "có bản mới" về chính nó.
+  Đúng quy trình đã dùng ở lượt `v3.0.1`.
+- Điều kiện tiên quyết đã kiểm tra thật trước khi tag: CI `Test (Python +
+  Node)` `success` trên đúng `6111899`; node test local 286/287 pass.

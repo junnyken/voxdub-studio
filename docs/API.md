@@ -314,11 +314,22 @@ lan — **Vox/phút trừ thật luôn tính lại SAU** theo `durationS` worker
 TRẢ VỀ NGAY (không đợi xử lý xong — dub mất nhiều phút):
 Response 200: `{jobId, status:"queued", async:true, bgMode, estimatedCostVoxPerMinute, reservedMinutes}`
 
+**Định dạng 2 tham số ngôn ngữ KHÁC NHAU** (dễ nhầm vì đứng cạnh nhau):
+`sourceLang` nhận khoá ngắn HOẶC BCP-47 (`vi` và `vi-VN` đều hợp lệ);
+`targetLang` CHỈ nhận khoá ngắn (`vi`, không phải `vi-VN`). Danh sách hợp
+lệ nằm ở `control_server/src/utils/dub-langs.js` — bản sao TAY của
+`autodub/languages.py`, có `tests/dub-langs.test.js` đọc thẳng file Python
+để chặn trôi lệch.
+
 Lỗi:
 - `409 CLOUD_DUB_DISABLED` — tính năng đang tắt
 - `402 DUB_QUOTA_EXCEEDED` — không đủ quota phút còn trống (đã dùng + đang
   giữ chỗ cho job khác + job này ước tính > hạn mức)
 - `400 MISSING_LANG` / `400 BAD_BG_MODE` / `400 NO_FILE` / `400 EMPTY_FILE`
+- `400 BAD_SOURCE_LANG` / `400 BAD_TARGET_LANG` (2026-08-17) — mã ngôn ngữ
+  không hỗ trợ, response kèm luôn danh sách hợp lệ. Chặn NGAY tại cửa vào:
+  trước đây chuỗi bất kỳ cũng lọt, job chạy hết bước ASR (tốn quota + vài
+  phút CPU worker) mới hỏng với lỗi mơ hồ không chỉ ra được sai ở đâu
 
 ### `GET /dub/:jobId`
 Response 200: `{jobId, status, error?, metrics? (khi done), costVox? (khi done), expiresAt}`
@@ -326,6 +337,41 @@ Response 200: `{jobId, status, error?, metrics? (khi done), costVox? (khi done),
 ### `GET /dub/:jobId/result`
 Tải video kết quả — **xoá file NGAY sau khi trả** (chính sách dữ liệu V9).
 `409 NOT_READY` nếu chưa `done`; `410 RESULT_EXPIRED` nếu đã tải/quá TTL.
+
+**`410 RESULT_LOST_REFUNDED` + tự hoàn phí (2026-08-17)** — nền tảng đang
+chạy (Vibe Host) KHÔNG có volume bền vững: redeploy là mất sạch file kết
+quả trong khi bản ghi Mongo vẫn `done` và quota phút ĐÃ bị trừ. Đã chứng
+minh bằng thực nghiệm trên prod (job done → tải được → redeploy → cùng job
+đó mất file). Vì vậy khi job `done` mà file biến mất **trước khi khách kịp
+tải**, server tự hoàn số phút đã trừ và trả:
+
+```json
+{"code":"RESULT_LOST_REFUNDED","minutesRefunded":1,"message":"..."}
+```
+
+Phân biệt với 2 ca mất file CHÍNH ĐÁNG (không hoàn): đã tải xong rồi
+`cleanupJob` dọn (nhận biết bằng field mới `deliveredAt`, đặt lúc stream
+đóng) và hết TTL (`now >= expiresAt`) — 2 ca này vẫn trả `410
+RESULT_EXPIRED` như cũ. Quyền hoàn nằm trong điều kiện `findOneAndUpdate`
+nên poll nhiều lần chỉ hoàn ĐÚNG 1 lần; dòng hoàn ghi số ÂM vào
+`DubUsageLedger` để sổ cái giữ nguyên tính append-only.
+
+### `POST /internal/dub-jobs/*` — API nội bộ cho `worker-dub` (không public)
+Xác thực `X-Worker-Token` (`WORKER_INTERNAL_TOKEN`), tách hẳn API key
+developer và device token. `claim` (nhận job) / `heartbeat` / `complete` /
+`fail` như `/internal/jobs/*` của V12, **cộng 2 đường truyền file thêm
+2026-08-17** khi bỏ phụ thuộc volume dùng chung:
+
+- `GET /internal/dub-jobs/:id/input` — stream video nguồn xuống worker
+- `POST /internal/dub-jobs/:id/output` — worker gửi video kết quả lên
+
+Cả hai gác bằng `getRunningJobForWorker()` (cùng điều kiện
+`{_id, workerId, status:'running'}` mà heartbeat/complete đã dùng), bẫy
+`CastError` → `409` để jobId sai định dạng không thành `500`. Stream 2
+chiều, KHÔNG `toBuffer()` (video hàng trăm MB); upload bị cắt do vượt hạn
+mức thì xoá file cụt + trả `413` thay vì báo "xong" với video hỏng. Đây là
+đường DUY NHẤT, không rẽ nhánh theo môi trường — chạy đúng cả trong
+`docker-compose` lẫn khi 2 service ở 2 máy khác nhau.
 
 ## Model (`src/models/`) — dựng lại 2026-08-10, xem `docs/TEST_LOG.md` V0
 

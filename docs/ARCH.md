@@ -135,6 +135,37 @@ như `translate.js` — nhận `sourceName`/`targetName` hiển thị từ clien
 không khả thi soạn luật riêng cho ~200 ngôn ngữ FLORES-200). Xem
 `docs/API.md`/`docs/TEST_LOG.md` mục V14.
 
+**Hosted dub API (mini-spec V31 → V34a → V34b → V43, hoàn thiện 2026-08-17):** lớp
+identity THỨ 2 song song device-fingerprint — API key developer (`Authorization: Bearer
+vx_live_…`, prefix `/api/v1/*`, middleware `requireApiKey` tách hẳn `requireDevice` của
+`/v1/ai/*`). V31 chỉ mở dịch văn bản; **V34b mở ASR+dịch+TTS+mux đầy đủ chạy hoàn toàn
+trên hạ tầng máy chủ** qua image Docker RIÊNG thứ 3: `control_server/worker-dub/
+dub_worker.py` (Python, CPU-only, poll `/internal/dub-jobs/*` bằng `X-Worker-Token`, spawn
+lại chính `autodub/` — KHÔNG rebuild pipeline). `POST /api/v1/dub` trả `{status:"queued"}`
+ngay; `DubApiJob` trong Mongo là nguồn sự thật duy nhất (không Redis/broker), heartbeat
+quá hạn thì `sweepStaleRunning` tự fail job. Billing dùng CẶP FIELD RIÊNG
+`dubMinutesQuota`/`dubMinutesUsed` (đơn vị PHÚT) trên cùng `ApiKey` — độc lập hoàn toàn
+với `quota`/`usageCount` của `/translate` và với ví Vox của desktop app. V43 thêm lớp giữ
+chỗ `dubMinutesReserved` để job `queued`/`running` không cho submit tràn hạn mức, nhưng
+tiền trừ THẬT vẫn tính lại sau theo `durationS` worker đo được.
+
+**Truyền file worker ⇄ server qua HTTP, KHÔNG volume dùng chung (2026-08-17):** bản V34b
+gốc giả định 2 container thấy chung 1 thư mục — sai ngay khi rời `docker-compose` (nền
+tảng hiện tại là Vibe Host, mỗi service 1 container độc lập). Đã thay bằng
+`GET /internal/dub-jobs/:id/input` + `POST /internal/dub-jobs/:id/output`, stream 2 chiều,
+không `toBuffer()`. Đây là đường DUY NHẤT — không rẽ nhánh theo môi trường, nên
+`docker-compose` local và deploy tách máy chạy CÙNG mã. Bẫy đã tránh: bản cũ tắt heartbeat
+TRƯỚC khi ghi kết quả, upload trăm MB mất vài phút nên sweeper sẽ fail job giữa chừng →
+upload phải nằm TRONG lúc heartbeat còn sống.
+
+**Kết quả job không bền vững + tự hoàn phí (2026-08-17):** Vibe Host không có volume bền
+vững (đã xác nhận dứt điểm qua dashboard + MCP), redeploy là mất file kết quả trong khi
+Mongo vẫn `done` và quota đã trừ — tức khách trả tiền mà không nhận được hàng. Giảm đau
+bằng `refundLostResult()` (`dub-job.service.js`): job `done` + file mất + CHƯA giao
+(`deliveredAt` rỗng) + chưa hết TTL → hoàn phút đã trừ, ghi dòng ÂM vào `DubUsageLedger`,
+trả `410 RESULT_LOST_REFUNDED`. Đây là lưới an toàn, KHÔNG phải cách chữa — chữa thật cần
+object storage (xem `docs/PLAN.md` Remaining Limits).
+
 ### 2.4 `website/` — Storefront + Admin
 
 React 18 + Vite + Tailwind + Zustand + react-router. Build ra static asset, được
@@ -158,6 +189,19 @@ Phía client: không có DB — toàn bộ state là file trên đĩa dưới `o
 - Đóng gói GUI (`autodub_gui`, PyInstaller onedir) **vẫn chỉ Windows**. `control_server`
   đã Docker hoá (mini-spec V7, `docker-compose.yml` ở root) — `docker compose up` chạy
   control_server+website+mongo, verify live 2026-08-10.
+- **Nền tảng chạy thật đã đổi Coolify → Vibe Host (2026-08-17).** 2 service:
+  `voxdub-app` (1 container = control_server + `website/dist` cùng port) và
+  `voxdub-dub-worker`; MongoDB do nền tảng tự provision. Vibe Host build theo model
+  "1 subdir = build context" và subdir CHỈ nhận thư mục con ở NGAY GỐC repo — cả 2
+  service đều cần context rộng hơn subdir của mình, nên deploy qua 2 nhánh phẳng SINH
+  TỰ ĐỘNG: `scripts/gen_vays_dub_worker_branch.sh` → `deploy/vays-dub-worker`,
+  `scripts/gen_vays_control_server_branch.sh` → `deploy/vays-control-server`. **Đổi code
+  trên `main` xong PHẢI chạy lại script tương ứng rồi mới redeploy** — không sửa tay file
+  sinh ra. 3 bug portability đã lộ ra và sửa trong lần chuyển này (worker không mở HTTP
+  nên bị health-check giết; `HOST=127.0.0.1` mặc định trong container; `APP_ENCRYPTION_KEY`
+  nền tảng tự sinh không đúng 64 hex).
+- **Vibe Host không có volume bền vững** — mọi thứ ghi ra đĩa (file job, kết quả dub, cache)
+  mất sau mỗi lần redeploy. Đừng thiết kế tính năng mới dựa trên giả định file sống lâu.
 - Audit Linux cho `autodub/` core (V7): **614/617 test pass trên Ubuntu Linux thuần**,
   không cần patch code. Chỉ 2 điểm khoá Windows thật sự (`ctypes.windll`/`nvidia-smi` cho
   GPU trong `speech/transcriber.py`) — không phải rào cản kiến trúc lớn để chạy Linux, chỉ
