@@ -143,8 +143,18 @@ Response: `{ jobId, status: "queued", async: true, balanceAfter }` — client
 PHẢI tự poll `GET /jobs/:jobId` tới khi `status` là `"done"`/`"failed"`.
 Lỗi: `400 NO_FILE`/`EMPTY_FILE`, `402 INSUFFICIENT_CREDIT`, `409 CLOUD_RENDER_DISABLED`,
 `413 UPLOAD_TOO_LARGE` (V44 — vượt 200 MB).
-Trừ Vox theo `credit.cost.cloud.demucs` (mặc định 50) NGAY LÚC NỘP — mất
-tiền cả khi job fail (đã tốn tài nguyên máy chủ), không hoàn.
+Trừ Vox theo `credit.cost.cloud.demucs` (mặc định 50) NGAY LÚC NỘP — job đã
+được máy xử lý nhận rồi mới hỏng thì KHÔNG hoàn (đã tốn tài nguyên thật).
+**V50 thu hẹp chính sách này**: job nằm `queued` quá
+`cloud.render.queue.stale.minutes` (mặc định 15) mà KHÔNG máy xử lý nào nhận
+→ tự chuyển `failed` **và hoàn lại đủ số Vox**. Trước V50 không sweeper nào
+đụng tới trạng thái `queued`: khách trả tiền, job nằm im vĩnh viễn, không cả
+một dòng lỗi. Ranh giới: trừ tiền cho việc đã làm là hợp lý, trừ tiền cho
+việc chưa từng bắt đầu thì không.
+
+> ⚠️ **Hiện chưa có máy xử lý render nào được triển khai** (2026-08-17) — mọi
+> job gửi vào đây sẽ đi đúng đường hoàn phí ở trên sau 15 phút. Chủ dự án cần
+> quyết: triển khai worker, hoặc tắt `cloud.render.enabled`.
 **V44 đổi THỨ TỰ bên trong** (không đổi contract): file được ghi xuống đĩa
 theo dòng TRƯỚC, trừ Vox SAU. Trước đây trừ tiền trước rồi mới ghi file —
 an toàn chỉ vì route đã chặn file quá cỡ từ đầu bằng `toBuffer()`; khi nhận
