@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Sinh nhánh deploy TỰ ĐỘNG `deploy/vays-dub-worker` cho VAYS (vibehost.matbao.ai).
 #
-# VAYS build theo model "1 subdir = build context" — không thấy được thư mục
-# anh em (xem docs/TEST_LOG.md mục "Ghi nhận: thử deploy lên VAYS"). Script
-# này copy autodub/ + 3 script cài đặt vào trong control_server/worker-dub/
-# TRÊN MỘT NHÁNH RIÊNG (không đụng main) để subdir đó tự chứa đủ code build
-# độc lập. KHÔNG sửa tay các file được sinh ra — sửa autodub/ trên main rồi
+# VAYS build theo model "1 subdir = build context", VÀ (xác nhận thật lúc
+# deploy 2026-08-17) subdir chỉ nhận THƯ MỤC CON Ở NGAY GỐC REPO — không nhận
+# đường dẫn lồng 2 cấp như `control_server/worker-dub` dù bên trong có đủ
+# Dockerfile (Source Validation báo "chọn 1 trong: control_server, website").
+# Script này dựng 1 thư mục GỐC MỚI `dub-worker/` (ngang hàng control_server/,
+# website/) chứa Dockerfile + dub_worker.py + autodub/ + 3 script cài đặt —
+# TRÊN MỘT NHÁNH RIÊNG (không đụng main). KHÔNG sửa tay các file được sinh
+# ra — sửa autodub/ hoặc control_server/worker-dub/Dockerfile trên main rồi
 # chạy lại script này.
 #
 # Chạy lại + force-push mỗi khi autodub/ hoặc 3 script setup đổi, trước khi
@@ -32,22 +35,28 @@ git worktree add -B "$BRANCH" "$WORKTREE_DIR" main >/dev/null
 
 cd "$WORKTREE_DIR"
 
-TARGET="control_server/worker-dub"
-rm -rf "$TARGET/autodub" "$TARGET/scripts"
+SRC="control_server/worker-dub"
+TARGET="dub-worker"
+
+rm -rf "$TARGET"
 mkdir -p "$TARGET/scripts"
 cp -r autodub "$TARGET/autodub"
 cp scripts/setup_whisper.py scripts/setup_vieneu.py scripts/setup_translate_local.py "$TARGET/scripts/"
+cp "$SRC/dub_worker.py" "$TARGET/dub_worker.py"
 
 # dub_worker.py giờ nằm ngay trong build context (không còn prefix control_server/worker-dub/)
-sed -i 's#^COPY control_server/worker-dub/dub_worker\.py /app/dub_worker\.py#COPY dub_worker.py /app/dub_worker.py#' "$TARGET/Dockerfile"
+sed 's#^COPY control_server/worker-dub/dub_worker\.py /app/dub_worker\.py#COPY dub_worker.py /app/dub_worker.py#' \
+  "$SRC/Dockerfile" > "$TARGET/Dockerfile"
 
 {
   echo "# ============================================================="
   echo "# FILE SINH TỰ ĐỘNG cho nhánh $BRANCH — KHÔNG sửa tay."
   echo "# Nguồn thật: control_server/worker-dub/Dockerfile trên main +"
   echo "# scripts/gen_vays_dub_worker_branch.sh. Sửa ở đó rồi chạy lại script."
-  echo "# Build context ở nhánh này = chính thư mục control_server/worker-dub/"
-  echo "# (đã copy sẵn autodub/ + scripts/ vào trong), KHÔNG phải gốc repo."
+  echo "# Thư mục này (dub-worker/, GỐC repo) chỉ tồn tại trên nhánh"
+  echo "# $BRANCH — VAYS subdir chỉ nhận thư mục con Ở NGAY GỐC repo, không"
+  echo "# nhận đường dẫn lồng như control_server/worker-dub (xác nhận thật"
+  echo "# lúc deploy 2026-08-17)."
   echo "# ============================================================="
   echo
   cat "$TARGET/Dockerfile"
