@@ -6750,3 +6750,76 @@ GUI: ô ẩn khi tách người nói tắt, hiện khi bật; tên hồ sơ tớ
   hiệu chỉnh trên dữ liệu thật của dự án.
 - GUI chưa có màn xem/sửa danh sách nhân vật trong hồ sơ (vẫn phải mở file
   JSON). Đủ dùng để chạy, chưa đủ để quản lý một series dài.
+
+## V61 — Khắc phục 2 rủi ro V59 tự khai (Phase H, 2026-08-18)
+
+Chủ dự án yêu cầu xử lý luôn 2 giới hạn mà V59 tự ghi ra: chưa kiểm chứng
+`return_embeddings` và ngưỡng cosine chưa hiệu chỉnh.
+
+### Kiểm chứng API — và một bug CÓ SẴN lộ ra
+
+Không có HF token nên không chạy được model, nhưng **không cần chạy mới kiểm
+được hợp đồng API**: tải mã nguồn thật của thư viện về đọc
+(`pip download --no-deps --no-binary :all:`), cả bản 3.1.1 lẫn 4.0.7.
+
+Kết quả — **hai phiên bản có API khác hẳn nhau**:
+
+| | 3.1.1 | 4.0.7 |
+|---|---|---|
+| Tham số | `apply(file, return_embeddings=True)` | KHÔNG có (nuốt vào `**kwargs`) |
+| Trả về | `(Annotation, ndarray)` | `DiarizeOutput(speaker_diarization, exclusive_speaker_diarization, speaker_embeddings)` |
+| Thứ tự embedding | theo `labels()` | theo `labels()` (comment trong mã nguồn ghi rõ) |
+
+Giả định "xếp theo `labels()`" của V59 là ĐÚNG — xác nhận bằng mã nguồn cả 2
+bản, không phải theo tài liệu.
+
+Nhưng lộ ra thứ nghiêm trọng hơn: **`scripts/setup_diarization.py` cài
+`pyannote.audio` KHÔNG ghim phiên bản**, nên máy nào cài hôm nay là ra 4.x.
+Trên 4.x, mã V26 gốc (`diarization = pipeline(audio)` rồi `.itertracks()`)
+gọi `.itertracks()` trên một `DiarizeOutput` — **không có hàm đó, diarization
+chết hoàn toàn**. Đây là bug CÓ SẴN TỪ V26, không phải do V59: chỉ là chưa ai
+chạy diarization trên máy cài mới nên chưa lộ. (V26 vốn cũng chưa từng
+live-verify — xem TEST_LOG mục V26.)
+
+Sửa: dò API bằng `inspect.signature(pipeline.apply)` TRƯỚC khi gọi (diarization
+chạy vài phút, không thể gọi thử rồi gọi lại), rồi chuẩn hoá cả 3 dạng trả về
+(DiarizeOutput / tuple / Annotation). Kết quả: chạy đúng trên CẢ 3.1.x lẫn 4.x
+— và 4.x còn cho embedding mà không cần cờ nào.
+
+### Ngưỡng: đo được thay vì đoán
+
+Không có dữ liệu thật thì không hiệu chỉnh được — nên thay vì giả vờ đã hiệu
+chỉnh, làm cho nó **đo được và chỉnh được**:
+
+- `VOXDUB_EMBEDDING_THRESHOLD` / `VOXDUB_EMBEDDING_MARGIN` — chỉnh bằng biến
+  môi trường, không phải sửa code.
+- **Biên an toàn** (`margin`): người khớp nhất phải hơn người khớp nhì ít
+  nhất 0.05. Hai nhân vật đều na ná mà đoán bừa chính là kiểu sai tệ nhất —
+  nhân vật A nói bằng giọng nhân vật B suốt cả tập.
+- `explain_matches()` ghi ra log ĐIỂM SỐ THẬT của từng người nói (gần nhất
+  bao nhiêu, kế tiếp bao nhiêu, kết luận gì). Chạy vài tập thật là có số liệu
+  để chỉnh ngưỡng cho đúng nội dung của mình.
+
+Docstring nói thẳng 0.72 là điểm khởi đầu thận trọng, KHÔNG phải con số đã
+hiệu chỉnh — thay vì để người đọc sau tưởng đã đo.
+
+### Tests (+3, tổng 1233)
+
+Khớp mập mờ bị từ chối dù vượt ngưỡng (2 nhân vật cosine gần bằng nhau);
+điểm số được báo cáo đúng dạng để hiệu chỉnh; ngưỡng đổi được bằng biến môi
+trường (đặt 0.99 thì cosine 0.98 không còn khớp).
+
+**1233 passed, 6 skipped, 0 failed**; smoke test toàn app exit 0.
+
+### Remaining Limits
+
+- Vẫn CHƯA chạy pyannote thật (không có HF token trong sandbox). Nhưng rủi ro
+  đã đổi bản chất: từ "đoán API theo tài liệu" thành "đã đối chiếu mã nguồn
+  thật của cả 2 phiên bản". Ca duy nhất còn sót là bản pyannote tương lai đổi
+  API lần nữa — lúc đó worker vẫn degrade sạch (cảnh báo + chạy không
+  embedding) chứ không chết.
+- Ngưỡng vẫn là giá trị khởi đầu; giờ có công cụ đo nhưng chưa có số liệu
+  thật. Cần chủ dự án chạy vài tập rồi xem log "Khớp nhân vật — ..." .
+- `setup_diarization.py` vẫn cài không ghim phiên bản. Không ghim là có chủ
+  đích (để nhận bản vá), và worker giờ chịu được cả 2 dòng — nhưng nếu
+  pyannote 5.x đổi tiếp thì phải sửa lại chỗ chuẩn hoá này.

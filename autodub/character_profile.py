@@ -39,11 +39,22 @@ MATCH_TOLERANCE_HZ = 18.0
 #: thu âm tệ không được kéo lệch hồ sơ đã đúng qua nhiều tập.
 PITCH_SMOOTHING = 0.25
 
-#: Ngưỡng cosine coi là CÙNG một người, khi có embedding thật (mini-spec
-#: V59). Embedding pyannote cho cùng người thường >0.8, người khác thường
-#: <0.5 — 0.72 nằm giữa, nghiêng về phía thận trọng vì khớp sai tệ hơn không
-#: khớp.
-EMBEDDING_MATCH_THRESHOLD = 0.72
+#: Ngưỡng cosine coi là CÙNG một người (mini-spec V59), CHỈNH ĐƯỢC qua biến
+#: môi trường `VOXDUB_EMBEDDING_THRESHOLD`.
+#:
+#: 0.72 là điểm khởi đầu thận trọng, KHÔNG phải con số đã hiệu chỉnh trên dữ
+#: liệu thật của dự án — nói thẳng như vậy thay vì để người đọc tưởng đã đo.
+#: Vì thế V61 làm 2 việc: cho chỉnh, và GHI RA LOG điểm số thật của mỗi lượt
+#: khớp để có dữ liệu mà chỉnh (xem `explain_matches`).
+EMBEDDING_MATCH_THRESHOLD = float(
+    os.environ.get("VOXDUB_EMBEDDING_THRESHOLD") or 0.72)
+
+#: Khoảng cách tối thiểu giữa người khớp NHẤT và người khớp nhì. Dưới mức
+#: này là "hai nhân vật đều na ná" — mà đoán bừa giữa hai người giống nhau
+#: chính là kiểu sai tệ nhất (nhân vật A nói bằng giọng nhân vật B suốt cả
+#: tập). Thà coi là người mới.
+EMBEDDING_MIN_MARGIN = float(
+    os.environ.get("VOXDUB_EMBEDDING_MARGIN") or 0.05)
 
 PROFILE_VERSION = 2
 
@@ -166,17 +177,31 @@ class CharacterProfile:
 
         # --- Vòng 1: embedding (chính xác hơn, ưu tiên tuyệt đối) ---------
         emb_pairs = []
+        self.last_scores = {}          # V61: để log/hiệu chỉnh ngưỡng
         for speaker, vector in embeddings.items():
             if not vector:
                 continue
-            for character in self.characters:
-                if not character.embedding:
-                    continue
-                score = _cosine(vector, character.embedding)
-                if score >= EMBEDDING_MATCH_THRESHOLD:
-                    # Xếp theo khoảng cách (1 - cosine) để dùng chung một
-                    # chiều "càng nhỏ càng gần" với vòng F0 bên dưới.
-                    emb_pairs.append((1.0 - score, speaker, character.name))
+            scored = sorted(
+                ((_cosine(vector, c.embedding), c.name)
+                 for c in self.characters if c.embedding),
+                reverse=True,
+            )
+            if not scored:
+                continue
+            best_score, best_name = scored[0]
+            runner_up = scored[1][0] if len(scored) > 1 else 0.0
+            self.last_scores[speaker] = (best_name, round(best_score, 4),
+                                         round(runner_up, 4))
+
+            if best_score < EMBEDDING_MATCH_THRESHOLD:
+                continue
+            if best_score - runner_up < EMBEDDING_MIN_MARGIN:
+                # Hai nhân vật đều na ná: đoán bừa ở đây là cho nhân vật A
+                # nói bằng giọng nhân vật B suốt cả tập.
+                continue
+            # Xếp theo khoảng cách (1 - cosine) để dùng chung một chiều
+            # "càng nhỏ càng gần" với vòng F0 bên dưới.
+            emb_pairs.append((1.0 - best_score, speaker, best_name))
 
         # --- Vòng 2: F0 cho những ai vòng 1 không phủ (hồ sơ cũ, pyannote
         # cũ, hoặc người nói thiếu embedding) -----------------------------
@@ -199,6 +224,25 @@ class CharacterProfile:
                 matched[speaker] = character_name
                 used_characters.add(character_name)
         return matched
+
+    def explain_matches(self) -> list[str]:
+        """Điểm số cosine thật của lượt khớp gần nhất, dạng người đọc được.
+
+        Có dòng này thì ngưỡng mới hiệu chỉnh được bằng SỐ LIỆU: chạy vài tập
+        thật, xem điểm của người khớp đúng và người bị từ chối, rồi chỉnh
+        `VOXDUB_EMBEDDING_THRESHOLD`. Không có nó thì mọi con số ngưỡng đều
+        chỉ là phỏng đoán.
+        """
+        lines = []
+        for speaker, (name, best, runner_up) in sorted(
+                getattr(self, "last_scores", {}).items()):
+            verdict = ("khớp" if best >= EMBEDDING_MATCH_THRESHOLD
+                       and best - runner_up >= EMBEDDING_MIN_MARGIN
+                       else "KHÔNG khớp")
+            lines.append(
+                f"{speaker}: gần nhất «{name}» {best:.3f}, "
+                f"kế tiếp {runner_up:.3f} → {verdict}")
+        return lines
 
     def voice_for(self, character_name: str) -> str:
         for c in self.characters:

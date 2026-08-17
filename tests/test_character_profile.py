@@ -335,3 +335,61 @@ def test_same_name_always_maps_to_the_same_file(tmp_path):
     second = CharacterProfile.path_for(str(tmp_path), "Phim Cổ Trang")
 
     assert first == second
+
+
+# --- V61: ngưỡng chỉnh được + biên an toàn + ghi điểm để hiệu chỉnh -------
+
+def test_ambiguous_match_is_refused_even_above_threshold(monkeypatch):
+    """Hai nhân vật đều na ná thì KHÔNG chọn bừa.
+
+    Đoán bừa giữa hai người giống nhau là kiểu sai tệ nhất: nhân vật A nói
+    bằng giọng nhân vật B suốt cả tập.
+    """
+    import autodub.character_profile as cp
+
+    profile = CharacterProfile(
+        name="Song sinh",
+        characters=[
+            Character(name="Anh", voice="V1", embedding=_vec(1.0, 0.0, 0.0)),
+            Character(name="Em", voice="V2", embedding=_vec(0.999, 0.045, 0.0)),
+        ],
+    )
+
+    matched = profile.match_speakers(
+        pitches={}, embeddings={"S0": _vec(1.0, 0.02, 0.0)})
+
+    assert matched == {}, "chênh lệch quá nhỏ giữa 2 ứng viên → coi là người mới"
+
+
+def test_scores_are_reported_for_threshold_tuning():
+    """Không có số liệu thì mọi ngưỡng đều là phỏng đoán."""
+    profile = _profile_with_embeddings()
+
+    profile.match_speakers(pitches={}, embeddings={"S0": _vec(0.0, 1.0, 0.0)})
+    lines = profile.explain_matches()
+
+    assert len(lines) == 1
+    assert "S0" in lines[0] and "Nam phụ" in lines[0]
+    assert "khớp" in lines[0]
+
+
+def test_threshold_is_configurable_by_env(monkeypatch, tmp_path):
+    """Chỉnh được bằng biến môi trường — hiệu chỉnh không cần sửa code."""
+    import importlib
+
+    monkeypatch.setenv("VOXDUB_EMBEDDING_THRESHOLD", "0.99")
+    import autodub.character_profile as cp
+    reloaded = importlib.reload(cp)
+    try:
+        profile = reloaded.CharacterProfile(
+            name="X",
+            characters=[reloaded.Character(name="A", voice="V",
+                                           embedding=[1.0, 0.0, 0.0])],
+        )
+        # cosine ~0.98 — qua mặc định 0.72 nhưng KHÔNG qua ngưỡng 0.99 vừa đặt.
+        matched = profile.match_speakers(
+            pitches={}, embeddings={"S0": [0.98, 0.2, 0.0]})
+        assert matched == {}
+    finally:
+        monkeypatch.delenv("VOXDUB_EMBEDDING_THRESHOLD", raising=False)
+        importlib.reload(reloaded)

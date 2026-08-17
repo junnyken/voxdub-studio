@@ -76,28 +76,50 @@ def main() -> None:
         _die(f"Không nạp được model diarization ({e})")
         return
 
-    # Mini-spec V59: xin luôn EMBEDDING của từng người nói.
+    # Mini-spec V59 (sửa lại ở V61 sau khi ĐỌC MÃ NGUỒN THẬT của pyannote):
+    # hai phiên bản có hai API khác hẳn nhau, và `scripts/setup_diarization.py`
+    # cài KHÔNG GHIM phiên bản nên máy nào cài hôm nay là ra bản 4.x.
     #
-    # `speaker-diarization-3.1` vốn ĐÃ tính embedding bên trong để gom nhóm —
-    # trước V59 nó bị vứt đi, và hồ sơ nhân vật (V57) phải khớp người bằng F0
-    # trung vị, một heuristic thô dễ lẫn hai người cùng giới. `return_embeddings`
-    # lấy đúng vector đó ra: KHÔNG thêm model, không thêm thời gian xử lý.
+    #   pyannote 3.1.x:  apply(file, return_embeddings=True) -> (Annotation, ndarray)
+    #   pyannote 4.x:    apply(file) -> DiarizeOutput(speaker_diarization,
+    #                    exclusive_speaker_diarization, speaker_embeddings)
+    #                    — KHÔNG có tham số `return_embeddings`; 4.x nuốt nó
+    #                    vào **kwargs nên truyền vào cũng không báo lỗi.
     #
-    # pyannote cũ hơn 3.1 không có tham số này → chạy lại bản không embedding
-    # thay vì chết (người dùng cài từ trước vẫn dub được, chỉ mất phần khớp
-    # chính xác).
+    # Bản V59 đầu tiên chỉ biết đường 3.1: trên 4.x nó unpack DiarizeOutput
+    # thất bại, rơi vào nhánh dự phòng rồi gọi `.itertracks()` trên
+    # DiarizeOutput (không có hàm đó) → chết cả lượt diarization. Đáng nói:
+    # lỗi này CÓ SẴN TỪ V26 chứ không phải do V59 — mọi máy cài pyannote 4.x
+    # đều không dùng được diarization, chỉ là chưa ai chạy thử để phát hiện.
+    #
+    # Dò API bằng chữ ký hàm TRƯỚC khi gọi: diarization chạy vài phút, không
+    # thể gọi thử rồi gọi lại.
     embeddings = None
     speaker_order: list[str] = []
     try:
+        import inspect
+
         try:
-            diarization, embeddings = pipeline(args.audio, return_embeddings=True)
+            supports_flag = "return_embeddings" in inspect.signature(
+                pipeline.apply).parameters
+        except (TypeError, ValueError):
+            supports_flag = False
+
+        result = (pipeline(args.audio, return_embeddings=True) if supports_flag
+                  else pipeline(args.audio))
+
+        if hasattr(result, "speaker_diarization"):          # pyannote 4.x
+            diarization = result.speaker_diarization
+            embeddings = getattr(result, "speaker_embeddings", None)
+        elif isinstance(result, tuple):                      # pyannote 3.1.x
+            diarization, embeddings = result
+        else:                                                # bản cũ hơn nữa
+            diarization = result
+
+        if embeddings is not None:
+            # Cả 2 phiên bản đều xếp embedding theo `labels()` — xác nhận
+            # bằng chính mã nguồn của thư viện, không phải theo tài liệu.
             speaker_order = list(diarization.labels())
-        except TypeError:
-            print(json.dumps({
-                "warn": "pyannote bản này không hỗ trợ return_embeddings — "
-                        "hồ sơ nhân vật sẽ khớp bằng cao độ giọng như trước.",
-            }), flush=True)
-            diarization = pipeline(args.audio)
     except Exception as e:  # noqa: BLE001 — lỗi thật lúc xử lý audio
         _die(f"Diarization thất bại ({e})")
         return

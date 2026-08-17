@@ -1135,6 +1135,12 @@ class DubPipeline:
                 len(pitches) - len(matched),
                 "embedding giọng" if embeddings else "cao độ giọng (F0)")
 
+            # V61: ghi ĐIỂM SỐ THẬT ra log — đây là dữ liệu duy nhất để hiệu
+            # chỉnh ngưỡng cosine cho đúng nội dung của người dùng, thay vì
+            # giữ mãi một con số phỏng đoán.
+            for line in profile.explain_matches():
+                logger.info("Khớp nhân vật — %s", line)
+
             profile.remember(matched, pitches, voice_map, genders,
                              embeddings=embeddings)
             profile.save(profiles_dir)
