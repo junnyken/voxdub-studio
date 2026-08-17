@@ -5673,3 +5673,100 @@ với file 250 MB (vượt trần 200 MB):
   nuốt trọn file vào RAM trước khi từ chối, tức tệ hơn về đúng thứ đang
   sửa. Muốn chặn sớm phải kiểm tra số dư trước khi đọc body — thêm 1 truy
   vấn/1 request, để lại nếu có bằng chứng bị lạm dụng thật.
+
+## V48 — Sao lưu MongoDB không phụ thuộc nền tảng (Phase G, 2026-08-17)
+
+### Audit Before Build
+
+`docs/PLAN.md` ghi "**[ĐÃ XONG 2026-08-15]** backup MongoDB hàng ngày (3h
+sáng, giữ 14 bản/30 ngày), live-verify thật" — nhưng đó là **tính năng của
+Coolify**, không phải mã trong repo. Chuyển sang Vibe Host ngày 2026-08-17
+là mất trắng khả năng đó, và mục ghi "đã xong" trong PLAN trở thành thông
+tin sai lệch nguy hiểm: đọc lướt sẽ tưởng vẫn còn sao lưu.
+
+Kiểm tra đường thay thế trước khi viết code:
+- MCP Vibe Host: **không có tool sao lưu nào** (chỉ deploy/env/log/resource).
+- `list_stacks` trả `[]` — MongoDB do nền tảng provision không lộ ra dạng
+  cụm để thao tác qua API.
+- Dashboard có mục "Sao lưu" nhưng chỉ bấm được bằng tay, không có API.
+- Dump ra đĩa trong container là **sao lưu giả vờ**: nền tảng không có
+  volume bền vững, file bay theo lần redeploy kế tiếp.
+
+DB đang giữ: ví/credit khách, đơn hàng, activation key, API key developer,
+khoá nhà cung cấp AI (đã mã hoá). Ngày 2026-08-17 đã mất sạch 1 lần thật.
+
+### Design Choice
+
+Đường trung thực duy nhất khi không có volume: **stream ra ngoài cho người
+gọi tự cất giữ**. `GET /v1/admin/backup` (X-Admin-Token, rate limit 3/phút)
+đọc cursor từng collection → NDJSON → gzip → HTTP, không file tạm, bộ nhớ
+phẳng bất kể DB to cỡ nào (cùng nguyên tắc V44 vừa làm).
+
+**EJSON chứ không JSON thường**: JSON biến `ObjectId` và `Date` thành chuỗi,
+khôi phục xong là đứt mọi quan hệ giữa các collection — lỗi này chỉ lộ ra
+đúng lúc cần khôi phục nhất. **NDJSON chứ không 1 mảng JSON**: nhập lại cũng
+đọc theo dòng được.
+
+Chế độ nhập mặc định là `upsert` (giữ bản ghi tạo sau lúc sao lưu), `--wipe`
+mới xoá sạch — vì tình huống thường gặp là "vá lại phần mất", không phải
+"quay ngược toàn bộ thời gian".
+
+### Changed Files
+
+- `control_server/src/services/backup.service.js` (mới) — `exportLines()`
+  generator + `importLines()`
+- `control_server/src/routes/admin.js` — `GET /v1/admin/backup`, ghi AuditLog
+- `control_server/scripts/backup-pull.sh` (mới) — kéo + xoay vòng N bản
+- `control_server/scripts/restore-backup.js` (mới) — khôi phục
+- `control_server/tests/backup.test.js` (mới, 5 test)
+
+### Tests
+
+Điều được test KHÔNG phải "endpoint có trả về gì đó" mà là **khôi phục xong
+có ra đúng dữ liệu cũ không** — sao lưu không restore được thì tệ hơn không
+có vì tạo cảm giác an toàn giả:
+
+1. không có admin token → 401 và response lỗi không chứa một byte dữ liệu
+2. xuất → có dòng siêu dữ liệu + đủ bản ghi mọi collection, đúng
+   `content-type: application/gzip` + tên file
+3. **vòng tròn xuất → XOÁ SẠCH → nhập lại**: số dư ví 1234 nguyên vẹn, chuỗi
+   tiếng Việt có dấu không hỏng, `_id` vẫn là `ObjectId` và khớp bản gốc,
+   trường thời gian vẫn là `Date`
+4. chế độ `upsert` ghi đè bản trùng `_id` nhưng KHÔNG xoá bản ghi tạo sau
+5. nhập lại 2 lần liên tiếp không nhân đôi (idempotent theo `_id`)
+
+**2 fail đầu tiên đều là lỗi TEST, không phải lỗi code**, ghi lại vì cả hai
+đều dễ đọc nhầm thành lỗi sản phẩm: (a) `assert total === 2` sai vì bản dump
+có thêm chính dòng AuditLog do lượt xuất sinh ra; (b) `gunzip` báo "incorrect
+header check" ở test thứ 5 — thực chất là **rate limit 3 lượt/phút của chính
+endpoint** trả JSON 429, không phải lỗi nén. Đã chuyển các test vòng tròn
+sang gọi thẳng `exportLines()` (đúng generator route dùng) thay vì đốt hạn
+mức qua HTTP.
+
+Toàn bộ suite: **298 test, 297 pass, 1 skip, 0 fail**, chạy lại 3 lần đều
+ổn định. Ghi nhận 1 lượt chạy duy nhất báo 11 fail rồi không tái hiện được ở
+3 lượt sau — nghi tranh chấp tài nguyên khi nhiều instance
+`mongodb-memory-server` khởi động cùng lúc (`node --test` chạy song song
+từng file), không phải lỗi trong thay đổi này; ghi lại để lần sau thấy lại
+thì có manh mối, không lờ đi.
+
+### Live Verification
+
+Trên prod chỉ xác nhận được phần KHÔNG cần bí mật: route tồn tại và chặn
+đúng khi thiếu token (`401`). Lượt kéo bản sao lưu thật cần
+`ADMIN_TOKEN` — chỉ chủ dự án có (biến bí mật trên Vibe Host, `list_env`
+không đọc ngược được giá trị). Lệnh để chủ dự án tự chạy nằm trong
+`docs/API.md` mục `GET /v1/admin/backup`.
+
+### Remaining Limits
+
+- **Vẫn là sao lưu KÉO, không phải tự động**: phải có 1 máy ngoài (laptop/
+  workspace/VPS) đặt cron gọi `backup-pull.sh`. Không có máy đó thì không có
+  sao lưu — nền tảng không cho lịch chạy nào và container không giữ file.
+- Bản dump là dữ liệu thật của khách ở dạng đọc được (trừ khoá nhà cung cấp
+  đã mã hoá). Nơi cất giữ phải được bảo vệ tương đương chính máy chủ.
+- Chưa nén/mã hoá bằng khoá riêng của người nhận (GPG). Cần nếu định gửi bản
+  sao lưu qua kênh không tin cậy — chưa làm vì hiện tại người kéo cũng chính
+  là chủ dự án.
+- Chưa thử nghiệm với DB lớn thật (DB hiện tại gần như rỗng) — cơ chế là
+  stream nên không có ngưỡng lý thuyết, nhưng chưa có số đo.

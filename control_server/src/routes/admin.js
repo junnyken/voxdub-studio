@@ -7,6 +7,12 @@
  * lời: nếu sau này có tranh cãi "ai đã cộng credit cho máy này", nhật ký là
  * thứ duy nhất trả lời được.
  */
+const { createGzip } = require('node:zlib')
+const { Readable } = require('node:stream')
+const { pipeline: pipelineStream } = require('node:stream/promises')
+
+const mongoose = require('mongoose')
+
 const Device = require('../models/Device')
 const ActivationKey = require('../models/ActivationKey')
 const Order = require('../models/Order')
@@ -22,6 +28,7 @@ const activation = require('../services/activation.service')
 const gateway = require('../services/ai-gateway.service')
 const audit = require('../services/audit.service')
 const holdService = require('../services/hold.service')
+const backup = require('../services/backup.service')
 const { createApiKey } = require('../services/api-key.service')
 const { encrypt } = require('../utils/crypto')
 
@@ -685,6 +692,43 @@ module.exports = async function adminRoutes(fastify) {
       action: 'admin.apikey.revoke', target: String(key._id), ip: request.ip,
     })
     return { ok: true }
+  })
+
+  // ------------------------------------------------------- sao lưu DB ---
+  /**
+   * Tải toàn bộ dữ liệu về máy người gọi (mini-spec V48).
+   *
+   * Đây là đường sao lưu KHÔNG phụ thuộc nền tảng: cơ chế backup hàng ngày
+   * cũ là tính năng của Coolify, chuyển sang Vibe Host là mất; nền tảng mới
+   * không có volume bền vững nên dump ra đĩa trong container cũng vô nghĩa
+   * (bay theo lần redeploy kế tiếp). Cách trung thực duy nhất là stream ra
+   * ngoài để người gọi tự cất giữ ở nơi sống lâu hơn container.
+   *
+   * Rate limit chặt: đây là endpoint đọc TOÀN BỘ dữ liệu, không phải thứ
+   * cần gọi nhiều lần một phút, và siết lại thì dò/lạm dụng cũng chậm theo.
+   */
+  fastify.get('/backup', {
+    config: { rateLimit: { max: 3, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    await audit.log({
+      action: 'admin.backup.export',
+      target: mongoose.connection?.db?.databaseName || 'unknown',
+      ip: request.ip,
+    })
+
+    reply
+      .header('content-type', 'application/gzip')
+      .header('content-disposition', `attachment; filename="voxdub-backup-${stamp}.ndjson.gz"`)
+
+    // Nén ngay trên đường ra, không dựng file tạm: vừa không cần đĩa (nền
+    // tảng không có volume), vừa giữ bộ nhớ phẳng theo đúng nguyên tắc V44.
+    const gzip = createGzip()
+    pipelineStream(Readable.from(backup.exportLines()), gzip).catch((err) => {
+      request.log.error({ err }, 'backup export hỏng giữa chừng')
+      gzip.destroy(err)
+    })
+    return reply.send(gzip)
   })
 }
 

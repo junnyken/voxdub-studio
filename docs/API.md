@@ -141,9 +141,15 @@ an toàn để đổi contract ngay bây giờ.
 Multipart, field `file` (audio, tối đa 200 MB).
 Response: `{ jobId, status: "queued", async: true, balanceAfter }` — client
 PHẢI tự poll `GET /jobs/:jobId` tới khi `status` là `"done"`/`"failed"`.
-Lỗi: `400 NO_FILE`/`EMPTY_FILE`, `402 INSUFFICIENT_CREDIT`, `409 CLOUD_RENDER_DISABLED`.
+Lỗi: `400 NO_FILE`/`EMPTY_FILE`, `402 INSUFFICIENT_CREDIT`, `409 CLOUD_RENDER_DISABLED`,
+`413 UPLOAD_TOO_LARGE` (V44 — vượt 200 MB).
 Trừ Vox theo `credit.cost.cloud.demucs` (mặc định 50) NGAY LÚC NỘP — mất
 tiền cả khi job fail (đã tốn tài nguyên máy chủ), không hoàn.
+**V44 đổi THỨ TỰ bên trong** (không đổi contract): file được ghi xuống đĩa
+theo dòng TRƯỚC, trừ Vox SAU. Trước đây trừ tiền trước rồi mới ghi file —
+an toàn chỉ vì route đã chặn file quá cỡ từ đầu bằng `toBuffer()`; khi nhận
+theo dòng thì lỗi 413 chỉ lộ ra giữa chừng, nên thứ tự cũ sẽ thành bẫy trừ
+tiền cho upload không bao giờ thành job. Upload hỏng nay KHÔNG trừ Vox.
 
 ### `GET /jobs/:jobId`
 Response: `{ jobId, stage, status, error?, creditCharged, expiresAt }`.
@@ -378,6 +384,29 @@ chiều, KHÔNG `toBuffer()` (video hàng trăm MB); upload bị cắt do vượ
 mức thì xoá file cụt + trả `413` thay vì báo "xong" với video hỏng. Đây là
 đường DUY NHẤT, không rẽ nhánh theo môi trường — chạy đúng cả trong
 `docker-compose` lẫn khi 2 service ở 2 máy khác nhau.
+
+## `GET /v1/admin/backup` — sao lưu toàn bộ dữ liệu (mini-spec V48)
+
+Header `X-Admin-Token`. Trả về **NDJSON nén gzip** dạng tải file
+(`voxdub-backup-<ISO>.ndjson.gz`), stream thẳng từ Mongo qua gzip ra HTTP —
+không dựng file tạm (nền tảng không có volume bền vững) và không giữ cả DB
+trong RAM. Rate limit 3 lượt/phút.
+
+Cấu trúc: dòng đầu là siêu dữ liệu
+`{"__meta":{version,createdAt,database,collections}}`, các dòng sau là
+`{"__collection":"devices","doc":{...}}`. Tuần tự bằng **EJSON** để giữ
+nguyên `ObjectId`/`Date` — JSON thường biến chúng thành chuỗi và khôi phục
+xong là hỏng mọi quan hệ.
+
+Khôi phục: `node scripts/restore-backup.js <file.ndjson.gz> [--wipe]`
+(mặc định `upsert` — ghi đè theo `_id`, giữ bản ghi tạo sau lúc sao lưu;
+`--wipe` xoá sạch collection trước khi nhập). Kéo định kỳ:
+`VOXDUB_ADMIN_TOKEN=... scripts/backup-pull.sh ~/voxdub-backups 14`.
+
+**KHÔNG nằm trong bản sao lưu**: `APP_ENCRYPTION_KEY`. Khoá nhà cung cấp AI
+trong DB đã mã hoá bằng khoá đó và khoá đó chỉ sống ở biến môi trường — mất
+file dump KHÔNG đồng nghĩa lộ khoá nhà cung cấp, nhưng khôi phục sang máy
+chủ có `APP_ENCRYPTION_KEY` khác thì các khoá đó thành rác và phải nhập lại.
 
 ## Model (`src/models/`) — dựng lại 2026-08-10, xem `docs/TEST_LOG.md` V0
 

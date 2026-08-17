@@ -3998,6 +3998,61 @@ Success Criteria:
 VmRSS`, cùng file, cùng máy, chỉ khác code. 293 test control_server (292
 pass, 1 skip, 0 fail). Xem `docs/TEST_LOG.md` mục V44.
 
+### V48 — Sao lưu MongoDB không phụ thuộc nền tảng
+
+```
+V48 — Khôi phục khả năng sao lưu đã mất khi rời Coolify (Phase G, 2026-08-17)
+
+Context:
+- Mục "Remaining Limits/Follow-ups của Phase G" ở dưới ghi backup hàng ngày
+  "ĐÃ XONG 2026-08-15" — nhưng đó là TÍNH NĂNG CỦA COOLIFY, không phải mã
+  trong repo. Chuyển nền tảng là mất trắng.
+- Nền tảng mới (Vibe Host): không volume bền vững, MCP không có tool sao
+  lưu, `list_stacks` trả rỗng, dashboard chỉ bấm tay được.
+- DB giữ ví/credit khách, đơn hàng, activation key, khoá nhà cung cấp AI
+  (đã mã hoá). Đã mất sạch 1 lần thật trong ngày chuyển nền tảng.
+
+Goal:
+- Luôn lấy được một bản sao lưu KHÔI PHỤC ĐƯỢC, không phụ thuộc nền tảng
+  đang chạy có hỗ trợ gì hay không.
+
+Constraints (Guardrails):
+1. Không dump ra đĩa trong container rồi coi là xong (nền tảng không có
+   volume — đó là sao lưu giả vờ).
+2. Không giữ cả DB trong RAM (đúng bài học vừa sửa ở V44).
+3. Không đưa bí mật ngoài DB (APP_ENCRYPTION_KEY) vào bản dump.
+4. Không thêm phụ thuộc dịch vụ ngoài (S3/credential mới) — đó là quyết
+   định hạ tầng của chủ dự án, không phải hệ quả của mini-spec này.
+5. Sao lưu KHÔNG khôi phục được thì tệ hơn không có → phải test vòng tròn
+   xuất → xoá sạch → nhập lại, không chỉ test "endpoint trả về 200".
+
+Scope:
+A. Domain model: không đổi.
+B. Services/engine: `backup.service.js` — `exportLines()`/`importLines()`.
+C. API contract: `GET /v1/admin/backup` (X-Admin-Token, gzip NDJSON).
+D. UI surfaces: không (2 script CLI: kéo định kỳ + khôi phục).
+E. Tests: `tests/backup.test.js` — trọng tâm là vòng tròn khôi phục.
+
+Design Choice:
+- Stream Mongo → NDJSON → gzip → HTTP, không file tạm.
+- EJSON thay JSON thường: giữ ObjectId/Date, nếu không thì khôi phục xong
+  đứt hết quan hệ giữa collection — và chỉ phát hiện đúng lúc cần nhất.
+- Nhập mặc định `upsert` (giữ bản ghi mới hơn bản sao lưu), `--wipe` mới xoá
+  sạch: tình huống thường gặp là vá lại phần mất, không phải quay ngược hết.
+
+Success Criteria:
+- Xoá sạch DB rồi khôi phục từ bản dump ra đúng dữ liệu cũ, đúng kiểu.
+- Không có admin token thì không lấy được một byte nào.
+- Nhập lại nhiều lần không nhân đôi dữ liệu.
+```
+
+**Kết quả (2026-08-17)**: ✅ Xong phần mã. 5 test mới (vòng tròn xuất → xoá
+sạch → nhập lại giữ nguyên số dư ví, `ObjectId`, `Date`). **Còn phụ thuộc 1
+việc của chủ dự án**: phải đặt cron gọi `scripts/backup-pull.sh` trên một máy
+NGOÀI (laptop/workspace/VPS) — không có máy đó thì vẫn không có bản sao lưu
+nào, vì nền tảng không cho đặt lịch và container không giữ file. Xem
+`docs/TEST_LOG.md` mục V48.
+
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
 
 - Khảo sát Rask AI/ElevenLabs Dubbing/HeyGen/Camb.ai/Dubverse/Vidnoz (auto-dub)
