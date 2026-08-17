@@ -5644,9 +5644,23 @@ Toàn bộ suite: **293 test, 292 pass, 1 skip, 0 fail** (`npm test`).
 
 ### Live Verification
 
-Chưa chạy trên prod tại thời điểm viết mục này — đo trên server thật dựng
-tại chỗ (cùng mã, in-memory Mongo). Xác nhận prod sau khi redeploy: xem
-mục bổ sung bên dưới.
+Đo RSS trên server thật dựng tại chỗ (cùng mã, in-memory Mongo) — bảng số
+ở mục Audit.
+
+**Trên PROD sau khi redeploy** (`voxdub-app`, deploy `037fc8d`,
+2026-08-17 19:52): đăng ký thiết bị dùng thử thật → `POST /v1/jobs/demucs`
+với file 250 MB (vượt trần 200 MB):
+
+- Trả về `{"code":"UPLOAD_TOO_LARGE","message":"File audio vượt quá 200 MB."}`
+  — đây là mã lỗi của CHÍNH `utils/upload-stream.js`; bản cũ sẽ trả mã
+  `FST_REQ_FILE_TOO_LARGE` do `@fastify/multipart` ném ra khi `toBuffer()`,
+  nên phản hồi này chứng minh code mới đang chạy thật, không phải suy đoán
+  từ trạng thái job deploy.
+- Số dư Vox: **500 trước → 500 sau** — upload hỏng không trừ tiền khách.
+- `/health` `uptimeS` chạy liên tục qua suốt lượt upload (45s → 106s, không
+  reset) — container KHÔNG restart, tức không OOM. Đây chính là kịch bản mà
+  bản cũ có nguy cơ giết tiến trình.
+- Thời gian: 9,3s cho 250 MB qua Internet.
 
 ### Remaining Limits
 
