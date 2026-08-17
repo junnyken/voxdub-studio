@@ -8,6 +8,7 @@ const NAV = [
   { to: '/bang-gia', label: 'Bảng giá' },
   { to: '/mua', label: 'Mua Vox' },
   { to: '/tai-ve', label: 'Tải ứng dụng' },
+  { to: '/thu-dub', label: 'Thử API' },
   { to: '/huong-dan', label: 'Hướng dẫn' },
 ]
 
@@ -178,6 +179,7 @@ export default function PublicLayout() {
               <li><Link to="/mua" className="hover:text-ink transition-colors">Mua Vox</Link></li>
               <li><Link to="/don-hang" className="hover:text-ink transition-colors">Đơn hàng của tôi</Link></li>
               <li><Link to="/tai-ve" className="hover:text-ink transition-colors">Tải ứng dụng</Link></li>
+              <li><Link to="/thu-dub" className="hover:text-ink transition-colors">Thử API lồng tiếng</Link></li>
             </ul>
           </div>
           <div>

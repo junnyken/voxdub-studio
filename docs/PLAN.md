@@ -4112,6 +4112,65 @@ giờ được đánh dấu đã giao, lượt gọi sau sẽ hoàn tiền nhầ
 vì `410`, sửa bằng cách trả lời từ `deliveredAt` trước khi chạm kho. 301 test
 (300 pass, 1 skip, 0 fail). Xem `docs/TEST_LOG.md` mục V45.
 
+### V49 — Trang thử API lồng tiếng trên trình duyệt
+
+```
+V49 — Mặt tiền web cho hạ tầng dub đã có (Phase G, 2026-08-17)
+
+Context:
+- V34b dựng xong hạ tầng lồng tiếng chạy 100% trên máy chủ, nhưng cách DUY
+  NHẤT chạm vào nó là gõ `curl` — trên thực tế chưa ai dùng.
+- Audit thị trường 2026-08-16 chỉ ra điểm yếu lớn nhất KHÔNG phải chất
+  lượng mà là ma sát dùng thử: đối thủ kéo-thả trên trình duyệt, VoxDub bắt
+  tải .exe Windows.
+- website/ đã có sẵn React+Vite, cùng origin với API (không CORS).
+
+Goal:
+- Người có API key thử được toàn bộ vòng lồng tiếng bằng chuột, không cần
+  dòng lệnh và không cần cài gì.
+
+Constraints (Guardrails):
+1. KHÔNG thêm endpoint dub mới — chỉ dùng đúng API đã có.
+2. KHÔNG có chế độ "dùng thử không cần key": cho người lạ chạy
+   ASR/TTS/ghép video miễn phí là quyết định chi phí + chống lạm dụng của
+   chủ dự án, không phải hệ quả kỹ thuật của mini-spec này.
+3. Không lưu API key vào localStorage — key rò rỉ là tiền thật của người khác.
+4. Không chép tay danh sách ngôn ngữ/giá sang frontend (sẽ trôi lệch) —
+   phải đọc từ máy chủ.
+5. Không đổi hành vi backend nào ngoài việc lộ thêm dữ liệu ĐỌC công khai.
+
+Scope:
+A. Domain model: không đổi.
+B. Services/engine: không đổi.
+C. API contract: `GET /v1/config/app` trả thêm khối `cloudDub` (bật/tắt, hạn
+   mức MB, giá/phút, danh sách ngôn ngữ hợp lệ) — đọc từ chính
+   `utils/dub-langs.js`.
+D. UI surfaces: trang `/thu-dub` + mục trên thanh điều hướng và footer.
+E. Tests: build + suite hiện có (không thêm test render — website chưa có
+   hạ tầng test component).
+
+Design Choice:
+- Dán key thủ công thay vì đăng nhập: hệ thống KHÔNG có tài khoản người dùng
+  (guardrail có sẵn từ V10) nên không có gì để đăng nhập vào.
+- XHR thay `fetch` cho lượt upload: chỉ XHR báo được tiến trình tải lên, mà
+  file vài trăm MB thì thanh tiến trình là khác biệt giữa "đang chạy" và
+  "hình như treo".
+- Giữ blob kết quả lại trong tab: máy chủ xoá file NGAY sau lượt tải đầu
+  (chính sách V9), gọi lại sẽ ra 410 và trông như hỏng.
+
+Success Criteria:
+- Từ trình duyệt: dán key → thấy quota → chọn file → thấy tiến trình → tải
+  được video kết quả, không gõ một dòng lệnh nào.
+- Danh sách ngôn ngữ trên trang luôn khớp máy chủ (không có bản chép tay).
+```
+
+**Kết quả (2026-08-17)**: ✅ Xong phần mã, build sạch (website 31 test,
+control_server 301 test, 0 fail). **CHƯA click thử trên trình duyệt thật** —
+cần API key có quota (đòi `ADMIN_TOKEN` của chủ dự án). Điểm yếu "người lạ
+không thử được nếu không có Windows" mới đóng được MỘT NỬA: có mặt tiền web
+nhưng vẫn cần key. Nửa còn lại (dùng thử công khai) là quyết định kinh doanh,
+xem Guardrail 2.
+
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
 
 - Khảo sát Rask AI/ElevenLabs Dubbing/HeyGen/Camb.ai/Dubverse/Vidnoz (auto-dub)

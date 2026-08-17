@@ -5871,3 +5871,73 @@ thay vì `410 RESULT_LOST_REFUNDED` như trước V45.
   Nên theo dõi mục "Lưu trữ" trên dashboard nếu lượng job tăng.
 - Chưa đo hiệu năng GridFS với video hàng trăm MB trên prod thật (test dùng
   file nhỏ + đo cục bộ).
+
+## V49 — Trang thử API lồng tiếng trên trình duyệt (Phase G, 2026-08-17)
+
+### Audit Before Build
+
+Hạ tầng dub server-side (V34b) đã chạy thật và vừa được làm bền vững (V44,
+V45), nhưng đường vào duy nhất là `curl` với 1 API key cấp tay. Đối chiếu
+audit thị trường 2026-08-16: điểm yếu lớn nhất của sản phẩm không phải chất
+lượng đầu ra mà là **ma sát dùng thử** — đối thủ kéo-thả trên trình duyệt,
+VoxDub bắt tải `.exe` Windows.
+
+`website/` đã có sẵn React + Vite + react-router và được `control_server`
+serve CÙNG origin, nên gọi API không vướng CORS và không cần hạ tầng mới.
+
+### Design Choice
+
+Trang `/thu-dub` gọi đúng 3 endpoint đã có (`/api/v1/me`, `POST /api/v1/dub`,
+`GET /api/v1/dub/:id[/result]`) — **không thêm endpoint dub nào**.
+
+Quyết định phạm vi quan trọng nhất: **không làm chế độ dùng thử không cần
+key**. Cho người lạ chạy ASR + TTS + ghép video miễn phí là quyết định chi
+phí và chống lạm dụng của chủ dự án, không phải hệ quả kỹ thuật của việc
+dựng UI. Ghi rõ thành Guardrail thay vì âm thầm tự quyết.
+
+Ba lựa chọn kỹ thuật đáng ghi:
+- **Không lưu key vào localStorage** — trang chạy chung origin với trang bán
+  hàng; một API key rò rỉ là tiền thật của người khác.
+- **XHR thay `fetch`** cho lượt upload: chỉ XHR báo được tiến trình TẢI LÊN.
+  Với file vài trăm MB, thanh tiến trình là khác biệt giữa "đang chạy" và
+  "hình như treo rồi".
+- **Giữ blob kết quả trong tab**: máy chủ xoá file ngay sau lượt tải đầu
+  tiên (chính sách dữ liệu V9), nên nếu để người dùng bấm tải lại sẽ ra 410
+  và trông như hỏng.
+
+Danh sách ngôn ngữ + giá + hạn mức MB **đọc từ máy chủ** qua khối `cloudDub`
+mới trong `GET /v1/config/app`, lấy thẳng từ `utils/dub-langs.js` — không
+chép tay sang frontend, vì đó đúng là loại trôi lệch mà
+`tests/dub-langs.test.js` sinh ra để chặn.
+
+### Changed Files
+
+- `website/src/pages/TryDub.jsx` (mới)
+- `website/src/App.jsx` — route `/thu-dub`
+- `website/src/components/PublicLayout.jsx` — mục nav + link footer
+- `control_server/src/routes/config.js` — khối `cloudDub` trong `/v1/config/app`
+
+### Tests
+
+Website `npm test` (vitest): **31 pass**. `npm run build`: sạch, không
+warning mới. `control_server`: **301 test, 300 pass, 1 skip, 0 fail**.
+
+1 lỗi build thật đã sửa: import `{ get }` từ `api/client` — module đó export
+object `api`, không có hàm `get` rời. Bắt được ngay ở lượt build đầu.
+
+### Live Verification
+
+**CHƯA click thử trên trình duyệt thật.** Cần API key có quota phút dub, mà
+cấp key đòi `ADMIN_TOKEN` — chỉ chủ dự án có. Trang render được và build ra
+bundle hợp lệ, nhưng đó KHÔNG phải bằng chứng luồng dub qua UI chạy đúng.
+Việc còn lại của chủ dự án: mở `/thu-dub`, dán key, chọn 1 video ngắn, xác
+nhận thấy đủ 4 chặng (kiểm key → tải lên → queued/running → tải kết quả).
+
+### Remaining Limits
+
+- **Vẫn cần API key** → mới đóng MỘT NỬA gap "người lạ không thử được nếu
+  không có Windows". Nửa còn lại là quyết định kinh doanh (xem Guardrail 2).
+- Chưa có test render/tương tác cho trang này — `website/` chưa có hạ tầng
+  test component (đúng hiện trạng ghi trong `docs/ARCH.md`).
+- Trang chỉ phục vụ luồng dub. Các tính năng chỉ có trên desktop (lip-sync
+  V32b, OCR che chữ V5, editor từng câu) vẫn không chạm được từ web.

@@ -15,6 +15,7 @@
  * ký thiết bị.
  */
 const config = require('../services/config.service')
+const { SOURCE_LANGS, TARGET_LANGS } = require('../utils/dub-langs')
 
 module.exports = async function configRoutes(fastify) {
   fastify.get('/app', {
@@ -31,6 +32,13 @@ module.exports = async function configRoutes(fastify) {
       // (guardrail 4 — hiện đúng giá trước khi trừ Vox, không được trừ
       // tiền rồi mới báo).
       'cloud.render.enabled', 'credit.cost.cloud.demucs',
+      // Mini-spec V49 — trang thử API trên web cần biết ngôn ngữ nào hợp lệ
+      // và giá mỗi phút TRƯỚC khi gửi file. Lấy từ nguồn duy nhất
+      // `utils/dub-langs.js` thay vì để trang web tự chép danh sách (bản chép
+      // tay sẽ trôi lệch, đúng thứ `tests/dub-langs.test.js` sinh ra để chặn).
+      'cloud.dub.enabled', 'cloud.dub.max.upload.mb',
+      'credit.cost.cloud.dub.vox.per.minute',
+      'credit.cost.cloud.dub.vox.per.minute.demucs',
     ])
     return {
       creditEnabled: cfg['credit.enabled'],
@@ -46,6 +54,14 @@ module.exports = async function configRoutes(fastify) {
         cloudRenderDemucs: cfg['credit.cost.cloud.demucs'],
       },
       cloudRenderEnabled: cfg['cloud.render.enabled'],
+      cloudDub: {
+        enabled: cfg['cloud.dub.enabled'],
+        maxUploadMb: cfg['cloud.dub.max.upload.mb'],
+        voxPerMinute: cfg['credit.cost.cloud.dub.vox.per.minute'],
+        voxPerMinuteDemucs: cfg['credit.cost.cloud.dub.vox.per.minute.demucs'],
+        sourceLangs: SOURCE_LANGS,
+        targetLangs: TARGET_LANGS,
+      },
       webUrl: (process.env.PUBLIC_URL || 'http://localhost:3001').replace(/\/+$/, ''),
       serverVersion: '3.0.0',
     }

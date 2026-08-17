@@ -17,6 +17,7 @@ import Buy from './pages/Buy'
 import Checkout from './pages/Checkout'
 import MyOrders from './pages/MyOrders'
 import Download from './pages/Download'
+import TryDub from './pages/TryDub'
 import Docs from './pages/Docs'
 import Faq from './pages/Faq'
 import Contact from './pages/Contact'
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="thanh-toan/:orderCode" element={<Checkout />} />
           <Route path="don-hang" element={<MyOrders />} />
           <Route path="tai-ve" element={<Download />} />
+          <Route path="thu-dub" element={<TryDub />} />
           <Route path="huong-dan" element={<Docs />} />
           <Route path="cau-hoi" element={<Faq />} />
           <Route path="lien-he" element={<Contact />} />
