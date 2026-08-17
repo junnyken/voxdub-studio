@@ -35,6 +35,7 @@ import subprocess
 import sys
 import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import requests
 
@@ -46,8 +47,29 @@ POLL_INTERVAL_S = float(os.environ.get("POLL_INTERVAL_S", "3"))
 HEARTBEAT_INTERVAL_S = float(os.environ.get("HEARTBEAT_INTERVAL_S", "30"))
 DUB_WORK_DIR = os.environ.get("DUB_WORK_DIR", "/app/work")
 REQUEST_TIMEOUT_S = 15
+# Worker này không tự phục vụ HTTP nào cho nghiệp vụ (chỉ poll ra ngoài) —
+# port này CHỈ để nền tảng hosting (Vibe Host) health-check thấy container
+# có lắng nghe, không phản ánh trạng thái job/queue thật.
+HEALTH_PORT = int(os.environ.get("PORT", "3000"))
 
 _shutdown = threading.Event()
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:  # noqa: N802 — tên bắt buộc bởi BaseHTTPRequestHandler
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, *args) -> None:  # im lặng — không spam log poll loop
+        pass
+
+
+def _start_health_server() -> None:
+    server = ThreadingHTTPServer(("0.0.0.0", HEALTH_PORT), _HealthHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print(f"[dub_worker] health server lắng nghe 0.0.0.0:{HEALTH_PORT}", flush=True)
 
 
 def _headers() -> dict:
@@ -197,6 +219,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
     os.makedirs(DUB_WORK_DIR, exist_ok=True)
+    _start_health_server()
 
     print(f"[dub_worker] worker_id={WORKER_ID} bắt đầu poll {CONTROL_SERVER_URL} "
          f"mỗi {POLL_INTERVAL_S}s", flush=True)

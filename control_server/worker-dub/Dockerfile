@@ -76,4 +76,9 @@ COPY control_server/worker-dub/dub_worker.py /app/dub_worker.py
 ENV TRANSLATE_LOCAL_ENABLED=true
 ENV PYTHONUNBUFFERED=1
 
+# Không phục vụ nghiệp vụ gì trên port này — chỉ để platform hosting
+# (Vibe Host) health-check thấy container lắng nghe, xem HEALTH_PORT trong
+# dub_worker.py.
+EXPOSE 3000
+
 CMD ["python3", "dub_worker.py"]
