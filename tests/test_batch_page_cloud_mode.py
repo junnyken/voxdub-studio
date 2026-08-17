@@ -20,8 +20,33 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from pathlib import Path  # noqa: E402
+
 import autodub_gui.pages.batch_page as batch_page  # noqa: E402
 from autodub.config import Settings  # noqa: E402
+
+
+class _Sig:
+    def connect(self, *_a, **_k):
+        pass
+
+
+def _stub_worker(captured: dict, source, output, **kwargs):
+    """Worker giả: ghi lại đúng thứ trang truyền xuống."""
+    captured["source"] = source
+    captured["output"] = output
+    captured.update(kwargs)
+
+    class W:
+        log = _Sig()
+        finished_ok = _Sig()
+        failed = _Sig()
+        finished = _Sig()
+
+        def start(self_inner):
+            captured["started"] = True
+
+    return W()
 
 
 @pytest.fixture(scope="module")
@@ -78,23 +103,25 @@ def test_turning_it_off_restores_the_options(page):
     assert page.lbl_cloud_note.isHidden()
 
 
-def test_links_are_refused_with_an_explanation_not_silently_skipped(page, monkeypatch):
-    warned: list[str] = []
-    monkeypatch.setattr(batch_page.TOASTS, "warn", lambda msg, *a, **k: warned.append(msg))
-    started: list = []
+def test_links_are_accepted_after_v54(page, monkeypatch):
+    """V53 chặn liên kết; V54 tải chúng về trước rồi mới đẩy lên.
+
+    Test này ĐỔI CHIỀU có chủ đích khi V54 mở khả năng đó — giữ nguyên bản cũ
+    sẽ khoá sản phẩm vào một giới hạn đã được gỡ.
+    """
+    captured: dict = {}
     monkeypatch.setattr(batch_page, "CloudBatchWorker",
-                        lambda *a, **k: started.append((a, k)))
+                        lambda *a, **k: _stub_worker(captured, *a, **k))
+    monkeypatch.setattr(batch_page.REGISTRY, "start_job", lambda *a, **k: None)
 
     page.chk_cloud.setChecked(True)
-    item = batch_page.BatchItem(url="https://youtu.be/abc")
-    page._launch([item])
+    page._launch([batch_page.BatchItem(url="https://youtu.be/abc")])
 
-    assert not started, "không được nộp gì khi danh sách có liên kết"
-    assert warned, "phải báo cho người dùng biết vì sao"
-    assert "liên kết" in warned[0].lower()
+    assert captured.get("started") is True
+    assert [s.source for s in captured["source"]] == ["https://youtu.be/abc"]
 
 
-def test_files_from_two_folders_are_refused_clearly(page, monkeypatch, tmp_path):
+def test_files_from_two_folders_are_accepted_after_v54(page, monkeypatch, tmp_path):
     a = tmp_path / "a"
     b = tmp_path / "b"
     a.mkdir()
@@ -102,11 +129,10 @@ def test_files_from_two_folders_are_refused_clearly(page, monkeypatch, tmp_path)
     (a / "v1.mp4").write_bytes(b"x")
     (b / "v2.mp4").write_bytes(b"x")
 
-    warned: list[str] = []
-    monkeypatch.setattr(batch_page.TOASTS, "warn", lambda msg, *a_, **k: warned.append(msg))
-    started: list = []
+    captured: dict = {}
     monkeypatch.setattr(batch_page, "CloudBatchWorker",
-                        lambda *a_, **k: started.append(k))
+                        lambda *a_, **k: _stub_worker(captured, *a_, **k))
+    monkeypatch.setattr(batch_page.REGISTRY, "start_job", lambda *a_, **k: None)
 
     page.chk_cloud.setChecked(True)
     page._launch([
@@ -114,8 +140,22 @@ def test_files_from_two_folders_are_refused_clearly(page, monkeypatch, tmp_path)
         batch_page.BatchItem(file_path=str(b / "v2.mp4")),
     ])
 
-    assert not started
-    assert warned and "thư mục" in warned[0].lower()
+    assert captured.get("started") is True
+    assert len(captured["source"]) == 2, "không còn bắt buộc cùng một thư mục"
+
+
+def test_missing_local_file_is_refused_with_its_name(page, monkeypatch, tmp_path):
+    warned: list[str] = []
+    monkeypatch.setattr(batch_page.TOASTS, "warn", lambda msg, *a_, **k: warned.append(msg))
+    started: list = []
+    monkeypatch.setattr(batch_page, "CloudBatchWorker",
+                        lambda *a_, **k: started.append(k))
+
+    page.chk_cloud.setChecked(True)
+    page._launch([batch_page.BatchItem(file_path=str(tmp_path / "khong-co.mp4"))])
+
+    assert not started, "không nộp khi file không tồn tại"
+    assert warned and "khong-co.mp4" in warned[0]
 
 
 def test_worker_gets_the_options_actually_chosen(page, monkeypatch, tmp_path):
@@ -124,25 +164,8 @@ def test_worker_gets_the_options_actually_chosen(page, monkeypatch, tmp_path):
     (folder / "v1.mp4").write_bytes(b"x")
 
     captured: dict = {}
-
-    class FakeWorker:
-        def __init__(self, source, output, **kwargs):
-            captured["source"] = source
-            captured["output"] = output
-            captured.update(kwargs)
-            self.log = _Sig()
-            self.finished_ok = _Sig()
-            self.failed = _Sig()
-            self.finished = _Sig()
-
-        def start(self):
-            captured["started"] = True
-
-    class _Sig:
-        def connect(self, *_a, **_k):
-            pass
-
-    monkeypatch.setattr(batch_page, "CloudBatchWorker", FakeWorker)
+    monkeypatch.setattr(batch_page, "CloudBatchWorker",
+                        lambda *a, **k: _stub_worker(captured, *a, **k))
     monkeypatch.setattr(batch_page.REGISTRY, "start_job", lambda *a, **k: None)
 
     page.chk_cloud.setChecked(True)
@@ -150,6 +173,6 @@ def test_worker_gets_the_options_actually_chosen(page, monkeypatch, tmp_path):
     page._launch([batch_page.BatchItem(file_path=str(folder / "v1.mp4"))])
 
     assert captured.get("started") is True
-    assert captured["source"] == folder
+    assert [Path(s_.source).name for s_ in captured["source"]] == ["v1.mp4"]
     assert captured["bg_mode"] == "demucs", "chọn giữ nhạc nền thì phải gửi đúng"
     assert "cloud" in str(captured["output"]), "kết quả để riêng, không trộn với chạy máy"

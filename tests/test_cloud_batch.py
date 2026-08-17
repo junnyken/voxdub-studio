@@ -422,3 +422,122 @@ def test_missing_api_key_refuses_instead_of_running_locally(monkeypatch):
     with pytest.raises(CloudDubError) as err:
         CloudDubClient()
     assert err.value.code == "NO_API_KEY"
+
+
+# --- V54: nhận cả liên kết, không chỉ file trên máy ----------------------
+
+
+def _fake_downloader(monkeypatch, tmp_path, *, fail_on: str | None = None):
+    """Thay `download_one` bằng bản giả ghi ra file thật.
+
+    Không mock `requests` (đường lên máy chủ vẫn đi qua HTTP thật của test),
+    chỉ thay đúng bước tải video từ Internet — thứ không thể gọi thật trong
+    test và cũng không phải thứ đang kiểm.
+    """
+    calls: list[str] = []
+
+    def fake(url, output_dir, **_kw):
+        calls.append(url)
+        if fail_on and fail_on in url:
+            raise RuntimeError("video bị chặn theo khu vực")
+        dest = Path(output_dir) / f"{url.rstrip('/').split('/')[-1]}.mp4"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(b"downloaded video bytes")
+        return {"filepath": str(dest), "title": "video thật"}
+
+    import autodub.media.downloader as dl
+    monkeypatch.setattr(dl, "download_one", fake)
+    return calls
+
+
+def test_url_is_downloaded_then_submitted(server, tmp_path, monkeypatch):
+    calls = _fake_downloader(monkeypatch, tmp_path)
+    out = tmp_path / "out"
+
+    report = run_cloud_batch(["https://youtu.be/abc"], out,
+                             source_lang="en-US", target_lang="vi",
+                             client=_client(server), poll_interval=0.01)
+
+    assert calls == ["https://youtu.be/abc"], "phải tải về trước khi nộp"
+    assert len(server.submits) == 1
+    assert len(report.succeeded) == 1
+    assert Path(report.succeeded[0].output).read_bytes() == RESULT_BYTES
+
+
+def test_download_failure_is_reported_and_does_not_stop_the_rest(
+        server, tmp_path, monkeypatch):
+    _fake_downloader(monkeypatch, tmp_path, fail_on="hong")
+    out = tmp_path / "out"
+
+    report = run_cloud_batch(
+        ["https://youtu.be/hong", "https://youtu.be/tot"], out,
+        source_lang="en-US", target_lang="vi",
+        client=_client(server), poll_interval=0.01)
+
+    assert len(report.failed) == 1
+    assert "Tải video hỏng" in report.failed[0].error
+    assert len(report.succeeded) == 1, "1 link hỏng không được chặn link còn lại"
+    assert len(server.submits) == 1, "không nộp video chưa tải được"
+
+
+def test_downloaded_file_is_cleaned_up_only_after_success(
+        server, tmp_path, monkeypatch):
+    _fake_downloader(monkeypatch, tmp_path)
+    out = tmp_path / "out"
+
+    run_cloud_batch(["https://youtu.be/abc"], out, source_lang="en-US",
+                    target_lang="vi", client=_client(server), poll_interval=0.01)
+
+    leftovers = list((out / "_downloads").glob("*.mp4"))
+    assert leftovers == [], "xong rồi thì không giữ lại bản tải trung gian"
+
+
+def test_failed_run_keeps_the_download_so_a_retry_does_not_refetch(
+        server, tmp_path, monkeypatch):
+    calls = _fake_downloader(monkeypatch, tmp_path)
+    out = tmp_path / "out"
+    server.result_mode = "empty"          # tải kết quả hỏng → mục thất bại
+
+    run_cloud_batch(["https://youtu.be/abc"], out, source_lang="en-US",
+                    target_lang="vi", client=_client(server), poll_interval=0.01)
+    assert list((out / "_downloads").glob("*.mp4")), "hỏng thì phải giữ bản tải"
+
+    server.result_mode = "ok"
+    report = run_cloud_batch(["https://youtu.be/abc"], out, source_lang="en-US",
+                             target_lang="vi", client=_client(server),
+                             poll_interval=0.01)
+
+    assert len(calls) == 1, "lượt chạy lại KHÔNG được tải lại vài trăm MB"
+    assert len(report.succeeded) == 1
+
+
+def test_mixed_files_and_links_from_different_folders(server, tmp_path, monkeypatch):
+    """Gỡ đúng giới hạn V53: không bắt mọi file phải nằm cùng một thư mục."""
+    _fake_downloader(monkeypatch, tmp_path)
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    a.mkdir()
+    b.mkdir()
+    (a / "v1.mp4").write_bytes(b"x")
+    (b / "v2.mp4").write_bytes(b"x")
+    out = tmp_path / "out"
+
+    report = run_cloud_batch(
+        [str(a / "v1.mp4"), "https://youtu.be/abc", str(b / "v2.mp4")], out,
+        source_lang="en-US", target_lang="vi",
+        client=_client(server), poll_interval=0.01)
+
+    assert len(report.succeeded) == 3
+    assert len(server.submits) == 3
+
+
+def test_state_key_for_a_link_is_the_link_itself(server, tmp_path, monkeypatch):
+    """Khoá trạng thái phải ổn định: tên file tải về có thể đổi giữa 2 lượt."""
+    _fake_downloader(monkeypatch, tmp_path)
+    out = tmp_path / "out"
+
+    run_cloud_batch(["https://youtu.be/abc"], out, source_lang="en-US",
+                    target_lang="vi", client=_client(server), poll_interval=0.01)
+
+    state = json.loads((out / "cloud_batch_state.json").read_text(encoding="utf-8"))
+    assert "https://youtu.be/abc" in state["items"]

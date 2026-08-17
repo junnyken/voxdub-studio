@@ -234,10 +234,35 @@ def _cmd_cloud_batch(args: argparse.Namespace) -> int:
         )
         return 2
 
-    source = Path(args.input)
-    if not source.exists():
-        print(f"Không thấy: {source}", file=sys.stderr)
+    if not args.input and not args.file:
+        print("Cần --input (file/thư mục/liên kết) hoặc --file (danh sách).",
+              file=sys.stderr)
         return 2
+
+    if args.file:
+        from autodub.batch import parse_lines
+        from autodub.cloud_batch import ItemResult, is_url
+
+        with open(args.file, encoding="utf-8") as fh:
+            parsed = parse_lines(fh.read())
+        if not parsed:
+            print(f"Danh sách rỗng: {args.file}", file=sys.stderr)
+            return 2
+        source = [
+            ItemResult(source=(it.url or it.file_path or ""),
+                       voice=(it.voice or ""))
+            for it in parsed if (it.url or it.file_path)
+        ]
+    else:
+        from autodub.cloud_batch import is_url
+
+        if is_url(args.input):
+            source = [args.input]
+        else:
+            source = Path(args.input)
+            if not source.exists():
+                print(f"Không thấy: {source}", file=sys.stderr)
+                return 2
 
     try:
         report = run_cloud_batch(
@@ -420,8 +445,12 @@ def build_parser() -> argparse.ArgumentParser:
         "cloud-batch",
         help="Đẩy hàng loạt video lên MÁY CHỦ lồng tiếng (mini-spec V51) — "
              "không chạy gì trên máy này, cần VOXDUB_API_KEY")
-    cloud.add_argument("--input", required=True,
-                       help="1 file video, hoặc thư mục chứa nhiều video")
+    cloud.add_argument("--input", default=None,
+                       help="1 file video, thư mục chứa video, hoặc 1 liên kết")
+    cloud.add_argument("--file", default=None,
+                       help="File danh sách (mỗi dòng 1 liên kết hoặc đường "
+                            "dẫn, hỗ trợ cú pháp «link | Tên giọng» như "
+                            "lệnh batch)")
     cloud.add_argument("--output-dir", required=True, help="Thư mục nhận kết quả")
     cloud.add_argument("--source-lang", default="en-US",
                        help="Ngôn ngữ nguồn: nhận khoá ngắn (vi) HOẶC BCP-47 (vi-VN)")

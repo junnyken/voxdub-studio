@@ -6402,3 +6402,63 @@ Toàn suite: **1176 passed, 6 skipped, 0 failed**. Smoke test toàn app
 - Chưa có nút Dừng thật cho chế độ máy chủ: job đã nộp vẫn chạy trên máy chủ
   dù người dùng đóng app (và vẫn bị tính tiền). Dừng đúng nghĩa cần một
   endpoint huỷ job phía máy chủ — chưa có.
+
+
+## V54 — cloud-batch nhận liên kết (Phase G, 2026-08-17)
+
+### Audit Before Build
+
+Giới hạn ghi trong V51: *"Chỉ nhận file local, chưa nhận URL — API máy chủ
+nhận multipart chứ không tự tải video từ link"*. Và V53 phải chặn cứng liên
+kết trên GUI vì đúng lý do đó.
+
+Đọc trước: `autodub/media/downloader.py::download_one` (yt-dlp + tự động rẽ
+sang đường Playwright cho Douyin) và `autodub/batch.py::parse_lines` (đã hỗ
+trợ cú pháp `link | Tên giọng`). Cả hai tái dùng nguyên, không viết lại.
+
+### Design Choice
+
+**Khoá trạng thái là CHÍNH liên kết**, không phải tên file tải về: tên file
+do yt-dlp đặt theo tiêu đề video, mà tiêu đề có thể đổi giữa 2 lượt — khoá
+theo tên file thì lượt sau sẽ nộp trùng và trả tiền lần hai.
+
+**Bản tải trung gian: xoá khi THÀNH CÔNG, giữ khi hỏng.** Hỏng ở bất kỳ bước
+nào (nộp, xử lý, tải kết quả) mà xoá luôn bản tải thì lượt chạy lại phải kéo
+lại vài trăm MB từ Internet. Ghi kèm file `.source` trỏ tới bản đã tải để
+lượt sau nhận ra.
+
+**Nhận danh sách nguồn trộn lẫn** (file + liên kết, nằm bất kỳ đâu) thay vì
+chỉ 1 thư mục — nhân tiện **gỡ luôn giới hạn "phải cùng thư mục"** mà V53
+vừa phải ghi vào Remaining Limits mấy tiếng trước.
+
+### Tests (6 mới, tổng 22 cho cloud-batch)
+
+liên kết được tải rồi mới nộp; tải hỏng → báo rõ và KHÔNG chặn link còn lại;
+bản tải bị xoá sau khi thành công; **hỏng thì giữ bản tải, lượt sau không tải
+lại** (đếm số lần gọi downloader); trộn file + link ở nhiều thư mục khác
+nhau; khoá trạng thái đúng là liên kết.
+
+Chỉ thay `download_one` bằng bản giả — đường lên máy chủ vẫn đi qua HTTP thật
+của test. Không mock `requests`.
+
+### Hai test GUI ĐỔI CHIỀU có chủ đích
+
+`test_links_are_refused…` và `test_files_from_two_folders_are_refused…` của
+V53 nay khẳng định điều NGƯỢC LẠI (chấp nhận). Giữ nguyên bản cũ sẽ khoá sản
+phẩm vào một giới hạn vừa được gỡ. Đổi tên test kèm ghi chú lý do, và thêm
+test mới cho ràng buộc còn đúng: file trên máy KHÔNG tồn tại thì từ chối kèm
+tên file.
+
+Kèm theo: **sửa dòng ghi chú trên UI** — nó vẫn nói "máy chủ chỉ nhận FILE
+trên máy (không nhận liên kết)". Để nguyên là giao diện nói dối người dùng
+về chính tính năng vừa thêm.
+
+Toàn suite: **1183 passed, 6 skipped, 0 failed**; smoke test toàn app exit 0.
+
+### Remaining Limits
+
+- Tải liên kết chạy trên máy người dùng (băng thông 2 chiều: tải về rồi đẩy
+  lên). Muốn máy chủ tự đi lấy video thì phải thêm khả năng đó ở API — đụng
+  vấn đề pháp lý/lạm dụng, là quyết định của chủ dự án.
+- Vẫn chưa có nút Dừng thật cho chế độ máy chủ (job đã nộp vẫn chạy và vẫn
+  tính tiền) — cần endpoint huỷ job phía máy chủ.

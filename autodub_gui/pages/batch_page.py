@@ -286,9 +286,9 @@ class BatchPage(BasePage):
             "Gửi từng video lên máy chủ VoxDub xử lý, máy bạn chỉ tải lên và "
             "tải kết quả về. Cần API key lồng tiếng (VOXDUB_API_KEY).")
         self.lbl_cloud_note = QLabel(
-            "Máy chủ chỉ nhận FILE trên máy (không nhận liên kết), và chỉ làm "
-            "lồng tiếng + nhạc nền — phụ đề, chỉ-xuất-âm-thanh và kiểu chữ "
-            "không áp dụng.")
+            "Liên kết sẽ được tải về máy trước rồi mới đẩy lên. Máy chủ chỉ "
+            "làm lồng tiếng + nhạc nền — phụ đề, chỉ-xuất-âm-thanh và kiểu "
+            "chữ không áp dụng.")
         self.lbl_cloud_note.setWordWrap(True)
         self.lbl_cloud_note.setVisible(False)
         self.chk_cloud.toggled.connect(self._on_cloud_toggled)
@@ -750,20 +750,23 @@ class BatchPage(BasePage):
             TOASTS.warn("Đang có việc chạy dở. Hãy đợi xong hoặc bấm Dừng.")
             return
 
-        links = [it for it in items if not Path(it.key).is_file()]
-        if links:
-            # Máy chủ nhận file tải lên, không tự tải video từ liên kết. Nói
-            # thẳng thay vì âm thầm bỏ qua những dòng đó.
-            TOASTS.warn(
-                f"{len(links)} mục là liên kết — máy chủ chỉ nhận file trên "
-                "máy. Hãy tải video về trước, hoặc bỏ chọn «Xử lý trên máy chủ».")
-            return
+        # V54: nhận cả liên kết lẫn file, không bắt phải cùng thư mục nữa —
+        # liên kết được tải về máy trước rồi mới đẩy lên (máy chủ chỉ nhận
+        # file tải lên, không tự đi lấy video từ URL).
+        from autodub.cloud_batch import ItemResult
 
-        files = [Path(it.key) for it in items]
-        parents = {f.parent for f in files}
-        if len(parents) > 1:
-            TOASTS.warn("Chế độ máy chủ hiện chạy theo THƯ MỤC — hãy chọn các "
-                        "video nằm cùng một thư mục.")
+        sources = [
+            ItemResult(source=it.key, voice=(it.voice or ""))
+            for it in items
+        ]
+        missing = [
+            s_.source for s_ in sources
+            if not s_.source.startswith(("http://", "https://"))
+            and not Path(s_.source).is_file()
+        ]
+        if missing:
+            TOASTS.warn(f"Không thấy {len(missing)} file trên máy — "
+                        f"vd «{Path(missing[0]).name}».")
             return
 
         settings = self._settings_provider()
@@ -773,7 +776,7 @@ class BatchPage(BasePage):
         self._set_running(True)
 
         worker = CloudBatchWorker(
-            parents.pop(), output_dir,
+            sources, output_dir,
             source_lang=self.opt_lang.current_key(),
             target_lang=getattr(settings, "target_lang", "vi") or "vi",
             # `voice()` là API thật của VoicePicker — bản đầu tôi gọi
@@ -790,7 +793,7 @@ class BatchPage(BasePage):
         self._worker = worker
         REGISTRY.start_job(
             ActiveJob(kind="batch",
-                      title=f"Máy chủ xử lý {len(files)} video"),
+                      title=f"Máy chủ xử lý {len(sources)} video"),
             on_cancel=lambda: None)
         worker.start()
 

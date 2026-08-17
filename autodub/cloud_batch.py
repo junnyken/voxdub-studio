@@ -48,7 +48,16 @@ STATUS_REFUNDED = "refunded"
 
 @dataclass
 class ItemResult:
-    path: Path
+    """Một mục trong lượt chạy.
+
+    `source` là thứ người dùng đưa vào (đường dẫn file HOẶC liên kết) và là
+    KHOÁ trạng thái — phải ổn định giữa các lượt chạy. `path` là file thật
+    trên đĩa, với liên kết thì chỉ có sau khi tải về (V54).
+    """
+    source: str
+    path: Path | None = None
+    voice: str = ""
+    downloaded: bool = False
     status: str = STATUS_PENDING
     job_id: str = ""
     output: str = ""
@@ -79,6 +88,10 @@ class BatchReport:
         return [i for i in self.items if i.status == STATUS_PENDING]
 
 
+def is_url(text: str) -> bool:
+    return text.startswith(("http://", "https://"))
+
+
 def collect_videos(source: Path) -> list[Path]:
     """1 file, hoặc mọi video trong 1 thư mục (sắp xếp ổn định để resume đoán được)."""
     if source.is_file():
@@ -87,6 +100,66 @@ def collect_videos(source: Path) -> list[Path]:
         p for p in source.iterdir()
         if p.is_file() and p.suffix.lower() in VIDEO_SUFFIXES
     )
+
+
+def collect_sources(source) -> list[ItemResult]:
+    """Chuẩn hoá đầu vào thành danh sách mục.
+
+    Nhận: 1 `Path` (file hoặc thư mục), hoặc 1 danh sách chuỗi trộn lẫn
+    đường dẫn và liên kết — dạng sau để GUI truyền thẳng những gì người dùng
+    đã thêm mà không bắt họ dồn về cùng một thư mục (giới hạn của V53).
+    """
+    if isinstance(source, (str, Path)) and not isinstance(source, list):
+        path = Path(source)
+        if not is_url(str(source)):
+            return [ItemResult(source=str(p), path=p) for p in collect_videos(path)]
+        source = [str(source)]
+
+    items: list[ItemResult] = []
+    for raw in source:
+        # Cho phép truyền thẳng `ItemResult` để giữ giọng riêng từng dòng
+        # (cú pháp `link | Trúc Ly` mà `autodub.batch.parse_lines` đã hỗ trợ).
+        if isinstance(raw, ItemResult):
+            if raw.path is None and not is_url(raw.source):
+                raw.path = Path(raw.source)
+            items.append(raw)
+            continue
+        text = str(raw).strip()
+        if not text:
+            continue
+        if is_url(text):
+            items.append(ItemResult(source=text))
+        else:
+            items.append(ItemResult(source=text, path=Path(text)))
+    return items
+
+
+def _safe_stem(url: str) -> str:
+    """Tên tệp kết quả suy từ liên kết khi chưa biết tên video thật."""
+    import re
+
+    tail = url.rstrip("/").split("/")[-1].split("?")[0] or "video"
+    return re.sub(r"[^A-Za-z0-9._-]", "_", tail)[:60] or "video"
+
+
+def _existing_download(download_dir: Path, url: str) -> Path | None:
+    """Bản đã tải của đúng liên kết này, nếu lượt trước tải xong rồi mới hỏng."""
+    marker = download_dir / f"{_safe_stem(url)}.source"
+    if not marker.exists():
+        return None
+    try:
+        path = Path(marker.read_text(encoding="utf-8").strip())
+    except OSError:
+        return None
+    return path if path.exists() else None
+
+
+def _remember_download(download_dir: Path, url: str, path: Path) -> None:
+    marker = download_dir / f"{_safe_stem(url)}.source"
+    try:
+        marker.write_text(str(path), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _load_state(state_path: Path) -> dict:
@@ -140,11 +213,11 @@ def run_cloud_batch(
         if on_progress:
             on_progress(msg)
 
-    videos = collect_videos(source)
-    report = BatchReport(items=[ItemResult(path=p) for p in videos])
-    if not videos:
+    report = BatchReport(items=collect_sources(source))
+    if not report.items:
         say(f"Không tìm thấy video nào trong {source}")
         return report
+    download_dir = output_dir / "_downloads"
 
     quota = client.quota()
     say(f"Quota còn {quota.minutes_remaining} phút "
@@ -174,9 +247,18 @@ def run_cloud_batch(
     next_index = 0
     stop_submitting = False
 
+    def _key(item: ItemResult) -> str:
+        """Khoá trạng thái: liên kết giữ nguyên, file lấy tên tệp."""
+        return item.source if is_url(item.source) else Path(item.source).name
+
+    def _dest(item: ItemResult) -> Path:
+        stem = Path(item.path).stem if item.path else _safe_stem(item.source)
+        return output_dir / f"{stem}_dubbed.mp4"
+
     def _skip_if_done(item: ItemResult) -> bool:
-        key = item.path.name
-        dest = output_dir / f"{item.path.stem}_dubbed.mp4"
+        key = _key(item)
+        prev_out = state.get(key, {}).get("output")
+        dest = Path(prev_out) if prev_out else _dest(item)
         prev = state.get(key, {})
         if not retry_done and prev.get("status") == STATUS_SUCCESS and dest.exists():
             item.status = STATUS_SUCCESS
@@ -188,12 +270,41 @@ def run_cloud_batch(
 
     def _try_submit(item: ItemResult) -> str:
         """Trả về: 'submitted' | 'failed' | 'quota'."""
-        key = item.path.name
+        key = _key(item)
+
+        # V54: liên kết phải tải về máy trước — API máy chủ nhận file tải
+        # lên, không tự đi lấy video từ URL. Tải vào `_downloads` (không phải
+        # thư mục tạm của hệ điều hành) để lượt chạy sau còn dùng lại được
+        # nếu lần này hỏng, khỏi tải lại vài trăm MB.
+        if item.path is None:
+            existing = _existing_download(download_dir, item.source)
+            if existing is not None:
+                item.path = existing
+                item.downloaded = True
+                say(f"Dùng lại bản đã tải: {existing.name}")
+            else:
+                try:
+                    say(f"Đang tải về: {item.source}")
+                    from autodub.media.downloader import download_one
+
+                    download_dir.mkdir(parents=True, exist_ok=True)
+                    info = download_one(item.source, str(download_dir))
+                    item.path = Path(info["filepath"])
+                    item.downloaded = True
+                    _remember_download(download_dir, item.source, item.path)
+                except Exception as err:  # noqa: BLE001 — yt-dlp ném đủ loại
+                    item.status = STATUS_FAILED
+                    item.error = f"Tải video hỏng: {err}"
+                    say(f"{key}: {item.error}")
+                    state[key] = {"status": item.status, "error": item.error}
+                    _save_state(state_path, state)
+                    return "failed"
         try:
             minutes = estimate_minutes(item.path)
             item.job_id = client.submit(
                 item.path, source_lang=source_lang, target_lang=target_lang,
-                voice=voice, bg_mode=bg_mode, estimated_minutes=minutes,
+                voice=item.voice or voice, bg_mode=bg_mode,
+                estimated_minutes=minutes,
             )
             say(f"Đã nộp {key} → job {item.job_id}")
             return "submitted"
@@ -233,8 +344,8 @@ def run_cloud_batch(
         """Chờ job cũ nhất xong rồi tải kết quả về."""
         nonlocal stop_submitting
         item = inflight.pop(0)
-        key = item.path.name
-        dest = output_dir / f"{item.path.stem}_dubbed.mp4"
+        key = _key(item)
+        dest = _dest(item)
 
         try:
             final = _wait_for_job(client, item.job_id, poll_interval, job_timeout_s, say)
@@ -263,6 +374,10 @@ def run_cloud_batch(
                 "status": STATUS_SUCCESS, "jobId": item.job_id,
                 "output": str(dest), "bytes": item.bytes_written,
             }
+            # Xong hẳn rồi mới xoá bản tải trung gian: hỏng ở bất kỳ bước nào
+            # thì giữ lại để lượt sau khỏi tải lại vài trăm MB.
+            if item.downloaded and item.path and item.path.exists():
+                item.path.unlink(missing_ok=True)
         except ResultLostError as err:
             item.status = STATUS_REFUNDED
             item.minutes_refunded = err.minutes_refunded
