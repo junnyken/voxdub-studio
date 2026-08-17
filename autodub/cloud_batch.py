@@ -119,6 +119,7 @@ def run_cloud_batch(
     poll_interval: float = 5.0,
     job_timeout_s: float = 3600.0,
     retry_done: bool = False,
+    queue_ahead: int = 2,
     on_progress: Callable[[str], None] | None = None,
 ) -> BatchReport:
     """Nộp lần lượt từng video, chờ xong, tải kết quả về ``output_dir``.
@@ -153,18 +154,41 @@ def run_cloud_batch(
         say(report.stopped_early)
         return report
 
-    for item in report.items:
+    # --- Vòng chạy ĐƯỜNG ỐNG (mini-spec V52) ---------------------------
+    #
+    # V51 chạy thuần tuần tự: nộp → chờ xong → tải → mới nộp video kế tiếp.
+    # Hệ quả là worker trên máy chủ NẰM KHÔNG suốt thời gian upload video sau
+    # — với file vài trăm MB qua đường truyền nhà thì đó là phần lớn thời
+    # gian. Mà mục tiêu gốc của V42 chính là thông lượng.
+    #
+    # V52 giữ trước một hàng đợi ngắn: trong lúc job N đang chạy trên máy
+    # chủ thì job N+1 đã nộp xong và đứng chờ sẵn, nên worker không có
+    # khoảng trống giữa 2 video. Vẫn KHÔNG chạy song song phía máy chủ —
+    # worker vẫn xử lý từng job một; thứ được cắt bỏ là thời gian chết.
+    #
+    # Giữ hàng đợi NGẮN có chủ đích: mỗi job đứng chờ đã giữ chỗ quota (V43),
+    # nộp trước quá nhiều là tự khoá quota của chính mình cho những video có
+    # thể chẳng bao giờ tới lượt.
+    pending = [it for it in report.items]
+    inflight: list[ItemResult] = []
+    next_index = 0
+    stop_submitting = False
+
+    def _skip_if_done(item: ItemResult) -> bool:
         key = item.path.name
         dest = output_dir / f"{item.path.stem}_dubbed.mp4"
         prev = state.get(key, {})
-
         if not retry_done and prev.get("status") == STATUS_SUCCESS and dest.exists():
             item.status = STATUS_SUCCESS
             item.output = str(dest)
             item.bytes_written = int(prev.get("bytes") or 0)
             say(f"Bỏ qua (đã xong): {key}")
-            continue
+            return True
+        return False
 
+    def _try_submit(item: ItemResult) -> str:
+        """Trả về: 'submitted' | 'failed' | 'quota'."""
+        key = item.path.name
         try:
             minutes = estimate_minutes(item.path)
             item.job_id = client.submit(
@@ -172,19 +196,45 @@ def run_cloud_batch(
                 voice=voice, bg_mode=bg_mode, estimated_minutes=minutes,
             )
             say(f"Đã nộp {key} → job {item.job_id}")
+            return "submitted"
         except QuotaExceededError as err:
-            # Dừng NỘP, không dừng cả lượt chạy: job đã nộp trước đó vẫn phải
-            # được theo dõi và tải về, tiền cho chúng đã tiêu rồi.
+            # KHÔNG đánh dấu video này hỏng: nó chưa được thử thật sự, chỉ là
+            # chưa còn chỗ. Để nguyên `pending` để báo cáo nói đúng "chưa chạy".
+            say(f"Hết quota khi nộp {key}: {err}")
             report.stopped_early = f"Hết quota khi đang nộp: {err}"
-            say(report.stopped_early)
-            break
+            return "quota"
         except (CloudDubError, OSError) as err:
             item.status = STATUS_FAILED
             item.error = str(err)
             say(f"Nộp hỏng {key}: {err}")
             state[key] = {"status": item.status, "error": item.error}
             _save_state(state_path, state)
-            continue
+            return "failed"
+
+    def _fill_queue() -> None:
+        """Nộp thêm cho đủ `queue_ahead` job đang chờ trên máy chủ."""
+        nonlocal next_index, stop_submitting
+        while (not stop_submitting and len(inflight) < max(1, queue_ahead)
+               and next_index < len(pending)):
+            item = pending[next_index]
+            next_index += 1
+            if _skip_if_done(item):
+                continue
+            outcome = _try_submit(item)
+            if outcome == "submitted":
+                inflight.append(item)
+            elif outcome == "quota":
+                # Trả lại chỗ trong hàng đợi để lượt sau (khi quota được giải
+                # phóng lúc job xong) còn thử lại được chính video này.
+                next_index -= 1
+                stop_submitting = True
+
+    def _drain_one() -> None:
+        """Chờ job cũ nhất xong rồi tải kết quả về."""
+        nonlocal stop_submitting
+        item = inflight.pop(0)
+        key = item.path.name
+        dest = output_dir / f"{item.path.stem}_dubbed.mp4"
 
         try:
             final = _wait_for_job(client, item.job_id, poll_interval, job_timeout_s, say)
@@ -193,15 +243,16 @@ def run_cloud_batch(
             item.error = str(err)
             state[key] = {"status": item.status, "jobId": item.job_id, "error": item.error}
             _save_state(state_path, state)
-            continue
+            return
 
         if final.get("status") != "done":
             item.status = STATUS_FAILED
-            item.error = str(final.get("error") or f"Job kết thúc ở trạng thái {final.get('status')}")
+            item.error = str(final.get("error")
+                             or f"Job kết thúc ở trạng thái {final.get('status')}")
             say(f"Job hỏng {key}: {item.error}")
             state[key] = {"status": item.status, "jobId": item.job_id, "error": item.error}
             _save_state(state_path, state)
-            continue
+            return
 
         try:
             item.bytes_written = client.download(item.job_id, dest)
@@ -213,7 +264,6 @@ def run_cloud_batch(
                 "output": str(dest), "bytes": item.bytes_written,
             }
         except ResultLostError as err:
-            # Không phải lỗi của video: máy chủ mất file và ĐÃ hoàn phí.
             item.status = STATUS_REFUNDED
             item.minutes_refunded = err.minutes_refunded
             item.error = str(err)
@@ -226,6 +276,17 @@ def run_cloud_batch(
             say(f"Tải kết quả hỏng {key}: {err}")
             state[key] = {"status": item.status, "jobId": item.job_id, "error": item.error}
         _save_state(state_path, state)
+
+        # Job vừa xong đã trả lại chỗ quota nó giữ (V43) — mở lại đường nộp
+        # cho video bị 402 chặn ở lượt trước, thay vì bỏ luôn.
+        if stop_submitting and next_index < len(pending):
+            stop_submitting = False
+            report.stopped_early = ""
+
+    _fill_queue()
+    while inflight:
+        _drain_one()
+        _fill_queue()
 
     return report
 

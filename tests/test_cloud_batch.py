@@ -41,8 +41,15 @@ class FakeServerState:
         self.jobs: dict[str, str] = {}          # jobId -> status
         self.job_error: dict[str, str] = {}
         self.quota_error_after = None           # nộp quá N lần thì trả 402
+        # Hết chỗ TẠM THỜI: chặn từ lượt nộp thứ `quota_error_after` cho tới
+        # khi có đủ `quota_relief_after_downloads` job xong (mô phỏng V43 —
+        # job hoàn tất trả lại phần quota nó giữ chỗ).
+        self.quota_relief_after_downloads = 0
         self.result_mode = "ok"                 # ok | lost | truncated | empty
         self.downloads = 0
+        # Trình tự sự kiện có thứ tự — thứ duy nhất chứng minh được "worker
+        # không nằm không" là ai xảy ra TRƯỚC ai.
+        self.events: list[tuple[str, str]] = []
 
 
 def _make_handler(state: FakeServerState):
@@ -69,6 +76,7 @@ def _make_handler(state: FakeServerState):
             if path.endswith("/result"):
                 job_id = path.split("/")[-2]
                 state.downloads += 1
+                state.events.append(("download", job_id))
                 if state.result_mode == "lost":
                     return self._json(410, {
                         "code": "RESULT_LOST_REFUNDED",
@@ -106,6 +114,13 @@ def _make_handler(state: FakeServerState):
                 return self._json(404, {"code": "NOT_FOUND"})
             length = int(self.headers.get("content-length") or 0)
             self.rfile.read(length)
+            if (state.quota_relief_after_downloads
+                    and len(state.submits) >= 1
+                    and state.downloads < state.quota_relief_after_downloads):
+                return self._json(402, {
+                    "code": "DUB_QUOTA_EXCEEDED",
+                    "message": "Không đủ quota phút lồng tiếng còn trống.",
+                })
             if (state.quota_error_after is not None
                     and len(state.submits) >= state.quota_error_after):
                 return self._json(402, {
@@ -114,6 +129,7 @@ def _make_handler(state: FakeServerState):
                 })
             job_id = f"job{len(state.submits) + 1}"
             state.submits.append({"path": self.path, "jobId": job_id})
+            state.events.append(("submit", job_id))
             state.jobs[job_id] = "done"        # mặc định: xong ngay
             return self._json(200, {"jobId": job_id, "status": "queued"})
 
@@ -163,6 +179,65 @@ def test_happy_path_downloads_every_video(server, tmp_path):
         dest = out / f"v{i}_dubbed.mp4"
         assert dest.read_bytes() == RESULT_BYTES
     assert len(server.submits) == 2
+
+
+def test_next_video_is_already_queued_while_one_is_processing(server, tmp_path):
+    """Đây là LÝ DO V52 tồn tại: worker không được nằm không giữa 2 video.
+
+    Bản V51 chạy tuần tự nên trình tự là nộp1 → tải1 → nộp2 → tải2: suốt lúc
+    upload video 2, worker trên máy chủ rảnh. V52 phải nộp trước, nên video 2
+    đã đứng chờ sẵn TRƯỚC khi kết quả video 1 được tải về.
+    """
+    src = _videos(tmp_path, 3)
+    out = tmp_path / "out"
+
+    run_cloud_batch(src, out, source_lang="en-US", target_lang="vi",
+                    client=_client(server), poll_interval=0.01, queue_ahead=2)
+
+    order = server.events
+    first_download = order.index(("download", "job1"))
+    second_submit = order.index(("submit", "job2"))
+    assert second_submit < first_download, (
+        f"video 2 phải được nộp TRƯỚC khi tải xong video 1; thứ tự thật: {order}"
+    )
+
+
+def test_queue_ahead_is_bounded(server, tmp_path):
+    """Không nộp trước vô hạn: mỗi job đứng chờ đã giữ chỗ quota (V43)."""
+    src = _videos(tmp_path, 5)
+    out = tmp_path / "out"
+
+    run_cloud_batch(src, out, source_lang="en-US", target_lang="vi",
+                    client=_client(server), poll_interval=0.01, queue_ahead=2)
+
+    inflight = 0
+    peak = 0
+    for kind, _job in server.events:
+        if kind == "submit":
+            inflight += 1
+            peak = max(peak, inflight)
+        elif kind == "download":
+            inflight -= 1
+    assert peak <= 2, f"giữ trước tối đa 2 job, thực tế đỉnh {peak}"
+
+
+def test_quota_freed_by_a_finished_job_lets_a_blocked_video_run(server, tmp_path):
+    """Hết quota giữa chừng KHÔNG được biến thành 'bỏ luôn video còn lại'.
+
+    Job xong sẽ trả lại chỗ quota nó giữ (V43), nên video từng bị 402 chặn
+    phải được thử lại trong cùng lượt chạy này.
+    """
+    src = _videos(tmp_path, 3)
+    out = tmp_path / "out"
+    server.quota_error_until_downloads = 1     # hết chỗ cho tới khi có 1 job xong
+
+    report = run_cloud_batch(src, out, source_lang="en-US", target_lang="vi",
+                             client=_client(server), poll_interval=0.01, queue_ahead=2)
+
+    assert len(report.succeeded) == 3, (
+        "quota được giải phóng thì phải chạy nốt, không bỏ lửng"
+    )
+    assert not report.stopped_early
 
 
 def test_rerun_skips_finished_videos(server, tmp_path):

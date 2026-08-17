@@ -249,6 +249,7 @@ def _cmd_cloud_batch(args: argparse.Namespace) -> int:
             bg_mode=args.bg_mode,
             poll_interval=args.poll_interval,
             retry_done=args.retry_done,
+            queue_ahead=args.queue_ahead,
             on_progress=lambda m: print(m, flush=True),
         )
     except CloudDubError as err:
@@ -433,6 +434,11 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Giây giữa mỗi lượt hỏi trạng thái job (mặc định: 5)")
     cloud.add_argument("--retry-done", action="store_true",
                        help="Chạy lại cả video đã đánh dấu xong trong lượt trước")
+    cloud.add_argument("--queue-ahead", type=int, default=2,
+                       help="Số job giữ sẵn trong hàng đợi máy chủ (mini-spec "
+                            "V52, mặc định 2) — nộp trước để worker không nằm "
+                            "không giữa 2 video. Đặt 1 = chạy tuần tự như cũ. "
+                            "Đừng đặt cao: mỗi job chờ đã giữ chỗ quota")
     cloud.set_defaults(func=_cmd_cloud_batch)
 
     watch = sub.add_parser(

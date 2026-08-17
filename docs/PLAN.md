@@ -86,6 +86,7 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V49 | Trang `/thu-dub` thử API trên trình duyệt (Phase G, 2026-08-17) | ✅ Xong code, CHƯA click thử thật | Gọi đúng API đã có, XHR để có tiến trình upload, không lưu key vào localStorage, ngôn ngữ/giá đọc từ `cloudDub` trong `/v1/config/app`. **Cố ý KHÔNG làm chế độ dùng thử không cần key** — cho người lạ chạy ASR/TTS/mux miễn phí là quyết định chi phí + chống lạm dụng của chủ dự án. 8 test render mới (website lần đầu có hạ tầng test component) |
 | V50 | Cloud render không im lặng nuốt tiền + giám sát kho (Phase G, 2026-08-17) | ✅ Xong, CẦN chủ dự án quyết | Audit lộ ra: `/v1/jobs/demucs` trừ 50 Vox lúc nộp, không sweeper nào đụng trạng thái `queued`, VÀ **không có worker render nào tồn tại** → bấm = mất tiền, job nằm im vĩnh viễn. `sweepStaleQueued` fail + hoàn Vox (chỉ khi CHƯA worker nào nhận). Thêm `GET /v1/admin/storage` (`orphanFiles`/`orphanChunks`). **Quyết định treo**: triển khai worker render hay tắt `cloud.render.enabled` |
 | V51 | Đẩy batch lên `worker-dub` từ desktop (Phase G, 2026-08-17, đóng gap V42 để lại) | ✅ Xong code + 12 test, CHƯA chạy thật đầu-cuối | `voxdub cloud-batch --input <file\|thư mục> --output-dir …` — nộp từng video lên `/api/v1/dub`, chờ, tải kết quả. Resume-safe (chạy lại KHÔNG nộp lại video đã xong = không trả tiền lần hai); hết quota giữa chừng thì DỪNG nộp nhưng vẫn theo dõi nốt job đã nộp; "máy chủ mất kết quả (đã hoàn phí)" là trạng thái RIÊNG chứ không gộp vào `failed`; tải dở không để lại file mang tên thật. Test chạy trên máy chủ HTTP thật dựng tại chỗ, không mock `requests`. **Cần API key để verify thật** |
+| V52 | Chạy đường ống cho `cloud-batch` — worker không nằm không (Phase G, 2026-08-17, đóng gap thông lượng V51 để lại) | ✅ Xong code + 16 test, CHƯA chạy thật | V51 chạy tuần tự nộp→chờ→tải→nộp, nên suốt lúc upload video sau thì worker máy chủ RẢNH — trong khi mục tiêu gốc của V42 chính là thông lượng. V52 giữ sẵn hàng đợi ngắn (`--queue-ahead`, mặc định 2): job N+1 đã đứng chờ trước khi kết quả job N tải xong. Hàng đợi cố ý NGẮN vì mỗi job chờ đã giữ chỗ quota (V43). Job xong trả lại quota → video từng bị 402 chặn được thử lại NGAY trong cùng lượt, không bỏ lửng |
 | — | Rà chéo sau V50 (2026-08-17) | ✅ Xong | 2 lỗi thật do V45 ⇄ V48 giẫm chân nhau: bản sao lưu nuốt byte video GridFS (600 KB video → dump 830 KB); upload đứt giữa chừng để lại chunk mồ côi VĨNH VIỄN (vô hình với mọi cách dọn theo tên). Bản test đầu của lỗi 2 PASS GIẢ — phải nhả nhiều chunk theo nhịp macrotask mới lộ ra 9 chunk nằm lại |
 
 ## Tổng quan phase
@@ -4300,6 +4301,60 @@ Success Criteria:
 không mock `requests`). Baseline trước/sau: **936 → 948 pass**, đúng 12 test
 mới, 0 regression. **Chưa chạy thật đầu-cuối** — cần API key có quota (đòi
 `ADMIN_TOKEN` của chủ dự án). Xem `docs/TEST_LOG.md` mục V51.
+
+### V52 — Đường ống cho cloud-batch (đóng gap thông lượng V51 để lại)
+
+```
+V52 — Worker máy chủ không được nằm không giữa 2 video (Phase G, 2026-08-17)
+
+Context:
+- V51 mở đường đẩy batch lên máy chủ, nhưng chạy THUẦN TUẦN TỰ: nộp → chờ
+  xong → tải → mới nộp video kế tiếp.
+- Hệ quả: suốt thời gian upload video N+1, worker trên máy chủ rảnh. Với
+  file vài trăm MB qua đường truyền nhà, đó là phần lớn thời gian.
+- Mà mục tiêu gốc của V42 chính là THÔNG LƯỢNG. V51 mới chỉ chuyển chỗ xử lý
+  chứ chưa tăng thông lượng thật.
+- V43 (giữ chỗ quota theo phút) là ràng buộc phải tôn trọng: mỗi job đứng
+  chờ đã khoá trước một phần quota.
+
+Goal:
+- Worker máy chủ luôn có việc sẵn để làm ngay khi xong video trước.
+
+Constraints (Guardrails):
+1. KHÔNG chạy song song phía máy chủ — worker vẫn xử lý từng job một. Thứ
+   được cắt bỏ là thời gian chết, không phải đổi mô hình xử lý.
+2. Hàng đợi phải NGẮN và có trần: nộp trước vô hạn là tự khoá quota của
+   chính mình cho những video có thể chẳng bao giờ tới lượt.
+3. Hết quota giữa chừng KHÔNG được biến thành "bỏ luôn video còn lại" — job
+   xong sẽ trả lại chỗ (V43), phải thử lại trong cùng lượt chạy.
+4. Mọi bảo đảm của V51 giữ nguyên: resume-safe, 3 trạng thái kết thúc, tải
+   dở không để lại file mang tên thật, không đụng file nguồn.
+5. `--queue-ahead 1` phải cho lại đúng hành vi tuần tự cũ (đường lui).
+
+Scope:
+A/B. `run_cloud_batch` đổi từ vòng lặp thẳng sang bơm-và-rút hàng đợi.
+C. Không đổi API máy chủ.
+D. CLI thêm `--queue-ahead`.
+E. Tests: 3 test mới cho đúng phần V52 thêm vào.
+
+Design Choice:
+- Đo bằng TRÌNH TỰ SỰ KIỆN chứ không bằng đồng hồ: test khẳng định "job2
+  được nộp TRƯỚC khi job1 tải xong". Đo thời gian sẽ thành test chập chờn
+  phụ thuộc máy chạy, còn thứ tự thì hoặc đúng hoặc sai.
+- Video bị 402 chặn được trả lại hàng đợi (`next_index -= 1`) chứ không đánh
+  dấu hỏng: nó chưa từng được thử thật sự, chỉ là chưa còn chỗ.
+
+Success Criteria:
+- Video N+1 đã nộp trước khi kết quả video N được tải về.
+- Số job chờ đồng thời không bao giờ vượt `queue_ahead`.
+- Quota được giải phóng thì video bị chặn phải chạy nốt trong cùng lượt.
+```
+
+**Kết quả (2026-08-17)**: ✅ Xong. 16 test (13 của V51 + 3 mới), baseline
+**936 → 952 pass**, 0 regression. **Chưa chạy thật đầu-cuối** — cần API key.
+Lưu ý khi chạy thật: lợi ích tỉ lệ với thời gian upload; mạng nhanh + video
+nhỏ thì gần như không khác, mạng nhà + video vài trăm MB thì cắt được gần
+trọn thời gian upload khỏi tổng thời gian chạy.
 
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
 

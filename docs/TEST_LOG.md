@@ -6214,3 +6214,61 @@ hạ tầng, xem V42).
   thường (hiện rơi vào `failed` với thông báo của máy chủ).
 - Thông lượng thật vẫn chặn ở 1 worker; V51 chỉ mở đường, không tự tăng năng
   lực xử lý.
+
+
+## V52 — Đường ống cho cloud-batch (Phase G, 2026-08-17)
+
+### Audit Before Build
+
+V51 vừa xong đã lộ ngay giới hạn của chính nó: vòng chạy là nộp → chờ → tải →
+nộp tiếp. Nghĩa là trong suốt thời gian upload video N+1, **worker trên máy
+chủ rảnh**. Với file vài trăm MB qua đường truyền nhà, phần rảnh đó chiếm
+phần lớn thời gian — mà mục tiêu gốc của V42 chính là thông lượng, nên V51
+mới chỉ *chuyển chỗ xử lý* chứ chưa *tăng thông lượng*.
+
+Ràng buộc phải tôn trọng: V43 giữ chỗ quota theo phút cho mỗi job đang
+`queued`/`running`. Nộp trước càng nhiều thì khoá quota càng nhiều.
+
+### Design Choice
+
+Hàng đợi ngắn có trần (`--queue-ahead`, mặc định 2) thay vì song song thật:
+worker vẫn xử lý từng job một — thứ bị cắt bỏ là thời gian chết giữa 2 video,
+không phải đổi mô hình xử lý.
+
+Video bị 402 chặn được **trả lại hàng đợi**, không đánh dấu hỏng: nó chưa
+từng được thử thật sự, chỉ là chưa còn chỗ. Khi một job xong (trả lại quota
+đã giữ), đường nộp mở lại ngay trong cùng lượt chạy — nếu không, "hết quota
+tạm thời" sẽ biến thành "bỏ luôn phần còn lại của batch".
+
+**Đo bằng trình tự sự kiện, không bằng đồng hồ.** Máy chủ giả ghi lại thứ tự
+`submit`/`download`, và test khẳng định `submit job2` xảy ra TRƯỚC
+`download job1`. Đo thời gian sẽ thành test chập chờn phụ thuộc máy chạy;
+thứ tự thì hoặc đúng hoặc sai.
+
+### Tests (3 mới, tổng 16)
+
+1. **video N+1 đã nộp trước khi tải xong video N** — chính là lý do V52 tồn tại
+2. số job chờ đồng thời không bao giờ vượt `queue_ahead` (không tự khoá quota)
+3. quota được giải phóng bởi job vừa xong → video từng bị 402 chặn chạy nốt
+   trong cùng lượt, `stopped_early` được xoá
+
+Baseline trước/sau: **936 → 952 pass**, 0 regression.
+
+2 lỗi khi viết, đều tự bắt bằng test:
+- Thay vòng lặp bằng khối mới nhưng **cắt mất `return report`** → hàm trả
+  `None`, 8 test đỏ với `AttributeError` thay vì lỗi logic (may mà test có
+  sẵn từ V51 bắt ngay).
+- Kịch bản test "quota được giải phóng" bản đầu tự **kẹt cứng**: đặt 402 từ
+  lượt nộp ĐẦU TIÊN nên không job nào xong để giải phóng quota. Sửa thành
+  chặn từ job thứ 2 trở đi cho tới khi job đầu tải xong.
+
+### Remaining Limits
+
+- Lợi ích **tỉ lệ với thời gian upload**: mạng nhanh + video nhỏ thì gần như
+  không khác; mạng nhà + video lớn thì cắt được gần trọn thời gian upload.
+  Chưa đo được con số thật vì chưa chạy đầu-cuối (cần API key).
+- Vẫn **1 worker** trên máy chủ — V52 lấp thời gian chết, KHÔNG nhân năng lực
+  xử lý. Muốn nhanh hơn nữa phải tăng số bản sao worker (quyết định hạ tầng).
+- Tải kết quả vẫn nằm trên luồng chính: trong lúc tải video N, không nộp
+  thêm. Chồng cả tải lẫn nộp cần luồng riêng — thêm độ phức tạp mà lợi ích
+  nhỏ hơn hẳn bước vừa làm, để lại nếu đo thật thấy đáng.
