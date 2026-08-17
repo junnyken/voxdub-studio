@@ -4053,6 +4053,65 @@ NGOÀI (laptop/workspace/VPS) — không có máy đó thì vẫn không có b�
 nào, vì nền tảng không cho đặt lịch và container không giữ file. Xem
 `docs/TEST_LOG.md` mục V48.
 
+### V45 — Kết quả job sống sót qua redeploy
+
+```
+V45 — Chuyển file job từ đĩa container sang kho bền vững (Phase G, 2026-08-17)
+
+Context:
+- Sự cố đo được thật: job `done` → redeploy → file kết quả biến mất trong
+  khi Mongo vẫn `done` và quota đã trừ. V44 (`refundLostResult`) mới chỉ
+  hoàn tiền — khách vẫn KHÔNG có hàng và phải dub lại từ đầu.
+- Vibe Host không có volume bền vững (xác nhận qua dashboard + MCP).
+- Quyết định phải giữ: xoá file NGAY sau khi khách tải (chính sách V9);
+  TTL `cloud.dub.ttl.hours`; worker Python không chạm DB.
+
+Goal:
+- Khách đã trả tiền luôn tải được kết quả trong TTL, kể cả khi máy chủ được
+  dựng lại giữa chừng.
+
+Constraints (Guardrails):
+1. Không thêm dịch vụ ngoài/credential mới (S3 là quyết định chi phí của
+   chủ dự án, không phải hệ quả của mini-spec này).
+2. Không nạp cả video vào RAM (giữ nguyên nguyên tắc V44).
+3. Không đổi hợp đồng API công khai và không đổi schema DubApiJob.
+4. Giữ NGUYÊN lưới an toàn hoàn phí của V44 — kho mới không phải lý do bỏ
+   đường phòng vệ cũ.
+5. Worker không được biết chi tiết kho (vẫn chỉ HTTP + chuỗi khoá mờ).
+
+Scope:
+A. Domain model: không đổi field nào; `inputPath`/`outputPath` đổi ý NGHĨA
+   từ đường dẫn đĩa sang khoá kho.
+B. Services/engine: `job-storage.service.js` (GridFS), tách lõi
+   `writeUploadStream` khỏi `upload-stream.js` để dùng chung cả đĩa lẫn kho.
+C. API contract: không đổi.
+D. UI surfaces: không có.
+E. Tests: `dub-result-durability.test.js` (mô phỏng redeploy thật).
+
+Design Choice:
+- GridFS trên chính MongoDB managed — thứ DUY NHẤT trong hệ thống hiện tại
+  thật sự sống qua redeploy, dùng được ngay, không thêm biến môi trường.
+  Chia chunk 255KB, đọc/ghi theo dòng nên không phá nguyên tắc V44.
+- Đánh đổi: DB phình vì chứa video. Chấp nhận vì file sống rất ngắn (xoá
+  ngay sau khi giao + TTL 2h). Muốn đổi sang S3 sau này chỉ sửa đúng 1
+  module.
+
+Success Criteria:
+- Đóng app + xoá sạch đĩa cục bộ + dựng lại trên cùng DB → kết quả vẫn tải
+  được nguyên vẹn từng byte.
+- Tải xong vẫn dọn file + đánh dấu đã giao, lượt gọi sau KHÔNG hoàn tiền.
+- File mất thật (không phải do redeploy) vẫn rơi vào nhánh hoàn phí V44.
+```
+
+**Kết quả (2026-08-17)**: ✅ Xong. 3 test mới mô phỏng đúng lượt redeploy
+(đóng app → xoá đĩa → dựng lại trên cùng DB) — kết quả tải về khớp từng byte.
+**2 bug thật lộ ra khi viết test, đều đã sửa**: (1) listener `end`/`close`
+gắn SAU `reply.send()` nên bắt hụt sự kiện với stream GridFS → file không bao
+giờ được đánh dấu đã giao, lượt gọi sau sẽ hoàn tiền nhầm cho người đã nhận
+đủ hàng; (2) 2 request tải song song chạy đua với việc dọn file → `500` thay
+vì `410`, sửa bằng cách trả lời từ `deliveredAt` trước khi chạm kho. 301 test
+(300 pass, 1 skip, 0 fail). Xem `docs/TEST_LOG.md` mục V45.
+
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
 
 - Khảo sát Rask AI/ElevenLabs Dubbing/HeyGen/Camb.ai/Dubverse/Vidnoz (auto-dub)

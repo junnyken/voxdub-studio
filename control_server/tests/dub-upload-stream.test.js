@@ -32,6 +32,7 @@ const ApiKey = require('../src/models/ApiKey')
 const DubApiJob = require('../src/models/DubApiJob')
 const config = require('../src/services/config.service')
 const { createApiKey } = require('../src/services/api-key.service')
+const storage = require('../src/services/job-storage.service')
 
 let app
 
@@ -105,9 +106,12 @@ test('upload bình thường: file xuống đĩa ĐỦ byte, job vào hàng đ�
 
   const job = await DubApiJob.findById(body.jobId).lean()
   assert.ok(job, 'job phải tồn tại trong DB')
-  const stat = fs.statSync(job.inputPath)
-  assert.equal(stat.size, bytes.length, 'số byte trên đĩa phải khớp CHÍNH XÁC file gửi lên')
-  assert.ok(fs.readFileSync(job.inputPath).equals(bytes), 'nội dung phải nguyên vẹn')
+  // V45: file nằm trong GridFS, không phải đĩa container.
+  assert.equal(await storage.size(job.inputPath), bytes.length,
+    'số byte trong kho phải khớp CHÍNH XÁC file gửi lên')
+  const chunks = []
+  for await (const c of await storage.openRead(job.inputPath)) chunks.push(c)
+  assert.ok(Buffer.concat(chunks).equals(bytes), 'nội dung phải nguyên vẹn')
 })
 
 test('vượt hạn mức: 413 UPLOAD_TOO_LARGE, không để lại file cụt, không tạo job', async () => {
@@ -120,9 +124,12 @@ test('vượt hạn mức: 413 UPLOAD_TOO_LARGE, không để lại file cụt, 
   assert.equal(res.json().code, 'UPLOAD_TOO_LARGE')
 
   assert.equal(await DubApiJob.countDocuments({}), 0, 'không được tạo job cho upload hỏng')
+  // V45: chỗ có thể sót bản cụt giờ là GridFS, không phải đĩa — kiểm cả hai.
+  const orphans = await storage.listAll()
+  assert.deepEqual(orphans, [], `còn file cụt trong kho: ${orphans.join(',')}`)
   for (const dir of leftoverDirs()) {
     const files = fs.readdirSync(path.join(UPLOAD_DIR, dir))
-    assert.deepEqual(files, [], `còn file cụt sót lại trong ${dir}: ${files.join(',')}`)
+    assert.deepEqual(files, [], `còn file cụt sót lại trên đĩa trong ${dir}: ${files.join(',')}`)
   }
 })
 

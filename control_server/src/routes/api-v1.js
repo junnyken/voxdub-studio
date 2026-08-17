@@ -21,6 +21,7 @@ const gateway = require('../services/ai-gateway.service')
 const config = require('../services/config.service')
 const ApiKey = require('../models/ApiKey')
 const dubJob = require('../services/dub-job.service')
+const storage = require('../services/job-storage.service')
 const {
   SOURCE_LANGS, TARGET_LANGS, isValidSourceLang, isValidTargetLang,
 } = require('../utils/dub-langs')
@@ -276,12 +277,27 @@ module.exports = async function apiV1Routes(fastify) {
     if (job.status !== 'done') {
       return reply.code(409).send({ code: 'NOT_READY', message: `Job đang ở trạng thái ${job.status}.` })
     }
+    // Đã giao hàng rồi thì trả lời NGAY, không đụng tới kho (V45). Không có
+    // nhánh này thì lượt gọi thứ hai chạy đua với việc dọn file của lượt
+    // đầu: `openRead` kịp thấy bản ghi file, mở stream, rồi chunk bị xoá
+    // giữa chừng → 500 thay vì 410 đúng nghĩa. Đã bắt được thật (test chập
+    // chờn, không phải suy đoán). Đây cũng là câu trả lời TRUNG THỰC hơn:
+    // biết chắc khách đã tải, không phải đoán từ việc "file không còn".
+    if (job.deliveredAt) {
+      return reply.code(410).send({
+        code: 'RESULT_EXPIRED',
+        message: 'Kết quả đã bị xoá (bạn đã tải bản này trước đó).',
+      })
+    }
     if (!job.outputPath) {
       return reply.code(404).send({ code: 'RESULT_NOT_FOUND' })
     }
 
-    const fs = require('node:fs')
-    if (!fs.existsSync(job.outputPath)) {
+    // V45: kết quả sống trong GridFS (bền vững qua redeploy), không phải đĩa
+    // container. `openRead` trả `null` khi không còn — đúng tín hiệu mà
+    // nhánh hoàn phí V44 dựa vào, nên logic bên dưới giữ nguyên.
+    const resultStream = await storage.openRead(job.outputPath)
+    if (!resultStream) {
       // Mất file trước hạn = khách trả tiền mà không có hàng → hoàn phí.
       // `refundLostResult` tự loại các trường hợp không đáng hoàn (đã tải
       // xong rồi dọn, hoặc đã quá hạn giữ hàng).
@@ -312,18 +328,33 @@ module.exports = async function apiV1Routes(fastify) {
         message: 'Kết quả đã bị xoá (đã tải trước đó hoặc quá hạn TTL).',
       })
     }
-    const stream = fs.createReadStream(job.outputPath)
-    reply.header('Content-Type', 'video/mp4')
-    reply.header('Content-Disposition', `attachment; filename="dubbed_${job._id}.mp4"`)
-    await reply.send(stream)
+    const stream = resultStream
 
-    stream.on('close', () => {
-      // Ghi mốc giao hàng TRƯỚC khi xoá file: nếu chỉ xoá mà không đánh dấu,
-      // lượt gọi sau sẽ thấy "done + không có file + chưa hết hạn" và hoàn
-      // tiền cho người vừa nhận đủ hàng.
+    // Ghi mốc giao hàng TRƯỚC khi xoá file: nếu chỉ xoá mà không đánh dấu,
+    // lượt gọi sau sẽ thấy "done + không có file + chưa hết hạn" và hoàn
+    // tiền cho người vừa nhận đủ hàng.
+    //
+    // V45: nghe CẢ `end` lẫn `close` (có cờ chống chạy 2 lần). Stream đĩa
+    // luôn phát `close`, nhưng stream GridFS thì `end` mới là sự kiện chắc
+    // chắn có khi đọc hết — chỉ nghe `close` là có ngày giao hàng xong mà
+    // không bao giờ đánh dấu, và lượt gọi sau sẽ hoàn tiền nhầm cho người
+    // đã nhận đủ hàng.
+    let finished = false
+    const onDelivered = () => {
+      if (finished) return
+      finished = true
       dubJob.markDelivered(job._id)
         .catch(() => {})
         .finally(() => { dubJob.cleanupJob(job._id).catch(() => {}) })
-    })
+    }
+    // Gắn listener TRƯỚC `reply.send()`: stream GridFS có thể đọc xong ngay
+    // trong lượt send, gắn sau là bắt hụt sự kiện và file không bao giờ được
+    // đánh dấu đã giao (bug thật, test bắt được).
+    stream.on('end', onDelivered)
+    stream.on('close', onDelivered)
+
+    reply.header('Content-Type', 'video/mp4')
+    reply.header('Content-Disposition', `attachment; filename="dubbed_${job._id}.mp4"`)
+    await reply.send(stream)
   })
 }

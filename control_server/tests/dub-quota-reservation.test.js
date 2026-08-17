@@ -24,10 +24,20 @@ const ApiKey = require('../src/models/ApiKey')
 const DubApiJob = require('../src/models/DubApiJob')
 const config = require('../src/services/config.service')
 const dubJob = require('../src/services/dub-job.service')
+const storage = require('../src/services/job-storage.service')
 
 test.before(startDb)
 test.after(stopDb)
 test.beforeEach(async () => { await clearDb(); config.invalidate() })
+
+// V45: kết quả job sống trong GridFS — test dựng file qua đúng kho đó.
+async function putOutput(jobId) {
+  const { Readable } = require('node:stream')
+  const { pipeline } = require('node:stream/promises')
+  const key = storage.outputKey(String(jobId))
+  await pipeline(Readable.from([Buffer.from('x')]), await storage.openWrite(key))
+  return key
+}
 
 function makeApiKey(dubMinutesQuota = 100) {
   return ApiKey.create({
@@ -115,9 +125,9 @@ test('completeJob: giải phóng reservation VÀ cộng usage thật trong cùng
 
   await dubJob.claimNextJob('worker-1')
   const paths = dubJob.jobPaths(job._id)
-  fs.writeFileSync(paths.output, 'x')
+  await putOutput(job._id)
   const completed = await dubJob.completeJob(job._id, 'worker-1', {
-    outputPath: paths.output,
+    outputPath: storage.outputKey(String(job._id)),
     metrics: { durationS: 125 },   // -> 3 phút thật, KHÁC 20 phút đã giữ chỗ
   })
   assert.equal(completed.costVox, 3 * perMinute)
@@ -134,8 +144,8 @@ test('completeJob: durationS=0 (worker cũ) -> vẫn giải phóng reservation d
   })
   await dubJob.claimNextJob('worker-1')
   const paths = dubJob.jobPaths(job._id)
-  fs.writeFileSync(paths.output, 'x')
-  await dubJob.completeJob(job._id, 'worker-1', { outputPath: paths.output, metrics: { durationS: 0 } })
+  await putOutput(job._id)
+  await dubJob.completeJob(job._id, 'worker-1', { outputPath: storage.outputKey(String(job._id)), metrics: { durationS: 0 } })
 
   const fresh = await ApiKey.findById(apiKey._id).lean()
   assert.equal(fresh.dubMinutesReserved, 0, 'không rò rỉ quota vĩnh viễn dù không tính phí được')

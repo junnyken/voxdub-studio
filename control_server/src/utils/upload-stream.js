@@ -25,6 +25,49 @@ const fsp = require('node:fs/promises')
 const { createWriteStream } = require('node:fs')
 const { pipeline } = require('node:stream/promises')
 
+/**
+ * Lõi dùng chung (V45 tách ra từ `writeUploadToDisk`): nhận sẵn stream đích
+ * nên dùng được cho CẢ đĩa lẫn GridFS. Mọi luật "không để lại bản cụt" nằm
+ * đúng một chỗ này — thêm kho lưu trữ mới sau này chỉ cần truyền `dest`
+ * khác, không chép lại logic.
+ *
+ * `cleanup()` xoá bản cụt theo cách của kho tương ứng (unlink / GridFS
+ * delete); `getSize()` đo lại sau khi ghi xong để bắt file rỗng.
+ */
+async function writeUploadStream(fileStream, {
+  dest, cleanup, getSize, maxMb, makeError, label = 'File',
+}) {
+  if (!fileStream) {
+    throw makeError('NO_FILE', `Thiếu ${label.toLowerCase()}.`, 400)
+  }
+
+  const tooLarge = () => makeError(
+    'UPLOAD_TOO_LARGE', `${label} vượt quá ${maxMb} MB.`, 413,
+  )
+
+  try {
+    await pipeline(fileStream, dest)
+  } catch (err) {
+    if (fileStream.truncated || (err && err.code === 'FST_REQ_FILE_TOO_LARGE')) {
+      await cleanup()
+      throw tooLarge()
+    }
+    await cleanup()
+    throw err
+  }
+  if (fileStream.truncated) {
+    await cleanup()
+    throw tooLarge()
+  }
+
+  const size = await getSize()
+  if (!size) {
+    await cleanup()
+    throw makeError('EMPTY_FILE', `${label} rỗng.`, 400)
+  }
+  return size
+}
+
 async function writeUploadToDisk(fileStream, destPath, { maxMb, makeError, label = 'File' }) {
   if (!fileStream) {
     throw makeError('NO_FILE', `Thiếu ${label.toLowerCase()}.`, 400)
@@ -64,4 +107,4 @@ async function writeUploadToDisk(fileStream, destPath, { maxMb, makeError, label
   return size
 }
 
-module.exports = { writeUploadToDisk }
+module.exports = { writeUploadToDisk, writeUploadStream }

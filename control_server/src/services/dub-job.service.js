@@ -29,7 +29,9 @@ const DubUsageLedger = require('../models/DubUsageLedger')
 const ApiKey = require('../models/ApiKey')
 const config = require('./config.service')
 const audit = require('./audit.service')
-const { writeUploadToDisk } = require('../utils/upload-stream')
+const storage = require('./job-storage.service')
+
+const { writeUploadToStorage } = storage
 
 class DubJobError extends Error {
   constructor(code, message, statusCode = 400) {
@@ -135,17 +137,17 @@ async function submitDubJob({
     : 'credit.cost.cloud.dub.vox.per.minute'
   const estimate = Number(await config.get(perMinuteKey)) || 0
 
-  // Sinh sẵn _id để biết đường dẫn file TRƯỚC khi ghi document — cùng lý do
+  // Sinh sẵn _id để biết khoá lưu trữ TRƯỚC khi ghi document — cùng lý do
   // tránh trạng thái nửa vời đã áp dụng ở render-job.service.js.
   const jobId = new mongoose.Types.ObjectId()
-  const paths = jobPaths(String(jobId))
 
   let job
+  const storageKey = storage.inputKey(String(jobId))
   try {
-    await fs.mkdir(paths.dir, { recursive: true })
-    // V44: ghi theo dòng, KHÔNG `toBuffer()` — xem `utils/upload-stream.js`
-    // cho số đo RSS trước/sau và lý do tồn tại.
-    await writeUploadToDisk(fileStream, paths.input, {
+    // V44: ghi theo dòng, KHÔNG `toBuffer()`.
+    // V45: đích đến là GridFS, không phải đĩa container — đĩa không sống qua
+    // redeploy (xem `job-storage.service.js`).
+    await writeUploadToStorage(fileStream, storageKey, {
       maxMb: Number(await config.get('cloud.dub.max.upload.mb')) || 300,
       makeError: (code, message, statusCode) => new DubJobError(code, message, statusCode),
       label: 'File video',
@@ -160,7 +162,7 @@ async function submitDubJob({
       targetLang,
       voice,
       bgMode,
-      inputPath: paths.input,
+      inputPath: storageKey,
       estimatedCostVox: estimate,
       reservedMinutes: reserveMinutes,
       expiresAt,
@@ -170,11 +172,10 @@ async function submitDubJob({
     // phép mất chỗ quota vì lỗi phía chúng ta (cùng nguyên tắc rollback của
     // activation.service.js khi grant() hỏng sau khi đã chốt key).
     await releaseDubMinutes(apiKey._id, reserveMinutes)
-    // Ghi theo dòng nên hỏng giữa chừng là để lại file CỤT trên đĩa mà
+    // Ghi theo dòng nên hỏng giữa chừng là để lại file CỤT trong kho mà
     // không có document nào trỏ tới — sweeper dọn theo job nên sẽ không bao
-    // giờ thấy nó. Dọn ngay tại đây, cùng lý do `unlink` bản cụt ở
-    // `POST /internal/dub-jobs/:id/output`.
-    await fs.rm(paths.dir, { recursive: true, force: true }).catch(() => {})
+    // giờ thấy nó. Dọn ngay tại đây.
+    await storage.remove(storageKey).catch(() => {})
     throw err
   }
 
@@ -425,8 +426,10 @@ async function refundLostResult(jobId) {
 }
 
 async function cleanupJob(jobId) {
-  const paths = jobPaths(String(jobId))
-  await fs.rm(paths.dir, { recursive: true, force: true })
+  // V45: file sống trong GridFS. Vẫn dọn nốt thư mục đĩa cũ (nếu có) để job
+  // tạo TRƯỚC V45 không để lại rác vĩnh viễn trên container còn sống.
+  await storage.removeJob(String(jobId))
+  await fs.rm(jobPaths(String(jobId)).dir, { recursive: true, force: true }).catch(() => {})
 }
 
 async function sweepExpired(log = null) {

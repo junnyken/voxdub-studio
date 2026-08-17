@@ -38,8 +38,16 @@ async function stopDb() {
 }
 
 async function clearDb() {
-  const { collections } = mongoose.connection
-  await Promise.all(Object.values(collections).map((c) => c.deleteMany({})))
+  // Duyệt collection THẬT trong database, không phải danh sách model của
+  // mongoose: từ V45 file job nằm trong GridFS (`dubfiles.files`/
+  // `dubfiles.chunks`) — 2 collection do driver tạo, không có model nào, nên
+  // cách cũ bỏ sót và rác của test trước tràn sang test sau (đã bắt được
+  // thật: assert "không sót file cụt" fail vì file của test TRƯỚC).
+  const { db } = mongoose.connection
+  const names = (await db.listCollections().toArray())
+    .map((c) => c.name)
+    .filter((n) => !n.startsWith('system.'))
+  await Promise.all(names.map((n) => db.collection(n).deleteMany({})))
 }
 
 module.exports = { setTestEnv, startDb, stopDb, clearDb }

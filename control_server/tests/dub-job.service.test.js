@@ -30,6 +30,16 @@ const DubApiJob = require('../src/models/DubApiJob')
 const DubUsageLedger = require('../src/models/DubUsageLedger')
 const config = require('../src/services/config.service')
 const dubJob = require('../src/services/dub-job.service')
+const storage = require('../src/services/job-storage.service')
+
+// V45: file job sống trong GridFS — test dựng dữ liệu qua đúng kho đó.
+async function putOutput(jobId, text) {
+  const { Readable } = require('node:stream')
+  const { pipeline } = require('node:stream/promises')
+  const key = storage.outputKey(String(jobId))
+  await pipeline(Readable.from([Buffer.from(text)]), await storage.openWrite(key))
+  return key
+}
 
 test.before(startDb)
 test.after(stopDb)
@@ -90,7 +100,8 @@ test('submitDubJob: trả về NGAY status=queued, gắn đúng bgMode, KHÔNG �
   assert.equal(job.costVox, 0, 'chưa xong thì chưa tính phí thật')
   assert.equal(job.workerId, '')
   assert.equal(job.heartbeatAt, null)
-  assert.ok(fs.existsSync(job.inputPath), 'file input phải được ghi ra đĩa')
+  // V45: file input nằm trong GridFS (bền vững qua redeploy), không phải đĩa.
+  assert.ok(await storage.exists(job.inputPath), 'file input phải được ghi vào kho')
 
   const freshKey = await ApiKey.findById(apiKey._id).lean()
   assert.equal(freshKey.usageCount, 0, 'quota/usageCount của V31 không liên quan, không đổi')
@@ -120,15 +131,14 @@ test('claimNextJob → completeJob: state machine đầy đủ, metrics ghi đú
   const hbOk = await dubJob.heartbeat(job._id, 'worker-1')
   assert.equal(hbOk, true)
 
-  const paths = dubJob.jobPaths(job._id)
-  fs.writeFileSync(paths.output, 'fake-output-video-bytes')
+  const outKey = await putOutput(job._id, 'fake-output-video-bytes')
   // 125s = 2.08 phút -> làm tròn LÊN 3 phút.
   const completed = await dubJob.completeJob(job._id, 'worker-1', {
-    outputPath: paths.output,
+    outputPath: outKey,
     metrics: { inputBytes: 24, outputBytes: 24, processingMs: 1234, durationS: 125 },
   })
   assert.equal(completed.status, 'done')
-  assert.equal(completed.outputPath, paths.output)
+  assert.equal(completed.outputPath, outKey)
   assert.equal(completed.metrics.processingMs, 1234)
   assert.equal(completed.metrics.durationS, 125)
   assert.equal(completed.costVox, 3 * perMinute, 'làm tròn lên phút: 125s -> 3 phút')
@@ -151,10 +161,9 @@ test('completeJob: durationS rất ngắn vẫn tính tối thiểu 1 phút (kh�
     apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
   })
   await dubJob.claimNextJob('worker-1')
-  const paths = dubJob.jobPaths(job._id)
-  fs.writeFileSync(paths.output, 'x')
+  const outKey = await putOutput(job._id, 'x')
   const completed = await dubJob.completeJob(job._id, 'worker-1', {
-    outputPath: paths.output,
+    outputPath: outKey,
     metrics: { durationS: 3 },
   })
   assert.equal(completed.costVox, perMinute)
@@ -170,10 +179,9 @@ test('completeJob: bgMode=demucs tính theo đơn giá demucs (khác none)', asy
     apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi', bgMode: 'demucs',
   })
   await dubJob.claimNextJob('worker-1')
-  const paths = dubJob.jobPaths(job._id)
-  fs.writeFileSync(paths.output, 'x')
+  const outKey = await putOutput(job._id, 'x')
   const completed = await dubJob.completeJob(job._id, 'worker-1', {
-    outputPath: paths.output,
+    outputPath: outKey,
     metrics: { durationS: 60 },
   })
   assert.equal(completed.costVox, perMinuteDemucs)
@@ -185,10 +193,9 @@ test('completeJob: durationS=0 (worker cũ/lỗi) → KHÔNG tính phí, không 
     apiKey, fileStream: fakeMp4Stream(), sourceLang: 'en-US', targetLang: 'vi',
   })
   await dubJob.claimNextJob('worker-1')
-  const paths = dubJob.jobPaths(job._id)
-  fs.writeFileSync(paths.output, 'x')
+  const outKey = await putOutput(job._id, 'x')
   const completed = await dubJob.completeJob(job._id, 'worker-1', {
-    outputPath: paths.output,
+    outputPath: outKey,
     metrics: { durationS: 0 },
   })
   assert.equal(completed.costVox, 0)
@@ -225,15 +232,23 @@ test('claimNextJob: 2 job queued → FIFO (job cũ nhất trước)', async () =
   assert.equal(String(claimed._id), String(first._id))
 })
 
-test('cleanupJob: xoá sạch thư mục job, gọi lại lần 2 không lỗi (idempotent)', async () => {
+test('cleanupJob: xoá sạch file job trong kho, gọi lại lần 2 không lỗi (idempotent)', async () => {
   const jobId = 'fake-dub-job-id-for-cleanup-test'
+  // V45: dọn phải quét CẢ input lẫn output trong GridFS. Vẫn dựng thêm thư
+  // mục đĩa cũ để khoá lại hành vi dọn tương thích ngược cho job tạo trước V45.
+  await putOutput(jobId, 'x')
+  const inKey = storage.inputKey(jobId)
+  const { Readable } = require('node:stream')
+  const { pipeline } = require('node:stream/promises')
+  await pipeline(Readable.from([Buffer.from('x')]), await storage.openWrite(inKey))
   const paths = dubJob.jobPaths(jobId)
   fs.mkdirSync(paths.dir, { recursive: true })
   fs.writeFileSync(paths.input, 'x')
-  assert.ok(fs.existsSync(paths.dir))
 
   await dubJob.cleanupJob(jobId)
-  assert.ok(!fs.existsSync(paths.dir))
+  assert.equal(await storage.exists(inKey), false, 'input phải bị xoá khỏi kho')
+  assert.equal(await storage.exists(storage.outputKey(jobId)), false, 'output phải bị xoá khỏi kho')
+  assert.ok(!fs.existsSync(paths.dir), 'thư mục đĩa cũ cũng phải được dọn')
   await dubJob.cleanupJob(jobId)
 })
 

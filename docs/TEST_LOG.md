@@ -5770,3 +5770,104 @@ không đọc ngược được giá trị). Lệnh để chủ dự án tự ch
   là chủ dự án.
 - Chưa thử nghiệm với DB lớn thật (DB hiện tại gần như rỗng) — cơ chế là
   stream nên không có ngưỡng lý thuyết, nhưng chưa có số đo.
+
+## V45 — Kết quả job sống sót qua redeploy (Phase G, 2026-08-17)
+
+### Audit Before Build
+
+V44 đã chứng minh bằng thực nghiệm: job `done` → redeploy → file kết quả
+biến mất, Mongo vẫn `done`, ví ĐÃ trừ. Lúc đó chốt phương án hoàn phí tự
+động — nhưng đó là **giảm đau, không phải chữa**: khách được trả lại tiền
+nhưng vẫn không có video và phải chờ dub lại từ đầu.
+
+Kiểm lại các chỗ chứa file trước khi chọn hướng:
+- Đĩa container: chết theo mỗi lần redeploy (đã xác nhận, không có volume).
+- S3/object storage: cần credential + quyết định chi phí của chủ dự án.
+- **MongoDB managed do nền tảng provision: là thứ DUY NHẤT trong hệ thống
+  hiện tại thật sự bền vững qua redeploy** — và GridFS sinh ra đúng cho
+  việc chứa file lớn theo chunk 255KB, đọc/ghi theo dòng.
+
+### Design Choice
+
+GridFS (bucket `dubfiles`), khoá dạng `dub/<jobId>/input.mp4`. Vẫn dùng
+đúng 2 field `inputPath`/`outputPath` của `DubApiJob` — không đổi schema,
+chỉ đổi Ý NGHĨA từ đường dẫn đĩa sang khoá kho. Job cũ còn giữ đường dẫn đĩa
+sẽ đơn giản là "không tìm thấy" → rơi vào đúng nhánh hoàn phí đã có, không
+crash.
+
+Tách lõi `writeUploadStream()` ra khỏi `writeUploadToDisk()` (V44) để luật
+"không để lại bản cụt" nằm đúng MỘT chỗ, dùng chung cho cả đĩa lẫn GridFS —
+thêm kho mới sau này chỉ truyền `dest` khác.
+
+Worker Python KHÔNG phải sửa một dòng nào: nó vốn coi `outputPath` là chuỗi
+mờ do server trả về rồi gửi lại lúc `complete` — bằng chứng cho thấy ranh
+giới "worker chỉ nói HTTP, không biết kho" của V34b được thiết kế đúng.
+
+Đánh đổi có chủ đích: video nằm trong database làm DB phình. Chấp nhận vì
+file sống rất ngắn (xoá NGAY sau khi khách tải + TTL 2 giờ). Muốn đổi sang
+S3 về sau chỉ phải sửa đúng `job-storage.service.js`.
+
+### Changed Files
+
+- `control_server/src/services/job-storage.service.js` (mới)
+- `control_server/src/utils/upload-stream.js` — tách lõi `writeUploadStream`
+- `control_server/src/services/dub-job.service.js` — submit/cleanup dùng kho
+- `control_server/src/routes/internal-dub-jobs.js` — worker I/O qua kho
+- `control_server/src/routes/api-v1.js` — tải kết quả từ kho + 2 bug dưới
+- `control_server/tests/dub-result-durability.test.js` (mới, 3 test)
+- `control_server/tests/helpers/db.js` — `clearDb` quét collection THẬT
+
+### 2 bug THẬT lộ ra khi viết test (đều đã sửa)
+
+1. **Listener gắn sau `reply.send()` nên bắt hụt sự kiện.** Stream đĩa luôn
+   phát `close` đủ muộn để kịp gắn; stream GridFS có thể đọc xong ngay trong
+   lượt `send`. Hậu quả không hề nhỏ: `markDelivered` không bao giờ chạy →
+   lượt gọi sau thấy "done + không còn file + chưa hết hạn" → **hoàn tiền
+   cho khách vừa nhận đủ hàng**. Sửa: gắn `end` + `close` (có cờ chống chạy
+   2 lần) TRƯỚC khi gửi.
+2. **Race giữa 2 lượt tải song song và việc dọn file → HTTP 500.** Lượt thứ
+   hai kịp thấy bản ghi file, mở stream, rồi chunk bị xoá giữa chừng. Sửa
+   tận gốc: nếu `deliveredAt` đã có thì trả `410 RESULT_EXPIRED` NGAY, không
+   chạm kho — vừa hết race, vừa là câu trả lời trung thực hơn (biết chắc
+   khách đã tải, thay vì suy ra từ việc "file không còn").
+
+Ngoài ra sửa 1 lỗi hạ tầng test: `clearDb()` chỉ xoá collection do mongoose
+đăng ký nên bỏ sót `dubfiles.files`/`dubfiles.chunks` (driver tạo, không có
+model) — rác của test trước tràn sang test sau và làm assert "không sót file
+cụt" fail. Giờ duyệt collection thật trong database.
+
+### Tests
+
+`tests/dub-result-durability.test.js` — mô phỏng redeploy đúng nghĩa: đóng
+app → **xoá sạch thư mục đĩa cục bộ** → dựng app mới trên CÙNG database.
+
+1. kết quả vẫn tải được nguyên vẹn TỪNG BYTE sau khi container dựng lại —
+   đây chính là ca mà trước V45 khách bị trừ tiền và nhận `410`
+2. sau redeploy, tải xong vẫn dọn file + ghi `deliveredAt`, lượt gọi sau trả
+   `410 RESULT_EXPIRED` và **không hoàn tiền** cho người đã nhận hàng
+3. lưới an toàn V44 còn nguyên: file mất THẬT (xoá khỏi chính kho bền vững)
+   vẫn trả `410 RESULT_LOST_REFUNDED`
+
+Toàn bộ suite: **301 test, 300 pass, 1 skip, 0 fail** — chạy lại 4 lần liên
+tiếp đều 0 fail sau khi sửa 2 bug trên (trước đó có 1 lượt fail chập chờn,
+chính là bug số 2 chứ không phải flake môi trường như tưởng ban đầu).
+
+### Live Verification
+
+Chưa chạy được đầu-cuối trên prod: cần API key có quota phút dub, mà việc cấp
+key đòi `ADMIN_TOKEN` — biến bí mật chỉ chủ dự án có (`list_env` không đọc
+ngược được). Phần verify được đã làm: deploy thành công, `/health` xanh.
+Kịch bản chủ dự án tự chạy để xác nhận: submit 1 job → chờ `done` → redeploy
+`voxdub-app` → gọi lại `/api/v1/dub/<jobId>/result` → phải ra **200 + video**,
+thay vì `410 RESULT_LOST_REFUNDED` như trước V45.
+
+### Remaining Limits
+
+- **Cloud rendering (Demucs, `/v1/jobs/demucs`) VẪN dùng đĩa** — cùng rủi ro
+  mất file qua redeploy, chưa chuyển. Cố tình để ngoài phạm vi: đó là luồng
+  khác (RenderJob, 2 stem audio, tính tiền lúc nộp) và cần bộ test riêng.
+- DB phình khi nhiều job chạy đồng thời (video nằm trong database). Chưa có
+  hạn mức tổng dung lượng kho — hiện chỉ dựa vào TTL 2h + xoá sau khi giao.
+  Nên theo dõi mục "Lưu trữ" trên dashboard nếu lượng job tăng.
+- Chưa đo hiệu năng GridFS với video hàng trăm MB trên prod thật (test dùng
+  file nhỏ + đo cục bộ).

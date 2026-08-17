@@ -31,7 +31,17 @@ const { build } = require('../src/app')
 const ApiKey = require('../src/models/ApiKey')
 const { createApiKey } = require('../src/services/api-key.service')
 const dubJobService = require('../src/services/dub-job.service')
+const storage = require('../src/services/job-storage.service')
 const config = require('../src/services/config.service')
+
+// V45: kết quả job sống trong GridFS — test dựng file qua đúng kho đó.
+async function putOutput(jobId, text) {
+  const { Readable } = require('node:stream')
+  const { pipeline } = require('node:stream/promises')
+  const key = storage.outputKey(String(jobId))
+  await pipeline(Readable.from([Buffer.from(text)]), await storage.openWrite(key))
+  return key
+}
 
 let app
 
@@ -184,10 +194,9 @@ test('luồng đầy đủ: submit -> worker giả claim/complete (kèm duration
   // Worker giả lập (thay cho dub_worker.py thật — xem module docstring).
   const claimed = await dubJobService.claimNextJob('test-worker')
   assert.equal(String(claimed._id), String(jobId))
-  const paths = dubJobService.jobPaths(jobId)
-  fs.writeFileSync(paths.output, 'fake-dubbed-video-bytes')
+  await putOutput(jobId, 'fake-dubbed-video-bytes')
   await dubJobService.completeJob(jobId, 'test-worker', {
-    outputPath: paths.output,
+    outputPath: storage.outputKey(String(jobId)),
     metrics: { inputBytes: 8, outputBytes: 24, processingMs: 999, durationS: 90 },
   })
 
@@ -210,8 +219,16 @@ test('luồng đầy đủ: submit -> worker giả claim/complete (kèm duration
   assert.equal(downloadRes.body, 'fake-dubbed-video-bytes')
   assert.equal(downloadRes.headers['content-type'], 'video/mp4')
 
-  await new Promise((r) => setTimeout(r, 50))   // stream 'close' handler xoá file bất đồng bộ
-  assert.ok(!fs.existsSync(paths.output), 'file phải bị xoá ngay sau khi tải (chính sách dữ liệu V9)')
+  // Dọn file chạy bất đồng bộ sau khi stream đóng — chờ tới lúc dọn xong
+  // thay vì ngủ một khoảng cố định (GridFS cần vài lượt round-trip DB nên
+  // 50ms cứng là nguồn flake).
+  const key = storage.outputKey(String(jobId))
+  for (let i = 0; i < 100; i += 1) {
+    if (!(await storage.exists(key))) break
+    await new Promise((r) => setTimeout(r, 20))
+  }
+  assert.equal(await storage.exists(key), false,
+    'file phải bị xoá ngay sau khi tải (chính sách dữ liệu V9)')
 
   const fresh = await ApiKey.findById(doc._id).lean()
   assert.equal(fresh.dubMinutesUsed, 2)

@@ -31,6 +31,16 @@ const DubApiJob = require('../src/models/DubApiJob')
 const DubUsageLedger = require('../src/models/DubUsageLedger')
 const { createApiKey } = require('../src/services/api-key.service')
 const dubJobService = require('../src/services/dub-job.service')
+const storage = require('../src/services/job-storage.service')
+
+// V45: kết quả job sống trong GridFS — test dựng file qua đúng kho đó.
+async function putOutput(jobId, text) {
+  const { Readable } = require('node:stream')
+  const { pipeline } = require('node:stream/promises')
+  const key = storage.outputKey(String(jobId))
+  await pipeline(Readable.from([Buffer.from(text)]), await storage.openWrite(key))
+  return key
+}
 
 let app
 
@@ -73,16 +83,15 @@ async function makeDoneJob() {
   const { jobId } = submitRes.json()
 
   await dubJobService.claimNextJob('test-worker')
-  const paths = dubJobService.jobPaths(jobId)
-  fs.writeFileSync(paths.output, 'fake-dubbed-video-bytes')
+  await putOutput(jobId, 'fake-dubbed-video-bytes')
   await dubJobService.completeJob(jobId, 'test-worker', {
-    outputPath: paths.output,
+    outputPath: storage.outputKey(String(jobId)),
     metrics: { inputBytes: 8, outputBytes: 24, processingMs: 100, durationS: 90 },
   })
 
   const key = await ApiKey.findById(doc._id).lean()
   assert.equal(key.dubMinutesUsed, 2, '90s -> làm tròn lên 2 phút, đã trừ')
-  return { plaintext, apiKeyId: doc._id, jobId, paths }
+  return { plaintext, apiKeyId: doc._id, jobId }
 }
 
 function getResult(plaintext, jobId) {
@@ -94,10 +103,10 @@ function getResult(plaintext, jobId) {
 }
 
 test('mất file trước hạn -> 410 RESULT_LOST_REFUNDED và hoàn đúng số phút đã trừ', async () => {
-  const { plaintext, apiKeyId, jobId, paths } = await makeDoneJob()
+  const { plaintext, apiKeyId, jobId } = await makeDoneJob()
 
   // Mô phỏng đúng cái đã xảy ra thật: file bay mất, DB không hề biết.
-  fs.rmSync(paths.dir, { recursive: true, force: true })
+  await storage.removeJob(String(jobId))
 
   const res = await getResult(plaintext, jobId)
   assert.equal(res.statusCode, 410)
@@ -119,8 +128,8 @@ test('mất file trước hạn -> 410 RESULT_LOST_REFUNDED và hoàn đúng s�
 })
 
 test('gọi lại nhiều lần chỉ hoàn ĐÚNG MỘT lần', async () => {
-  const { plaintext, apiKeyId, jobId, paths } = await makeDoneJob()
-  fs.rmSync(paths.dir, { recursive: true, force: true })
+  const { plaintext, apiKeyId, jobId } = await makeDoneJob()
+  await storage.removeJob(String(jobId))
 
   const [r1, r2, r3] = await Promise.all([
     getResult(plaintext, jobId), getResult(plaintext, jobId), getResult(plaintext, jobId),
@@ -143,7 +152,9 @@ test('KHÔNG hoàn khi khách đã tải xong (file mất là do hệ thống d�
   assert.equal(dl.statusCode, 200, 'tải lần đầu phải thành công')
 
   // Route dọn file bất đồng bộ sau khi stream đóng — chờ tới lúc đã dọn xong.
-  for (let i = 0; i < 50; i += 1) {
+  // Ngưỡng chờ rộng tay (V45): ghi mốc + xoá file giờ là vài lượt round-trip
+  // GridFS, không phải 1 lệnh unlink; vòng chờ 1 giây từng gây fail chập chờn.
+  for (let i = 0; i < 250; i += 1) {
     const j = await DubApiJob.findById(jobId).lean()
     if (j.deliveredAt) break
     await new Promise((r) => setTimeout(r, 20))
@@ -162,8 +173,8 @@ test('KHÔNG hoàn khi khách đã tải xong (file mất là do hệ thống d�
 })
 
 test('KHÔNG hoàn khi đã quá hạn giữ hàng (khách không tải trong TTL)', async () => {
-  const { plaintext, apiKeyId, jobId, paths } = await makeDoneJob()
-  fs.rmSync(paths.dir, { recursive: true, force: true })
+  const { plaintext, apiKeyId, jobId } = await makeDoneJob()
+  await storage.removeJob(String(jobId))
   await DubApiJob.updateOne({ _id: jobId }, { $set: { expiresAt: new Date(Date.now() - 1000) } })
 
   const res = await getResult(plaintext, jobId)
@@ -175,8 +186,8 @@ test('KHÔNG hoàn khi đã quá hạn giữ hàng (khách không tải trong TT
 })
 
 test('KHÔNG hoàn cho job của API key khác (không rò rỉ qua đường hoàn phí)', async () => {
-  const { apiKeyId, jobId, paths } = await makeDoneJob()
-  fs.rmSync(paths.dir, { recursive: true, force: true })
+  const { apiKeyId, jobId } = await makeDoneJob()
+  await storage.removeJob(String(jobId))
 
   const other = await createApiKey({ orgName: 'Kẻ lạ', dubMinutesQuota: 100 })
   const res = await getResult(other.plaintext, jobId)

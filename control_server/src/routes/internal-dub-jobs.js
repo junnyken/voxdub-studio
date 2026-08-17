@@ -18,11 +18,9 @@
  * qua HTTP chạy đúng ở CẢ hai kiểu triển khai nên là đường DUY NHẤT, không
  * rẽ nhánh theo môi trường.
  */
-const fs = require('node:fs')
-const fsp = require('node:fs/promises')
-const path = require('node:path')
 const { pipeline } = require('node:stream/promises')
 const dubJob = require('../services/dub-job.service')
+const storage = require('../services/job-storage.service')
 const config = require('../services/config.service')
 
 module.exports = async function internalDubJobsRoutes(fastify) {
@@ -38,12 +36,11 @@ module.exports = async function internalDubJobsRoutes(fastify) {
     }
     const job = await dubJob.claimNextJob(workerId)
     if (!job) return { job: null }
-    const paths = dubJob.jobPaths(job._id)
     return {
       job: {
         jobId: job._id,
         inputPath: job.inputPath,
-        outputPath: paths.output,
+        outputPath: storage.outputKey(String(job._id)),
         sourceLang: job.sourceLang,
         targetLang: job.targetLang,
         voice: job.voice,
@@ -70,11 +67,12 @@ module.exports = async function internalDubJobsRoutes(fastify) {
     if (!job) {
       return reply.code(409).send({ code: 'JOB_NOT_OWNED', message: 'Job không còn do worker này giữ.' })
     }
-    if (!job.inputPath || !fs.existsSync(job.inputPath)) {
+    const input = job.inputPath ? await storage.openRead(job.inputPath) : null
+    if (!input) {
       return reply.code(404).send({ code: 'INPUT_NOT_FOUND', message: 'Không còn file input của job này.' })
     }
     reply.header('Content-Type', 'video/mp4')
-    return reply.send(fs.createReadStream(job.inputPath))
+    return reply.send(input)
   })
 
   // --- Nhận file kết quả từ worker ------------------------------------------
@@ -94,21 +92,23 @@ module.exports = async function internalDubJobsRoutes(fastify) {
       return reply.code(400).send({ code: 'NO_FILE', message: 'Thiếu file kết quả.' })
     }
 
-    const paths = dubJob.jobPaths(request.params.jobId)
-    await fsp.mkdir(path.dirname(paths.output), { recursive: true })
-    await pipeline(data.file, fs.createWriteStream(paths.output))
+    // V45: kết quả đi thẳng vào GridFS — đĩa container không sống qua
+    // redeploy, mà đúng khoảng giữa "worker ghi xong" và "khách tải về" là
+    // lúc mất file gây thiệt hại thật (khách đã bị trừ tiền).
+    const key = storage.outputKey(request.params.jobId)
+    await pipeline(data.file, await storage.openWrite(key))
 
     // @fastify/multipart cắt ngang khi quá hạn mức thay vì ném lỗi — file
-    // trên đĩa sẽ là bản CỤT. Phải tự kiểm và xoá, nếu không job sẽ "xong"
+    // lưu lại sẽ là bản CỤT. Phải tự kiểm và xoá, nếu không job sẽ "xong"
     // với video hỏng.
     if (data.file.truncated) {
-      await fsp.unlink(paths.output).catch(() => {})
+      await storage.remove(key).catch(() => {})
       return reply.code(413).send({
         code: 'RESULT_TOO_LARGE', message: `File kết quả vượt quá ${maxMb} MB.`,
       })
     }
 
-    return { ok: true, outputPath: paths.output }
+    return { ok: true, outputPath: key }
   })
 
   // --- Báo xong ------------------------------------------------------------
