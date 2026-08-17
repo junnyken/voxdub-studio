@@ -62,6 +62,15 @@ const dubApiJobSchema = new mongoose.Schema({
   heartbeatAt: { type: Date, default: null },
   startedAt: { type: Date, default: null },
   completedAt: { type: Date, default: null },
+  // Đã giao hàng thành công cho khách (tải hết file) — sau đó `cleanupJob`
+  // xoá file trên đĩa, nên "file không còn" KHÔNG đồng nghĩa với mất hàng.
+  // Thiếu mốc này thì cơ chế hoàn tiền bên dưới sẽ hoàn nhầm cho đúng những
+  // người ĐÃ nhận được video.
+  deliveredAt: { type: Date, default: null },
+  // Đã hoàn phí vì kết quả biến mất TRƯỚC hạn mà khách chưa kịp tải (nền
+  // tảng Vibe Host không có ổ đĩa bền vững — redeploy là mất file, đã đo
+  // thật 2026-08-17). Đặt một lần, dùng làm khoá chống hoàn 2 lần.
+  refundedAt: { type: Date, default: null },
   expiresAt: { type: Date, required: true },
 }, { timestamps: true })
 

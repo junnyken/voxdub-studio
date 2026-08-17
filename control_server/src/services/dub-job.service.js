@@ -336,6 +336,82 @@ async function failJob(jobId, workerId, error) {
   return job
 }
 
+/** Đánh dấu đã giao hàng — gọi NGAY SAU khi khách tải xong, TRƯỚC/cùng lúc
+ * với `cleanupJob`. Chỉ khi có mốc này thì việc file biến mất mới là bình
+ * thường (đã dọn), còn không thì là mất hàng và phải hoàn phí. */
+async function markDelivered(jobId) {
+  await DubApiJob.updateOne(
+    { _id: jobId, deliveredAt: null },
+    { $set: { deliveredAt: new Date() } },
+  )
+}
+
+/**
+ * Hoàn phí khi kết quả biến mất TRƯỚC hạn mà khách chưa kịp tải.
+ *
+ * Vì sao cần: file job nằm trên đĩa container, mà nền tảng không có ổ đĩa
+ * bền vững — một lượt redeploy là mất sạch (đo thật 2026-08-17: cùng một
+ * job, tải trước redeploy ra 200, sau redeploy ra 410). Job vẫn `done`,
+ * quota vẫn đã trừ → khách trả tiền mà không có hàng.
+ *
+ * KHÔNG hoàn cho 2 trường hợp trông giống nhưng khác bản chất:
+ *   - `deliveredAt` đã có: khách tải xong rồi, file mất là do `cleanupJob`.
+ *   - Đã quá `expiresAt`: hết hạn giữ hàng là điều khoản có sẵn (khách có
+ *     `cloud.dub.ttl.hours` để tải), không phải lỗi hệ thống.
+ *
+ * Điều kiện lọc nằm NGAY trong `findOneAndUpdate` (cùng kỹ thuật atomic của
+ * `reserveDubMinutes`), nên khách gọi lại nhiều lần cũng chỉ hoàn đúng 1
+ * lần. Trả về số đã hoàn, hoặc null nếu không thuộc diện hoàn.
+ */
+async function refundLostResult(jobId) {
+  const job = await DubApiJob.findOneAndUpdate(
+    {
+      _id: jobId,
+      status: 'done',
+      deliveredAt: null,
+      refundedAt: null,
+      expiresAt: { $gt: new Date() },
+    },
+    {
+      $set: {
+        refundedAt: new Date(),
+        // Trạng thái phải nói thật: job không giao được hàng. Để `done` thì
+        // khách nhìn vào tưởng vẫn tải được.
+        status: 'failed',
+        error: 'Kết quả không còn trên máy chủ trước khi bạn kịp tải — đã hoàn phí, '
+          + 'vui lòng gửi lại job.',
+      },
+    },
+    { new: true },
+  ).lean()
+  if (!job) return null
+
+  // Hoàn ĐÚNG con số đã trừ, đọc từ sổ cái chứ không tính lại (giá có thể đã
+  // đổi giữa lúc trừ và lúc hoàn).
+  const ledger = await DubUsageLedger.findOne({ jobId }).lean()
+  const minutes = Number(ledger && ledger.minutesCharged) || 0
+  if (minutes <= 0) return { minutesRefunded: 0, costVoxRefunded: 0 }
+
+  const updatedKey = await ApiKey.findOneAndUpdate(
+    { _id: job.apiKeyId },
+    { $inc: { dubMinutesUsed: -minutes } },
+    { new: true },
+  )
+  // Sổ cái là bất biến — ghi dòng ĐẢO (số âm) chứ không sửa/xoá dòng cũ, để
+  // lịch sử kế toán còn nguyên dấu vết cả lần trừ lẫn lần hoàn.
+  await DubUsageLedger.create({
+    apiKeyId: job.apiKeyId,
+    jobId,
+    bgMode: job.bgMode,
+    durationS: Number(job.metrics && job.metrics.durationS) || 0,
+    minutesCharged: -minutes,
+    costVox: -(Number(job.costVox) || 0),
+    dubMinutesUsedAfter: updatedKey ? updatedKey.dubMinutesUsed : 0,
+  })
+
+  return { minutesRefunded: minutes, costVoxRefunded: Number(job.costVox) || 0 }
+}
+
 async function cleanupJob(jobId) {
   const paths = jobPaths(String(jobId))
   await fs.rm(paths.dir, { recursive: true, force: true })
@@ -441,6 +517,8 @@ module.exports = {
   heartbeat,
   completeJob,
   failJob,
+  markDelivered,
+  refundLostResult,
   cleanupJob,
   sweepExpired,
   sweepStaleRunning,

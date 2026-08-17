@@ -264,6 +264,16 @@ module.exports = async function apiV1Routes(fastify) {
   fastify.get('/dub/:jobId/result', async (request, reply) => {
     const job = await dubJob.getJob(request.apiKey._id, request.params.jobId)
     if (!job) return reply.code(404).send({ code: 'NOT_FOUND' })
+    // Kiểm TRƯỚC cả `status`: job đã hoàn phí bị chuyển sang `failed`, để
+    // nguyên thứ tự cũ thì khách chỉ nhận được "job đang ở trạng thái
+    // failed" mà không biết mình đã được hoàn tiền.
+    if (job.refundedAt) {
+      return reply.code(410).send({
+        code: 'RESULT_LOST_REFUNDED',
+        message: 'Kết quả không còn trên máy chủ trước khi bạn kịp tải — phí đã được '
+          + 'hoàn lại, vui lòng gửi lại job.',
+      })
+    }
     if (job.status !== 'done') {
       return reply.code(409).send({ code: 'NOT_READY', message: `Job đang ở trạng thái ${job.status}.` })
     }
@@ -273,6 +283,31 @@ module.exports = async function apiV1Routes(fastify) {
 
     const fs = require('node:fs')
     if (!fs.existsSync(job.outputPath)) {
+      // Mất file trước hạn = khách trả tiền mà không có hàng → hoàn phí.
+      // `refundLostResult` tự loại các trường hợp không đáng hoàn (đã tải
+      // xong rồi dọn, hoặc đã quá hạn giữ hàng).
+      const refund = await dubJob.refundLostResult(job._id)
+      if (refund) {
+        request.log.warn({ jobId: String(job._id), ...refund },
+          'kết quả dub mất trước hạn — đã hoàn phí')
+        return reply.code(410).send({
+          code: 'RESULT_LOST_REFUNDED',
+          message: 'Kết quả không còn trên máy chủ trước khi bạn kịp tải — phí đã được '
+            + 'hoàn lại, vui lòng gửi lại job.',
+          minutesRefunded: refund.minutesRefunded,
+        })
+      }
+      // Thua cuộc đua: một request song song vừa giành quyền hoàn phí xong.
+      // Không đọc lại thì ở đây sẽ báo "đã tải trước đó hoặc hết hạn" —
+      // sai sự thật với khách vừa ĐƯỢC hoàn tiền.
+      const fresh = await dubJob.getJob(request.apiKey._id, request.params.jobId)
+      if (fresh && fresh.refundedAt) {
+        return reply.code(410).send({
+          code: 'RESULT_LOST_REFUNDED',
+          message: 'Kết quả không còn trên máy chủ trước khi bạn kịp tải — phí đã được '
+            + 'hoàn lại, vui lòng gửi lại job.',
+        })
+      }
       return reply.code(410).send({
         code: 'RESULT_EXPIRED',
         message: 'Kết quả đã bị xoá (đã tải trước đó hoặc quá hạn TTL).',
@@ -284,7 +319,12 @@ module.exports = async function apiV1Routes(fastify) {
     await reply.send(stream)
 
     stream.on('close', () => {
-      dubJob.cleanupJob(job._id).catch(() => {})
+      // Ghi mốc giao hàng TRƯỚC khi xoá file: nếu chỉ xoá mà không đánh dấu,
+      // lượt gọi sau sẽ thấy "done + không có file + chưa hết hạn" và hoàn
+      // tiền cho người vừa nhận đủ hàng.
+      dubJob.markDelivered(job._id)
+        .catch(() => {})
+        .finally(() => { dubJob.cleanupJob(job._id).catch(() => {}) })
     })
   })
 }
