@@ -85,6 +85,7 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V48 | Sao lưu MongoDB không phụ thuộc nền tảng (Phase G, 2026-08-17) | ✅ Xong code, CHƯA có cron chạy thật | Backup hàng ngày trước đây là tính năng COOLIFY — rời nền tảng là mất trắng. `GET /v1/admin/backup` stream NDJSON+gzip bằng EJSON (JSON thường phá `ObjectId`/`Date`). **Vẫn là sao lưu KÉO**: chưa có máy ngoài đặt cron `backup-pull.sh` thì vẫn CHƯA có bản sao lưu nào |
 | V49 | Trang `/thu-dub` thử API trên trình duyệt (Phase G, 2026-08-17) | ✅ Xong code, CHƯA click thử thật | Gọi đúng API đã có, XHR để có tiến trình upload, không lưu key vào localStorage, ngôn ngữ/giá đọc từ `cloudDub` trong `/v1/config/app`. **Cố ý KHÔNG làm chế độ dùng thử không cần key** — cho người lạ chạy ASR/TTS/mux miễn phí là quyết định chi phí + chống lạm dụng của chủ dự án. 8 test render mới (website lần đầu có hạ tầng test component) |
 | V50 | Cloud render không im lặng nuốt tiền + giám sát kho (Phase G, 2026-08-17) | ✅ Xong, CẦN chủ dự án quyết | Audit lộ ra: `/v1/jobs/demucs` trừ 50 Vox lúc nộp, không sweeper nào đụng trạng thái `queued`, VÀ **không có worker render nào tồn tại** → bấm = mất tiền, job nằm im vĩnh viễn. `sweepStaleQueued` fail + hoàn Vox (chỉ khi CHƯA worker nào nhận). Thêm `GET /v1/admin/storage` (`orphanFiles`/`orphanChunks`). **Quyết định treo**: triển khai worker render hay tắt `cloud.render.enabled` |
+| V51 | Đẩy batch lên `worker-dub` từ desktop (Phase G, 2026-08-17, đóng gap V42 để lại) | ✅ Xong code + 12 test, CHƯA chạy thật đầu-cuối | `voxdub cloud-batch --input <file\|thư mục> --output-dir …` — nộp từng video lên `/api/v1/dub`, chờ, tải kết quả. Resume-safe (chạy lại KHÔNG nộp lại video đã xong = không trả tiền lần hai); hết quota giữa chừng thì DỪNG nộp nhưng vẫn theo dõi nốt job đã nộp; "máy chủ mất kết quả (đã hoàn phí)" là trạng thái RIÊNG chứ không gộp vào `failed`; tải dở không để lại file mang tên thật. Test chạy trên máy chủ HTTP thật dựng tại chỗ, không mock `requests`. **Cần API key để verify thật** |
 | — | Rà chéo sau V50 (2026-08-17) | ✅ Xong | 2 lỗi thật do V45 ⇄ V48 giẫm chân nhau: bản sao lưu nuốt byte video GridFS (600 KB video → dump 830 KB); upload đứt giữa chừng để lại chunk mồ côi VĨNH VIỄN (vô hình với mọi cách dọn theo tên). Bản test đầu của lỗi 2 PASS GIẢ — phải nhả nhiều chunk theo nhịp macrotask mới lộ ra 9 chunk nằm lại |
 
 ## Tổng quan phase
@@ -4236,6 +4237,69 @@ lượng), 8 test render mới cho `/thu-dub`. Tổng: control_server **314 test
 khai 1 worker render, hoặc (b) tắt `cloud.render.enabled` để không ai bấm vào
 một tính năng không thể chạy. V50 chỉ đảm bảo tiền được trả lại, không thay
 được quyết định đó. Xem `docs/TEST_LOG.md` mục V50.
+
+### V51 — Đẩy batch lên worker-dub từ desktop (đóng gap V42 để lại)
+
+```
+V51 — Mảnh nối giữa app desktop và hạ tầng xử lý trên máy chủ (Phase G,
+2026-08-17)
+
+Context:
+- V42 kết luận: batch song song TRÊN MÁY là sai hướng (4GB VRAM đã chạm 96%
+  với 1 workload — song song thật = CUDA OOM, không phải "chậm hơn"). Đường
+  đúng để tăng thông lượng là `worker-dub` (CPU-only, N bản sao, đã verify
+  atomic-safe ở V34a/V34b).
+- V42 dừng ở đó và ghi lại nguyên văn: "Chưa thiết kế/xây cách app desktop
+  hoặc quy trình vận hành đẩy batch job vào worker-dub để scale thật".
+- Hạ tầng phía máy chủ nay đã đủ vững để dựa vào: V44 (không OOM vì upload),
+  V45 (kết quả sống qua redeploy), V50 (không âm thầm nuốt tiền).
+
+Goal:
+- Chạy được cả loạt video qua hạ tầng máy chủ bằng MỘT lệnh, không tốn GPU
+  máy nào và không phải gõ curl.
+
+Constraints (Guardrails):
+1. KHÔNG đụng `pipeline.py` hay luồng batch chạy máy — đây là đường thứ hai,
+   song song, không thay thế.
+2. KHÔNG trộn với `saas_client.py`: khác identity (API key vs token thiết
+   bị), khác đơn vị tính tiền (phút vs Vox/segment), máy chủ cũng tách hẳn
+   2 middleware.
+3. Thiếu cấu hình thì BÁO THẲNG, tuyệt đối không âm thầm rơi về chạy máy —
+   người dùng phải biết video của mình được xử lý ở đâu.
+4. Chạy lại KHÔNG được nộp lại video đã xong (nộp lại = trả tiền lần hai).
+5. Không bao giờ xoá/sửa file nguồn.
+6. CLI không được kéo theo GUI/Qt (giữ nguyên cam kết của V22).
+
+Scope:
+A. Domain model: không có (client thuần).
+B. Services/engine: `autodub/cloud_dub.py` (client HTTP + quota + tải có
+   kiểm toàn vẹn), `autodub/cloud_batch.py` (vòng chạy + trạng thái + báo cáo).
+C. API contract: không thêm endpoint nào — dùng đúng `/api/v1/*` đã có.
+D. UI surfaces: CLI `voxdub cloud-batch` (GUI để sau, đúng thứ tự V22→V25).
+E. Tests: 12 test trên máy chủ HTTP THẬT dựng tại chỗ.
+
+Design Choice:
+- Tuần tự ở phía client CÓ CHỦ ĐÍCH: máy chủ chặn 5 lượt nộp/phút/key và
+  hiện chỉ 1 worker — bắn song song chỉ dời chỗ chờ và thêm rủi ro rối
+  trạng thái. Chỗ đáng song song là SỐ BẢN SAO worker (quyết định hạ tầng).
+- 3 trạng thái kết thúc chứ không 2: `success` / `failed` / **`refunded`**.
+  Máy chủ mất kết quả rồi hoàn phí (V44/V45) KHÔNG phải video hỏng — gộp vào
+  `failed` sẽ khiến người vận hành tưởng video lỗi và bỏ đi.
+- Tải về ghi `.part` rồi `replace()`: máy chủ XOÁ kết quả ngay sau lượt tải
+  đầu, nên một file dở mang đúng tên thật là mất hàng vĩnh viễn (lượt sau
+  thấy "đã có" và bỏ qua).
+
+Success Criteria:
+- 1 lệnh chạy hết cả thư mục, kết quả về đủ, byte khớp.
+- Ngắt giữa chừng rồi chạy lại: không nộp lại video đã xong.
+- Hết quota: dừng nộp, báo rõ số video CHƯA chạy, không ăn 402 hàng loạt.
+- Tải dở: không để lại file mang tên thật, cũng không để lại rác `.part`.
+```
+
+**Kết quả (2026-08-17)**: ✅ Xong code + 12 test (chạy trên máy chủ HTTP thật,
+không mock `requests`). Baseline trước/sau: **936 → 948 pass**, đúng 12 test
+mới, 0 regression. **Chưa chạy thật đầu-cuối** — cần API key có quota (đòi
+`ADMIN_TOKEN` của chủ dự án). Xem `docs/TEST_LOG.md` mục V51.
 
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
 

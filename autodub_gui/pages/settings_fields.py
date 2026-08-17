@@ -364,6 +364,10 @@ EXEMPT_KEYS: dict[str, str] = {
                    "không cần đổi; ai cần thì sửa thẳng trong .env",
     "SUPPORT_URL": "đường dẫn biểu mẫu báo lỗi cố định, chỉ hiện ở nút Gửi "
                    "báo lỗi chứ không phải cấu hình của người dùng",
+    "VOXDUB_API_KEY": "API key lồng tiếng trên máy chủ, CHỈ dùng cho lệnh "
+                      "CLI `voxdub cloud-batch` (mini-spec V51) — không có "
+                      "ô trong GUI vì luồng đó chưa có mặt trong giao diện; "
+                      "ai cần thì đặt thẳng trong .env hoặc biến môi trường",
     "VOXDUB_API_URL": "địa chỉ máy chủ được nhúng cứng vào bản đóng gói; "
                       "chỉ đọc từ .env khi chạy từ mã nguồn (dev), người "
                       "dùng cuối không đổi được và không cần đổi",

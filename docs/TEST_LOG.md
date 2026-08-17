@@ -6092,3 +6092,112 @@ diễn thì phát hiện bằng số liệu chứ không phải bằng may mắn
 
 `control_server`: **317 test (316 pass, 1 skip, 0 fail)**, chạy 2 lượt liên
 tiếp đều sạch. Không đụng website (39 test giữ nguyên).
+
+## V51 — Đẩy batch lên worker-dub từ desktop (Phase G, 2026-08-17)
+
+### Audit Before Build
+
+V42 (16-08) đã trả lời câu hỏi "làm sao chạy batch song song": **đừng làm
+trên máy**. 4GB VRAM chạm 96% với đúng một workload (đo thật ở V32a), nên
+song song thật đổi "chậm" lấy "CUDA OOM". Đường đúng là `worker-dub` —
+CPU-only, chạy được N bản sao, atomic-safe từ V34a/V34b.
+
+Nhưng V42 dừng ở kết luận và ghi lại nguyên văn: *"Chưa thiết kế/xây cách app
+desktop hoặc quy trình vận hành đẩy batch job vào worker-dub để scale thật"*.
+Tức throughput thật vẫn kẹt 1 video/lượt vì **thiếu mảnh nối**, không phải vì
+thiếu hạ tầng. Hạ tầng đó giờ đã đủ vững để dựa vào: V44 (upload không OOM
+máy chủ), V45 (kết quả sống qua redeploy), V50 (không âm thầm nuốt tiền).
+
+Đọc trước khi viết: `batch.py` (mẫu resume-safe qua state file),
+`saas_client.py` (đường xác thực thiết bị — KHÔNG dùng lại được vì API dub
+dùng identity khác), `cli.py` (mẫu subcommand + cam kết không kéo GUI).
+
+### Design Choice
+
+**Tách hẳn khỏi `saas_client.py`.** Hai lớp identity khác nhau: token thiết
+bị (ví Vox, tính theo segment) và API key (`vx_live_…`, quota tính theo PHÚT
+video). Máy chủ cũng tách 2 middleware. Trộn lại là mời gọi lỗi tính tiền.
+
+**3 trạng thái kết thúc chứ không 2**: `success` / `failed` / **`refunded`**.
+Máy chủ có thể mất kết quả rồi tự hoàn phí (V44/V45) — đó KHÔNG phải video
+hỏng, gửi lại là xong. Gộp vào `failed` sẽ khiến người vận hành tưởng video
+lỗi và bỏ đi, tức là mất nội dung vì một nhãn sai.
+
+**Tuần tự ở phía client, có chủ đích.** Máy chủ chặn 5 lượt nộp/phút/key và
+hiện chỉ có 1 worker; bắn song song chỉ dời chỗ chờ và thêm rủi ro rối trạng
+thái. Chỗ đáng song song là số bản sao worker — quyết định hạ tầng, không
+phải việc của client.
+
+**Tải về ghi `.part` rồi `replace()`.** Máy chủ xoá kết quả NGAY sau lượt tải
+đầu tiên (chính sách V9), nên một file tải dở mang đúng tên thật là mất hàng
+vĩnh viễn: lượt chạy sau thấy "đã có" và bỏ qua, trong khi bên máy chủ không
+còn gì để tải lại. Có kiểm `content-length` để bắt đứt giữa chừng.
+
+**Hết quota thì dừng NỘP, không dừng cả lượt chạy** — job đã nộp trước đó
+vẫn phải theo dõi và tải về, tiền cho chúng đã tiêu rồi.
+
+### Changed Files
+
+- `autodub/cloud_dub.py` (mới) — client `/api/v1/*`: quota, submit (đọc file
+  theo dòng), status, download có kiểm toàn vẹn; tự giữ nhịp nộp cho khớp
+  rate limit máy chủ
+- `autodub/cloud_batch.py` (mới) — vòng chạy, state file, báo cáo
+- `autodub/cli.py` — subcommand `cloud-batch`
+- `.env.example` + `autodub_gui/pages/settings_fields.py` — biến mới
+  `VOXDUB_API_KEY` (ghi vào `EXEMPT_KEYS` kèm lý do, cùng tiền lệ `LIPSYNC_*`)
+- `tests/test_cloud_batch.py` (mới, 12 test)
+
+### Tests
+
+Chạy trên **máy chủ HTTP thật** dựng tại chỗ (`http.server` trong thread),
+**không mock `requests`** — mock đúng cái đang kiểm thì test chỉ chứng minh
+mình hiểu đúng mock của mình. 12 test, trọng tâm là đường hỏng vì chúng đụng
+tiền:
+
+1. đường thuận: 2 video → tải đủ, byte khớp
+2. chạy lại: **không nộp lại** video đã xong (nộp lại = trả tiền lần hai)
+3. `--retry-done`: ép nộp lại đúng như khai báo
+4. hết quota giữa chừng: DỪNG nộp sau 2 job, báo rõ 2 video CHƯA chạy
+5. hết quota từ đầu: không nộp một job nào
+6. máy chủ mất kết quả: vào nhóm `refunded` kèm số phút hoàn, KHÔNG phải `failed`
+7. tải dở dang: không để lại file mang tên thật, cũng không để lại rác `.part`
+8. kết quả rỗng: tính là hỏng, không phải xong
+9. job `failed`: giữ nguyên lý do máy chủ trả về
+10. state file ghi đủ từng mục
+11. **file nguồn không bị đụng vào** (so byte trước/sau)
+12. thiếu API key: từ chối chạy với mã `NO_API_KEY`, không âm thầm chạy máy
+
+**Baseline trước/sau đo thật** (cùng sandbox, `git stash` để lấy mốc):
+**936 pass → 948 pass**, đúng 12 test mới, **0 regression**. 31 fail + 15
+collection error là CÓ SẴN trong sandbox này (thiếu `numpy`/`PySide6`), không
+liên quan thay đổi này — CI có đủ deps mới là mốc thật.
+
+1 lỗi thật khi viết: `save_json_atomic(data, path)` chứ không phải
+`(path, data)` — sai thứ tự tham số, 10/12 test đỏ ngay lượt đầu.
+
+### Live Verification
+
+**CHƯA chạy thật đầu-cuối.** Cần API key có quota phút (đòi `ADMIN_TOKEN`).
+Lệnh để chủ dự án tự xác nhận:
+
+```bash
+export VOXDUB_API_URL=https://voxdub-app.cmc-1.vibenode.matbao.ai
+export VOXDUB_API_KEY=vx_live_...
+voxdub cloud-batch --input ./videos --output-dir ./ket-qua --source-lang en-US --target vi
+```
+
+Đáng chú ý khi chạy thật: hiện chỉ có **1 worker** nên các video xếp hàng
+tuần tự trên máy chủ — muốn nhanh hơn phải tăng số bản sao worker (quyết định
+hạ tầng, xem V42).
+
+### Remaining Limits
+
+- **Chưa có trong GUI** — CLI-first đúng thứ tự V22→V25 (CLI làm nền, GUI
+  sau). Người dùng cuối chưa chạm được.
+- **Chỉ nhận file local**, chưa nhận URL: API máy chủ nhận multipart chứ
+  không tự tải video từ link. Muốn hỗ trợ URL thì phải tải về máy trước rồi
+  mới đẩy lên — tốn băng thông hai chiều, cần cân nhắc riêng.
+- Chưa xử lý ca **API key hết hạn/bị thu hồi giữa chừng** khác với lỗi
+  thường (hiện rơi vào `failed` với thông báo của máy chủ).
+- Thông lượng thật vẫn chặn ở 1 worker; V51 chỉ mở đường, không tự tăng năng
+  lực xử lý.

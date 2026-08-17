@@ -211,6 +211,56 @@ def _apply_quality_gate_to_batch_state(state_path: str, output_dir: str | None,
         save_json_atomic(state, state_path)
 
 
+def _cmd_cloud_batch(args: argparse.Namespace) -> int:
+    """Đẩy batch lên máy chủ thay vì chạy trên máy này (mini-spec V51).
+
+    Tách hẳn `_cmd_batch`: khác đường xác thực (API key, không phải token
+    thiết bị), khác đơn vị tính tiền (phút video, không phải Vox theo
+    segment), và KHÔNG chạy pipeline nào trên máy này cả.
+    """
+    from pathlib import Path
+
+    from autodub.cloud_batch import format_report, run_cloud_batch
+    from autodub.cloud_dub import CloudDubError, is_configured
+
+    if not is_configured():
+        print(
+            "Chưa dùng được lồng tiếng trên máy chủ: cần CẢ VOXDUB_API_URL "
+            "lẫn VOXDUB_API_KEY.\n"
+            "Đây là chế độ khác hẳn 'voxdub batch' (chạy trên máy bạn) — "
+            "không tự chuyển sang chế độ đó để bạn khỏi bất ngờ về nơi "
+            "video được xử lý.",
+            file=sys.stderr,
+        )
+        return 2
+
+    source = Path(args.input)
+    if not source.exists():
+        print(f"Không thấy: {source}", file=sys.stderr)
+        return 2
+
+    try:
+        report = run_cloud_batch(
+            source,
+            Path(args.output_dir),
+            source_lang=args.source_lang,
+            target_lang=args.target,
+            voice=args.voice or "",
+            bg_mode=args.bg_mode,
+            poll_interval=args.poll_interval,
+            retry_done=args.retry_done,
+            on_progress=lambda m: print(m, flush=True),
+        )
+    except CloudDubError as err:
+        print(f"Lỗi máy chủ: {err}", file=sys.stderr)
+        return 1
+
+    print(format_report(report))
+    # Còn mục hỏng, hoặc dừng sớm vì hết quota → mã thoát khác 0 để script
+    # gọi nó biết mà dừng dây chuyền, đừng coi như đã xong.
+    return 1 if (report.failed or report.stopped_early) else 0
+
+
 def _cmd_batch(args: argparse.Namespace) -> int:
     from autodub.batch import STATE_FILENAME, run_batch
 
@@ -364,6 +414,26 @@ def build_parser() -> argparse.ArgumentParser:
                             "--retry-transient)")
     _add_dub_request_args(batch)
     batch.set_defaults(func=_cmd_batch)
+
+    cloud = sub.add_parser(
+        "cloud-batch",
+        help="Đẩy hàng loạt video lên MÁY CHỦ lồng tiếng (mini-spec V51) — "
+             "không chạy gì trên máy này, cần VOXDUB_API_KEY")
+    cloud.add_argument("--input", required=True,
+                       help="1 file video, hoặc thư mục chứa nhiều video")
+    cloud.add_argument("--output-dir", required=True, help="Thư mục nhận kết quả")
+    cloud.add_argument("--source-lang", default="en-US",
+                       help="Ngôn ngữ nguồn: nhận khoá ngắn (vi) HOẶC BCP-47 (vi-VN)")
+    cloud.add_argument("--target", default="vi",
+                       help="Ngôn ngữ đích: CHỈ nhận khoá ngắn, vd vi")
+    cloud.add_argument("--voice", default=None, help="Tên giọng đọc (tuỳ chọn)")
+    cloud.add_argument("--bg-mode", default="none", choices=["none", "demucs"],
+                       help="Giữ nhạc nền gốc bằng Demucs hay bỏ (mặc định: none)")
+    cloud.add_argument("--poll-interval", type=float, default=5.0,
+                       help="Giây giữa mỗi lượt hỏi trạng thái job (mặc định: 5)")
+    cloud.add_argument("--retry-done", action="store_true",
+                       help="Chạy lại cả video đã đánh dấu xong trong lượt trước")
+    cloud.set_defaults(func=_cmd_cloud_batch)
 
     watch = sub.add_parser(
         "watch", help="Theo dõi 1 thư mục, tự dub video mới xuất hiện "
