@@ -121,19 +121,28 @@ def load_wav_mono(path: str) -> tuple[np.ndarray, int]:
     return wav, sr
 
 
-def estimate_speaker_genders(
+def classify_gender(median_f0: float) -> str:
+    """Giới tính ước lượng từ F0 trung vị: "male" | "female" | "" (không chắc).
+
+    Công khai từ V57 để `pipeline.py` tính F0 ĐÚNG MỘT LẦN rồi tự suy ra giới
+    tính, thay vì gọi `estimate_speaker_genders()` (quét lại toàn bộ audio
+    lần hai) chỉ để lấy cùng con số đó.
+    """
+    return _classify(median_f0) if median_f0 > 0 else ""
+
+
+def estimate_speaker_pitch(
     wav: np.ndarray, sr: int, diar_segments: list[dict],
-) -> dict[str, str]:
-    """Ước lượng giới tính TỪNG người nói phát hiện bởi diarization.
+) -> dict[str, float]:
+    """F0 TRUNG VỊ từng người nói (Hz), hoặc `0.0` khi không đủ dữ liệu voiced.
 
-    ``wav``: toàn bộ audio (mono, đã có sẵn trong pipeline, KHÔNG đọc lại
-    file — tránh I/O thừa). ``diar_segments``: kết quả
-    ``autodub.speech.diarization.diarize()``
-    (``[{"start", "end", "speaker"}, ...]``, giây).
+    Tách ra ở mini-spec V57: hồ sơ nhân vật xuyên tập cần chính con số này để
+    nhận lại người nói ở tập sau (nhãn `SPEAKER_00` KHÔNG ổn định giữa các
+    file, còn F0 thì so sánh được). Trước V57 con số này bị dùng xong rồi vứt
+    bên trong `estimate_speaker_genders`.
 
-    Trả về ``{speaker: "male"|"female"|""}`` cho MỌI speaker xuất hiện
-    trong ``diar_segments`` — `""` khi không đủ audio voiced hoặc F0 nằm
-    trong vùng không chắc (Constraint 2 của V36 — không đoán liều).
+    Hàm đoán giới tính giờ gọi lại hàm này — F0 chỉ tính MỘT lần cho mỗi lượt
+    dub, không phải hai.
     """
     wav = np.asarray(wav, dtype=np.float64).reshape(-1)
     by_speaker: dict[str, list[float]] = {}
@@ -148,11 +157,29 @@ def estimate_speaker_genders(
         by_speaker.setdefault(speaker, []).extend(
             _speaker_f0_samples(wav[start_sample:end_sample], sr))
 
-    result: dict[str, str] = {}
     min_voiced_frames = int(_MIN_VOICED_SECONDS * 1000 / _HOP_MS)
+    result: dict[str, float] = {}
     for speaker, f0s in by_speaker.items():
-        if len(f0s) < min_voiced_frames:
-            result[speaker] = ""
-            continue
-        result[speaker] = _classify(float(np.median(f0s)))
+        result[speaker] = (float(np.median(f0s))
+                           if len(f0s) >= min_voiced_frames else 0.0)
     return result
+
+
+def estimate_speaker_genders(
+    wav: np.ndarray, sr: int, diar_segments: list[dict],
+) -> dict[str, str]:
+    """Ước lượng giới tính TỪNG người nói phát hiện bởi diarization.
+
+    ``wav``: toàn bộ audio (mono, đã có sẵn trong pipeline, KHÔNG đọc lại
+    file — tránh I/O thừa). ``diar_segments``: kết quả
+    ``autodub.speech.diarization.diarize()``
+    (``[{"start", "end", "speaker"}, ...]``, giây).
+
+    Trả về ``{speaker: "male"|"female"|""}`` cho MỌI speaker xuất hiện
+    trong ``diar_segments`` — `""` khi không đủ audio voiced hoặc F0 nằm
+    trong vùng không chắc (Constraint 2 của V36 — không đoán liều).
+    """
+    pitches = estimate_speaker_pitch(wav, sr, diar_segments)
+    # `0.0` = không đủ dữ liệu voiced → `""` (không đoán), giữ đúng
+    # Constraint 2 của V36.
+    return {spk: (_classify(f0) if f0 > 0 else "") for spk, f0 in pitches.items()}

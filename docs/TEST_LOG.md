@@ -6583,3 +6583,93 @@ Toàn suite: **1198 passed, 6 skipped, 0 failed**; smoke test toàn app exit 0.
 - 30 giây là hằng số trong GUI (CLI thì tuỳ ý). Chưa có ô chỉnh trong Cài đặt.
 - CHƯA chạy thật đầu-cuối trên máy Windows có GPU/giọng đầy đủ — mới verify
   bước cắt bằng ffmpeg thật + toàn bộ đường dẫn code bằng test.
+
+## V57 — Hồ sơ nhân vật xuyên tập (Phase H, 2026-08-18)
+
+### Audit Before Build
+
+Chủ dự án muốn "đồng bộ nhân vật + giọng điệu". Bản khả thi KHÔNG phải sinh
+video AI mà là: dub cả một series thì nhân vật A giữ nguyên giọng A ở mọi tập.
+
+Đọc code trước, thấy 3/4 mảnh ghép đã có: `diarization.py` (V26) tách người
+nói; `estimate_speaker_genders()` (V36) ước lượng F0 từng người nói;
+`assign_voices_by_gender()` (V36) gán giọng. Thiếu đúng lớp ghi nhớ xuyên tập.
+
+**Điểm chốt kỹ thuật, quyết định toàn bộ thiết kế**: nhãn diarization
+(`SPEAKER_00`…) **KHÔNG ổn định giữa các file** — cùng một người ở tập sau
+hoàn toàn có thể mang nhãn khác. Nên không khớp theo nhãn được, phải khớp
+theo ĐẶC TRƯNG GIỌNG. Và đặc trưng đó đã nằm sẵn trong code: F0 trung vị mà
+V36 tính rồi **dùng xong vứt** (chỉ giữ lại nhãn giới tính).
+
+### Design Choice
+
+**Khớp theo F0 trung vị, không thêm model nhận dạng người nói.** Thô, nhưng
+đúng tinh thần V35/V36 ("tín hiệu số học đơn giản, đủ dùng") và không kéo
+thêm model nào vào bộ cài — thêm model là đổi hẳn hạng mục chi phí/cài đặt.
+
+**Khớp sai tệ hơn không khớp.** Ngoài ngưỡng ±18Hz thì coi là nhân vật MỚI.
+Ngưỡng đủ rộng để chịu khác biệt micro/nén giữa các tập, nhưng hẹp hơn nhiều
+khoảng cách giữa giọng nam (~110Hz) và nữ (~200Hz) nên hai người khác giới
+không thể khớp nhầm.
+
+**Một-đối-một, ghép tham lam theo khoảng cách tăng dần.** Không có ràng buộc
+này thì 2 người nói có F0 gần nhau sẽ cùng nhận một giọng — đúng cái lỗi mà
+tính năng này sinh ra để tránh.
+
+**Trung bình động thay vì đè giá trị mới** (`PITCH_SMOOTHING = 0.25`): một tập
+thu âm tệ không được kéo lệch hồ sơ đã đúng qua nhiều tập.
+
+**Hồ sơ là JSON dễ đọc, để cạnh thư mục kết quả** (`<output>/
+character_profiles/<tên>.json`): người dùng đổi tên `SPEAKER_00` thành "Lý Tứ"
+bằng tay được. Hồ sơ hỏng thì degrade về hành vi V36 và **KHÔNG ghi đè** — file
+có thể chỉ lỗi cú pháp nhỏ mà họ tự sửa được, đè lên là xoá công sức của họ.
+
+### Changed Files
+
+- `autodub/character_profile.py` (mới) — model + khớp + lưu trữ
+- `autodub/speech/diarization_voice_match.py` — tách `estimate_speaker_pitch()`
+  và `classify_gender()` ra công khai; `estimate_speaker_genders()` nay gọi
+  lại chúng nên F0 chỉ tính MỘT lần mỗi lượt dub thay vì hai
+- `autodub/pipeline.py` — `DubRequest.character_profile`;
+  `_apply_character_profile()`; truyền tên hồ sơ vào `_apply_diarization`
+- `autodub/cli.py` — `--character-profile <tên>`
+- `tests/test_character_profile.py` (13), `tests/test_pipeline_character_profile.py` (5)
+
+### Tests (18 mới)
+
+Khớp: cùng người ở tập sau nhận lại đúng giọng **dù nhãn diarization đã đổi**;
+lệch nhỏ vẫn khớp; **ngoài ngưỡng KHÔNG khớp**; F0=0 (thiếu audio voiced) bỏ
+qua; 2 người gần một nhân vật thì chỉ 1 khớp và người gần nhất thắng; hồ sơ
+rỗng không khớp gì.
+
+Ghi nhớ: F0 làm mượt chứ không nhảy (135Hz không kéo hồ sơ 115Hz thành 135);
+người lạ thành nhân vật mới; đổi giọng ở tập này thì tập sau dùng giọng mới.
+
+Lưu trữ: round-trip giữ đủ xưng hô/thuật ngữ/ngữ cảnh; thiếu file → hồ sơ
+rỗng; **hồ sơ hỏng → degrade VÀ không bị ghi đè**; JSON sửa tay được (đổi tên
+nhân vật rồi nạp lại vẫn đúng).
+
+Pipeline: nhân vật cũ **ghi đè** gán tự động của V36; người lạ giữ giọng V36
+và được ghi lại; **mô phỏng 2 tập liên tiếp** — tập 2 nhận lại giọng tập 1;
+hồ sơ hỏng không làm hỏng lượt dub; hồ sơ nằm cạnh thư mục kết quả.
+
+**1 bug thật do test bắt**: `_apply_character_profile` đọc `req.character_profile`
+nhưng `_apply_diarization` **không hề thấy `req`** → `NameError` ở đúng nhánh
+diarization. Test diarization có sẵn (V26) đỏ ngay. Sửa bằng truyền tên hồ sơ
+vào tham số thay vì với lấy từ biến ngoài scope.
+
+Toàn suite: **1216 passed, 6 skipped, 0 failed**; smoke test toàn app exit 0.
+
+### Remaining Limits
+
+- **CHƯA có trong GUI** — mới CLI (`--character-profile`), đúng nếp CLI-first
+  V22→V25. Người dùng cuối chưa chạm được.
+- **Xưng hô/thuật ngữ trong hồ sơ chưa được áp tự động** vào bước dịch: hồ sơ
+  đã lưu 3 trường đó và round-trip đúng, nhưng nối vào `Settings.translate_*`
+  cần quyết định thứ tự ưu tiên (hồ sơ đè cài đặt chung, hay ngược lại) —
+  hỏi chủ dự án trước khi tự quyết.
+- **Khớp bằng F0 là heuristic thô**: hai người cùng giới, giọng gần nhau
+  (chênh <18Hz) vẫn có thể lẫn. Muốn chắc hơn phải dùng speaker embedding —
+  thêm model, là quyết định khác.
+- **Chưa live-verify trên series thật** (cần diarization thật chạy qua nhiều
+  tập). Toàn bộ verify hiện nay là test với F0 dựng sẵn.

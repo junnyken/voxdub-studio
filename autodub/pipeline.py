@@ -99,6 +99,10 @@ class DubRequest:
     # ("vi"/"en"). Mặc định "vi" giữ hành vi trước mini-spec V8/V11.
     target: str = "vi"
 
+    #: mini-spec V57 — tên hồ sơ nhân vật của series. Có hồ sơ thì nhân vật
+    #: cũ nhận lại đúng giọng cũ ở tập mới. Rỗng = hành vi V36 như cũ.
+    character_profile: str = ""
+
     #: mini-spec V56 — chỉ lồng tiếng N GIÂY ĐẦU để nghe thử trước khi cam
     #: kết chạy cả video. 0 = chạy bình thường (mặc định, 0 regression).
     preview_seconds: int = 0
@@ -510,7 +514,8 @@ class DubPipeline:
                 "nhạc, hoặc chọn sai ngôn ngữ gốc). Kiểm tra lại ngôn ngữ "
                 "nguồn trong tab Lồng tiếng.")
 
-        self._apply_diarization(segments, audio_path, target)
+        self._apply_diarization(segments, audio_path, target,
+                                character_profile=req.character_profile)
 
         # Real per-clip time window (until the next line starts) — drives the
         # translation character budget and the TTS target duration.
@@ -992,7 +997,8 @@ class DubPipeline:
         return os.path.join(self.settings.output_dir, target.key.upper())
 
     def _apply_diarization(self, segments: list[dict], audio_path: str,
-                           target: TargetLang) -> None:
+                           target: TargetLang,
+                           character_profile: str = "") -> None:
         """Tự tách giọng theo người nói + gán mỗi người 1 giọng TTS riêng —
         mini-spec V26 (docs/PLAN.md, Phase G). TUỲ CHỌN, mặc định TẮT (0
         regression khi không bật) — Design Choice: tái dùng cơ chế multi-
@@ -1044,9 +1050,16 @@ class DubPipeline:
             )
 
             genders: dict[str, str] = {}
+            pitches: dict[str, float] = {}
             try:
                 wav, sr = load_wav_mono(audio_path)
-                genders = estimate_speaker_genders(wav, sr, diar_segments)
+                from autodub.speech.diarization_voice_match import (
+                    classify_gender, estimate_speaker_pitch,
+                )
+                # V57: tính F0 MỘT lần rồi suy ra cả giới tính (V36) lẫn khoá
+                # nhận diện nhân vật — trước đây con số này bị dùng xong vứt.
+                pitches = estimate_speaker_pitch(wav, sr, diar_segments)
+                genders = {spk: classify_gender(f0) for spk, f0 in pitches.items()}
             except (OSError, EOFError) as e:
                 logger.warning(
                     f"Không đọc được audio để ước lượng giới tính người nói "
@@ -1055,6 +1068,16 @@ class DubPipeline:
             catalog_full = voice_catalog.catalog(settings, target)
             voice_map = assign_voices_by_gender(
                 speaker_labels, genders, catalog_full, fallback_names=available)
+
+            # V57: hồ sơ nhân vật GHI ĐÈ lên gán tự động — nhân vật đã biết
+            # phải giữ đúng giọng của tập trước, đó là toàn bộ mục đích.
+            # V57: tên hồ sơ được TRUYỀN VÀO chứ không lấy từ `req` — hàm này
+            # không thấy `req` (bug thật, test diarization bắt được ngay).
+            profile_name = character_profile or ""
+            if profile_name:
+                voice_map = self._apply_character_profile(
+                    profile_name, settings, pitches, genders, voice_map)
+
             apply_segment_voices(segments, voice_map)
             gendered = sum(1 for lbl in speaker_labels if genders.get(lbl))
             logger.info(
@@ -1065,6 +1088,51 @@ class DubPipeline:
             logger.warning(
                 f"Diarization lỗi ({e}) — dùng 1 giọng cho toàn video như "
                 "bình thường (không ảnh hưởng phần còn lại của lượt dub).")
+
+
+    def _apply_character_profile(self, profile_name: str, settings,
+                                 pitches: dict, genders: dict,
+                                 voice_map: dict) -> dict:
+        """Áp hồ sơ nhân vật của series lên bản đồ giọng (mini-spec V57).
+
+        Nhân vật khớp được → dùng lại ĐÚNG giọng tập trước. Người nói lạ giữ
+        nguyên giọng do V36 vừa gán, rồi được ghi vào hồ sơ thành nhân vật
+        mới cho tập sau.
+
+        Mọi lỗi ở đây đều KHÔNG được làm hỏng lượt dub: mất phần ghi nhớ thì
+        tệ, nhưng mất cả tập vì một file hồ sơ thì tệ hơn nhiều.
+        """
+        try:
+            from autodub.character_profile import CharacterProfile
+
+            profiles_dir = self._profiles_dir(settings)
+            profile = CharacterProfile.load(profiles_dir, profile_name)
+            matched = profile.match_speakers(pitches)
+
+            for speaker, character in matched.items():
+                voice = profile.voice_for(character)
+                if voice:
+                    voice_map[speaker] = voice
+            logger.info(
+                "Hồ sơ nhân vật «%s»: nhận lại %d/%d người nói từ các tập "
+                "trước (%d người mới).",
+                profile_name, len(matched), len(pitches),
+                len(pitches) - len(matched))
+
+            profile.remember(matched, pitches, voice_map, genders)
+            profile.save(profiles_dir)
+        except Exception as err:      # noqa: BLE001 — xem docstring
+            logger.warning(
+                "Không dùng được hồ sơ nhân vật «%s» (%s) — lượt này gán "
+                "giọng như bình thường.", profile_name, err)
+        return voice_map
+
+    @staticmethod
+    def _profiles_dir(settings) -> str:
+        """Nơi cất hồ sơ: cạnh thư mục kết quả, để người dùng tìm thấy."""
+        import os as _os
+        base = getattr(settings, "output_dir", "") or "output"
+        return _os.path.join(base, "character_profiles")
 
     def _apply_lipsync(self, video_path: str, audio_path: str, work_dir: str,
                        settings) -> tuple[str, dict]:

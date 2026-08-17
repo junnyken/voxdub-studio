@@ -82,6 +82,13 @@ def _add_dub_request_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--resume-dir", default=None,
                         help="Chạy tiếp 1 work_dir dở dang có sẵn")
+    parser.add_argument("--character-profile", default="",
+                        help="HỒ SƠ NHÂN VẬT của series (mini-spec V57): nhân "
+                             "vật đã gặp ở tập trước sẽ nhận lại ĐÚNG giọng "
+                             "cũ, kèm xưng hô/thuật ngữ của series. Chỉ có "
+                             "tác dụng khi bật tách người nói (--multi-speaker). "
+                             "Hồ sơ lưu ở <output>/character_profiles/<tên>.json, "
+                             "sửa tay được")
     parser.add_argument("--preview-seconds", type=int, default=0,
                         help="NGHE THỬ: chỉ lồng tiếng N giây đầu để duyệt "
                              "giọng/xưng hô trước khi chạy cả video "
@@ -163,6 +170,7 @@ def _cmd_dub(args: argparse.Namespace) -> int:
         target=args.target,
         lipsync=args.lipsync,
         preview_seconds=args.preview_seconds,
+        character_profile=args.character_profile,
     )
     try:
         result = pipeline.run(req)

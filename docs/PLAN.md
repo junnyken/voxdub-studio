@@ -4422,6 +4422,76 @@ Success Criteria:
 - `preview_seconds=0` → mọi thứ y như trước.
 ```
 
+### V57 — Hồ sơ nhân vật xuyên tập
+
+```
+V57 — Cùng một nhân vật giữ cùng một giọng qua nhiều tập (Phase H, 2026-08-18)
+
+Context:
+- Chủ dự án muốn "đồng bộ nhân vật + giọng điệu". Bản khả thi KHÔNG phải sinh
+  video AI (sản phẩm khác, cần GPU farm) mà là: dub cả một series thì nhân
+  vật A phải giữ NGUYÊN giọng A ở mọi tập. Hiện tập nào giọng nấy — xem 5 tập
+  là thấy loạn.
+- Mảnh ghép đã có, chỉ thiếu lớp ghi nhớ xuyên tập:
+  * `diarization.py` tách người nói (V26)
+  * `diarization_voice_match.estimate_speaker_genders()` ước lượng F0 từng
+    người nói (V36) — F0 trung vị là ĐẶC TRƯNG SO SÁNH ĐƯỢC giữa các tập
+  * `voice_assign.assign_voices_by_gender()` gán giọng (V36)
+  * `Settings.translate_pronouns` / `translate_glossary` — xưng hô, thuật ngữ
+- Điểm chốt kỹ thuật: nhãn diarization (`SPEAKER_00`…) KHÔNG ổn định giữa các
+  file — tập 2 gọi cùng một người là `SPEAKER_01` là chuyện bình thường. Nên
+  không thể khớp theo nhãn; phải khớp theo ĐẶC TRƯNG GIỌNG.
+
+Goal:
+- Dub tập tiếp theo của một series thì nhân vật cũ tự nhận lại đúng giọng cũ,
+  và xưng hô/thuật ngữ của series được áp lại, không phải nhập lại từ đầu.
+
+Constraints (Guardrails):
+1. KHÔNG thêm model AI nhận dạng người nói. Dùng đúng F0 mà V36 đã tính —
+   thêm model là đổi hẳn hạng mục chi phí/cài đặt.
+2. Khớp SAI tệ hơn không khớp: ngoài ngưỡng tin cậy thì coi là nhân vật MỚI,
+   không gán bừa (cùng tinh thần "vùng mù mờ thì không đoán" của V36).
+3. Một nhân vật chỉ khớp với MỘT người nói trong cùng một tập (1-1).
+4. Hồ sơ là dữ liệu của người dùng: sửa tay được, hỏng file không được làm
+   sập lượt dub (degrade về hành vi V36 cũ).
+5. Không có hồ sơ → hành vi y hệt hiện tại (0 regression).
+6. Không tự động tạo/sửa hồ sơ khi người dùng không yêu cầu.
+
+Scope:
+A. Domain model: `Character` (tên, giọng, F0 trung vị, giới tính) +
+   `CharacterProfile` (tên series, danh sách nhân vật, xưng hô, thuật ngữ,
+   ngữ cảnh) lưu JSON.
+B. Services/engine: `autodub/character_profile.py` — nạp/ghi, khớp người nói
+   theo F0 (1-1, có ngưỡng), cập nhật sau mỗi tập.
+   `diarization_voice_match.estimate_speaker_pitch()` (tách ra từ hàm đoán
+   giới tính, KHÔNG tính F0 hai lần).
+C. API contract: không đổi (thuần desktop).
+D. UI surfaces: CLI `--character-profile <tên>`. GUI để đợt sau (đúng nếp
+   CLI-first V22→V25).
+E. Tests: khớp đúng/không khớp/1-1, hồ sơ hỏng, 0 regression khi không dùng.
+
+Design Choice:
+- **Khớp theo F0 trung vị** — đặc trưng DUY NHẤT đã có sẵn và so sánh được
+  giữa các file. Thô, nhưng đúng tinh thần dự án: dùng tín hiệu số học đơn
+  giản đủ dùng thay vì kéo thêm một model.
+- **Ngưỡng + ghép tham lam theo khoảng cách tăng dần**, một-đối-một: cặp gần
+  nhau nhất khớp trước, ai còn lại mà lệch quá ngưỡng thì thành nhân vật mới.
+- **Ghi nhớ bằng trung bình động** thay vì đè giá trị mới: một tập thu âm tệ
+  không được phép kéo lệch hồ sơ đã đúng qua nhiều tập.
+
+Test Plan:
+- Unit: khớp đúng người khi F0 gần; KHÔNG khớp khi lệch quá ngưỡng; 1-1 khi 2
+  người nói cùng gần một nhân vật; nhân vật mới được thêm; trung bình động;
+  hồ sơ hỏng/thiếu file → degrade chứ không nổ.
+- Integration: `--character-profile` áp giọng cũ; không truyền → y hệt V36.
+- Live: chưa (cần diarization thật trên nhiều tập của một series).
+
+Success Criteria:
+- Tập 2 của cùng một series: nhân vật cũ nhận lại đúng giọng đã dùng ở tập 1.
+- Người nói lạ không bị gán nhầm vào nhân vật có sẵn.
+- Không truyền hồ sơ → không có gì thay đổi so với hôm nay.
+```
+
 ### Định hướng thị trường (audit 2026-08-16, tham khảo cho roadmap Phase G/H)
 
 - Khảo sát Rask AI/ElevenLabs Dubbing/HeyGen/Camb.ai/Dubverse/Vidnoz (auto-dub)
