@@ -121,6 +121,19 @@ class CloudDubClient:
     def _headers(self) -> dict:
         return {"Authorization": f"Bearer {self.api_key}"}
 
+    @staticmethod
+    def _as_domain_error(err: Exception, what: str) -> CloudDubError:
+        """Dịch lỗi TRANSPORT thành lỗi domain.
+
+        CI bắt được (2026-08-17) chỗ này bằng một ca mà sandbox không lộ:
+        máy chủ khai `content-length` dài hơn thứ nó gửi rồi đóng kết nối →
+        `requests` ném `ChunkedEncodingError`. Lỗi đó KHÔNG phải
+        `CloudDubError` nên nó xuyên thẳng qua `run_cloud_batch` và giết cả
+        lượt batch — trong khi đúng ra chỉ một video hỏng. Mọi lỗi mạng phải
+        được gói lại tại đây, không để rò lên tầng trên.
+        """
+        return CloudDubError(f"{what}: {err}", code="NETWORK")
+
     def _raise_for_payload(self, resp: requests.Response) -> dict:
         """Đọc JSON lỗi của máy chủ, giữ nguyên mã lỗi để nơi gọi phân nhánh."""
         try:
@@ -139,8 +152,11 @@ class CloudDubClient:
     # -------------------------------------------------------------- công --
 
     def quota(self) -> Quota:
-        resp = requests.get(f"{self.base_url}/api/v1/me",
-                            headers=self._headers, timeout=self.timeout)
+        try:
+            resp = requests.get(f"{self.base_url}/api/v1/me",
+                                headers=self._headers, timeout=self.timeout)
+        except requests.RequestException as err:
+            raise self._as_domain_error(err, "Không hỏi được quota") from err
         if resp.status_code != 200:
             self._raise_for_payload(resp)
         data = resp.json()
@@ -167,22 +183,29 @@ class CloudDubClient:
         if estimated_minutes > 0:
             params["estimatedMinutes"] = str(int(estimated_minutes))
 
-        with open(video_path, "rb") as fh:
-            resp = requests.post(
-                f"{self.base_url}/api/v1/dub",
-                headers=self._headers,
-                params=params,
-                files={"file": (video_path.name, fh, "video/mp4")},
-                timeout=self.timeout,
-            )
+        try:
+            with open(video_path, "rb") as fh:
+                resp = requests.post(
+                    f"{self.base_url}/api/v1/dub",
+                    headers=self._headers,
+                    params=params,
+                    files={"file": (video_path.name, fh, "video/mp4")},
+                    timeout=self.timeout,
+                )
+        except requests.RequestException as err:
+            self._last_submit_at = time.time()
+            raise self._as_domain_error(err, "Nộp video hỏng") from err
         self._last_submit_at = time.time()
         if resp.status_code != 200:
             self._raise_for_payload(resp)
         return str(resp.json()["jobId"])
 
     def status(self, job_id: str) -> dict:
-        resp = requests.get(f"{self.base_url}/api/v1/dub/{job_id}",
-                            headers=self._headers, timeout=self.timeout)
+        try:
+            resp = requests.get(f"{self.base_url}/api/v1/dub/{job_id}",
+                                headers=self._headers, timeout=self.timeout)
+        except requests.RequestException as err:
+            raise self._as_domain_error(err, "Không hỏi được trạng thái job") from err
         if resp.status_code != 200:
             self._raise_for_payload(resp)
         return resp.json()
@@ -198,18 +221,25 @@ class CloudDubClient:
         """
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp = dest.with_suffix(dest.suffix + ".part")
-        with requests.get(f"{self.base_url}/api/v1/dub/{job_id}/result",
-                          headers=self._headers, stream=True,
-                          timeout=self.timeout) as resp:
-            if resp.status_code != 200:
-                self._raise_for_payload(resp)
-            expected = int(resp.headers.get("content-length") or 0)
-            written = 0
-            with open(tmp, "wb") as fh:
-                for chunk in resp.iter_content(chunk_size=1 << 20):
-                    if chunk:
-                        fh.write(chunk)
-                        written += len(chunk)
+        try:
+            with requests.get(f"{self.base_url}/api/v1/dub/{job_id}/result",
+                              headers=self._headers, stream=True,
+                              timeout=self.timeout) as resp:
+                if resp.status_code != 200:
+                    self._raise_for_payload(resp)
+                expected = int(resp.headers.get("content-length") or 0)
+                written = 0
+                with open(tmp, "wb") as fh:
+                    for chunk in resp.iter_content(chunk_size=1 << 20):
+                        if chunk:
+                            fh.write(chunk)
+                            written += len(chunk)
+        except requests.RequestException as err:
+            # Đứt giữa dòng tải: dọn bản dở RỒI mới báo lỗi. Không dọn thì
+            # lượt chạy sau thấy `.part` (hoặc tệ hơn, file mang tên thật)
+            # và tưởng có hàng, trong khi máy chủ đã xoá bản gốc.
+            tmp.unlink(missing_ok=True)
+            raise self._as_domain_error(err, "Tải kết quả đứt giữa chừng") from err
 
         if written == 0:
             tmp.unlink(missing_ok=True)

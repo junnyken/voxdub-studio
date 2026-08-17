@@ -6172,8 +6172,21 @@ tiền:
 collection error là CÓ SẴN trong sandbox này (thiếu `numpy`/`PySide6`), không
 liên quan thay đổi này — CI có đủ deps mới là mốc thật.
 
-1 lỗi thật khi viết: `save_json_atomic(data, path)` chứ không phải
-`(path, data)` — sai thứ tự tham số, 10/12 test đỏ ngay lượt đầu.
+2 lỗi thật khi viết:
+
+1. `save_json_atomic(data, path)` chứ không phải `(path, data)` — sai thứ tự
+   tham số, 10/12 test đỏ ngay lượt đầu.
+2. **CI bắt, sandbox không lộ**: khi máy chủ khai `content-length` dài hơn
+   thứ nó gửi rồi đóng kết nối, `requests` ném `ChunkedEncodingError` (chứ
+   không đi vào nhánh kiểm số byte của mình). Lỗi transport đó KHÔNG phải
+   `CloudDubError` nên nó xuyên thẳng qua `run_cloud_batch` và **giết cả lượt
+   batch** — 1 video hỏng chặn hết những video còn lại, dù chúng chẳng liên
+   quan. Sửa đúng tầng: client dịch MỌI `requests.RequestException` thành
+   `CloudDubError` (`code="NETWORK"`) và luôn dọn `.part` trước khi báo lỗi.
+   Thêm test số 13 khoá lại đúng hành vi này (3 video, cái nào cũng hỏng tải
+   → cả 3 vẫn phải được nộp và báo cáo riêng).
+   Đây là lý do đáng để chạy suite thật trên CI chứ không tin sandbox:
+   phiên bản `urllib3` khác nhau cho hành vi khác nhau ở đúng ca đứt kết nối.
 
 ### Live Verification
 

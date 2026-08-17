@@ -250,6 +250,29 @@ def test_truncated_download_leaves_no_file_with_the_real_name(server, tmp_path):
     assert not list(out.glob("*.part")), "cũng không được để lại rác .part"
 
 
+def test_broken_download_does_not_kill_the_whole_batch(server, tmp_path):
+    """CI bắt được ca này, sandbox thì không (2026-08-17).
+
+    Máy chủ khai `content-length` dài hơn thứ nó gửi rồi đóng kết nối →
+    `requests` ném `ChunkedEncodingError`. Lỗi transport đó KHÔNG phải
+    `CloudDubError` nên nó xuyên qua vòng chạy và giết cả lượt batch: video
+    số 2 trở đi không bao giờ được nộp, dù chẳng liên quan gì.
+    """
+    src = _videos(tmp_path, 3)
+    out = tmp_path / "out"
+    server.result_mode = "truncated"
+
+    report = run_cloud_batch(src, out, source_lang="en-US", target_lang="vi",
+                             client=_client(server), poll_interval=0.01)
+
+    assert len(server.submits) == 3, (
+        "1 video hỏng không được chặn 2 video còn lại — đó là lỗi CI bắt được"
+    )
+    assert len(report.failed) == 3
+    assert not report.skipped, "không mục nào được phép bị bỏ lửng"
+    assert not list(out.glob("*.part")), "không để lại rác .part sau khi đứt"
+
+
 def test_empty_result_is_a_failure_not_a_success(server, tmp_path):
     src = _videos(tmp_path, 1)
     out = tmp_path / "out"
