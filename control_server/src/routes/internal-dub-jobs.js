@@ -9,8 +9,21 @@
  *
  * Node vẫn là chủ sở hữu DUY NHẤT của Mongo — worker Python không chạm DB
  * trực tiếp. `dub-job.service.js` giữ toàn bộ state machine.
+ *
+ * File input/output đi qua HTTP (`/:jobId/input`, `/:jobId/output`) chứ
+ * KHÔNG qua volume dùng chung: V34a giả định worker nằm cùng docker-compose
+ * nên đọc thẳng `inputPath` trên đĩa, nhưng khi 2 container chạy tách nhau
+ * (nền tảng hosting mỗi service 1 project — xác nhận thật lúc chuyển sang
+ * Vibe Host 2026-08-17) thì đường dẫn đó không tồn tại bên worker. Truyền
+ * qua HTTP chạy đúng ở CẢ hai kiểu triển khai nên là đường DUY NHẤT, không
+ * rẽ nhánh theo môi trường.
  */
+const fs = require('node:fs')
+const fsp = require('node:fs/promises')
+const path = require('node:path')
+const { pipeline } = require('node:stream/promises')
 const dubJob = require('../services/dub-job.service')
+const config = require('../services/config.service')
 
 module.exports = async function internalDubJobsRoutes(fastify) {
   const { requireWorker } = require('../middleware/worker-auth.middleware')
@@ -47,6 +60,55 @@ module.exports = async function internalDubJobsRoutes(fastify) {
       return reply.code(409).send({ code: 'JOB_NOT_OWNED', message: 'Job không còn do worker này giữ.' })
     }
     return { ok: true }
+  })
+
+  // --- Tải file input về máy worker ----------------------------------------
+  // Stream thẳng từ đĩa, không đọc hết vào RAM (video tới 300 MB).
+  fastify.get('/:jobId/input', async (request, reply) => {
+    const workerId = String(request.query.workerId || '').trim()
+    const job = await dubJob.getRunningJobForWorker(request.params.jobId, workerId)
+    if (!job) {
+      return reply.code(409).send({ code: 'JOB_NOT_OWNED', message: 'Job không còn do worker này giữ.' })
+    }
+    if (!job.inputPath || !fs.existsSync(job.inputPath)) {
+      return reply.code(404).send({ code: 'INPUT_NOT_FOUND', message: 'Không còn file input của job này.' })
+    }
+    reply.header('Content-Type', 'video/mp4')
+    return reply.send(fs.createReadStream(job.inputPath))
+  })
+
+  // --- Nhận file kết quả từ worker ------------------------------------------
+  // Ghi thẳng xuống đĩa theo stream (KHÔNG `toBuffer()` như route client ở
+  // api-v1.js) — video kết quả cỡ trăm MB, giữ nguyên trong RAM sẽ thổi bay
+  // container worker lẫn server.
+  fastify.post('/:jobId/output', async (request, reply) => {
+    const workerId = String(request.query.workerId || '').trim()
+    const job = await dubJob.getRunningJobForWorker(request.params.jobId, workerId)
+    if (!job) {
+      return reply.code(409).send({ code: 'JOB_NOT_OWNED', message: 'Job không còn do worker này giữ.' })
+    }
+
+    const maxMb = Number(await config.get('cloud.dub.max.upload.mb')) || 300
+    const data = await request.file({ limits: { fileSize: maxMb * 1024 * 1024 } })
+    if (!data) {
+      return reply.code(400).send({ code: 'NO_FILE', message: 'Thiếu file kết quả.' })
+    }
+
+    const paths = dubJob.jobPaths(request.params.jobId)
+    await fsp.mkdir(path.dirname(paths.output), { recursive: true })
+    await pipeline(data.file, fs.createWriteStream(paths.output))
+
+    // @fastify/multipart cắt ngang khi quá hạn mức thay vì ném lỗi — file
+    // trên đĩa sẽ là bản CỤT. Phải tự kiểm và xoá, nếu không job sẽ "xong"
+    // với video hỏng.
+    if (data.file.truncated) {
+      await fsp.unlink(paths.output).catch(() => {})
+      return reply.code(413).send({
+        code: 'RESULT_TOO_LARGE', message: `File kết quả vượt quá ${maxMb} MB.`,
+      })
+    }
+
+    return { ok: true, outputPath: paths.output }
   })
 
   // --- Báo xong ------------------------------------------------------------

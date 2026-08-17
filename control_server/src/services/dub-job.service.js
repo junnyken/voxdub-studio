@@ -249,6 +249,26 @@ async function heartbeat(jobId, workerId) {
   return Boolean(updated)
 }
 
+/**
+ * Job đang chạy VÀ do đúng worker này giữ. Dùng cho 2 endpoint truyền file
+ * qua HTTP (`/internal/dub-jobs/:id/input`, `/output`) — worker chỉ được
+ * đụng vào job nó đang giữ, đúng điều kiện của `heartbeat`/`completeJob`,
+ * không phải job bất kỳ dù đã qua cổng `X-Worker-Token`.
+ *
+ * jobId do worker gửi lên nên có thể không phải ObjectId hợp lệ — Mongoose
+ * ném CastError, nuốt lại thành null để caller trả 409 như trường hợp
+ * "không sở hữu", không phải 500.
+ */
+async function getRunningJobForWorker(jobId, workerId) {
+  if (!workerId) return null
+  try {
+    return await DubApiJob.findOne({ _id: jobId, workerId, status: 'running' }).lean()
+  } catch (err) {
+    if (err.name === 'CastError') return null
+    throw err
+  }
+}
+
 async function completeJob(jobId, workerId, { outputPath, metrics }) {
   const durationS = Number(metrics && metrics.durationS) || 0
   let job = await DubApiJob.findOneAndUpdate(
@@ -417,6 +437,7 @@ module.exports = {
   chargeDubUsage,
   getJob,
   claimNextJob,
+  getRunningJobForWorker,
   heartbeat,
   completeJob,
   failJob,

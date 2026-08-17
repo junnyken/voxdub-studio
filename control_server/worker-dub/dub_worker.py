@@ -47,6 +47,11 @@ POLL_INTERVAL_S = float(os.environ.get("POLL_INTERVAL_S", "3"))
 HEARTBEAT_INTERVAL_S = float(os.environ.get("HEARTBEAT_INTERVAL_S", "30"))
 DUB_WORK_DIR = os.environ.get("DUB_WORK_DIR", "/app/work")
 REQUEST_TIMEOUT_S = 15
+# Truyền file cỡ trăm MB — hạn mức của các lệnh gọi JSON ngắn (15s) sẽ cắt
+# ngang giữa chừng. Đây là timeout cho tới lúc BẮT ĐẦU có dữ liệu/kết thúc
+# request, không phải giới hạn tổng thời gian tải theo chunk.
+DOWNLOAD_TIMEOUT_S = 300
+UPLOAD_TIMEOUT_S = 600
 # Worker này không tự phục vụ HTTP nào cho nghiệp vụ (chỉ poll ra ngoài) —
 # port này CHỈ để nền tảng hosting (Vibe Host) health-check thấy container
 # có lắng nghe, không phản ánh trạng thái job/queue thật.
@@ -109,6 +114,61 @@ def _heartbeat_loop(job_id: str, stop: threading.Event) -> None:
             return
 
 
+def download_input(job_id: str, dest_path: str) -> bool:
+    """Kéo file input về đĩa CỦA WORKER qua HTTP.
+
+    Bản V34a đọc thẳng `job["inputPath"]` vì worker và control_server dùng
+    chung volume trong docker-compose. Khi 2 container chạy tách nhau (mỗi
+    service 1 project trên nền tảng hosting) thì đường dẫn đó không tồn tại
+    ở đây, nên luôn tải qua HTTP — chạy đúng ở CẢ hai kiểu triển khai.
+
+    Ghi theo chunk, KHÔNG nạp cả file vào RAM (video tới 300 MB).
+    """
+    url = f"{CONTROL_SERVER_URL}/internal/dub-jobs/{job_id}/input"
+    try:
+        with requests.get(url, headers={"X-Worker-Token": WORKER_TOKEN},
+                          params={"workerId": WORKER_ID},
+                          stream=True, timeout=DOWNLOAD_TIMEOUT_S) as resp:
+            if resp.status_code != 200:
+                print(f"[dub_worker] Tải input job {job_id} lỗi {resp.status_code}: "
+                      f"{resp.text[:200]}", flush=True)
+                return False
+            with open(dest_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+    except requests.RequestException as e:
+        print(f"[dub_worker] Tải input job {job_id} lỗi: {e}", flush=True)
+        return False
+    return True
+
+
+def upload_output(job_id: str, video_path: str) -> str | None:
+    """Đẩy video kết quả lên control_server, trả `outputPath` phía server
+    (để gọi /complete) hoặc None nếu hỏng. Truyền file handle cho requests
+    để nó stream, không đọc hết vào RAM.
+    """
+    url = f"{CONTROL_SERVER_URL}/internal/dub-jobs/{job_id}/output"
+    try:
+        with open(video_path, "rb") as f:
+            resp = requests.post(
+                url, headers={"X-Worker-Token": WORKER_TOKEN},
+                params={"workerId": WORKER_ID},
+                files={"file": ("dubbed_video.mp4", f, "video/mp4")},
+                timeout=UPLOAD_TIMEOUT_S)
+    except (requests.RequestException, OSError) as e:
+        print(f"[dub_worker] Đẩy kết quả job {job_id} lỗi: {e}", flush=True)
+        return None
+    if resp.status_code != 200:
+        print(f"[dub_worker] Đẩy kết quả job {job_id} lỗi {resp.status_code}: "
+              f"{resp.text[:200]}", flush=True)
+        return None
+    try:
+        return resp.json().get("outputPath")
+    except ValueError:
+        return None
+
+
 def run_dub(job: dict) -> dict:
     """Spawn `python3 -m autodub.cli dub` — engine headless V22, KHÔNG viết
     lại pipeline riêng (Design Choice của V34a). Trả về
@@ -121,12 +181,19 @@ def run_dub(job: dict) -> dict:
     """
     job_dir = os.path.join(DUB_WORK_DIR, str(job["jobId"]))
     os.makedirs(job_dir, exist_ok=True)
-    input_size = os.path.getsize(job["inputPath"]) if os.path.exists(job["inputPath"]) else 0
+
+    local_input = os.path.join(job_dir, "input.mp4")
+    if not download_input(str(job["jobId"]), local_input):
+        return {"ok": False, "error": "Không tải được file input từ control_server."}
+
+    input_size = os.path.getsize(local_input) if os.path.exists(local_input) else 0
+    if not input_size:
+        return {"ok": False, "error": "File input tải về rỗng."}
     bg_mode = job.get("bgMode") or "none"
 
     cmd = [
         VOXDUB_PYTHON, "-m", "autodub.cli", "dub",
-        "--file", job["inputPath"],
+        "--file", local_input,
         "--source-lang", job["sourceLang"],
         "--target", job["targetLang"],
         "--bg-mode", bg_mode,
@@ -181,6 +248,19 @@ def process_job(job: dict) -> None:
 
     try:
         result = run_dub(job)
+        if result.get("ok"):
+            # Đẩy kết quả TRONG KHI heartbeat còn chạy: file cỡ trăm MB nên
+            # upload mất vài phút, tắt heartbeat trước sẽ để sweeper
+            # (sweepStaleRunning) coi worker đã chết và fail job ngay giữa
+            # lúc đang đẩy. `video_path` nằm trong work_dir trung gian của
+            # autodub.cli, còn nơi lưu chính thức do server tự quyết và trả
+            # về (jobPaths() của dub-job.service.js) — worker không tự đoán.
+            server_output = upload_output(str(job_id), result["video_path"])
+            if server_output:
+                result["server_output_path"] = server_output
+            else:
+                result = {"ok": False,
+                          "error": "Không đẩy được video kết quả lên control_server."}
     except Exception as e:  # noqa: BLE001 — job lỗi nào cũng phải báo, không được rơi im lặng
         result = {"ok": False, "error": f"{type(e).__name__}: {e}"}
     finally:
@@ -188,15 +268,9 @@ def process_job(job: dict) -> None:
         hb_thread.join(timeout=5)
 
     if result.get("ok"):
-        # Copy về đúng outputPath server đã cấp (job["outputPath"]) — work_dir
-        # trung gian của autodub.cli là thư mục KHÁC (DUB_WORK_DIR), không
-        # phải nơi server quản lý vòng đời file (jobPaths() của dub-job.service.js).
-        import shutil
-        os.makedirs(os.path.dirname(job["outputPath"]), exist_ok=True)
-        shutil.copyfile(result["video_path"], job["outputPath"])
         _post(f"/internal/dub-jobs/{job_id}/complete", {
             "workerId": WORKER_ID,
-            "outputPath": job["outputPath"],
+            "outputPath": result["server_output_path"],
             "metrics": result["metrics"],
         })
         print(f"[dub_worker] Job {job_id} xong ({result['metrics']['processingMs']} ms).", flush=True)
