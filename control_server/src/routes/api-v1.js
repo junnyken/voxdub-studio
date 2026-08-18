@@ -20,6 +20,7 @@ const { QuotaExceededError, consumeQuota } = require('../services/api-key.servic
 const gateway = require('../services/ai-gateway.service')
 const config = require('../services/config.service')
 const ApiKey = require('../models/ApiKey')
+const UsageLog = require('../models/UsageLog')
 const dubJob = require('../services/dub-job.service')
 const storage = require('../services/job-storage.service')
 const {
@@ -119,6 +120,7 @@ module.exports = async function apiV1Routes(fastify) {
     }
 
     let result
+    const started = Date.now()
     try {
       result = await gateway.translateSubtitleBatch({
         items, sourceFlores, targetFlores, sourceName, targetName,
@@ -151,6 +153,36 @@ module.exports = async function apiV1Routes(fastify) {
         })
       }
       throw err
+    }
+
+    // V69 — ghi nhật ký TOKEN cho cả đường API key.
+    //
+    // Trước đây `UsageLog` chỉ được ghi ở `routes/ai.js` (đường app desktop),
+    // nên mọi lượt dịch qua API key đốt token Gemini thật mà KHÔNG để lại một
+    // con số nào. `ApiKey.usageCount` chỉ đếm số LƯỢT, không phải token — đối
+    // soát hoá đơn bằng nó là đối soát với con số không liên quan.
+    //
+    // Không có fingerprint thiết bị ở đường này, nên dùng `apikey:<prefix>`:
+    // vẫn hợp lệ với schema, và truy được về đúng key nào tiêu tiền.
+    //
+    // Ghi log không được phép làm hỏng lượt trả kết quả cho khách — dịch đã
+    // xong và đã trừ quota rồi, ngã ở bước ghi sổ mà trả lỗi là tệ nhất.
+    try {
+      await UsageLog.create({
+        fingerprint: `apikey:${apiKey.keyPrefix || String(apiKey._id)}`,
+        jobId: `apikey-${apiKey._id}-${started}`,
+        action: 'translate_subtitle',
+        inputSize: items.length,
+        status: 'success',
+        aiProvider: result.provider || '',
+        aiModel: result.model || '',
+        promptTokens: (result.usage && result.usage.promptTokens) || 0,
+        completionTokens: (result.usage && result.usage.completionTokens) || 0,
+        durationMs: Date.now() - started,
+        ip: request.ip,
+      })
+    } catch (err) {
+      request.log.error({ err }, 'không ghi được UsageLog cho lượt dịch qua API key')
     }
 
     return {

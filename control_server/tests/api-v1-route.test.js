@@ -183,3 +183,55 @@ test('GET /me không có key -> 401, giống mọi route /api/v1 khác', async (
   const res = await app.inject({ method: 'GET', url: '/api/v1/me' })
   assert.equal(res.statusCode, 401)
 })
+
+// ------------------------------------------------------------------ V69 --
+test('V69: lượt dịch qua API key phải ghi TOKEN vào UsageLog', async () => {
+  const UsageLog = require('../src/models/UsageLog')
+  mock.method(gateway, 'translateSubtitleBatch', async ({ items }) => fakeSuccess(items))
+  const { plaintext, doc } = await createApiKey({ orgName: 'Test Org', quota: 10 })
+
+  await post(plaintext, {
+    sourceFlores: 'eng_Latn', targetFlores: 'vie_Latn',
+    items: [{ id: 1, text: 'hello' }, { id: 2, text: 'world' }],
+  })
+
+  const logs = await UsageLog.find({}).lean()
+  assert.equal(logs.length, 1, 'trước V69 đường API key không ghi log nào — '
+    + 'đối soát hoá đơn Gemini bằng usageCount là đối soát với con số không liên quan')
+  assert.equal(logs[0].promptTokens, 10)
+  assert.equal(logs[0].completionTokens, 10)
+  assert.equal(logs[0].aiModel, 'fake-model')
+  assert.equal(logs[0].inputSize, 2)
+  assert.ok(logs[0].fingerprint.startsWith('apikey:'),
+    'phải truy được về đúng key nào tiêu tiền')
+  assert.ok(String(logs[0].fingerprint).includes(doc.keyPrefix))
+})
+
+test('V69: ghi sổ hỏng thì KHÔNG được làm hỏng lượt trả kết quả', async () => {
+  const UsageLog = require('../src/models/UsageLog')
+  mock.method(gateway, 'translateSubtitleBatch', async ({ items }) => fakeSuccess(items))
+  mock.method(UsageLog, 'create', async () => { throw new Error('ổ đĩa hỏng') })
+  const { plaintext } = await createApiKey({ orgName: 'Test Org', quota: 10 })
+
+  const res = await post(plaintext, {
+    sourceFlores: 'eng_Latn', targetFlores: 'vie_Latn', items: [{ id: 1, text: 'hello' }],
+  })
+
+  assert.equal(res.statusCode, 200, 'dịch đã xong và quota đã trừ — '
+    + 'ngã ở bước ghi sổ mà trả lỗi là tệ nhất')
+  assert.equal(res.json().segments[0].text, 'dịch: hello')
+})
+
+test('V69: lỗi model thì KHÔNG ghi log thành công', async () => {
+  const UsageLog = require('../src/models/UsageLog')
+  mock.method(gateway, 'translateSubtitleBatch', async () => {
+    const e = new Error('model chết'); e.statusCode = 503; throw e
+  })
+  const { plaintext } = await createApiKey({ orgName: 'Test Org', quota: 10 })
+
+  await post(plaintext, {
+    sourceFlores: 'eng_Latn', targetFlores: 'vie_Latn', items: [{ id: 1, text: 'hello' }],
+  })
+
+  assert.equal(await UsageLog.countDocuments({}), 0)
+})

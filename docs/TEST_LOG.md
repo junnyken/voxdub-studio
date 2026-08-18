@@ -7377,6 +7377,48 @@ dữ liệu + 3 tầng trang).
 
 **1320 test Python + 331 test Node, 0 fail.**
 
+## V69 — Key riêng cho VoxDub + vá lỗ ghi nhật ký token (Phase H, 2026-08-18)
+
+### Key riêng
+
+Chủ dự án cấp key Gemini dành RIÊNG cho VoxDub, định dạng `AQ.Ab8RN6…` (khác
+hẳn `AIzaSy…` của 3 dự án dùng chung phát hiện lúc khảo sát). Thử trước khi
+gắn, không gắn rồi mới thử:
+
+```
+GET  /v1beta/models            -> HTTP 200, có models/gemini-2.5-flash
+POST :generateContent          -> "Good morning everyone." → "Chào buổi sáng mọi người."
+                                  17 token vào / 6 ra
+```
+
+Gắn qua `PATCH /v1/admin/providers/:id`, rồi verify **qua chính máy chủ** chứ
+không gọi thẳng Google — mới chứng minh server giải mã và dùng được key:
+
+```
+POST /api/v1/translate (API key thật) -> 2 câu dịch đúng, usageCount 0→1
+```
+
+### Lỗ thật lộ ra khi verify
+
+Lượt dịch vừa rồi **không xuất hiện** trong `analytics/usage`. Truy ra:
+`UsageLog.create` chỉ được gọi trong `routes/ai.js` — đường app desktop.
+Đường **API key** (`routes/api-v1.js`, mini-spec V31) đốt token Gemini thật
+nhưng chỉ tăng `ApiKey.usageCount`, **không ghi một con số token nào**.
+
+`usageCount` đếm số LƯỢT gọi, không phải token. Đối soát hoá đơn Gemini bằng
+nó là đối soát với một con số không liên quan — và đây có thể chính là phần
+chênh giữa hoá đơn thật và sổ sách mà chủ dự án thấy.
+
+Sửa: ghi `UsageLog` cho cả đường API key. Không có fingerprint thiết bị ở
+đường này nên dùng `apikey:<prefix>` — hợp lệ với schema, và truy được về đúng
+key nào tiêu tiền.
+
+Hai ràng buộc có test khoá: **ghi sổ hỏng KHÔNG được làm hỏng lượt trả kết
+quả** (dịch đã xong và quota đã trừ, ngã ở bước ghi sổ mà trả lỗi là tệ nhất),
+và **lỗi model thì không ghi log thành công**.
+
+3 test mới.
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật
