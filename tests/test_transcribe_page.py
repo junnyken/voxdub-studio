@@ -186,3 +186,53 @@ def test_mot_muc_duy_nhat_van_bao_kieu_cu(page):
     page._on_done([_muc("xong", so_cau=20, outputs=("txt", "srt"))])
     assert "Xong 20 câu" in page.status.text()
     assert "srt" in page.status.text()
+
+
+# -- V73: dòng HỎNG phải kèm LÝ DO --------------------------------------------
+
+def test_dong_hong_kem_ly_do(page):
+    """Người dùng báo (2026-08-18, bản v3.4.0): chỉ thấy ``[1/1] HỎNG: <link>``
+    trống trơn, không biết sai gì.
+
+    Lý do có sẵn ở `BatchItem.error` nhưng bị vứt đi hai lần: tín hiệu
+    `item_status` của `TranscribeWorker` không mang nó, còn cảnh báo của lõi
+    thì bị `log_text.notice_for` lọc bỏ (thông báo lạ có URL). Dòng này là chỗ
+    DUY NHẤT lý do lên tới được người dùng."""
+    page._on_item(0, 1, "https://youtube.com/watch?v=x",
+                  "hong", "Video này có khoá, cần đăng nhập.")
+    text = page.log.toPlainText()
+    assert "HỎNG" in text
+    assert "Video này có khoá, cần đăng nhập." in text
+
+
+def test_dong_xong_khong_bi_dinh_them_gi(page):
+    page._on_item(0, 1, "/phim/tap1.mp4", "xong", "")
+    assert page.log.toPlainText().strip().endswith("/phim/tap1.mp4")
+
+
+def test_worker_chay_that_gui_kem_ly_do(tmp_path, monkeypatch):
+    """Trang có chỗ nhận thì worker phải có chỗ gửi — `TranscribeWorker` từng
+    là worker DUY NHẤT trong workers.py thiếu trường `detail` này.
+
+    Chạy worker thật với một mục hỏng thật (không vá `item_status`), để nếu
+    ai đó đổi lại tín hiệu về 4 tham số thì Qt báo lỗi ngay ở đây."""
+    from autodub_gui import workers as w
+
+    def _hong(sources, output_dir, settings, **kw):
+        from autodub.transcribe_tool import BatchItem
+        item = BatchItem(source=sources[0], status="hong",
+                         error="Video này có khoá, cần đăng nhập.")
+        kw["on_item"](0, 1, item)
+        return [item]
+
+    monkeypatch.setattr("autodub.transcribe_tool.transcribe_many", _hong)
+    nhan: list[tuple] = []
+    worker = w.TranscribeWorker(["https://youtube.com/watch?v=x"],
+                                str(tmp_path), Settings())
+    worker.item_status.connect(lambda *a: nhan.append(a))
+    worker.run()          # chạy thẳng, không cần dựng luồng cho test
+
+    assert nhan, "worker phải phát item_status"
+    assert nhan[0][3] == "hong"
+    assert nhan[0][4] == "Video này có khoá, cần đăng nhập.", \
+        "tín hiệu phải mang theo lý do hỏng"

@@ -7674,6 +7674,102 @@ thứ chỉnh tham số là xong.
 
 **1376 test Python, 0 fail.**
 
+## V73 — 2 lỗi người dùng báo trên bản phát hành v3.4.0 (Phase H, 2026-08-18)
+
+Không phải lỗi tự tìm ra: người dùng cài bản `.exe` v3.4.0 vừa phát hành, dán
+một liên kết YouTube vào trang Chép lời, chụp màn hình gửi lại. Hai lỗi độc
+lập trong một ảnh.
+
+### Lỗi 1 — «HỎNG» với mọi liên kết sao chép lúc đang nghe Mix
+
+Liên kết người dùng dán:
+`youtube.com/watch?v=x1F3EdwrYw4&list=RDMMx1F3EdwrYw4&start_radio=1` — đúng
+dạng YouTube tự sinh khi bấm Chia sẻ trong lúc đang phát một Mix/playlist.
+
+**Đo bằng yt-dlp thật (2026.03.17), không suy đoán:**
+
+| tham số | yt-dlp trả về |
+|---|---|
+| như code cũ (thiếu `noplaylist`) | `_type=playlist`, id `RDMMx1F3EdwrYw4`, «My Mix», **194 mục** |
+| thêm `noplaylist: True` | video đơn `x1F3EdwrYw4` — «D.Elliot6 - I'm not Okay (Lyrics)» |
+
+Nên code cũ tải cả 194 video rồi mới hỏng ở `_resolve_filepath`, vì hàm này
+đi tìm MỘT file theo id — mà id nó nhận được là id của playlist.
+
+`grep -rn playlist` trên cả repo trước khi sửa: **0 kết quả**. Không phải sót
+một nhánh, mà là chưa từng nghĩ tới trường hợp này — nên lỗi đánh vào cả 4
+đường dùng liên kết: Chép lời, Tạo dự án, Tải xuống, Xử lý hàng loạt.
+
+Sửa: `noplaylist: True` ở **cả hai** nơi dựng options (`download_video` và
+`build_ydl_opts` — hai bản riêng, sửa một quên một là lỗi sống lại ở luồng
+kia). Thêm `ensure_single_video_url()` chặn liên kết danh sách phát THUẦN
+(`playlist?list=…`) mà `noplaylist` không cứu được, chặn TRƯỚC khi gọi yt-dlp
+kèm câu chỉ đúng việc cần làm. 10 test, có ca chống-chặn-nhầm cho
+`watch?v=`/`youtu.be`/Facebook/TikTok.
+
+### Lỗi 2 — «HỎNG» nhưng không nói vì sao
+
+Ảnh chụp chỉ có đúng một dòng: `[1/1] HỎNG: <liên kết>`. Lý do bị vứt đi hai
+lần, độc lập nhau:
+
+1. `transcribe_many` ghi lý do vào `BatchItem.error`, nhưng tín hiệu
+   `item_status` của `TranscribeWorker` khai 4 tham số nên không mang nổi nó.
+   Đây là worker **duy nhất** trong `workers.py` thiếu trường `detail` —
+   `DownloadWorker` và `BatchWorker` đều đã có.
+2. Cảnh báo `logger.warning("Chép lời hỏng «%s»: %s")` của lõi thì bị
+   `log_text.notice_for` lọc bỏ: thông báo lạ có chứa URL/đường dẫn bị coi là
+   log kỹ thuật. Bộ lọc làm đúng việc của nó — chỗ sai là trông cậy vào nó.
+
+Nên dù lõi biết rõ nguyên nhân, người dùng không có đường nào thấy được.
+
+Test khoá lại bằng cách chạy `TranscribeWorker.run()` thật với một mục hỏng
+thật (không vá tín hiệu): hoàn nguyên bản sửa thì test fail với `assert []` —
+Qt lặng lẽ nuốt lời gọi emit thừa tham số, đúng kiểu lỗi không ai nhận ra.
+
+### Lỗi 3 — thanh bên chồng mục lên nhau (thấy trong cùng ảnh)
+
+Mục cuối nhóm CÔNG CỤ («Chép lời») vẽ đè lên nhãn HỆ THỐNG và nuốt luôn mục
+đầu nhóm dưới. Đo bằng Qt offscreen với đúng danh sách mục của app:
+
+| chiều cao thanh bên | đè lên nhãn HỆ THỐNG |
+|---|---|
+| 1200px | không (vừa đủ) |
+| **1000px** (1080p sau khi trừ thanh tác vụ + thanh tiêu đề) | **44px** |
+| 900px | 15px |
+| 800px | 55px |
+
+Cơ chế: `_build_list` khoá cứng chiều cao mỗi danh sách (min = max), nên khi
+thiếu chỗ `QVBoxLayout` không còn gì để co — nó xếp chồng widget lên nhau.
+Thanh bên đòi tối thiểu **1055px** (không có ví Vox) / **1131px** (có ví).
+
+`_sync_footer` — cơ chế ẩn thẻ đáy vốn viết ra để chống đúng lỗi này —
+**không giải phóng được pixel nào**: đo được `sizeHint` giữ nguyên 1055 sau
+khi ẩn cả hai thẻ. Ảnh người dùng gửi cũng đã ở trạng thái ẩn cả hai thẻ mà
+vẫn đè. Đây là lỗi tự nặng dần: mỗi công cụ thêm vào ăn thêm 48px.
+
+Sửa: đưa ba danh sách vào một `QScrollArea`. Tối thiểu của thanh bên rơi từ
+1055px xuống **172px**. `_sync_footer` được viết lại để tính theo chiều cao
+nội dung bên trong vùng cuộn (số cũ không còn ý nghĩa khi thanh bên co được),
+và đổi vai: không còn là cách chống lỗi hiển thị mà là ưu tiên dễ dùng — thẻ
+đáy nhường chỗ trước, cuộn là phương án cuối.
+
+Kết quả đo lại sau khi sửa:
+
+| chiều cao | đè | phải cuộn | thẻ đáy |
+|---|---|---|---|
+| 1200px | không | không | hiện đủ |
+| **1000px** | **không** | **không** | ẩn thẻ trạng thái |
+| 900px | không | không | ẩn cả hai |
+| 700px trở xuống | không | có | ẩn cả hai |
+
+Tức ở đúng cấu hình máy người dùng, mọi mục hiện ra hết mà **không phải cuộn**
+— giữ nguyên ý đồ thiết kế ban đầu, chỉ khác là giờ nó chạy thật.
+
+17 test, chạy 3 vòng bố cục liên tiếp ở mỗi chiều cao để chắc thẻ không bật
+tắt loạn. Hoàn nguyên `shell.py`: **14/17 fail** — test bắt đúng lỗi.
+
+**1395 passed, 7 skipped, 0 failed** (Python; trước khi sửa 1365).
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật

@@ -51,6 +51,34 @@ def normalize_url(url: str) -> str:
     return url
 
 
+class PlaylistUrlError(ValueError):
+    """Liên kết trỏ tới cả một danh sách phát chứ không phải một video."""
+
+
+def ensure_single_video_url(url: str) -> None:
+    """Chặn liên kết DANH SÁCH PHÁT thuần — mini-spec V73.
+
+    Cả ứng dụng chỉ xử lý MỘT video mỗi lượt (`_resolve_filepath` trả về đúng
+    một file). Liên kết dạng `watch?v=…&list=…` đã được `noplaylist` cắt về
+    đúng video đang mở, nhưng liên kết `playlist?list=…` thì không có video
+    nào để cắt về — `noplaylist` không đụng tới nó. Không chặn ở đây thì
+    yt-dlp lặng lẽ tải cả trăm video rồi mới hỏng ở bước tìm file, và người
+    dùng chỉ thấy một lỗi vô nghĩa sau khi chờ rất lâu.
+    """
+    parsed = urlparse((url or "").strip())
+    host = parsed.netloc.lower()
+    if "youtube.com" not in host and "youtu.be" not in host:
+        return
+    qs = parse_qs(parsed.query)
+    if qs.get("v", [""])[0].strip():
+        return          # có video cụ thể → noplaylist lo phần còn lại
+    if parsed.path.rstrip("/").endswith("/playlist") or qs.get("list"):
+        raise PlaylistUrlError(
+            "Đây là liên kết DANH SÁCH PHÁT, không phải một video. Mở video "
+            "bạn muốn rồi sao chép liên kết của riêng nó (dạng "
+            "youtube.com/watch?v=… hoặc youtu.be/…).")
+
+
 def cookie_opts_from(settings) -> dict:
     """Tham số cookie lấy từ Settings — mini-spec V67.
 
@@ -86,6 +114,7 @@ def download_video(url: str, output_dir: str, settings=None) -> str:
     canonical = normalize_url(url)
     if canonical != url:
         logger.info(f"Normalized URL: {url} -> {canonical}")
+    ensure_single_video_url(canonical)
 
     _ck = cookie_opts_from(settings)
 
@@ -95,6 +124,11 @@ def download_video(url: str, output_dir: str, settings=None) -> str:
         "merge_output_format": "mp4",
         "quiet": False,
         "no_warnings": False,
+        # CHỈ video đang mở, không phải cả danh sách phát. Liên kết sao chép
+        # từ YouTube lúc đang nghe Mix/playlist luôn kèm `&list=…`; thiếu cờ
+        # này yt-dlp tải sạch danh sách (Mix thường ~200 video) rồi hỏng ở
+        # bước tìm file vì nó trả về info của playlist chứ không của video.
+        "noplaylist": True,
         # Mạng chập chờn: tự thử lại thay vì fail cả video trong batch.
         "retries": 5,
         "fragment_retries": 5,
@@ -142,6 +176,8 @@ def build_ydl_opts(
         "quiet": False,
         "no_warnings": False,
         "noprogress": False,
+        # Xem chú thích ở `download_video` — chỉ video đang mở, bỏ qua `&list=`.
+        "noplaylist": True,
         "retries": 5,
         "fragment_retries": 5,
         "socket_timeout": 30,
@@ -218,6 +254,7 @@ def download_one(
     canonical = normalize_url(url)
     if canonical != url:
         logger.info(f"Normalized: {url} -> {canonical}")
+    ensure_single_video_url(canonical)
 
     # V67 — caller không truyền cookie tay thì lấy từ Settings. Truyền tay vẫn
     # thắng: chỗ gọi biết rõ hơn cấu hình chung.

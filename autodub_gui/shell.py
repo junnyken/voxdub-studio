@@ -96,24 +96,59 @@ class Sidebar(QFrame):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        root.addWidget(self._build_brand())
+        self._brand = self._build_brand()
+        root.addWidget(self._brand)
         root.addSpacing(tokens.SP_3)
         self.nav = self._build_list(main_items, "nav")
         self.nav_tools = self._build_list(tool_items, "nav2")
         self.nav2 = self._build_list(second_items, "nav2")
-        root.addWidget(self.nav)
-        root.addSpacing(tokens.SP_2)
+
+        # Các danh sách nằm trong vùng CUỘN ĐƯỢC — mini-spec V73.
+        #
+        # Ba danh sách đều cao cố định (`_build_list` khoá cả min lẫn max), nên
+        # khi cửa sổ thấp hơn tổng chiều cao chúng cần, QVBoxLayout không có gì
+        # để co lại: nó xếp chồng các mục lên nhau (mục cuối của CÔNG CỤ đè lên
+        # nhãn HỆ THỐNG và cả mục đầu của nhóm dưới). Màn hình 1080p là đủ để
+        # gặp lỗi này — vùng làm việc chỉ còn ~1000px trong khi thanh bên cần
+        # 1055px với số mục hiện tại, và mỗi công cụ thêm vào lại thiếu 48px nữa.
+        #
+        # Cho cuộn là cách xử lý tận gốc: mọi mục vẫn tới được, không phụ thuộc
+        # số mục hay chiều cao màn hình.
+        nav_body = QWidget()
+        clear_background(nav_body)
+        nav_col = QVBoxLayout(nav_body)
+        nav_col.setContentsMargins(0, 0, 0, 0)
+        nav_col.setSpacing(0)
+        nav_col.addWidget(self.nav)
+        nav_col.addSpacing(tokens.SP_2)
         self._divider_widget = _divider()
-        root.addWidget(self._divider_widget)
+        nav_col.addWidget(self._divider_widget)
         self._tools_label = _section_label("CÔNG CỤ")
-        root.addSpacing(tokens.SP_2)
-        root.addWidget(self._tools_label)
-        root.addWidget(self.nav_tools)
+        nav_col.addSpacing(tokens.SP_2)
+        nav_col.addWidget(self._tools_label)
+        nav_col.addWidget(self.nav_tools)
         self._system_label = _section_label("HỆ THỐNG")
-        root.addSpacing(tokens.SP_2)
-        root.addWidget(self._system_label)
-        root.addWidget(self.nav2)
-        root.addStretch()
+        nav_col.addSpacing(tokens.SP_2)
+        nav_col.addWidget(self._system_label)
+        nav_col.addWidget(self.nav2)
+        nav_col.addStretch()
+
+        self._nav_scroll = QScrollArea()
+        self._nav_scroll.setWidget(nav_body)
+        self._nav_scroll.setWidgetResizable(True)
+        self._nav_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        clear_background(self._nav_scroll)
+        clear_background(self._nav_scroll.viewport())
+        self._nav_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._nav_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        # Không đặt minimum: vùng cuộn phải co được xuống sát 0 thì phần đáy
+        # (thẻ trạng thái, tài khoản, số phiên bản) mới luôn còn chỗ.
+        self._nav_scroll.setMinimumHeight(0)
+        self._nav_scroll.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                       QSizePolicy.Policy.Expanding)
+        root.addWidget(self._nav_scroll, 1)
 
         self.status_card = SystemStatusCard()
         self.status_card.clicked.connect(self.settings_requested.emit)
@@ -258,25 +293,28 @@ class Sidebar(QFrame):
         self._sync_footer()
 
     def _sync_footer(self) -> None:
-        """Ẩn dần thẻ đáy khi cửa sổ quá thấp.
+        """Ẩn dần thẻ đáy khi cửa sổ quá thấp — nhường chỗ cho danh sách.
 
-        Không đủ chỗ thì layout sẽ ép các thẻ này chồng lên danh sách và
-        chữ bị cắt nham nhở — ẩn hẳn đi là cách xử lý tận gốc. Thẻ trạng
-        thái (cao nhất) ẩn trước, thẻ tài khoản chỉ ẩn khi vẫn thiếu chỗ.
+        Từ V73 việc này KHÔNG còn để chống lỗi hiển thị nữa: vùng cuộn đã bảo
+        đảm không mục nào bị đè hay mất, dù cửa sổ thấp tới đâu. Đây thuần là
+        chuyện dễ dùng — phải cuộn mới thấy mục quen tay thì khó chịu hơn là
+        tạm giấu thẻ trạng thái/tài khoản, nên thẻ nhường chỗ trước.
+
+        Tính theo `sizeHint` của phần nội dung bên trong vùng cuộn chứ không
+        theo `sizeHint` của cả thanh bên: thanh bên giờ co được sát 0 nên số
+        đó không còn nói lên thanh bên CẦN bao nhiêu. Mọi số hạng ở đây đều
+        độc lập với việc thẻ đang hiện hay ẩn, nên không có vòng lặp bật/tắt.
         """
         if self._icon_only:
             return
-        # Chiều cao cần có khi mọi thứ đều hiện — tính lại từ trạng thái
-        # "hiện đủ" để quyết định không bị dính vào trạng thái hiện tại.
-        base = self.sizeHint().height()
-        for widget in (self.status_card, self._user_card):
-            if not widget.isVisibleTo(self):
-                base += widget.sizeHint().height() + tokens.SP_2
-        available = self.height()
-        show_status = available >= base
-        show_user = show_status or (
-            available >= base - self.status_card.sizeHint().height()
-            - tokens.SP_2)
+        can_dung = self._nav_scroll.widget().sizeHint().height()
+        co_dinh = (self._brand.sizeHint().height() + tokens.SP_3
+                   + self._version.sizeHint().height())
+        cao_status = self.status_card.sizeHint().height() + tokens.SP_2
+        cao_user = self._user_card.sizeHint().height() + tokens.SP_2
+        con_lai = self.height() - co_dinh - can_dung
+        show_status = con_lai >= cao_status + cao_user
+        show_user = show_status or con_lai >= cao_user
         if show_status != self.status_card.isVisibleTo(self):
             self.status_card.setVisible(show_status)
         if show_user != self._user_card.isVisibleTo(self):

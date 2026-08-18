@@ -915,7 +915,9 @@ class TranscribeWorker(QThread):
 
     log = Signal(str, int)
     progress = Signal(str, str)      # bước, mô tả
-    item_status = Signal(int, int, str, str)   # thứ tự, tổng, nguồn, trạng thái
+    # Kèm LÝ DO hỏng như `DownloadWorker`/`BatchWorker` — báo "HỎNG" trống
+    # không thì người dùng không biết là sai liên kết, mất mạng hay video có khoá.
+    item_status = Signal(int, int, str, str, str)  # thứ tự, tổng, nguồn, trạng thái, lý do
     finished_ok = Signal(list)       # list[BatchItem]
     failed = Signal(str)
 
@@ -948,7 +950,7 @@ class TranscribeWorker(QThread):
                 with_timestamps=self._with_timestamps,
                 cancel_event=self._cancel_event,
                 on_item=lambda i, tong, muc: self.item_status.emit(
-                    i, tong, muc.source, muc.status))
+                    i, tong, muc.source, muc.status, muc.error))
             self.finished_ok.emit(ket_qua)
         except Exception as e:  # noqa: BLE001 — lỗi tải/ASR thật, báo nguyên văn
             self.failed.emit(str(e))

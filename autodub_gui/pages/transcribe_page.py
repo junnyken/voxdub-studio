@@ -216,10 +216,17 @@ class TranscribePage(BasePage):
     def _on_progress(self, step: str, detail: str) -> None:
         self.status.setText(detail or step)
 
-    def _on_item(self, i: int, tong: int, source: str, status: str) -> None:
+    def _on_item(self, i: int, tong: int, source: str, status: str,
+                 detail: str = "") -> None:
         nhan = {"xong": "xong", "hong": "HỎNG", "huy": "đã huỷ"}.get(status, status)
-        self.log.append_log(f"[{i + 1}/{tong}] {nhan}: {source}",
-                            40 if status == "hong" else 20)
+        dong = f"[{i + 1}/{tong}] {nhan}: {source}"
+        # Lý do phải đi kèm ngay dòng hỏng. Bộ lọc Nhật ký của lõi
+        # (`log_text.notice_for`) bỏ mọi thông báo lạ có đường dẫn/URL, nên
+        # cảnh báo "Chép lời hỏng «…»: …" của `transcribe_many` KHÔNG bao giờ
+        # lên tới đây — dòng này là chỗ duy nhất người dùng thấy được lý do.
+        if status == "hong" and detail:
+            dong += f" — {detail}"
+        self.log.append_log(dong, 40 if status == "hong" else 20)
 
     def _on_done(self, items) -> None:
         self.btn_run.setEnabled(True)
