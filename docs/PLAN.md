@@ -89,6 +89,16 @@ Repo đã push: `https://git.matbao.support/mk/voidmax` (branch `main`).
 | V52 | Chạy đường ống cho `cloud-batch` — worker không nằm không (Phase G, 2026-08-17, đóng gap thông lượng V51 để lại) | ✅ Xong code + 16 test, CHƯA chạy thật | V51 chạy tuần tự nộp→chờ→tải→nộp, nên suốt lúc upload video sau thì worker máy chủ RẢNH — trong khi mục tiêu gốc của V42 chính là thông lượng. V52 giữ sẵn hàng đợi ngắn (`--queue-ahead`, mặc định 2): job N+1 đã đứng chờ trước khi kết quả job N tải xong. Hàng đợi cố ý NGẮN vì mỗi job chờ đã giữ chỗ quota (V43). Job xong trả lại quota → video từng bị 402 chặn được thử lại NGAY trong cùng lượt, không bỏ lửng |
 | V53 | Chế độ "xử lý trên máy chủ" trên trang Xử lý hàng loạt (Phase G, 2026-08-17) | ✅ Xong, CHƯA click thử thật | Ô chọn trên trang Batch, **ẩn hẳn khi chưa cấu hình** (đúng nếp `cloud_render` V12 + lip-sync V32b). Bật lên thì KHOÁ đúng những gì máy chủ không làm (phụ đề, chỉ-xuất-âm-thanh, giữ bộ giọng, mức giảm tiếng gốc) kèm ghi chú — để chúng bật mà vô tác dụng là hứa suông. Liên kết bị chặn kèm giải thích (máy chủ chỉ nhận file). 7 test GUI + smoke test toàn app |
 | V54 | `cloud-batch` nhận cả liên kết, không chỉ file trên máy (Phase G, 2026-08-17) | ✅ Xong, CHƯA chạy thật | Liên kết được tải về máy trước (tái dùng `download_one` — yt-dlp + đường Douyin riêng) rồi mới đẩy lên; khoá trạng thái là CHÍNH liên kết nên tên file tải về đổi cũng không nộp trùng. Bản tải trung gian **xoá sau khi thành công, GIỮ khi hỏng** để lượt sau khỏi tải lại vài trăm MB. Gỡ luôn giới hạn "phải cùng thư mục" của V53. CLI thêm `--file` (danh sách, hỗ trợ cú pháp «link \| Tên giọng»). 6 test mới |
+| V55 | Huỷ job thật cho chế độ máy chủ (Phase G, 2026-08-17) | ✅ Xong code + 10 test, CHƯA live-verify prod | Đóng giới hạn V53/V54 tự ghi ra: nộp nhầm 20 video thì không có cách nào chặn. Điều kiện `apiKeyId` nằm TRONG câu update (nguyên tử) chứ không kiểm ở tầng route — huỷ job người khác nặng hơn hẳn xem trộm. 409 gộp 3 ca (không tồn tại / không phải của bạn / đã kết thúc) để không lộ jobId người khác có tồn tại. Job huỷ KHÔNG tính tiền mà không cần cơ chế hoàn: `completeJob` đòi `status:'running'` nên worker báo xong muộn bị từ chối. Worker đổi `subprocess.run`→`Popen` để giết được tiến trình con thật. **Giới hạn**: worker chỉ biết huỷ ở nhịp heartbeat (trễ vài giây là bình thường); cần API key + 1 job chạy thật mới verify được prod |
+| V56 | Nghe thử 30 giây trước khi chạy cả video (Phase H, 2026-08-18) | ✅ Xong + 13 test, CHƯA chạy đầu-cuối trên Windows/GPU | Cắt bằng ffmpeg `-c copy -t N`, verify bằng ffprobe THẬT (video 12s → clip 5s); ffmpeg lỗi thì ném lỗi kèm lý do chứ không trả về video gốc. Nút ẩn khi «chạy tiếp dự án cũ» (nghe lại 30 giây đầu của dự án đã chạy là vô nghĩa). **Giới hạn**: vẫn tốn Vox nhưng CHƯA hiện số ước tính trước khi bấm; luôn là N giây ĐẦU, chưa chọn được đoạn giữa (video có intro dài thì đoạn đầu không đại diện); 30 giây là hằng số trong GUI |
+| V57 | Hồ sơ nhân vật xuyên tập (Phase H, 2026-08-18) | ✅ Xong, CLI-first (GUI phải tới V60/V62 mới đủ dùng) | Bản khả thi của yêu cầu "đồng bộ nhân vật + giọng điệu": dub cả series thì nhân vật A giữ nguyên giọng A ở mọi tập. **Điểm chốt quyết định toàn bộ thiết kế**: nhãn diarization (`SPEAKER_00`…) KHÔNG ổn định giữa các file — cùng một người ở tập sau có thể mang nhãn khác, nên không khớp theo nhãn được. 3/4 mảnh ghép đã có sẵn (V26 tách người nói, V36 ước lượng F0 + gán giọng), V57 chỉ thêm đúng lớp ghi nhớ xuyên tập |
+| V58 | Quy ước dịch của series đè cài đặt chung (Phase H, 2026-08-18) | ✅ Xong | Hồ sơ THẮNG cài đặt chung — chọn hồ sơ "Phim A" là đang nói "lần này tôi làm phim A". Nhưng chỉ đè bằng trường CÓ điền: chọn một hồ sơ mới lập mà mất sạch xưng hô đã cấu hình là kiểu mất mát âm thầm tệ nhất. Sửa TẠI CHỖ trên settings của lượt chạy, KHÔNG ghi xuống `.env` |
+| V59 | Khớp nhân vật bằng speaker embedding (Phase H, 2026-08-18) | ⚠️ Xong code, CHƯA chạy pyannote thật — rủi ro lớn nhất Phase H | Thay khớp theo cao độ (dễ lẫn người cùng giới) bằng embedding cosine. Cần `.venv-diar` + HF token + video 2 tập thật mới biết có khớp đúng người không; ngưỡng cosine 0.72 chọn theo khoảng giá trị điển hình của pyannote, chưa hiệu chỉnh bằng dữ liệu. V61 đã đóng phần hợp đồng API, phần CHẠY THẬT vẫn còn treo |
+| V60 | Hồ sơ nhân vật lên GUI (Phase H, 2026-08-18) | ✅ Xong, 2 bug thật do test bắt | Ô nhập chữ ở bước cuối wizard, chỉ hiện khi tách người nói đang bật (bày ra lúc tính năng đó tắt là hứa suông — nếp V53). Ô nhập chứ không phải danh sách chọn: gõ tên mới = tạo hồ sơ mới, gõ lại tên cũ = dùng tiếp. **Bug thật**: `_slug()` bản đầu vứt mọi ký tự ngoài ASCII nên «Phim Cổ Trang» và «Phim Có Trang» cùng ra `phim-c-trang` → hai series ghi đè hồ sơ của nhau, trộn lẫn nhân vật (với tên tiếng Việt đây là chuyện thường ngày, không phải ca hiếm) |
+| V61 | Kiểm chứng hợp đồng pyannote + ngưỡng đo được (Phase H, 2026-08-18) | ✅ Xong, lộ 1 bug CÓ SẴN TỪ V26 | Không có HF token vẫn kiểm được hợp đồng API: tải MÃ NGUỒN thật về đọc (`pip download --no-deps --no-binary :all:`) cả 3.1.1 lẫn 4.0.7 — API hai bản khác hẳn nhau, và mã V26 gốc (`pipeline(audio)` rồi `.itertracks()`) **chết hoàn toàn trên 4.x**: bug có sẵn từ V26, chỉ là chưa ai chạy diarization trên máy cài mới nên chưa lộ. Giả định "embedding xếp theo `labels()`" của V59 xác nhận ĐÚNG bằng mã nguồn cả 2 bản, không phải theo tài liệu. Ngưỡng: khớp mập mờ (2 nhân vật cosine cách nhau <0.05) bị từ chối dù vượt ngưỡng, điểm số báo cáo được để người dùng tự hiệu chỉnh. **Giới hạn**: giờ có công cụ đo nhưng CHƯA có số liệu thật để chốt ngưỡng |
+| V62 | Trang quản lý hồ sơ nhân vật (Phase H, 2026-08-18) | ✅ Xong + 12 test, CHƯA click thử trên Windows | Xem/đổi tên/đổi giọng/xoá nhân vật + sửa quy ước dịch của series. Cố ý KHÔNG cho tạo hồ sơ rỗng (hồ sơ sinh ra khi dub tập đầu). Cột "Nhận diện" nói rõ ai khớp bằng embedding (chính xác) và ai mới có cao độ (dễ lẫn) — người dùng biết chỗ nào đáng nghi thay vì tin mù. Cột số liệu hệ thống đo bị KHOÁ; tên trùng/rỗng bị chặn khi lưu (cả hai phá chính cơ chế khớp). **Bug tự soi ra**: đổi series khi đang sửa dở thì nạp đè luôn, mọi thứ vừa gõ biến mất không một lời nào. **Giới hạn**: chưa gộp được 2 nhân vật khi hệ thống tách nhầm một người thành hai |
+| V63 | "Chạy như lần trước" — bỏ qua 6 bước wizard (Phase H, 2026-08-18) | ✅ Xong + 5 test | 90% đã có sẵn: nháp `draft_project.json` lưu toàn bộ lựa chọn và tự nạp lúc mở app, thứ thiếu chỉ là đường tắt tới nút chạy. Nút chỉ hiện ở bước 1, chỉ khi THẬT SỰ có nháp cũ, không hiện ở bước cuối (chỗ đó đã có "Bắt đầu lồng tiếng" — hai nút cùng nghĩa cạnh nhau chỉ làm người dùng phân vân). **Giới hạn**: dùng nháp gần nhất, chưa có "hồ sơ cấu hình" đặt tên (phim vs vlog) |
+| V64 | Báo cáo chất lượng "5 câu đáng sửa nhất" (Phase H, 2026-08-18) | ✅ Xong + 15 test | Trang cũ liệt kê MỌI câu có vấn đề: video 300 câu ra 40 dòng, không trả lời được câu hỏi thật "sửa cái nào trước?". `autodub/quality_rank.py` (mới) là hàm thuần, tách hẳn khỏi GUI vì quy tắc xếp hạng đáng test kỹ và sẽ còn chỉnh. Thang điểm cố ý thô và GIẢI THÍCH ĐƯỢC: chồng tiếng > đọc nhanh (>1.3 nghe rõ méo) > dài quá chỗ trống. Thứ tự ổn định (cùng điểm → theo số câu) để mở 2 lần ra cùng kết quả. Câu sạch = 0 điểm và KHÔNG lọt vào danh sách. **Giới hạn**: mở Editor ở mức DỰ ÁN, chưa nhảy tới đúng câu (Editor chưa có API chọn câu theo id) |
 | — | Rà chéo sau V50 (2026-08-17) | ✅ Xong | 2 lỗi thật do V45 ⇄ V48 giẫm chân nhau: bản sao lưu nuốt byte video GridFS (600 KB video → dump 830 KB); upload đứt giữa chừng để lại chunk mồ côi VĨNH VIỄN (vô hình với mọi cách dọn theo tên). Bản test đầu của lỗi 2 PASS GIẢ — phải nhả nhiều chunk theo nhịp macrotask mới lộ ra 9 chunk nằm lại |
 
 ## Tổng quan phase
@@ -4365,6 +4375,31 @@ tự: (1) cập nhật bản mới → (2) nghe thử 30 giây → (3) hồ sơ 
 tập → (4) extension làm mặt tiền. Hai hướng bị GẠT có lý do rõ: sinh video AI
 từ kịch bản (sản phẩm khác, cần GPU farm, không có lợi thế cạnh tranh) và dub
 thời gian thực trên trình duyệt (kiến trúc streaming, gần như sản phẩm thứ 2).
+
+### V55 — Huỷ job thật cho chế độ máy chủ
+
+*(Mục này ghi bổ sung ngày 2026-08-18 — mini-spec V55 ship ngày 17-08 mà chỉ
+có mục trong `TEST_LOG.md`, bảng roadmap và phần spec đều bỏ sót. Nội dung
+dưới đây tóm tắt từ TEST_LOG, không phải spec viết trước lúc build.)*
+
+Xuất phát từ đúng giới hạn V53/V54 tự ghi ra: *"chưa có nút Dừng thật cho chế
+độ máy chủ — job đã nộp vẫn chạy và vẫn bị tính tiền dù người dùng đóng app"*.
+Ai lỡ nộp nhầm 20 video thì không có cách nào chặn.
+
+Ba quyết định đáng nhớ:
+
+1. Điều kiện `apiKeyId` nằm TRONG câu update chứ không kiểm ở tầng route —
+   huỷ job của người khác nặng hơn hẳn xem trộm, nên phải đi cùng một lệnh
+   nguyên tử chứ không dựa vào thứ tự if/else.
+2. 409 gộp 3 ca (không tồn tại / không phải của bạn / đã kết thúc) — phân biệt
+   sẽ để lộ jobId người khác có tồn tại hay không, chỉ cần dò là biết.
+3. Không cần cơ chế hoàn tiền: `chargeDubUsage` chỉ chạy trong `completeJob`,
+   mà `completeJob` đòi `status:'running'` — job đã `cancelled` thì worker báo
+   xong muộn bị từ chối thẳng.
+
+**Kết quả (2026-08-17)**: ✅ Xong code + 10 test (8 Node + 2 Python). **CHƯA
+live-verify trên prod** — cần API key thật + một job đang chạy thật. Xem
+`docs/TEST_LOG.md` mục V55.
 
 ### V56 — Nghe thử 30 giây trước khi chạy cả video
 
