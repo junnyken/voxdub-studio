@@ -136,6 +136,12 @@ class Settings:
     diarization_enabled: bool = False
     diarization_venv_python: str = ""  # mặc định: <app>/.venv-diar/Scripts/python.exe
     diarization_model_dir: str = ""    # mặc định: <app>/models/diarization
+    # mini-spec V65b — số người nói NGƯỜI DÙNG khai cho video này. `0` = không
+    # biết, pyannote tự đoán y như trước. Đo thật 18-08: 3 giọng nữ trong cùng
+    # một file bị GỘP thành một người nói, và tầng hồ sơ nhân vật không sửa
+    # nổi vì nó chỉ nhìn thấy một người. Người dùng thì biết chắc video của
+    # mình có mấy người — đây là thông tin rẻ nhất và đáng tin nhất.
+    speaker_count: int = 0
 
     # mini-spec V32b (docs/PLAN.md, Phase G) — "Đồng bộ khẩu hình" (MuseTalk),
     # NGOẠI LỆ KIẾN TRÚC ĐẦU TIÊN so với "GPU-optional" của mọi tính năng khác
@@ -409,6 +415,7 @@ class Settings:
             asr_venv_python=env("ASR_VENV_PYTHON"),
             paraformer_model_dir=env("PARAFORMER_MODEL_DIR"),
             diarization_enabled=env_bool("DIARIZATION_ENABLED", "false"),
+            speaker_count=env_int("SPEAKER_COUNT", "0"),
             diarization_venv_python=env("DIARIZATION_VENV_PYTHON"),
             diarization_model_dir=env("DIARIZATION_MODEL_DIR"),
             lipsync_venv_python=env("LIPSYNC_VENV_PYTHON"),

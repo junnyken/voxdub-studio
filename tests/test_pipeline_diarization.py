@@ -54,7 +54,9 @@ def test_diarization_error_degrades_to_single_voice_not_crash(monkeypatch):
 
     # V59: `diarize()` nhận thêm `with_embeddings` — stub phải khớp chữ ký
     # thật, nếu không test lại xanh/đỏ vì lý do khác hẳn thứ đang kiểm.
-    def _boom(audio_path, settings, with_embeddings=False):
+    # V65b: thêm num_speakers/min_speakers/max_speakers — nuốt bằng
+    # `**_` để lần sau thêm tham số nữa thì stub không vỡ theo.
+    def _boom(audio_path, settings, with_embeddings=False, **_):
         raise DiarizationError("worker treo")
     monkeypatch.setattr("autodub.speech.diarization.diarize", _boom)
 
@@ -71,7 +73,7 @@ def test_successful_diarization_assigns_distinct_voices(monkeypatch):
         "autodub.speech.diarization.diarize",
         # V59: trả (segments, embeddings) — embeddings rỗng để test này vẫn
         # đi đúng nhánh khớp bằng F0 như trước.
-        lambda audio_path, settings, with_embeddings=False: ([
+        lambda audio_path, settings, with_embeddings=False, **_: ([
             {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
             {"start": 2.0, "end": 4.0, "speaker": "SPEAKER_01"},
         ], {}))
@@ -104,7 +106,7 @@ def test_gender_estimated_assigns_matching_voices(monkeypatch):
         "autodub.speech.diarization.diarize",
         # V59: trả (segments, embeddings) — embeddings rỗng để test này vẫn
         # đi đúng nhánh khớp bằng F0 như trước.
-        lambda audio_path, settings, with_embeddings=False: ([
+        lambda audio_path, settings, with_embeddings=False, **_: ([
             {"start": 0.0, "end": 2.0, "speaker": "SPEAKER_00"},
             {"start": 2.0, "end": 4.0, "speaker": "SPEAKER_01"},
         ], {}))
@@ -136,7 +138,7 @@ def test_no_speakers_detected_leaves_segments_untouched(monkeypatch):
     pipeline.settings.diarization_enabled = True
     monkeypatch.setattr(pipeline.settings, "diarization_configured", lambda: True)
     monkeypatch.setattr("autodub.speech.diarization.diarize",
-                        lambda audio_path, settings, with_embeddings=False: ([], {}))
+                        lambda audio_path, settings, with_embeddings=False, **_: ([], {}))
 
     segments = [{"id": 1, "text": "a", "start": 0.0, "end": 2.0}]
     pipeline._apply_diarization(segments, "/tmp/fake.wav", get_target("vi"))

@@ -1031,8 +1031,24 @@ class DubPipeline:
                                 detail="Đang tách giọng theo người nói...")
             # V59: xin luôn embedding — pyannote đã tính sẵn khi gom nhóm
             # người nói, không tốn thêm thời gian xử lý nào.
+            # V65b — gợi ý số người nói cho pyannote.
+            #
+            # Người dùng khai (`speaker_count`) THẮNG mọi suy đoán: họ xem
+            # video rồi, ta thì không.
+            #
+            # Hồ sơ nhân vật CHỈ cấp cận TRÊN, cố ý không cấp cận dưới. Số
+            # nhân vật của cả series là trần hợp lý cho một tập, nhưng làm
+            # sàn thì sai: series 5 nhân vật mà tập này chỉ 2 người nói, ép
+            # tối thiểu 5 là buộc pyannote xé một người thành nhiều — đổi lỗi
+            # gộp lấy lỗi xé, không khá hơn. Cộng thêm 2 chỗ cho nhân vật mới
+            # xuất hiện lần đầu ở tập này.
+            so_nguoi_khai = max(0, int(getattr(settings, "speaker_count", 0) or 0))
+            tran_tu_ho_so = self._profile_speaker_ceiling(
+                character_profile, settings)
             diar_segments, speaker_embeddings = diarize(
-                audio_path, settings, with_embeddings=True)
+                audio_path, settings, with_embeddings=True,
+                num_speakers=so_nguoi_khai,
+                max_speakers=0 if so_nguoi_khai else tran_tu_ho_so)
             assign_speakers(segments, diar_segments)
             speaker_labels = sorted({
                 seg["speaker_label"] for seg in segments
@@ -1093,6 +1109,29 @@ class DubPipeline:
                 f"Diarization lỗi ({e}) — dùng 1 giọng cho toàn video như "
                 "bình thường (không ảnh hưởng phần còn lại của lượt dub).")
 
+
+    def _profile_speaker_ceiling(self, profile_name: str, settings) -> int:
+        """Trần số người nói suy từ hồ sơ nhân vật — mini-spec V65b.
+
+        Số nhân vật của cả series + 2 chỗ cho người mới xuất hiện lần đầu ở
+        tập này. Trả ``0`` khi không có hồ sơ, hồ sơ rỗng, hoặc đọc lỗi —
+        không có gợi ý thì pyannote tự đoán như trước, đúng đường lui của
+        V26/V59.
+
+        CHỈ trần, KHÔNG sàn: xem lý do ở chỗ gọi.
+        """
+        if not profile_name:
+            return 0
+        try:
+            from autodub.character_profile import CharacterProfile
+            profile = CharacterProfile.load(
+                self._profiles_dir(settings), profile_name)
+            so = len(profile.characters)
+        except Exception as err:  # noqa: BLE001 — hồ sơ hỏng không được làm chết lượt dub
+            logger.warning("Không đọc được hồ sơ «%s» để đoán số người nói "
+                           "(%s) — để pyannote tự quyết.", profile_name, err)
+            return 0
+        return so + 2 if so else 0
 
     def _apply_character_profile(self, profile_name: str, settings,
                                  pitches: dict, genders: dict,

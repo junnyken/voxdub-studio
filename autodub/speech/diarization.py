@@ -35,7 +35,9 @@ class DiarizationError(Exception):
 
 
 def diarize(audio_path: str, settings: Settings,
-            with_embeddings: bool = False):
+            with_embeddings: bool = False,
+            num_speakers: int = 0, min_speakers: int = 0,
+            max_speakers: int = 0):
     """Chạy diarization worker trên ``audio_path``.
 
     Trả về danh sách các khoảng nói theo thời gian, sắp theo thứ tự worker
@@ -57,6 +59,13 @@ def diarize(audio_path: str, settings: Settings,
         "--audio", audio_path,
         "--model-dir", settings.diarization_model_dir_path(),
     ]
+    # V65b — gợi ý số người nói. `0` = không biết, worker bỏ qua. Chỉ thêm
+    # tham số nào khác 0 để dòng lệnh trong log đọc ra đúng ý định lượt chạy.
+    for co, gia_tri in (("--num-speakers", num_speakers),
+                        ("--min-speakers", min_speakers),
+                        ("--max-speakers", max_speakers)):
+        if gia_tri and gia_tri > 0:
+            cmd += [co, str(int(gia_tri))]
     logger.info("Đang tách giọng theo người nói (diarization)...")
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

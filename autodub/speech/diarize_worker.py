@@ -35,6 +35,31 @@ def _die(msg: str) -> None:
     sys.exit(1)
 
 
+def _speaker_hint(num: int, lo: int, hi: int) -> dict:
+    """Gợi ý số người nói gửi cho pyannote — hàm thuần, test được.
+
+    Quy ước ``0`` = không biết, KHÔNG phải "không có ai": người gọi để trống
+    thì pyannote tự đoán y như trước V65b.
+
+    ``num_speakers`` (biết chắc) ĐÈ lên cặp min/max: đưa cả ba mà lệch nhau
+    thì pyannote không có cách nào chiều cả hai, và cái người dùng gõ tay
+    đáng tin hơn con số suy ra từ hồ sơ.
+
+    ``max < min`` là mâu thuẫn — bỏ ``max`` chứ không bỏ ``min``: thà tách
+    hơi nhiều người còn hơn gộp nhầm hai người vào một giọng, vì gộp thì
+    người xem nghe hai nhân vật cùng một giọng, còn tách dư thì hồ sơ nhân
+    vật ở tập sau vẫn khớp lại được.
+    """
+    if num > 0:
+        return {"num_speakers": int(num)}
+    hint: dict = {}
+    if lo > 0:
+        hint["min_speakers"] = int(lo)
+    if hi > 0 and not (lo > 0 and hi < lo):
+        hint["max_speakers"] = int(hi)
+    return hint
+
+
 def _token_kwarg(load_fn) -> str:
     """Tên tham số truyền access token của ``Pipeline.from_pretrained``.
 
@@ -71,6 +96,20 @@ def main() -> None:
     parser.add_argument("--audio", required=True, help="File audio (WAV khuyên dùng)")
     parser.add_argument("--model-dir", required=True,
                         help="Thư mục cache model pyannote (HF_HOME)")
+    # V65b — gợi ý số người nói. pyannote nhận `num_speakers` (biết chắc),
+    # hoặc cặp `min_speakers`/`max_speakers` (khoảng). Không truyền gì thì nó
+    # tự đoán như trước.
+    #
+    # Vì sao cần: đo thật ngày 18-08 cho thấy 3 giọng nữ trong cùng một file
+    # bị GỘP thành một người nói, và tầng hồ sơ nhân vật không sửa nổi — nó
+    # chỉ thấy một người, không có cách nào biết đó là ba (xem TEST_LOG mục
+    # V59 18-08).
+    parser.add_argument("--num-speakers", type=int, default=0,
+                        help="Biết CHẮC có bao nhiêu người nói (0 = không biết)")
+    parser.add_argument("--min-speakers", type=int, default=0,
+                        help="Ít nhất bao nhiêu người nói (0 = không đặt)")
+    parser.add_argument("--max-speakers", type=int, default=0,
+                        help="Nhiều nhất bao nhiêu người nói (0 = không đặt)")
     parser.add_argument("--hf-token", default="",
                         help="HuggingFace access token cho model gated "
                              "(mặc định đọc HF_TOKEN/HUGGINGFACE_TOKEN)")
@@ -134,8 +173,17 @@ def main() -> None:
         except (TypeError, ValueError):
             supports_flag = False
 
-        result = (pipeline(args.audio, return_embeddings=True) if supports_flag
-                  else pipeline(args.audio))
+        # V65b — chỉ truyền tham số nào NGƯỜI GỌI thật sự đặt. Truyền
+        # `num_speakers=None` cũng vô hại, nhưng dựng dict rỗng thì đọc log
+        # ra biết ngay lượt chạy đó có gợi ý hay không.
+        hint = _speaker_hint(args.num_speakers, args.min_speakers,
+                             args.max_speakers)
+        if hint:
+            print(json.dumps({"info": f"gợi ý số người nói: {hint}"}),
+                  flush=True)
+        if supports_flag:
+            hint["return_embeddings"] = True
+        result = pipeline(args.audio, **hint)
 
         if hasattr(result, "speaker_diarization"):          # pyannote 4.x
             diarization = result.speaker_diarization

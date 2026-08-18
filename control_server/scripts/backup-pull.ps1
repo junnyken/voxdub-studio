@@ -83,8 +83,14 @@ if ($lines -lt 1) {
 }
 
 Move-Item -Force $Tmp $Out
-$sizeMb = [math]::Round((Get-Item $Out).Length / 1MB, 1)
-Write-Output "OK: $Out ($sizeMb MB, $lines dòng)"
+# Đổi đơn vị theo cỡ thật: database nhỏ mà in "0 MB" thì đọc y như sao lưu
+# rỗng, và người ta sẽ đi tìm lỗi ở chỗ không có lỗi. Đã gặp thật khi chạy
+# lần đầu 18-08 (7.8 KB → "0 MB").
+$bytes = (Get-Item $Out).Length
+$size = if ($bytes -ge 1MB) { "$([math]::Round($bytes / 1MB, 1)) MB" }
+        elseif ($bytes -ge 1KB) { "$([math]::Round($bytes / 1KB, 1)) KB" }
+        else { "$bytes byte" }
+Write-Output "OK: $Out ($size, $lines dòng)"
 
 # Xoay vòng: giữ lại $Keep bản mới nhất.
 Get-ChildItem -Path $DestDir -Filter "voxdub-backup-*.ndjson.gz" |

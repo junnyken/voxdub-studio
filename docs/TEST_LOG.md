@@ -7111,6 +7111,106 @@ thanh (ElevenLabs) — không có trong đường dub cơ bản.
   kiểm thông lượng phải nộp nhiều video cùng lúc.
 - V53 (ô chọn trên trang Batch) vẫn chưa click thử trên Windows.
 
+## V65b + live-verify V52/V54/V55 (Phase H, 2026-08-18)
+
+### V65b — gợi ý số người nói cho pyannote
+
+Đóng lỗi V59 phát hiện: 3 giọng nữ bị GỘP thành một người nói, tầng hồ sơ
+nhân vật không sửa nổi vì nó chỉ nhìn thấy một người.
+
+**Không làm theo ý tưởng ban đầu (`min_speakers` = số nhân vật trong hồ sơ)**
+vì nó sai ở ca thường gặp: series 5 nhân vật mà tập này chỉ 2 người nói, ép
+sàn 5 là buộc pyannote xé một người thành nhiều — đổi lỗi gộp lấy lỗi xé,
+không khá hơn. Thay bằng:
+
+1. **Người dùng khai** (`--speakers N`, `SPEAKER_COUNT`) → `num_speakers`.
+   Họ xem video rồi, ta thì không. Đây là thông tin rẻ và đáng tin nhất.
+2. **Hồ sơ nhân vật chỉ cấp cận TRÊN** (`max_speakers` = số nhân vật + 2 chỗ
+   cho người mới). Trần thì an toàn, sàn thì không.
+3. Người dùng khai rồi thì bỏ qua trần từ hồ sơ — con số gõ tay thắng.
+
+`_speaker_hint()` là hàm thuần: `0` = KHÔNG BIẾT (không phải "không có ai"),
+`num_speakers` đè lên cặp min/max, và `max < min` thì bỏ **max** chứ không bỏ
+min — thà tách hơi nhiều còn hơn gộp, vì gộp là hai nhân vật cùng một giọng
+ngay trên màn hình, còn tách dư thì tập sau hồ sơ vẫn khớp lại được.
+
+**Verify bằng chính đoạn audio đã làm lộ lỗi** (`tap2.wav`, sự thật 4 người):
+
+| lượt chạy | pyannote nhận ra |
+|---|---|
+| không gợi ý (18-08, lần đo đầu) | **2 người** — gộp cả 3 giọng nữ |
+| `--num-speakers 4` | **3 người** — tách được cụm nữ thành 2 |
+
+Gợi ý có tác dụng thật và đo được. Nhưng **pyannote KHÔNG tuân thủ tuyệt đối**:
+xin 4 vẫn trả 3. Nó coi đây là gợi ý cho bước gom nhóm chứ không phải ràng
+buộc cứng — đừng hứa với người dùng rằng khai đúng số là chắc chắn tách đúng.
+Giọng TTS cùng giới vẫn là ca khó nhất.
+
+### V55 — huỷ job: LỘ RA PROD ĐANG CHẠY CODE CŨ 5 TIẾNG
+
+Lần chạy đầu, `cancel()` trả về *"Không có endpoint này"*. Không phải bug của
+V55: nhánh `deploy/vays-control-server` có tip **17-08 22:02**, mà V55 landed
+**23:35**. Prod đang chạy bản dựng từ trước V51/V52/V55 phía máy chủ — nhánh
+deploy là bản SINH RA từ `main`, không tự cập nhật theo `main`.
+
+Đây là bẫy quy trình đáng nhớ hơn cả bug: mọi thứ trên `main` xanh, test đủ,
+mà prod vẫn thiếu tính năng, và không có gì báo cho biết. Chạy lại
+`scripts/gen_vays_control_server_branch.sh` + redeploy rồi mới thử tiếp.
+
+Sau khi deploy đúng code:
+
+```
+jobId = 6a83e2408807de3f7c022a51
+đã running — gửi lệnh huỷ
+cancel() trả về: True
+trạng thái cuối: cancelled
+trước: dùng 8 phút | sau: dùng 8 phút   ← job huỷ KHÔNG bị tính tiền
+```
+
+Huỷ lúc job đã `running` (không phải lúc còn `queued`) — đó mới là ca chứng
+minh worker giết được tiến trình con thật.
+
+### V52 — đường ống `--queue-ahead` bị ép thật
+
+4 video, `--queue-ahead 3`:
+
+```
+11:41:09 nộp v1, v2, v3        ← nộp sẵn 3 job TRƯỚC khi job nào xong
+         v1 done → nộp ngay v4 ← giữ hàng đợi luôn đầy
+11:42:43 Xong: 4 | Hỏng: 0
+```
+
+94 giây cho 4 video. Máy chủ không có lúc nào nằm không chờ client upload —
+đúng mục tiêu thông lượng của V42 mà V51 còn để hở.
+
+### V54 — đường liên kết
+
+`--input http://127.0.0.1:8899/thu.mp4` → yt-dlp (Generic extractor) tải về →
+nộp → dub → tải kết quả (`Generic_thu_dubbed.mp4`, 339442 byte). Khoá trạng
+thái là CHÍNH liên kết, đúng thiết kế.
+
+**Giới hạn thật của phép thử này**: dùng URL file mp4 trực tiếp trên máy nên
+chỉ chứng minh đường ống liên kết→tải→nộp chạy được. **Chưa chứng minh** trích
+xuất YouTube/TikTok/Douyin thật (mỗi site một extractor riêng, YouTube còn cần
+proxy). Cố ý không tải nội dung của bên thứ ba để thử.
+
+### `backup-pull.ps1` — chạy thật lần đầu
+
+Trước đây chỉ đúng về logic, chưa từng chạy (sandbox Linux không có
+PowerShell). Tải bản PowerShell 7.4.6 portable về chạy thật:
+
+- Token đúng → `OK: ... (7.7 KB, 118 dòng)`, gzip hợp lệ.
+- Token sai → báo `HTTP 401` và **không để lại file `.part` rác**.
+- `keep=2` → xoay vòng đúng, còn lại đúng 2 bản mới nhất.
+- Máy chủ có rate limit: gọi liên tiếp bị `429`, script báo rõ chứ không nuốt.
+
+**1 lỗi hiển thị sửa luôn**: bản 7.8 KB in ra `0 MB` — đọc y như sao lưu rỗng,
+người ta sẽ đi tìm lỗi ở chỗ không có lỗi. Giờ đổi đơn vị theo cỡ thật.
+
+Vẫn CHƯA thử được: `schtasks` và hành vi khi máy tắt — cần máy Windows thật.
+
+**1299 test Python + 324 test Node, 0 fail.**
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật

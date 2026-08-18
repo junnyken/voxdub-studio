@@ -89,6 +89,12 @@ def _add_dub_request_args(parser: argparse.ArgumentParser) -> None:
                              "tác dụng khi bật tách người nói (--multi-speaker). "
                              "Hồ sơ lưu ở <output>/character_profiles/<tên>.json, "
                              "sửa tay được")
+    parser.add_argument("--speakers", type=int, default=0,
+                        help="SỐ NGƯỜI NÓI trong video (mini-spec V65b) — bỏ "
+                             "trống/0 thì tự đoán như trước. Khai đúng con số "
+                             "giúp không gộp nhầm 2 người giọng giống nhau "
+                             "thành 1, ca mà tự đoán hay sai nhất. Chỉ có tác "
+                             "dụng khi bật tách người nói (--multi-speaker)")
     parser.add_argument("--preview-seconds", type=int, default=0,
                         help="NGHE THỬ: chỉ lồng tiếng N giây đầu để duyệt "
                              "giọng/xưng hô trước khi chạy cả video "
@@ -144,6 +150,8 @@ def _cmd_dub(args: argparse.Namespace) -> int:
     settings = Settings.load()
     if args.multi_speaker:
         settings.diarization_enabled = True
+    if getattr(args, "speakers", 0) and args.speakers > 0:
+        settings.speaker_count = int(args.speakers)
     try:
         target = _validate_target(args.target)
         _validate_voice(args.voice, target, settings)
