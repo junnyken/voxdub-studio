@@ -6947,6 +6947,54 @@ live-verify, đó chính là lý do 2 bug tên tham số nằm im tới hôm nay
 
 Vẫn chưa đo được ngưỡng cosine: cần 2 clip cùng series có chung nhân vật.
 
+## V59 — Chạy pyannote THẬT lần đầu + đo ngưỡng cosine (Phase H, 2026-08-18)
+
+Chủ dự án tạm bỏ qua việc cung cấp video thật, nên dựng vật liệu từ chính bộ
+giọng mẫu trong repo (`voices/preset_voices_vn`, 121 file, mỗi file ~8 giây).
+
+**Cách dựng để con số có nghĩa**: mỗi giọng cắt đôi — nửa ĐẦU vào "tập 1", nửa
+SAU vào "tập 2". Cùng một người, KHÁC lời. Tái dùng đúng đoạn audio cũ thì
+cosine ra ~1.0 và phép đo vô nghĩa. Mỗi lượt 4 giây, chèn 0.6 giây lặng giữa
+các lượt (lượt 2 giây cắt cụt sát nhau, thử lần đầu, làm pyannote gộp gần hết).
+
+Chạy qua ĐÚNG đường code sản phẩm: `diarize_worker.py` → `estimate_speaker_pitch`
+→ `CharacterProfile.match_speakers()` → `explain_matches()`.
+
+### Số đo thật
+
+| Cặp so sánh | cosine |
+|---|---|
+| B(nam) vs D(nữ) — khác người, khác giới | 0.106 |
+| B(nam) vs A(nữ) — khác người, khác giới | 0.219 |
+| **A(nữ) vs D(nữ) — khác người, CÙNG giới** | **0.651** |
+| **B tập1 vs B tập2 — CÙNG người, khác lời** | **0.783** |
+
+**Ngưỡng 0.72 đoán ở V59 nằm gần đúng điểm giữa** của khoảng phân tách thật
+(0.651 ↔ 0.783): cách mép dưới 0.069, cách mép trên 0.063. Con số đoán đứng
+vững — nhưng biên chỉ ~0.06 mỗi bên, **trên audio TTS sạch**. Video thật có
+nhạc nền, tiếng ồn, cảm xúc thay đổi sẽ làm khoảng cách cùng-người rộng ra;
+0.06 là mỏng. Chưa đủ dữ liệu để chỉnh, đủ dữ liệu để biết chỗ nào sẽ gãy.
+
+### Rủi ro thật phát hiện được — tầng hồ sơ KHÔNG sửa nổi
+
+Tập 2 có 3 giọng nữ (A, D, C): **pyannote gộp cả 3 thành MỘT người nói**.
+Embedding của cụm gộp đó khớp với «A» ở 0.792 — cao hơn cả lượt khớp ĐÚNG của
+B (0.783) — và qua luôn cả luật biên 0.05 (kế tiếp 0.652).
+
+Không có ngưỡng nào cứu được ca này: diarization gộp nhầm ở tầng dưới thì hồ sơ
+nhân vật chỉ còn cách khớp một cụm-nhiều-người vào một nhân vật. Cột "Nhận
+diện" của V62 hiện phân biệt embedding/cao độ, nhưng KHÔNG cảnh báo "người nói
+này có thể là nhiều người bị gộp".
+
+### Giới hạn của chính phép đo này
+
+- Giọng TTS sạch, không nhạc nền, không tiếng ồn — DỄ hơn hẳn video thật.
+- Mỗi ca đúng 1 điểm dữ liệu, không phải phân phối.
+- Lượt thoại 4 giây liền mạch; hội thoại thật ngắn và chồng tiếng hơn nhiều.
+
+Nên đây là **cận trên** của chất lượng, không phải hiệu chỉnh cho nội dung
+thật. Vẫn cần 2 clip thật của cùng series để chốt ngưỡng.
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật
