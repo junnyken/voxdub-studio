@@ -51,18 +51,17 @@ def test_duong_dan_file_sai_bao_ngay_khong_doi_het_buoc_chuan_bi(page, monkeypat
 
 def test_lien_ket_khong_bi_kiem_ton_tai_tren_dia(page, monkeypatch):
     """Liên kết không phải đường dẫn — kiểm `os.path.isfile` là chặn nhầm."""
-    class _W:
-        def __init__(self, *a, **k): ...
-        log = progress = finished_ok = failed = None
-        def start(self): goi["chay"] = True
-        def isRunning(self): return False
-
     goi = {}
 
     class _Sig:
         def connect(self, *_a): ...
 
-    _W.log = _W.progress = _W.finished_ok = _W.failed = _Sig()
+    class _W:
+        log = progress = item_status = finished_ok = failed = _Sig()
+        def __init__(self, *a, **k): ...
+        def start(self): goi["chay"] = True
+        def isRunning(self): return False
+
     monkeypatch.setattr(tp, "TranscribeWorker", _W)
     page.source.set_text("https://www.facebook.com/share/r/1EUSdYJeXN/")
     page._run()
@@ -91,6 +90,99 @@ def test_xong_thi_mo_duoc_thu_muc_ket_qua(page):
         segments = [{"text": "a"}, {"text": "b"}]
         outputs = {"txt": "/x/a.txt", "srt": "/x/a.srt"}
 
-    page._on_done(_KQ())
+    class _M:
+        status = "xong"
+        result = _KQ()
+        error = ""
+        source = "/x/a.mp4"
+
+    page._on_done([_M()])
     assert "2 câu" in page.status.text()
     assert page.btn_open.isEnabled()
+
+
+# ------------------------------------------ V72: chọn nhiều file + nút Dừng
+def test_tach_nhieu_nguon_bang_dau_gach_dung(page):
+    """Đường dẫn Windows chứa cả dấu phẩy lẫn chấm phẩy; `|` là ký tự Windows
+    CẤM đặt tên file nên không bao giờ đụng độ."""
+    page.source.set_text(r"D:\a, b.mp4 | E:\c; d.mp3 | https://youtu.be/x")
+    assert page._sources() == [r"D:\a, b.mp4", r"E:\c; d.mp3", "https://youtu.be/x"]
+
+
+def test_bo_qua_muc_rong_khi_tach(page):
+    page.source.set_text("  |  /tmp/a.mp4 |  ")
+    assert page._sources() == ["/tmp/a.mp4"]
+
+
+def test_thu_muc_la_dau_vao_hop_le(page, tmp_path, monkeypatch):
+    goi = {}
+
+    class _Sig:
+        def connect(self, *_a): ...
+
+    class _W:
+        log = progress = item_status = finished_ok = failed = _Sig()
+        def __init__(self, *a, **k): ...
+        def start(self): goi["chay"] = True
+        def isRunning(self): return False
+
+    monkeypatch.setattr(tp, "TranscribeWorker", _W)
+    page.source.set_text(str(tmp_path))
+    page._run()
+    assert goi.get("chay") is True, "chép lời cả thư mục là hợp lệ"
+
+
+def test_nut_dung_chi_bat_khi_dang_chay(page):
+    assert not page.btn_stop.isEnabled(), "chưa chạy thì không có gì để dừng"
+
+
+def test_bam_dung_noi_DANG_dung_chu_khong_phai_da_dung(page, monkeypatch):
+    class _W:
+        def isRunning(self): return True
+        def cancel(self): goi["huy"] = True
+
+    goi = {}
+    page._worker = _W()
+    page.btn_stop.setEnabled(True)
+    page._stop()
+
+    assert goi.get("huy") is True
+    assert "Đang dừng" in page.status.text(), \
+        "mục đang chạy còn chạy nốt câu hiện tại — nói 'đã dừng' là nói sai"
+    assert not page.btn_stop.isEnabled()
+
+
+def _muc(status, so_cau=2, outputs=("txt",)):
+    class _KQ:
+        segments = [{"text": "x"}] * so_cau
+        outputs_ = {f: f"/x/a.{f}" for f in outputs}
+    kq = _KQ()
+    kq.outputs = kq.outputs_
+
+    class _M:
+        pass
+    m = _M()
+    m.status = status
+    m.result = kq if status == "xong" else None
+    m.error = "lỗi gì đó" if status == "hong" else ""
+    m.source = "/x/a.mp4"
+    return m
+
+
+def test_bao_cao_hang_loat_noi_ro_so_muc_hong(page):
+    page._on_done([_muc("xong"), _muc("hong"), _muc("xong")])
+    assert "hỏng 1" in page.status.text(), \
+        "báo 'xong' trong khi có mục hỏng là nói dối"
+    assert page.btn_run.isEnabled() and not page.btn_stop.isEnabled()
+
+
+def test_bao_cao_khi_bi_huy_giu_nguyen_muc_da_xong(page):
+    page._on_done([_muc("xong"), _muc("huy"), _muc("huy")])
+    assert "Xong 1" in page.status.text()
+    assert "đã huỷ 2" in page.status.text()
+
+
+def test_mot_muc_duy_nhat_van_bao_kieu_cu(page):
+    page._on_done([_muc("xong", so_cau=20, outputs=("txt", "srt"))])
+    assert "Xong 20 câu" in page.status.text()
+    assert "srt" in page.status.text()

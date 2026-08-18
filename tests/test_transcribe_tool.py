@@ -232,3 +232,139 @@ def test_thuoc_tinh_text_gop_ca_ban_ghi(monkeypatch, tmp_path):
     kq = tt.transcribe_media(str(src), str(tmp_path / "out"), Settings(),
                              formats=("txt",))
     assert kq.text == "Câu thứ nhất.\nCâu thứ hai."
+
+
+# =============================================== V72: huỷ + chép lời hàng loạt
+import threading  # noqa: E402
+
+from autodub.speech.transcriber import TranscribeCancelled  # noqa: E402
+
+
+def test_bung_thu_muc_thanh_danh_sach_file(tmp_path):
+    (tmp_path / "a.mp4").write_bytes(b"\0")
+    (tmp_path / "b.mp3").write_bytes(b"\0")
+    (tmp_path / "ghi_chu.txt").write_bytes(b"\0")     # không phải media
+    (tmp_path / "con").mkdir()
+    (tmp_path / "con" / "c.mp4").write_bytes(b"\0")   # thư mục con: bỏ qua
+
+    ra = tt.expand_sources([str(tmp_path)])
+    assert [os.path.basename(x) for x in ra] == ["a.mp4", "b.mp3"]
+
+
+def test_khong_de_quy_vao_thu_muc_con(tmp_path):
+    """Thư mục con thường là bản nháp/file tạm — quét vào là chép lời cả rác."""
+    (tmp_path / "con").mkdir()
+    (tmp_path / "con" / "c.mp4").write_bytes(b"\0")
+    assert tt.expand_sources([str(tmp_path)]) == []
+
+
+def test_bo_trung_giu_nguyen_thu_tu():
+    ra = tt.expand_sources(["https://b/2", "https://a/1", "https://b/2"])
+    assert ra == ["https://b/2", "https://a/1"], "dán trùng thì chỉ chạy một lần"
+
+
+def test_lien_ket_va_file_tron_lan_deu_nhan():
+    ra = tt.expand_sources(["https://youtu.be/x", "", "  ", "/tmp/a.mp4"])
+    assert ra == ["https://youtu.be/x", "/tmp/a.mp4"]
+
+
+def test_mot_muc_hong_KHONG_lam_hong_ca_me(monkeypatch, tmp_path):
+    """Dừng cả mẻ vì một liên kết chết là bắt làm lại từ đầu những mục đã xong."""
+    goi = []
+
+    def gia(source, out, st, **k):
+        goi.append(source)
+        if "hong" in source:
+            raise RuntimeError("liên kết chết")
+        return tt.TranscribeResult(source=source, audio_path="", segments=SEGS)
+
+    monkeypatch.setattr(tt, "transcribe_media", gia)
+    ket = tt.transcribe_many(["/a.mp4", "/hong.mp4", "/b.mp4"],
+                             str(tmp_path), Settings())
+
+    assert [m.status for m in ket] == ["xong", "hong", "xong"]
+    assert ket[1].error == "liên kết chết"
+    assert len(goi) == 3, "mục sau mục hỏng vẫn phải chạy"
+
+
+def test_huy_thi_muc_con_lai_danh_dau_huy_KHONG_phai_hong(monkeypatch, tmp_path):
+    """Người dùng chủ động dừng thì không được báo là thất bại."""
+    cancel = threading.Event()
+
+    def gia(source, out, st, **k):
+        cancel.set()          # mục đầu chạy xong thì bấm Dừng
+        return tt.TranscribeResult(source=source, audio_path="", segments=SEGS)
+
+    monkeypatch.setattr(tt, "transcribe_media", gia)
+    ket = tt.transcribe_many(["/a.mp4", "/b.mp4", "/c.mp4"], str(tmp_path),
+                             Settings(), cancel_event=cancel)
+
+    assert [m.status for m in ket] == ["xong", "huy", "huy"]
+
+
+def test_huy_giua_mot_muc_khong_xoa_ket_qua_muc_da_xong(monkeypatch, tmp_path):
+    cancel = threading.Event()
+    dem = {"n": 0}
+
+    def gia(source, out, st, **k):
+        dem["n"] += 1
+        if dem["n"] == 2:
+            raise TranscribeCancelled("Đã dừng theo yêu cầu.")
+        return tt.TranscribeResult(source=source, audio_path="", segments=SEGS)
+
+    monkeypatch.setattr(tt, "transcribe_media", gia)
+    ket = tt.transcribe_many(["/a.mp4", "/b.mp4", "/c.mp4"], str(tmp_path),
+                             Settings(), cancel_event=cancel)
+
+    assert ket[0].status == "xong" and ket[0].result is not None
+    assert ket[1].status == "huy" and ket[2].status == "huy"
+
+
+def test_hai_file_TRUNG_TEN_khong_ghi_de_nhau(monkeypatch, tmp_path):
+    """`Tap1/video.mp4` và `Tap2/video.mp4` là chuyện thường — file sau ghi đè
+    file trước thì người dùng chỉ phát hiện khi mở ra thấy thiếu."""
+    ten = []
+
+    def gia(source, out, st, **k):
+        ten.append(k.get("output_name"))
+        return tt.TranscribeResult(source=source, audio_path="", segments=SEGS)
+
+    monkeypatch.setattr(tt, "transcribe_media", gia)
+    tt.transcribe_many(["/Tap1/video.mp4", "/Tap2/video.mp4", "/Tap3/video.mp4"],
+                       str(tmp_path), Settings())
+
+    assert ten == ["video", "video_2", "video_3"]
+
+
+def test_lien_ket_de_transcribe_media_tu_dat_ten(monkeypatch, tmp_path):
+    """Tên của liên kết phải chờ tải xong mới biết tiêu đề."""
+    ten = []
+    monkeypatch.setattr(tt, "transcribe_media",
+                        lambda s, o, st, **k: (ten.append(k.get("output_name"))
+                                               or tt.TranscribeResult(s, "", SEGS)))
+    tt.transcribe_many(["https://youtu.be/x"], str(tmp_path), Settings())
+    assert ten == [""]
+
+
+def test_kiem_huy_khong_no_khi_khong_co_co(tmp_path):
+    tt._kiem_huy(None)          # không có cờ = không huỷ, không được ném gì
+
+
+def test_kiem_huy_nem_dung_ngoai_le_rieng():
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(TranscribeCancelled):
+        tt._kiem_huy(cancel)
+
+
+def test_huy_TRUOC_khi_tai_thi_khong_dung_toi_mang(monkeypatch, tmp_path):
+    cancel = threading.Event()
+    cancel.set()
+
+    def no_ra(*a, **k):
+        raise AssertionError("đã bấm Dừng thì không được tải gì nữa")
+
+    monkeypatch.setattr("autodub.media.downloader.download_one", no_ra)
+    with pytest.raises(TranscribeCancelled):
+        tt.transcribe_media("https://youtu.be/x", str(tmp_path), Settings(),
+                            formats=("txt",), cancel_event=cancel)

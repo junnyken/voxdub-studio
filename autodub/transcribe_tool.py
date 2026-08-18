@@ -140,10 +140,23 @@ def prepare_audio(source: str, work_dir: str, settings=None) -> tuple[str, str]:
     return audio_path, title
 
 
+def _kiem_huy(cancel_event) -> None:
+    """Ném `TranscribeCancelled` nếu người dùng đã bấm Dừng — mini-spec V72.
+
+    Gọi ở RANH GIỚI từng bước (sau tải, sau bóc tiếng, trước khi xuất). Bên
+    trong bước ASR còn một lớp kiểm nữa ở `transcriber` — bước đó dài nhất nên
+    chỉ chặn ở ranh giới thì người dùng vẫn phải chờ hết cả video.
+    """
+    if cancel_event is not None and cancel_event.is_set():
+        from autodub.speech.transcriber import TranscribeCancelled
+        raise TranscribeCancelled("Đã dừng theo yêu cầu.")
+
+
 def transcribe_media(source: str, output_dir: str, settings,
                      language: str = "", formats=("txt", "srt"),
                      with_timestamps: bool = False,
-                     progress=None) -> TranscribeResult:
+                     progress=None, cancel_event=None,
+                     output_name: str = "") -> TranscribeResult:
     """Chuyển một liên kết/file thành văn bản.
 
     ``language``: mã ngôn ngữ NGUỒN (vd ``en``, ``vi``, ``zh``). Để trống thì
@@ -164,19 +177,24 @@ def transcribe_media(source: str, output_dir: str, settings,
     os.makedirs(output_dir, exist_ok=True)
     work_dir = os.path.join(output_dir, "_tam")
 
+    _kiem_huy(cancel_event)
     say("download", "Đang chuẩn bị âm thanh…")
     audio_path, title = prepare_audio(source, work_dir, settings=settings)
+
+    _kiem_huy(cancel_event)
 
     lang = (language or getattr(settings, "default_source_lang", "") or "").strip()
     say("asr", "Đang nghe và chép lời…")
     from autodub.speech.transcriber import transcribe as run_asr
-    segments = run_asr(audio_path, lang, settings)
+    segments = run_asr(audio_path, lang, settings, cancel_event=cancel_event)
     if not segments:
         raise TranscribeError(
             "Không nghe được câu nào — file có thể không có tiếng nói, "
             "hoặc sai ngôn ngữ nguồn.")
 
-    base = _output_basename(source, title)
+    # `output_name` do lượt hàng loạt truyền vào để tránh hai nguồn cùng tên
+    # ghi đè kết quả của nhau — xem `transcribe_many`.
+    base = output_name or _output_basename(source, title)
     result = TranscribeResult(source=source, audio_path=audio_path,
                               segments=segments, title=title)
 
@@ -215,3 +233,123 @@ def _output_basename(source: str, title: str) -> str:
     if not any(c.isalnum() for c in sach):
         return "ban_ghi"
     return sach
+
+
+@dataclass
+class BatchItem:
+    """Một mục trong lượt chép lời hàng loạt."""
+    source: str
+    status: str = "cho"          # cho | xong | hong | huy
+    result: "TranscribeResult | None" = None
+    error: str = ""
+
+
+def expand_sources(inputs) -> list[str]:
+    """Bung danh sách đầu vào — mini-spec V72.
+
+    Nhận lẫn lộn liên kết, file, và THƯ MỤC. Thư mục được duyệt lấy mọi file
+    video/âm thanh bên trong (không đệ quy: thư mục con thường là bản nháp,
+    file tạm — quét vào là chép lời cả rác).
+
+    Giữ NGUYÊN thứ tự người dùng đưa, và bỏ trùng: dán nhầm hai lần cùng một
+    liên kết thì chỉ chạy một lần, không tính tiền/thời gian hai lần.
+    """
+    VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".avi", ".webm", ".flv", ".wmv", ".m4v"}
+    ra: list[str] = []
+    da_co: set[str] = set()
+
+    def them(x: str) -> None:
+        if x and x not in da_co:
+            da_co.add(x)
+            ra.append(x)
+
+    for raw in inputs:
+        muc = str(raw).strip()
+        if not muc:
+            continue
+        if is_url(muc):
+            them(muc)
+        elif os.path.isdir(muc):
+            for ten in sorted(os.listdir(muc)):
+                duong = os.path.join(muc, ten)
+                if not os.path.isfile(duong):
+                    continue
+                if os.path.splitext(ten)[1].lower() in (VIDEO_EXTS | AUDIO_EXTS):
+                    them(duong)
+        else:
+            them(muc)
+    return ra
+
+
+def transcribe_many(sources, output_dir: str, settings, *,
+                    language: str = "", formats=("txt", "srt"),
+                    with_timestamps: bool = False,
+                    on_item=None, cancel_event=None) -> list[BatchItem]:
+    """Chép lời nhiều mục, tuần tự — mini-spec V72.
+
+    **Một mục hỏng KHÔNG làm hỏng cả lượt**: nó được đánh dấu `hong` kèm lý do
+    và lượt chạy đi tiếp. Dừng cả mẻ vì một liên kết chết là bắt người dùng
+    làm lại từ đầu những mục đã tốn thời gian chạy xong.
+
+    Chạy TUẦN TỰ chứ không song song: ASR ăn trọn CPU/GPU, chạy hai lượt cùng
+    lúc trên cùng một máy chỉ làm cả hai chậm đi (cùng kết luận với V42 cho
+    luồng dub).
+
+    Huỷ giữa chừng: mục đang chạy dừng theo cờ, mọi mục còn lại đánh dấu `huy`
+    — kết quả của các mục đã xong vẫn giữ nguyên trên đĩa.
+    """
+    from autodub.speech.transcriber import TranscribeCancelled
+
+    muc_list = [BatchItem(source=s) for s in expand_sources(sources)]
+    ten_da_dung: set[str] = set()
+    for i, muc in enumerate(muc_list):
+        if cancel_event is not None and cancel_event.is_set():
+            for con_lai in muc_list[i:]:
+                con_lai.status = "huy"
+            break
+        try:
+            muc.result = transcribe_media(
+                muc.source, output_dir, settings, language=language,
+                formats=formats, with_timestamps=with_timestamps,
+                cancel_event=cancel_event,
+                output_name=_ten_khong_trung(muc.source, ten_da_dung))
+            muc.status = "xong"
+        except TranscribeCancelled:
+            for con_lai in muc_list[i:]:
+                con_lai.status = "huy"
+            if on_item:
+                on_item(i, len(muc_list), muc)
+            break
+        except Exception as e:  # noqa: BLE001 — hỏng 1 mục, không hỏng cả mẻ
+            muc.status = "hong"
+            muc.error = str(e)
+            logger.warning("Chép lời hỏng «%s»: %s", muc.source, e)
+        if on_item:
+            on_item(i, len(muc_list), muc)
+    return muc_list
+
+
+def _ten_khong_trung(source: str, da_dung: set[str]) -> str:
+    """Tên file kết quả KHÔNG đụng tên đã dùng trong cùng lượt — mini-spec V72.
+
+    Hai file cùng tên ở hai thư mục khác nhau (`Tap1/video.mp4` và
+    `Tap2/video.mp4`) là chuyện thường. Không xử lý thì file sau ghi đè file
+    trước, âm thầm, và người dùng chỉ phát hiện khi mở ra thấy thiếu.
+
+    Tên trùng thì thêm hậu tố `_2`, `_3`… chứ không thêm dấu thời gian: người
+    dùng còn phải tìm lại file theo tên, dấu thời gian làm việc đó khó hơn.
+
+    Lưu ý: tên cho LIÊN KẾT vẫn phải chờ tải xong mới biết tiêu đề, nên ở đây
+    trả về rỗng để `transcribe_media` tự đặt như thường — chống trùng cho liên
+    kết là việc của đợt sau, và ghi rõ ở TEST_LOG chứ không lặng lẽ bỏ qua.
+    """
+    if is_url(source):
+        return ""
+    goc = _output_basename(source, "")
+    ten = goc
+    lan = 2
+    while ten in da_dung:
+        ten = f"{goc}_{lan}"
+        lan += 1
+    da_dung.add(ten)
+    return ten

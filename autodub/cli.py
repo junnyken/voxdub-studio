@@ -374,29 +374,68 @@ def _cmd_batch(args: argparse.Namespace) -> int:
 
 def _cmd_transcribe(args: argparse.Namespace) -> int:
     """Chép lời một liên kết/file — mini-spec V71."""
-    from autodub.transcribe_tool import TranscribeError, transcribe_media
+    import threading
+
+    from autodub.transcribe_tool import expand_sources, transcribe_many
 
     settings = Settings.load()
     formats = tuple(f.strip().lower() for f in str(args.format).split(",") if f.strip())
     if not formats:
         print("Lỗi: --format rỗng.", file=sys.stderr)
         return 1
-    try:
-        kq = transcribe_media(
-            args.input, args.output_dir, settings,
-            language=args.language, formats=formats,
-            with_timestamps=args.timestamps,
-            progress=lambda step, detail: print(f"[{step}] {detail}", flush=True))
-    except TranscribeError as e:
-        print(f"Lỗi: {e}", file=sys.stderr)
-        return 1
-    except Exception as e:  # noqa: BLE001 — lỗi thật của tải/ASR, báo rõ rồi thoát
-        print(f"Chép lời thất bại: {e}", file=sys.stderr)
+
+    nguon = expand_sources(args.input)
+    if not nguon:
+        print("Lỗi: không tìm thấy mục nào để chép lời.", file=sys.stderr)
         return 1
 
-    print(f"Xong {len(kq.segments)} câu:")
-    for fmt, path in kq.outputs.items():
-        print(f"  {fmt}: {path}")
+    # Ctrl+C KHÔNG được giết ngang tiến trình: mục đang chạy cần dừng gọn
+    # (giết tiến trình con Whisper) và các mục đã xong phải giữ nguyên kết quả.
+    cancel = threading.Event()
+    import signal
+
+    def _on_sigint(_sig, _frm):
+        if cancel.is_set():      # bấm lần hai = thoát ngay, đừng bắt chờ
+            raise KeyboardInterrupt
+        cancel.set()
+        print("\nĐang dừng… (Ctrl+C lần nữa để thoát ngay)", file=sys.stderr, flush=True)
+
+    try:
+        signal.signal(signal.SIGINT, _on_sigint)
+    except (ValueError, OSError):
+        pass                     # không phải luồng chính — bỏ qua, vẫn chạy được
+
+    if len(nguon) > 1:
+        print(f"Chép lời {len(nguon)} mục:")
+
+    def _bao(i, tong, muc):
+        nhan = {"xong": "xong", "hong": "HỎNG", "huy": "đã huỷ"}.get(muc.status, muc.status)
+        so_cau = len(muc.result.segments) if muc.result else 0
+        them = f" ({so_cau} câu)" if muc.status == "xong" else (
+            f" — {muc.error}" if muc.error else "")
+        print(f"  [{i + 1}/{tong}] {nhan}: {muc.source}{them}", flush=True)
+
+    ket_qua = transcribe_many(
+        nguon, args.output_dir, settings, language=args.language,
+        formats=formats, with_timestamps=args.timestamps,
+        on_item=_bao if len(nguon) > 1 else None, cancel_event=cancel)
+
+    xong = [m for m in ket_qua if m.status == "xong"]
+    hong = [m for m in ket_qua if m.status == "hong"]
+    huy = [m for m in ket_qua if m.status == "huy"]
+
+    if len(nguon) == 1 and xong:
+        print(f"Xong {len(xong[0].result.segments)} câu:")
+        for fmt, path in xong[0].result.outputs.items():
+            print(f"  {fmt}: {path}")
+    elif len(nguon) > 1:
+        print(f"Xong: {len(xong)} | Hỏng: {len(hong)} | Đã huỷ: {len(huy)}")
+
+    if not xong:
+        for m in hong:
+            print(f"Lỗi: {m.error}", file=sys.stderr)
+        # Huỷ KHÔNG phải lỗi — người dùng chủ động dừng thì đừng báo thất bại.
+        return 0 if huy else 1
     return 0
 
 
@@ -526,8 +565,10 @@ def build_parser() -> argparse.ArgumentParser:
         "transcribe",
         help="Chuyển giọng nói thành văn bản (liên kết, file video, hoặc mp3) "
              "— chỉ chép lời, không dịch, không lồng tiếng")
-    tr.add_argument("--input", required=True,
-                    help="Liên kết video, file video, hoặc file âm thanh")
+    tr.add_argument("--input", required=True, action="append",
+                    help="Liên kết, file video, file âm thanh, hoặc THƯ MỤC. "
+                         "Lặp lại nhiều lần để chép lời hàng loạt: "
+                         "--input a.mp4 --input b.mp3")
     tr.add_argument("--output-dir", required=True, help="Thư mục nhận kết quả")
     tr.add_argument("--language", default="",
                     help="Ngôn ngữ NGUỒN (vd en, vi, zh). Để trống = dùng "

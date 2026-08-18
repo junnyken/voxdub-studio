@@ -114,6 +114,10 @@ class TranscribePage(BasePage):
         self.btn_run = PrimaryButton("Bắt đầu chép lời")
         self.btn_run.clicked.connect(self._run)
         hanh_dong.addWidget(self.btn_run)
+        self.btn_stop = SecondaryButton("Dừng")
+        self.btn_stop.clicked.connect(self._stop)
+        self.btn_stop.setEnabled(False)
+        hanh_dong.addWidget(self.btn_stop)
         self.btn_open = GhostButton("Mở thư mục kết quả")
         self.btn_open.clicked.connect(self._open_output)
         self.btn_open.setEnabled(False)
@@ -133,10 +137,21 @@ class TranscribePage(BasePage):
 
     # ----------------------------------------------------------- hành động --
     def _pick_file(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Chọn video hoặc file âm thanh", "", _MEDIA_FILTER)
-        if path:
-            self.source.set_text(path)
+        """Chọn NHIỀU file một lượt — mini-spec V72.
+
+        Nhiều file nối bằng dấu `|` vì đường dẫn Windows chứa cả dấu phẩy lẫn
+        dấu chấm phẩy, còn `|` là ký tự Windows CẤM đặt tên file nên không bao
+        giờ đụng độ.
+        """
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Chọn video hoặc file âm thanh (chọn được nhiều)", "",
+            _MEDIA_FILTER)
+        if paths:
+            self.source.set_text(" | ".join(paths))
+
+    def _sources(self) -> list[str]:
+        """Tách ô nhập thành danh sách nguồn — mini-spec V72."""
+        return [p.strip() for p in self.source.text().split("|") if p.strip()]
 
     def _resolve_output_dir(self) -> str:
         thu_muc = self.source_output_dir()
@@ -154,15 +169,19 @@ class TranscribePage(BasePage):
             TOASTS.warn("Đang chép lời — chờ lượt này xong đã.")
             return
 
-        source = self.source.text()
-        if not source:
-            TOASTS.warn("Dán liên kết hoặc chọn một file trước đã.")
+        sources = self._sources()
+        if not sources:
+            TOASTS.warn("Dán liên kết hoặc chọn file trước đã.")
             return
         # File trên máy: kiểm TỒN TẠI ngay, đừng để người dùng chờ hết bước
-        # chuẩn bị rồi mới báo gõ sai đường dẫn.
+        # chuẩn bị rồi mới báo gõ sai đường dẫn. Thư mục cũng hợp lệ (chép lời
+        # cả thư mục), nên chỉ chặn thứ không phải liên kết, không phải file,
+        # cũng không phải thư mục.
         from autodub.transcribe_tool import is_url
-        if not is_url(source) and not os.path.isfile(source):
-            TOASTS.warn("Không tìm thấy file đó — kiểm tra lại đường dẫn.")
+        thieu = [s for s in sources
+                 if not is_url(s) and not os.path.isfile(s) and not os.path.isdir(s)]
+        if thieu:
+            TOASTS.warn(f"Không tìm thấy: {thieu[0]}")
             return
 
         output_dir = self._resolve_output_dir()
@@ -171,32 +190,67 @@ class TranscribePage(BasePage):
         self.log.setPlainText("")
         self.status.setText("Đang chuẩn bị…")
         self.btn_run.setEnabled(False)
+        self.btn_stop.setEnabled(True)
         self._last_output_dir = output_dir
 
         worker = TranscribeWorker(
-            source, output_dir, self._settings_provider(),
+            sources, output_dir, self._settings_provider(),
             language=str(self.language.current_key() or ""),
             formats=formats, with_timestamps=True, parent=self)
         worker.log.connect(self.log.append_log)
         worker.progress.connect(self._on_progress)
+        worker.item_status.connect(self._on_item)
         worker.finished_ok.connect(self._on_done)
         worker.failed.connect(self._on_failed)
         self._worker = worker
         worker.start()
 
+    def _stop(self) -> None:
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.cancel()
+            self.btn_stop.setEnabled(False)
+            # Nói rõ là "đang dừng" chứ không phải "đã dừng": mục đang chạy
+            # còn chạy nốt câu hiện tại rồi mới thoát.
+            self.status.setText("Đang dừng…")
+
     def _on_progress(self, step: str, detail: str) -> None:
         self.status.setText(detail or step)
 
-    def _on_done(self, result) -> None:
+    def _on_item(self, i: int, tong: int, source: str, status: str) -> None:
+        nhan = {"xong": "xong", "hong": "HỎNG", "huy": "đã huỷ"}.get(status, status)
+        self.log.append_log(f"[{i + 1}/{tong}] {nhan}: {source}",
+                            40 if status == "hong" else 20)
+
+    def _on_done(self, items) -> None:
         self.btn_run.setEnabled(True)
+        self.btn_stop.setEnabled(False)
         self.btn_open.setEnabled(True)
-        so_cau = len(getattr(result, "segments", []) or [])
-        duoi = ", ".join(sorted(getattr(result, "outputs", {}) or {}))
-        self.status.setText(f"Xong {so_cau} câu — đã lưu: {duoi}")
-        TOASTS.info(f"Chép lời xong: {so_cau} câu.")
+        xong = [m for m in items if m.status == "xong"]
+        hong = [m for m in items if m.status == "hong"]
+        huy = [m for m in items if m.status == "huy"]
+        so_cau = sum(len(m.result.segments) for m in xong if m.result)
+
+        if len(items) == 1 and xong:
+            self.status.setText(f"Xong {so_cau} câu — đã lưu: "
+                                + ", ".join(sorted(xong[0].result.outputs)))
+        else:
+            phan = [f"Xong {len(xong)}"]
+            if hong:
+                phan.append(f"hỏng {len(hong)}")
+            if huy:
+                phan.append(f"đã huỷ {len(huy)}")
+            self.status.setText(" · ".join(phan) + f" — tổng {so_cau} câu")
+        # Hỏng lẻ tẻ vẫn phải nói ra: báo "xong" trong khi 3/5 mục hỏng là nói dối.
+        if hong:
+            TOASTS.warn(f"{len(hong)} mục không chép lời được — xem nhật ký.")
+        elif huy:
+            TOASTS.info(f"Đã dừng. Giữ nguyên {len(xong)} mục đã xong.")
+        else:
+            TOASTS.info(f"Chép lời xong: {so_cau} câu.")
 
     def _on_failed(self, message: str) -> None:
         self.btn_run.setEnabled(True)
+        self.btn_stop.setEnabled(False)
         # Nói nguyên văn lỗi thật chứ không nuốt thành "có lỗi xảy ra" —
         # người dùng cần biết là sai đường dẫn, mất mạng, hay video có khoá.
         self.status.setText(f"Không chép lời được: {message}")

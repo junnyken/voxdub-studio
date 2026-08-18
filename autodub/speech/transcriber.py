@@ -164,8 +164,17 @@ class WhisperCache:
             _release_vram()
 
 
+class TranscribeCancelled(RuntimeError):
+    """Người dùng bấm Dừng — KHÔNG phải lỗi.
+
+    Tách khỏi `RuntimeError` thường để tầng trên không báo "thất bại"
+    cho một việc người dùng chủ động dừng. Mini-spec V72.
+    """
+
+
 def transcribe(audio_path: str, language: str, settings: Settings,
-               whisper_cache: "WhisperCache | None" = None) -> list[dict]:
+               whisper_cache: "WhisperCache | None" = None,
+               cancel_event=None) -> list[dict]:
     """Transcribe audio with the configured local ASR (free, offline).
 
     Engines: Whisper (default, multilingual) or Paraformer (Chinese only,
@@ -198,14 +207,14 @@ def transcribe(audio_path: str, language: str, settings: Settings,
         if whisper_cache is None and settings.whisper_venv_configured():
             try:
                 segments = _transcribe_whisper_subprocess(
-                    audio_path, language, settings)
+                    audio_path, language, settings, cancel_event=cancel_event)
             except Exception as e:
                 logger.warning(
                     f"Whisper subprocess lỗi ({e}) — thử in-process")
                 segments = None
         if segments is None:
             segments = _transcribe_whisper(audio_path, language, settings,
-                                           whisper_cache)
+                                           whisper_cache, cancel_event=cancel_event)
 
     logger.info(f"Transcription complete: {len(segments)} raw segments")
 
@@ -222,7 +231,7 @@ def transcribe(audio_path: str, language: str, settings: Settings,
 
 
 def _transcribe_whisper_subprocess(
-    audio_path: str, language: str, settings: Settings
+    audio_path: str, language: str, settings: Settings, cancel_event=None
 ) -> list[dict]:
     """Chạy Whisper trong .venv-whisper (subprocess) — không cần bundle
     faster-whisper/ctranslate2 trong exe, giảm ~112 MB bản phân phối.
@@ -310,12 +319,46 @@ def _transcribe_whisper_subprocess(
     proc.stdin.flush()
     proc.stdin.close()
 
+    # V72 (sửa sau khi thử thật) — luồng canh cờ huỷ để GIẾT tiến trình ngay.
+    #
+    # Bản đầu chỉ kiểm cờ ở đầu vòng đọc câu. Thử thật trên video 7 phút thì
+    # treo: tới giây 45 Whisper chưa phát câu nào, vòng lặp đang kẹt trong
+    # `readline()` (chờ tới `_WHISPER_SEGMENT_TIMEOUT_S`) nên không bao giờ
+    # chạy tới chỗ kiểm. Kiểm-rồi-chờ chỉ đúng khi cái chờ ngắn.
+    #
+    # Giết tiến trình làm stdout đóng → luồng bơm gặp EOF → `readline` trả ""
+    # ngay → vòng lặp thoát. Huỷ ăn ngay thay vì chờ hết một khoảng timeout.
+    _huy_xong = threading.Event()
+
+    def _canh_huy() -> None:
+        while not _huy_xong.is_set():
+            if cancel_event is not None and cancel_event.wait(0.3):
+                proc.kill()
+                return
+            if cancel_event is None:
+                return
+
+    if cancel_event is not None:
+        threading.Thread(target=_canh_huy, daemon=True).start()
+
     segments: list[dict] = []
     done = False
     try:
         while True:
+            # V72 — kiểm ở ĐẦU mỗi vòng: mỗi vòng là một câu nên độ trễ huỷ
+            # bằng đúng thời gian nhận dạng một câu, không phải cả video.
+            # Giết tiến trình con luôn, vì Whisper đang chạy sẽ không tự dừng
+            # khi phía này thôi đọc — nó sẽ chiếm GPU/CPU tới hết file.
+            if cancel_event is not None and cancel_event.is_set():
+                proc.kill()
+                raise TranscribeCancelled("Đã dừng theo yêu cầu.")
             line = reader.readline(_WHISPER_SEGMENT_TIMEOUT_S)
             if not line:
+                # stdout đóng: hoặc worker xong, hoặc ta vừa giết nó vì huỷ.
+                # Phân biệt hai ca này, nếu không thì lượt bị huỷ trông y hệt
+                # một lượt chạy xong với 0 câu.
+                if cancel_event is not None and cancel_event.is_set():
+                    raise TranscribeCancelled("Đã dừng theo yêu cầu.")
                 break
             line = line.strip()
             if not line or not line.startswith("{"):
@@ -358,6 +401,9 @@ def _transcribe_whisper_subprocess(
             f"giữa lúc nhận dạng — coi như treo (đã nhận dạng được "
             f"{len(segments)} đoạn trước đó).\n" + "\n".join(stderr_tail)) from e
     finally:
+        # Dừng luồng canh huỷ trước tiên: để nó sống tiếp là giữ một luồng
+        # chờ vô ích cho mỗi lượt ASR đã xong.
+        _huy_xong.set()
         if proc.poll() is None:
             proc.kill()
         atexit.unregister(proc.kill)
@@ -395,7 +441,7 @@ def _release_vram() -> None:
 
 
 def _transcribe_whisper(audio_path: str, language: str, settings: Settings,
-                        whisper_cache: "WhisperCache | None" = None) -> list[dict]:
+                        whisper_cache: "WhisperCache | None" = None, cancel_event=None) -> list[dict]:
     """Local ASR via faster-whisper — free, offline, no API key needed.
 
     ``word_timestamps=True``: mỗi segment mang kèm mảng ``words``
@@ -428,6 +474,16 @@ def _transcribe_whisper(audio_path: str, language: str, settings: Settings,
     segments = []
     segment_id = 0
     for seg in raw_segments:
+        # V72 — đường IN-PROCESS cũng phải huỷ được.
+        #
+        # Thử thật 18-08: máy không có `.venv-whisper` thì ASR chạy thẳng ở
+        # đây, và bản V72 đầu chỉ cài huỷ cho đường subprocess — bấm Dừng
+        # không có tác dụng gì. Lỗi kinh điển: sửa một trong hai đường đi.
+        #
+        # `raw_segments` là generator: mỗi vòng là một câu vừa nhận dạng xong,
+        # nên bỏ dở vòng lặp là dừng thật, không phải chỉ bỏ kết quả.
+        if cancel_event is not None and cancel_event.is_set():
+            raise TranscribeCancelled("Đã dừng theo yêu cầu.")
         text = seg.text.strip()
         if not text:
             continue

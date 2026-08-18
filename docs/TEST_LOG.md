@@ -7559,6 +7559,85 @@ có khoá thì mới biết đường xử lý (video khoá thì dùng cookie c�
 - Chưa có nút huỷ giữa chừng — ASR một video dài chạy tới hết.
 - Chưa nhận nhiều file một lượt (hàng loạt), mới từng file/liên kết một.
 
+## V72 — Dừng giữa chừng + chép lời hàng loạt (Phase H, 2026-08-18)
+
+### Nút Dừng — hai lần sửa, cả hai do CHẠY THẬT bắt được
+
+**Bản đầu**: kiểm cờ huỷ ở đầu vòng đọc câu của đường subprocess. Thử thật
+trên video 7 phút thì **treo tới hết timeout**: giây 45 mà Whisper chưa phát
+câu nào, vòng lặp đang kẹt trong `readline()` (chờ tới
+`_WHISPER_SEGMENT_TIMEOUT_S`) nên không bao giờ chạy tới chỗ kiểm. Kiểm-rồi-chờ
+chỉ đúng khi cái chờ ngắn. Sửa: luồng canh cờ huỷ **giết tiến trình** → stdout
+đóng → `readline` trả `""` ngay.
+
+**Bản hai vẫn treo.** Truy tiếp: máy này **không có `.venv-whisper`**, nên ASR
+chạy đường **in-process** — chỗ tôi chưa hề cài huỷ. Lỗi kinh điển: sửa MỘT
+trong HAI đường đi rồi tưởng xong. `raw_segments` là generator, mỗi vòng là
+một câu vừa nhận dạng xong, nên thêm phép kiểm ở đó là dừng thật.
+
+**Đo sau khi sửa** (đúng kịch bản vừa treo):
+
+```
+còn chạy: CÓ | câu đã có: 0
+>>> thoát sau 10 giây | mã thoát=0
+file .txt sinh ra (không nên có): 0
+```
+
+10 giây = thời gian tới câu kế tiếp. Mã thoát **0**: người dùng chủ động dừng
+thì không phải lỗi. Không sinh file dở dang.
+
+`TranscribeCancelled` tách khỏi `RuntimeError` thường vì lý do đó — tầng trên
+phải phân biệt được "người dùng dừng" với "hỏng".
+
+### Chép lời hàng loạt
+
+`--input` lặp lại được, và nhận cả **thư mục**. Chạy TUẦN TỰ: ASR ăn trọn
+CPU/GPU, chạy song song trên cùng máy chỉ làm cả hai chậm đi (cùng kết luận
+với V42 cho luồng dub).
+
+Ba quyết định có test khoá:
+
+1. **Một mục hỏng KHÔNG làm hỏng cả mẻ** — nó được đánh dấu `hong` kèm lý do,
+   lượt chạy đi tiếp. Dừng cả mẻ vì một liên kết chết là bắt người dùng làm
+   lại từ đầu những mục đã tốn thời gian chạy xong.
+2. **Không đệ quy vào thư mục con** — thư mục con thường là bản nháp/file tạm,
+   quét vào là chép lời cả rác.
+3. **Hai file TRÙNG TÊN không ghi đè nhau** — `Tap1/video.mp4` và
+   `Tap2/video.mp4` là chuyện thường; file sau đè file trước thì người dùng
+   chỉ phát hiện khi mở ra thấy thiếu. Thêm hậu tố `_2`, `_3` chứ không thêm
+   dấu thời gian (người dùng còn phải tìm lại file theo tên).
+
+Chạy thật cả thư mục:
+
+```
+Chép lời 2 mục:
+  [1/2] xong: bai_1.mp4 (20 câu)
+  [2/2] xong: bai_2.mp4 (20 câu)
+Xong: 2 | Hỏng: 0 | Đã huỷ: 0
+```
+
+### Chi tiết nhỏ nhưng đáng nói
+
+- **Ctrl+C lần đầu = dừng gọn, lần hai = thoát ngay.** Giết ngang ngay lần đầu
+  thì tiến trình con Whisper thành mồ côi và các mục đã xong có thể mất.
+- **Nhiều file nối bằng `|`** trong ô nhập GUI: đường dẫn Windows chứa cả dấu
+  phẩy lẫn chấm phẩy, còn `|` là ký tự Windows CẤM đặt tên file nên không bao
+  giờ đụng độ.
+- **Nút Dừng nói "Đang dừng…"** chứ không phải "Đã dừng": mục đang chạy còn
+  chạy nốt câu hiện tại.
+- **Báo cáo nói rõ số mục hỏng** — báo "xong" trong khi 3/5 mục hỏng là nói dối.
+
+**1372 test Python, 0 fail** (+20).
+
+### Giới hạn còn lại
+
+- Huỷ có độ trễ bằng thời gian nhận dạng MỘT câu (đo được 10 giây trên máy
+  không GPU). Không thể ngắn hơn nếu không giết tiến trình giữa lúc nó đang
+  ghi — mà làm vậy thì lần chạy sau dễ gặp file tạm hỏng.
+- Liên kết trùng tên chưa được chống ghi đè như file (tên của liên kết phải
+  chờ tải xong mới biết tiêu đề).
+- Chưa chạy thử trên Windows.
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật

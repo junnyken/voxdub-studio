@@ -915,31 +915,41 @@ class TranscribeWorker(QThread):
 
     log = Signal(str, int)
     progress = Signal(str, str)      # bước, mô tả
-    finished_ok = Signal(object)     # TranscribeResult
+    item_status = Signal(int, int, str, str)   # thứ tự, tổng, nguồn, trạng thái
+    finished_ok = Signal(list)       # list[BatchItem]
     failed = Signal(str)
 
-    def __init__(self, source: str, output_dir: str, settings: Settings, *,
+    def __init__(self, sources, output_dir: str, settings: Settings, *,
                  language: str = "", formats=("txt", "srt"),
                  with_timestamps: bool = False, parent=None):
         super().__init__(parent)
-        self._source = source
+        # Luôn giữ dạng DANH SÁCH kể cả khi chỉ có một mục: một đường đi duy
+        # nhất cho cả lẻ lẫn hàng loạt thì không có nhánh nào bị bỏ quên test.
+        self._sources = [sources] if isinstance(sources, str) else list(sources)
         self._output_dir = output_dir
         self._settings = settings
         self._language = language
         self._formats = tuple(formats)
         self._with_timestamps = with_timestamps
+        self._cancel_event = threading.Event()
+
+    def cancel(self) -> None:
+        """Dừng: mục đang chạy dừng ở câu kế tiếp, mục còn lại không chạy nữa."""
+        self._cancel_event.set()
 
     def run(self) -> None:
-        from autodub.transcribe_tool import transcribe_media
+        from autodub.transcribe_tool import transcribe_many
 
         handler = attach_gui_logging(self.log)
         try:
-            result = transcribe_media(
-                self._source, self._output_dir, self._settings,
+            ket_qua = transcribe_many(
+                self._sources, self._output_dir, self._settings,
                 language=self._language, formats=self._formats,
                 with_timestamps=self._with_timestamps,
-                progress=lambda step, detail: self.progress.emit(step, detail))
-            self.finished_ok.emit(result)
+                cancel_event=self._cancel_event,
+                on_item=lambda i, tong, muc: self.item_status.emit(
+                    i, tong, muc.source, muc.status))
+            self.finished_ok.emit(ket_qua)
         except Exception as e:  # noqa: BLE001 — lỗi tải/ASR thật, báo nguyên văn
             self.failed.emit(str(e))
         finally:
