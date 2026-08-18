@@ -6995,6 +6995,57 @@ này có thể là nhiều người bị gộp".
 Nên đây là **cận trên** của chất lượng, không phải hiệu chỉnh cho nội dung
 thật. Vẫn cần 2 clip thật của cùng series để chốt ngưỡng.
 
+## V65 — Ẩn hẳn "xử lý trên cloud" (Phase H, 2026-08-18)
+
+Chủ dự án quyết theo hướng ẩn, không dựng worker render. Đây là lời đáp cho
+câu hỏi V50 để treo: `/v1/jobs/demucs` trừ 50 Vox lúc nộp trong khi **không có
+worker render nào tồn tại**.
+
+### Hiện trạng đo được trước khi sửa
+
+`GET /v1/config/app` của prod trả `cloudRenderEnabled: true`,
+`pricing.cloudRenderDemucs: 50`. Tức là lỗi V50 mô tả KHÔNG phải nguy cơ lý
+thuyết — nó đang sống trên prod, client hiện ô chọn và sẵn sàng trừ tiền.
+
+### Ba lớp, không phải một
+
+1. **Prod**: `PUT /v1/admin/config/cloud.render.enabled` → `false`. Xác nhận
+   lại bằng `/v1/config/app`: `cloudRenderEnabled: false`.
+2. **Mặc định trong code**: `config.service.js` đổi `true` → `false`. Bật mặc
+   định nghĩa là mỗi lần dựng lại database là tính năng chết sống dậy.
+3. **GUI**: máy chủ tắt thì **ẩn HẲN** ô chọn, thay vì hiện ô xám kèm chữ
+   "Máy chủ đang tạm tắt xử lý trên cloud". Chữ "tạm" hứa một tính năng sẽ
+   quay lại, mà nó thì không.
+
+Lớp chặn tiền vốn đã có sẵn và ĐÚNG chỗ: `submitDemucsJob` ném
+`CLOUD_RENDER_DISABLED` (409) ở dòng đầu tiên, trước khi tính giá và trước khi
+trừ credit. V65 không phải sửa nó, chỉ là không nên dựa vào một lớp duy nhất
+cho thứ đụng tới tiền.
+
+### Tests (4 mới Python, 3 test Node phải sửa)
+
+Python: máy chủ tắt → ô chọn VÀ dòng giá đều ẩn; máy chủ bật → hiện và bấm
+được, có nói giá; **đang tick sẵn mà máy chủ tắt thì `values()` trả `False`**
+(ẩn mà giá trị vẫn lọt ra thì khách bị trừ tiền cho job không ai xử lý — đúng
+thứ V50 phát hiện); nạp nháp cũ có `cloud_render: true` cũng không bật lại
+được.
+
+3 test Node đang xanh nhờ mặc định `true` — chúng kiểm giới hạn upload, luật
+thiếu Vox và hàng đợi V12, nhưng giờ vấp cổng tắt trước khi tới chỗ cần kiểm.
+Sửa bằng cách cho chúng bật tính năng lên một cách TƯỜNG MINH, vừa đúng vừa
+ghi lại rằng chúng phụ thuộc vào cờ đó.
+
+### Một test hỏng vì môi trường, không phải vì code
+
+`test_multi_speaker_flag_off_by_default` đỏ sau khi chạy
+`scripts/setup_diarization.py` — script đó ghi `DIARIZATION_ENABLED=true` vào
+`.env`, mà `Settings.load()` đọc đúng file đó. Test nói về mặc định của CỜ CLI
+chứ không phải về `.env` của máy đang chạy, nên đã cô lập bằng
+`monkeypatch.setenv`. Ai cài diarization xong chạy suite sẽ không còn thấy đỏ
+oan.
+
+**1284 test Python + 324 test Node, 0 fail.**
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật

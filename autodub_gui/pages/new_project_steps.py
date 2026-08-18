@@ -297,19 +297,27 @@ class RecognizeStep(_StepPanel):
 
         ``available``: đã bật ở Cài đặt VÀ có máy chủ cấu hình
         (:func:`autodub.cloud_render.is_available`). ``enabled_on_server``:
-        máy chủ có đang cho phép tính năng này không (Admin có thể tắt tạm
-        thời) — hiện ô chọn nhưng khoá lại kèm lý do nếu máy chủ đang tắt.
+        máy chủ có đang cho phép tính năng này không.
+
+        **Đổi ở V65 (2026-08-18, chủ dự án quyết)**: máy chủ tắt thì ẩn HẲN,
+        không còn hiện ô chọn bị khoá kèm chữ "đang tạm tắt". Lý do là sự
+        thật mà audit V50 phát hiện: **không có worker render nào tồn tại**.
+        "Tạm tắt" hứa một tính năng sẽ quay lại, mà nó thì không — bày ra một
+        ô chọn xám để người dùng chờ đợi còn tệ hơn không bày gì (đúng nếp
+        "không thêm UI cho tính năng chưa khả dụng" của V53/V32b).
+
+        Ẩn là ĐỦ để không gửi nhầm: ``values()`` đọc cờ
+        ``_cloud_render_available`` chứ không hỏi Qt, nên ô còn tick từ nháp
+        cũ cũng không lọt vào lượt chạy.
         """
-        show = available
+        show = available and enabled_on_server
         self._cloud_render_available = show
         self.cloud_render.setVisible(show)
         self._cloud_price.setVisible(show)
         if not show:
             return
-        self.cloud_render.setEnabled(enabled_on_server)
-        if not enabled_on_server:
-            self._cloud_price.setText("Máy chủ đang tạm tắt xử lý trên cloud.")
-        elif cost_vox > 0:
+        self.cloud_render.setEnabled(True)
+        if cost_vox > 0:
             self._cloud_price.setText(
                 f"Tốn thêm {cost_vox} Vox mỗi video. Máy chủ lỗi hoặc mất "
                 "mạng thì tự chuyển về tách trên máy, không mất tính năng.")

@@ -85,6 +85,10 @@ function fakeWavStream() {
 }
 
 test('submitDemucsJob: thiếu Vox thì từ chối, không tạo job, không ghi file', async () => {
+  // V65: mặc định `cloud.render.enabled` là FALSE (không có worker render).
+  // Test này kiểm luật TIỀN nên phải bật tính năng lên, nếu không nó dừng ở
+  // cổng tắt và không chạm tới thứ đang muốn kiểm.
+  await config.set('cloud.render.enabled', true)
   const device = await makeDevice('a'.repeat(64), 10)
   await assert.rejects(
     () => renderJob.submitDemucsJob({ device, fileStream: fakeWavStream() }),
@@ -104,6 +108,7 @@ test('submitDemucsJob: tắt cloud.render.enabled thì từ chối rõ ràng', a
 })
 
 test('submitDemucsJob (V12): trả về NGAY status=queued, KHÔNG chạy Demucs inline', async () => {
+  await config.set('cloud.render.enabled', true)   // V65: mặc định đã tắt
   const device = await makeDevice('q'.repeat(64), 1000)
   const cost = await config.get('credit.cost.cloud.demucs')
 

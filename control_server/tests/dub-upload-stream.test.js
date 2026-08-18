@@ -179,6 +179,9 @@ async function makeDevice(balance = 1000) {
 test('demucs: upload vượt 200 MB -> 413, KHÔNG trừ credit, không tạo job', async (t) => {
   const RenderJob = require('../src/models/RenderJob')
   const Device = require('../src/models/Device')
+  // V65: mặc định `cloud.render.enabled` là FALSE. Test này kiểm giới hạn
+  // upload, phải bật tính năng lên mới đi tới được chỗ đó.
+  await config.set('cloud.render.enabled', true)
   const { token, fingerprint } = await makeDevice(1000)
 
   // 201 MB toàn số 0 — nén không giúp gì vì đi thẳng qua HTTP dạng thô.

@@ -71,7 +71,14 @@ const DEFAULTS = {
   // Mini-spec V9 (docs/PLAN.md) — POC hẹp: xử lý Demucs trên cloud, phí
   // trọn gói mỗi lượt (không theo thời lượng — đơn giản hoá cho POC, xem
   // lại nếu mở rộng ra ngoài phạm vi thử nghiệm).
-  'cloud.render.enabled': true,
+  //
+  // V65 (2026-08-18): mặc định đổi true -> FALSE. Audit V50 phát hiện
+  // **không có worker render nào tồn tại** — bật mặc định nghĩa là mỗi lần
+  // dựng lại database là tính năng chết sống dậy, client hiện nút, khách bấm
+  // và job nằm im. `submitDemucsJob` có chặn 409 trước khi trừ tiền, nhưng
+  // dựa vào một lớp chặn duy nhất cho thứ đụng tới tiền là mỏng. Muốn bật
+  // lại thì phải có worker TRƯỚC, rồi mới `PUT /v1/admin/config/:key`.
+  'cloud.render.enabled': false,
   'credit.cost.cloud.demucs': 50,
   // Chính sách dữ liệu đã chủ dự án duyệt (2026-08-11): xoá ngay sau khi
   // trả kết quả; TTL dưới đây chỉ là lưới an toàn dự phòng.

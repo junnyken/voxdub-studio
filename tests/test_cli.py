@@ -225,6 +225,12 @@ def test_multi_speaker_flag_enables_diarization(monkeypatch):
 
 
 def test_multi_speaker_flag_off_by_default(monkeypatch):
+    # Test này nói về MẶC ĐỊNH CỦA CỜ CLI, không phải về .env của máy đang
+    # chạy test. `Settings.load()` đọc .env cạnh ứng dụng, nên ai chạy
+    # `scripts/setup_diarization.py` (nó ghi DIARIZATION_ENABLED=true) rồi
+    # chạy suite là thấy đỏ — lỗi của môi trường, không phải của code.
+    # `load_dotenv(override=False)` nên biến môi trường đặt ở đây thắng.
+    monkeypatch.setenv("DIARIZATION_ENABLED", "false")
     parser = cli.build_parser()
     args = parser.parse_args(["dub", "https://youtu.be/xxxx"])
 
