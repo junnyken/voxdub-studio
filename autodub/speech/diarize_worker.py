@@ -35,6 +35,34 @@ def _die(msg: str) -> None:
     sys.exit(1)
 
 
+def _token_kwarg(load_fn) -> str:
+    """Tên tham số truyền access token của ``Pipeline.from_pretrained``.
+
+    pyannote đổi tên tham số này giữa hai dòng phiên bản, và KHÔNG bản nào có
+    ``**kwargs`` để nuốt tên sai:
+
+        3.1.x:  from_pretrained(checkpoint, hparams_file=None, use_auth_token=None, …)
+        4.x:    from_pretrained(checkpoint, revision=None, …, token=None, …)
+
+    Truyền nhầm tên là ``TypeError`` ngay lúc gọi — mà chỗ gọi lại nằm trong
+    ``except Exception`` nên nó hiện ra thành "Không nạp được model
+    diarization", đọc y như lỗi thiếu quyền truy cập model. Ai gặp sẽ đi kiểm
+    token và user agreement, đúng hai thứ không hỏng.
+
+    Cùng lớp lỗi với thứ V61 sửa ở ``apply()``, chỉ là ở một tầng cao hơn nên
+    lượt đó bỏ sót: `setup_diarization.py` không ghim phiên bản, nên máy nào
+    cài hôm nay cũng ra 4.x và diarization chết ngay từ bước nạp model.
+    """
+    import inspect
+
+    try:
+        params = inspect.signature(load_fn).parameters
+    except (TypeError, ValueError):
+        params = {}
+    # Bản lạ không có tên nào quen thì đoán theo dòng mới — cài mới hôm nay ra 4.x.
+    return "use_auth_token" if "use_auth_token" in params else "token"
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -71,7 +99,8 @@ def main() -> None:
 
     try:
         pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1", use_auth_token=token)
+            "pyannote/speaker-diarization-3.1",
+            **{_token_kwarg(Pipeline.from_pretrained): token})
     except Exception as e:  # noqa: BLE001 — model hỏng/thiếu quyền truy cập
         _die(f"Không nạp được model diarization ({e})")
         return

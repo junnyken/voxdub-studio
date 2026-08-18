@@ -6825,6 +6825,61 @@ trường (đặt 0.99 thì cosine 0.98 không còn khớp).
   pyannote 5.x đổi tiếp thì phải sửa lại chỗ chuẩn hoá này.
 
 
+## V61b — Bước NẠP model cũng sai tên tham số (Phase H, 2026-08-18)
+
+### Vì sao lộ ra
+
+Đang dựng `.venv-diar` để chuẩn bị verify V59 thật thì `pip` kéo về
+**pyannote.audio 4.0.7** (`setup_diarization.py` KHÔNG ghim phiên bản). Kiểm
+chữ ký `Pipeline.from_pretrained` của bản đang cài — đúng kỹ thuật V61 dùng
+cho `apply()` — thì thấy nó không có tham số `use_auth_token`, trong khi
+`diarize_worker.py:74` vẫn truyền đúng tên đó.
+
+V61 sửa API `apply()` cho 4.x nhưng bỏ sót một tầng cao hơn: bước NẠP model.
+
+### Lỗi thật, chứng minh trước khi sửa
+
+```
+>>> Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', use_auth_token='hf_dummy')
+TypeError: Pipeline.from_pretrained() got an unexpected keyword argument 'use_auth_token'
+```
+
+Không bản nào có `**kwargs` để nuốt tên sai:
+
+| | 3.1.x | 4.x |
+|---|---|---|
+| Tên tham số token | `use_auth_token` | `token` |
+| `**kwargs` | không | không |
+
+**Chỗ này tệ hơn một TypeError bình thường**: lời gọi nằm trong
+`except Exception` nên nó hiện ra thành *"Không nạp được model diarization"* —
+đọc y hệt lỗi thiếu quyền truy cập. Người gặp sẽ đi kiểm token và user
+agreement, đúng hai thứ đang không hỏng. Diarization chết trên MỌI máy cài mới
+hôm nay, và thông báo lỗi chỉ đường sai.
+
+### Sửa
+
+`_token_kwarg()` dò chữ ký trước khi gọi (cùng lối V61): có `use_auth_token`
+thì dùng tên đó, không thì `token`. Bản lạ không đọc được chữ ký thì đoán theo
+dòng mới — máy cài hôm nay ra 4.x.
+
+### Tests (5 mới)
+
+Chọn `use_auth_token` cho chữ ký 3.1.x; chọn `token` cho chữ ký 4.x; hàm
+built-in không đọc được chữ ký thì KHÔNG nổ; **gọi thật bằng tên chọn ra và
+kiểm giá trị token tới đúng nơi** (so chuỗi thôi vẫn lọt ca tên đúng mà truyền
+sai); tên chọn ra phải nằm trong chữ ký của pyannote ĐANG CÀI (bỏ qua nếu
+chưa cài).
+
+### Verify thật với pyannote 4.0.7 đang cài
+
+Chạy lại đúng lời gọi đã sửa với token giả: **không còn TypeError**, đi tới
+được HuggingFace Hub và dừng ở `GatedRepoError` — tức tham số đã tới nơi, chỉ
+còn thiếu quyền truy cập model (đúng như mong đợi với token giả).
+
+**Vẫn CHƯA chạy diarization thật** — cần HF token thật + user agreement ở cả
+`speaker-diarization-3.1` và `segmentation-3.0`.
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật
