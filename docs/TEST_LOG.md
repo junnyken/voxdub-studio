@@ -7419,6 +7419,66 @@ và **lỗi model thì không ghi log thành công**.
 
 3 test mới.
 
+## Đo trên GIỌNG NGƯỜI THẬT — ngưỡng 0.72 KHÔNG dùng được (2026-08-18)
+
+Chủ dự án gửi 2 clip. **Hai file byte-identical** (cùng MD5 `94caae7d…`) — tập
+2 là bản sao của tập 1, nên không đo xuyên tập được. Thay bằng: tách đôi clip
+(nửa A 0-26s, nửa B 27-53.5s) — CÙNG người, KHÁC lời, đúng tình huống xuyên
+tập. Nhãn của lượt chạy trên nguyên clip đóng vai trò sự thật, nhãn ở mỗi nửa
+quy về theo thời lượng chồng lấn.
+
+### Số đo
+
+Nguyên clip 53.5 giây: **2 người nói** — SPEAKER_01 nói 33.1s, SPEAKER_00 chỉ
+3.1s (tổng 36.2s tiếng nói trên 53.5s).
+
+| Cặp | cosine |
+|---|---|
+| **khác người** (trong nguyên clip) | **0.584** |
+| **cùng người, khác lời** (nửa A vs nửa B) | **0.540 – 0.686** |
+
+### Kết luận: ngưỡng 0.72 quá cao, và hạ ngưỡng KHÔNG cứu được
+
+**Cùng một người thật, nói lời khác, đo cao nhất 0.686 — dưới ngưỡng 0.72.**
+Nghĩa là với cấu hình hiện tại, hồ sơ nhân vật **không nhận lại được ai cả**:
+mỗi tập người đó thành "nhân vật mới", gán giọng lại từ đầu. Đúng thứ tính
+năng sinh ra để tránh.
+
+Nhưng hạ ngưỡng cũng không xong: **khác người đo 0.584, nằm LỌT TRONG khoảng
+cùng người 0.540–0.686**. Hai phân phối chồng lên nhau, không có ngưỡng nào
+tách được chúng trên dữ liệu này.
+
+Đối chiếu với đo trên giọng TTS sáng nay (cùng người 0.783, khác người cùng
+giới 0.651): giọng thật cho khoảng cách **hẹp hơn và chồng lấn**, tức là KHÓ
+hơn TTS chứ không dễ hơn — ngược hẳn kỳ vọng "vật liệu TTS là ca xấu nhất".
+
+### Vì sao nên nghi dữ liệu trước khi nghi mô hình
+
+- Clip chỉ 53 giây, một người áp đảo (33.1s) còn người kia **3.1 giây**.
+- Nửa B bị tách thành 4 nhãn trong khi nguyên clip chỉ có 2 → các lượt chạy
+  trên nửa đang vụn, nhiều cặp so sánh là mảnh vụn với mảnh vụn.
+- Mẫu: đúng MỘT clip, MỘT cặp nửa. Không phải phân phối.
+
+Nên **chưa đủ cơ sở chỉnh ngưỡng hay đổi model embedding**. Thứ cần trước
+tiên: 2 tập THẬT KHÁC NHAU, mỗi tập ≥2 phút, mỗi người nói ≥10 giây liên tục.
+
+### V70 — người nói quá ít thì nói thẳng, đừng im lặng
+
+Mấy cặp đo ra đúng `0.000` dẫn tới một chỗ đáng sửa: pyannote trả NaN (hoặc
+toàn 0) cho người nói có quá ít tiếng để tính đặc trưng — người nói 3.1 giây
+rơi vào ca này.
+
+Tầng trên vốn đã AN TOÀN (`_normalise` biến vector NaN thành rỗng, `_cosine`
+trả 0.0, coi như không khớp — không nổ, không khớp bừa). Nhưng nó IM LẶNG:
+người dùng chỉ thấy "nhân vật mới" mọi tập mà không hiểu vì sao, và không biết
+đường xử lý.
+
+Giờ worker bỏ vector đó kèm cảnh báo nói rõ lý do + cách sửa (cắt clip có
+nhiều tiếng của người đó hơn). Chốt bằng `not (tong > 0)` để bắt luôn NaN —
+mọi so sánh với NaN đều False. 3 test, chạy worker THẬT với pyannote giả.
+
+**1323 test Python, 0 fail.**
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật

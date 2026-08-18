@@ -217,6 +217,24 @@ def main() -> None:
         try:
             for index, label in enumerate(speaker_order):
                 vector = [round(float(x), 6) for x in embeddings[index]]
+                # V70 — pyannote trả về NaN (hoặc toàn 0) cho người nói có quá
+                # ít tiếng nói để tính đặc trưng giọng. Quan sát thật ngày
+                # 18-08 trên clip của chủ dự án: người chỉ nói 3.1 giây trong
+                # 53 giây rơi vào ca này.
+                #
+                # Gửi đi thì tầng trên vẫn AN TOÀN (`_normalise` biến nó thành
+                # rỗng, `_cosine` trả 0.0, coi như không khớp) — nhưng người
+                # dùng chỉ thấy "nhân vật mới" mọi tập mà không hiểu vì sao.
+                # Nói thẳng ra thì họ biết cách xử lý: cắt clip có nhiều tiếng
+                # của người đó hơn.
+                tong = sum(x * x for x in vector)
+                if not (tong > 0):   # bắt luôn NaN — mọi so sánh với NaN đều False
+                    print(json.dumps({
+                        "warn": f"Người nói {label} nói quá ít nên không tính "
+                                "được đặc trưng giọng — tập sau sẽ không nhận "
+                                "lại được người này.",
+                    }), flush=True)
+                    continue
                 print(json.dumps({
                     "embedding": True, "speaker": str(label), "vector": vector,
                 }), flush=True)

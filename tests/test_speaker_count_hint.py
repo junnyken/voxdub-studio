@@ -171,3 +171,73 @@ def test_cli_mac_dinh_khong_khai_so_nguoi(monkeypatch):
     parser = cli.build_parser()
     args = parser.parse_args(["dub", "https://youtu.be/x"])
     assert args.speakers == 0
+
+
+# ------------------------------- V70: người nói quá ít để tính đặc trưng --
+def _chay_worker(tmp_path, embeddings_repr: str):
+    """Chạy worker thật với pyannote GIẢ — kiểm đúng nhánh phát embedding."""
+    import json
+    import subprocess
+    import sys as _sys
+    import textwrap
+
+    fake = tmp_path / "fake_pyannote"
+    (fake / "pyannote" / "audio").mkdir(parents=True)
+    (fake / "pyannote" / "__init__.py").write_text("", encoding="utf-8")
+    (fake / "pyannote" / "audio" / "__init__.py").write_text(textwrap.dedent(f"""
+        class _Ann:
+            def labels(self): return ["SPEAKER_00", "SPEAKER_01"]
+            def itertracks(self, yield_label=False):
+                class T:
+                    def __init__(s, a, b): s.start, s.end = a, b
+                yield T(0.0, 5.0), None, "SPEAKER_00"
+                yield T(5.0, 5.2), None, "SPEAKER_01"
+
+        class _Out:
+            speaker_diarization = _Ann()
+            speaker_embeddings = {embeddings_repr}
+
+        class Pipeline:
+            @staticmethod
+            def from_pretrained(*a, **k): return Pipeline()
+            def apply(self, *a, **k): ...
+            def __call__(self, *a, **k): return _Out()
+    """), encoding="utf-8")
+
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(b"\0")
+    env = {"PYTHONPATH": str(fake), "HF_TOKEN": "x", "PATH": "/usr/bin:/bin"}
+    p = subprocess.run(
+        [_sys.executable, "autodub/speech/diarize_worker.py",
+         "--audio", str(audio), "--model-dir", str(tmp_path), "--hf-token", "x"],
+        capture_output=True, text=True, env=env, timeout=120)
+    return [json.loads(d) for d in p.stdout.splitlines() if d.strip()]
+
+
+def test_nguoi_noi_qua_it_bi_bo_kem_canh_bao(tmp_path):
+    """Vector toàn 0 (pyannote không tính được) phải bị bỏ, KHÔNG gửi lên.
+
+    Gửi đi thì tầng trên vẫn an toàn, nhưng người dùng chỉ thấy "nhân vật mới"
+    mọi tập mà không hiểu vì sao — quan sát thật 18-08 trên clip có người chỉ
+    nói 3.1 giây.
+    """
+    dong = _chay_worker(tmp_path, "[[0.1, 0.2], [0.0, 0.0]]")
+    embs = [d for d in dong if d.get("embedding")]
+    warns = [d for d in dong if d.get("warn")]
+
+    assert [e["speaker"] for e in embs] == ["SPEAKER_00"], "chỉ người tính được mới gửi"
+    assert warns and "SPEAKER_01" in warns[0]["warn"]
+    assert "quá ít" in warns[0]["warn"], "phải nói rõ lý do để người dùng biết cách sửa"
+
+
+def test_vector_NaN_cung_bi_bo(tmp_path):
+    """`not (tong > 0)` bắt cả NaN — mọi so sánh với NaN đều False."""
+    dong = _chay_worker(tmp_path, "[[0.1, 0.2], [float('nan'), float('nan')]]")
+    assert [d["speaker"] for d in dong if d.get("embedding")] == ["SPEAKER_00"]
+    assert any(d.get("warn") for d in dong)
+
+
+def test_ca_binh_thuong_van_gui_du_hai_nguoi(tmp_path):
+    dong = _chay_worker(tmp_path, "[[0.1, 0.2], [0.3, 0.4]]")
+    assert len([d for d in dong if d.get("embedding")]) == 2
+    assert not [d for d in dong if d.get("warn")]
