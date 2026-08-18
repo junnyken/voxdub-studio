@@ -7962,7 +7962,64 @@ suốt thời gian qua vì chưa có mã Python nào nhắc tên tệp đó. Đ�
   hại, nhưng có thể đang gánh dung lượng thừa. Kiểm chứng cần một lượt build
   Windows thật rồi so kích thước — v3.4.0 là 75,1 MB, v3.4.1 là 78,7 MB.
 
-**1432 passed, 7 skipped, 0 failed.**
+### Mở bản phát hành ra đếm — con số bác bỏ chính phán đoán ở trên
+
+Ghi chú trong spec nói loại faster-whisper "cắt được ~112 MB", nên đoán ban
+đầu là bundle đang gánh ~112 MB mã chết. Tải hẳn
+`VoxDub-Studio-v3.4.1-win64.zip` về đếm:
+
+| gói | trong bundle v3.4.1 |
+|---|---|
+| `av` | **0 tệp** — đã loại sạch |
+| `faster_whisper` | 17 tệp, **1.382.820 byte** (kèm `silero_vad_v6.onnx` 1,2 MB) |
+| `ctranslate2` | 30 tệp, **363.524 byte** (chỉ mã Python, DLL native đã bị cắt) |
+
+Tức `_keep_binary` đã cắt phần nặng từ lâu; thứ còn sót chỉ **~1,8 MB**.
+Phán đoán 112 MB là sai — nó đọc ghi chú trong spec chứ chưa mở gói ra xem.
+
+Nhưng ~1,8 MB đó đủ để gây hại: `_internal/` nằm trên `sys.path` của bản
+onedir, nên `import faster_whisper` CHẠY ĐƯỢC rồi mới chết ở `import av`.
+
+**Vì sao `excludes` không chặn được:** `excludes` chỉ tác động ở TẦNG IMPORT
+(đồ thị module), còn `collect_all` nhét tệp vào qua TẦNG DATAS — datas được
+chép nguyên xi. Hai dòng trong cùng một tệp spec mâu thuẫn nhau. Sửa: bỏ
+`faster_whisper`/`ctranslate2` khỏi `collect_all`, chỉ giữ `yt_dlp` (gói duy
+nhất thật sự cần vì nạp extractor động). Lợi ích chính là **lỗi trở nên thành
+thật** (`No module named 'faster_whisper'`), không phải dung lượng.
+
+Thêm `tests/test_spec_khong_mau_thuan.py`: đọc thẳng tệp spec, chặn việc một
+gói vừa nằm ở `collect_all` vừa nằm ở `excludes`. Không chứng minh bundle
+sạch (không chạy PyInstaller cho Windows từ Linux được) — nó chặn đúng cái
+mâu thuẫn đã sinh ra bug. Thêm lại gói cũ → test fail.
+
+### Soát tiếp: quét toàn bộ import gói-bị-loại ở tiến trình chính
+
+Vì lỗi này đã lặp 2 lần (V38, V74), quét bằng AST toàn bộ `autodub/` +
+`autodub_gui/`, đối chiếu với danh sách `excludes` đọc từ chính spec. 6 chỗ,
+phân loại:
+
+| chỗ | kết luận |
+|---|---|
+| `app.py:722,733` (playwright, align) | probe chẩn đoán, bọc try/except — vô hại |
+| `text_regions.py:100` (PIL) | đường dự phòng OCR, bọc `ImportError` — suy giảm có báo |
+| `align.py:49` (faster_whisper) | call site bọc try/except → karaoke mất canh chữ, **âm thầm** trong bản .exe |
+| `preflight.py:263` | nhánh chỉ chạy ở bản mã nguồn — đúng thiết kế |
+| `transcriber.py:86` | đường in-process — xem lỗi dưới đây |
+
+### Lỗi thứ 4: hàng loạt ≥2 video bỏ qua hẳn .venv-whisper
+
+**Bản sửa V74 đầu chưa che được.** Điều kiện là
+`whisper_cache is None and venv_configured()`, mà `BatchWorker` tạo
+`WhisperCache()` ngay khi mẻ có từ 2 video trở lên. Nên "Xử lý hàng loạt" với
+≥2 video bỏ qua `.venv-whisper` rồi rơi in-process — hỏng trên mọi bản đóng
+gói, **trong khi chạy lẻ 1 video vẫn tốt**. Đúng kiểu lỗi chỉ lộ ở một nhánh
+mà người thử ít khi đi vào (giống hệt lý do V72 không bắt được lỗi nút Dừng).
+
+Cache chỉ có nghĩa cho đường in-process (giữ model nạp sẵn giữa các video);
+bản `.exe` không có đường đó nên phải bỏ qua cache. Bản mã nguồn giữ nguyên
+hành vi cũ — ở đó cache là tối ưu thật.
+
+**1440 passed, 7 skipped, 0 failed.**
 
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 

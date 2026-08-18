@@ -141,3 +141,50 @@ def test_bam_dung_khong_bi_nuot_thanh_chay_lai(st, tmp_path, monkeypatch):
 
     with pytest.raises(tr.TranscribeCancelled):
         tr.transcribe("/tmp/a.wav", "en", st)
+
+
+# -- 4. Hàng loạt ≥2 video: cache không được lái sang đường không tồn tại ----
+
+def test_hang_loat_van_dung_venv_o_ban_dong_goi(st, tmp_path, monkeypatch):
+    """Bug thật, tìm ra khi rà lại V74 (và bản sửa V74 đầu CHƯA che được).
+
+    `BatchWorker` tạo `WhisperCache()` ngay khi mẻ có từ 2 video trở lên.
+    Điều kiện cũ là `whisper_cache is None and venv_configured()`, nên có
+    cache là bỏ qua hẳn `.venv-whisper` rồi rơi in-process — hỏng trên mọi
+    bản đóng gói, trong khi chạy LẺ 1 video vẫn tốt.
+
+    Cache chỉ có nghĩa cho đường in-process (giữ model nạp sẵn giữa các
+    video); bản `.exe` không có đường đó nên phải bỏ qua cache."""
+    from autodub.speech import transcriber as tr
+
+    _cai_venv(st, tmp_path)
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    da_dung_venv = {}
+    monkeypatch.setattr(tr, "_transcribe_whisper_subprocess",
+                        lambda *a, **k: da_dung_venv.setdefault("ok", True) and [])
+    monkeypatch.setattr(tr, "_transcribe_whisper",
+                        lambda *a, **k: pytest.fail(
+                            "hàng loạt vẫn rơi vào in-process trong bản .exe"))
+
+    class _Cache:
+        def get(self, *_a): raise AssertionError("không được nạp model in-process")
+        def owns(self, *_a): return False
+
+    tr.transcribe("/tmp/a.wav", "en", st, whisper_cache=_Cache())
+    assert da_dung_venv.get("ok"), "phải đi qua .venv-whisper"
+
+
+def test_hang_loat_o_ban_ma_nguon_van_dung_cache(st, tmp_path, monkeypatch):
+    """Bản chạy từ mã nguồn giữ nguyên hành vi cũ: cache in-process là một
+    tối ưu thật (khỏi nạp lại model mỗi video), không được bỏ."""
+    from autodub.speech import transcriber as tr
+
+    _cai_venv(st, tmp_path)
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    monkeypatch.setattr(tr, "_transcribe_whisper_subprocess",
+                        lambda *a, **k: pytest.fail("bản nguồn có cache thì dùng in-process"))
+    goi = {}
+    monkeypatch.setattr(tr, "_transcribe_whisper",
+                        lambda *a, **k: goi.setdefault("ok", True) and [])
+    tr.transcribe("/tmp/a.wav", "en", st, whisper_cache=object())
+    assert goi.get("ok")

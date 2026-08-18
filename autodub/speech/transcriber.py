@@ -202,10 +202,22 @@ def transcribe(audio_path: str, language: str, settings: Settings,
             except Exception as e:
                 logger.warning(f"Paraformer lỗi ({e}) — chuyển sang Whisper")
     if segments is None:
-        # Ưu tiên subprocess worker (venv riêng) để không cần bundle
-        # faster-whisper trong exe — cắt ~112 MB kích thước bản phân phối.
-        # Fallback về in-process khi venv chưa cài (dev) hoặc cache đang giữ.
-        if whisper_cache is None and settings.whisper_venv_configured():
+        # Ưu tiên subprocess worker (venv riêng) — bản .exe không đóng gói
+        # faster-whisper/ctranslate2/av. Fallback in-process CHỈ dành cho bản
+        # chạy từ mã nguồn; trong .exe nó không tồn tại (xem V74).
+        #
+        # `whisper_cache` chỉ có nghĩa với đường IN-PROCESS: nó giữ model đã
+        # nạp giữa các video trong một mẻ. Bản `.exe` KHÔNG có đường đó, nên ở
+        # đó cache phải bị bỏ qua thay vì lái sang chỗ chắc chắn hỏng.
+        #
+        # Bug thật (V74, tìm ra khi rà lại): `BatchWorker` tạo `WhisperCache()`
+        # ngay khi mẻ có từ 2 video trở lên. Nên "Xử lý hàng loạt" với ≥2 video
+        # bỏ qua hẳn `.venv-whisper` và rơi in-process — hỏng trên mọi bản đóng
+        # gói, trong khi chạy 1 video thì vẫn tốt. Đúng kiểu lỗi chỉ lộ ra ở
+        # đúng một nhánh mà người thử ít khi đi vào.
+        dong_bang = getattr(sys, "frozen", False)
+        if (whisper_cache is None or dong_bang) \
+                and settings.whisper_venv_configured():
             try:
                 segments = _transcribe_whisper_subprocess(
                     audio_path, language, settings, cancel_event=cancel_event)
@@ -222,12 +234,12 @@ def transcribe(audio_path: str, language: str, settings: Settings,
                 # loại faster-whisper/ctranslate2/av. Nuốt lỗi thật rồi rơi
                 # sang đó chỉ đổi một lỗi nói được thành `No module named
                 # 'av'` — xem V74.
-                if getattr(sys, "frozen", False):
+                if dong_bang:
                     raise
                 logger.warning(
                     f"Whisper subprocess lỗi ({e}) — thử in-process")
                 segments = None
-        elif getattr(sys, "frozen", False) and whisper_cache is None:
+        elif dong_bang:
             raise RuntimeError(
                 "Thư mục này chưa cài bộ nghe Whisper. Đúp chuột "
                 '"Cai dat Whisper ASR.bat" trong thư mục VoxDub Studio rồi '

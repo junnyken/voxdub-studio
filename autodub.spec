@@ -76,12 +76,30 @@ try:
 except Exception as e:  # noqa: BLE001 — không được làm vỡ quá trình đóng gói
     print(f"[spec] bo qua collect_submodules('autodub_gui'): {e}")
 
-# yt-dlp nạp extractor động theo tên; faster-whisper/ctranslate2 có DLL
-# native. Không còn SDK mô hình nào ở phía máy khách — mọi lượt gọi AI đi
-# qua HTTP tới máy chủ VoxDub (requests đã có sẵn).
+# CHỈ yt-dlp: nó nạp extractor động theo tên nên PyInstaller không thấy được
+# bằng cách phân tích import, phải gom tay.
+#
+# faster-whisper/ctranslate2 TỪNG nằm trong danh sách này, cùng lúc với việc
+# bị liệt kê ở `excludes` bên dưới — hai dòng mâu thuẫn nhau trong cùng một
+# tệp. `excludes` chỉ chặn ở TẦNG IMPORT, còn `collect_all` nhét tệp vào qua
+# TẦNG DATAS, mà datas thì được chép nguyên xi. Kết quả: mã Python của chúng
+# vẫn nằm ở `_internal/` — thư mục có trên `sys.path` của bản onedir — nên
+# `import faster_whisper` CHẠY ĐƯỢC rồi mới chết ở `import av` (av bị loại
+# thật). Đó chính là thông báo `No module named 'av'` khó hiểu người dùng gặp
+# ở v3.4.0/v3.4.1 (mini-spec V74).
+#
+# Kiểm chứng bằng cách mở chính bản phát hành v3.4.1 ra đếm:
+#   faster_whisper  17 tệp  1.382.820 byte   (kèm silero_vad_v6.onnx 1,2 MB)
+#   ctranslate2     30 tệp    363.524 byte
+#   av               0 tệp                   ← đã loại sạch từ trước
+# Tức phần nặng (DLL native) đã được `_keep_binary` cắt từ lâu; thứ còn sót
+# chỉ là ~1,8 MB mã Python — nhỏ, nhưng đủ để `import` đi được nửa đường và
+# đẻ ra một thông báo lỗi đánh lạc hướng. Bỏ hẳn khỏi `collect_all` thì lỗi
+# trở nên thành thật: `No module named 'faster_whisper'`.
+#
 # playwright/PIL KHÔNG đóng gói: Douyin cài qua 'Cai dat tinh nang
 # Douyin.bat' (libs/ sideload).
-for pkg in ("yt_dlp", "faster_whisper", "ctranslate2"):
+for pkg in ("yt_dlp",):
     try:
         d, b, h = collect_all(pkg)
     except Exception as e:  # package tùy chọn chưa cài → bỏ qua, không vỡ build
