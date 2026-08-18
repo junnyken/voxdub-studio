@@ -7046,6 +7046,71 @@ oan.
 
 **1284 test Python + 324 test Node, 0 fail.**
 
+## V45/V51/V52/V54 — Chạy THẬT đầu-cuối lần đầu trên prod (Phase G, 2026-08-18)
+
+Bốn mini-spec này ship ở trạng thái "xong code + test, CHƯA chạy thật". Có
+ADMIN_TOKEN rồi thì cấp được API key và chạy được thật.
+
+### Vật liệu
+
+Không có video khách, dựng từ giọng mẫu trong repo: nối 3 file
+`voices/preset_voices_vn` thành 24 giây tiếng, ghép nền màu → `thu.mp4`
+(H.264 + AAC, 235 KB). Nguồn `vi` → đích `vi`.
+
+### V51/V52/V54 — `cloud-batch` chạy thật
+
+```
+Quota còn 10 phút (hạn mức 10, đang giữ chỗ 0)
+Đã nộp thu.mp4 → job 6a83d7ce984f2a73c9c3b347
+Job ...b347: queued → running → done          (41 giây)
+Xong thu.mp4 → thu_dubbed.mp4 (339442 byte)
+Xong: 1 | Hỏng: 0 | Mất kết quả: 0 | Đã huỷ: 0 | Chưa chạy: 0
+```
+
+Kết quả là bản lồng tiếng THẬT, không phải copy đầu vào: MD5 luồng audio khác
+hẳn bản gốc (`6911ddd…` vs `780f416…`), độ dài 24.20s vs 23.98s (giọng tổng
+hợp không khớp từng mili-giây với gốc).
+
+**Tính tiền đúng**: `minutesCharged = max(1, ceil(24/60)) = 1` → `dubMinutesUsed`
+tăng 1, `dubMinutesReserved` trả về 0 sau khi xong (cơ chế giữ chỗ V43 nhả đúng).
+
+### V45 — kết quả sống sót qua redeploy
+
+Đây là phép thử thật của GridFS, làm đúng thứ tự để không tự lừa mình:
+
+1. Nộp job thứ hai, chờ tới `done`, **CỐ Ý KHÔNG tải về** — kết quả nằm lại
+   trên máy chủ.
+2. `redeploy` `voxdub-app` qua cổng Vibe Host → container cũ bị xoá, ổ đĩa
+   trong container mất trắng (nền tảng không có volume bền vững — chính lý do
+   V45 tồn tại).
+3. Sau khi deploy `succeeded`, hỏi lại trạng thái: vẫn `done`. Tải về:
+   **339442 byte, MD5 `a1eb2cb8…` — TRÙNG BYTE-BY-BYTE với bản tải trước đó.**
+
+Trước V45, file nằm trên đĩa container: bước 2 sẽ xoá sạch và bước 3 trả về
+`RESULT_LOST_REFUNDED`. Giờ nó nằm trong MongoDB managed nên đi qua redeploy
+không suy suyển.
+
+### Chi phí thật của lượt kiểm thử
+
+| Khoản | Số tiền |
+|---|---|
+| 2 job × 1 phút = 2 phút quota (300 Vox, giá niêm yết 10 đ/Vox) | 3.000 đ *(nội bộ, không ai trả)* |
+| Gọi API AI trả tiền | **0 đ** — `analytics/usage?days=1` không ghi nhận lượt `translate`/`music`/`sound_effect` nào hôm nay |
+| Hạ tầng | 0 đ phát sinh — worker container vốn đang chạy |
+
+Worker chạy `python3 -m autodub.cli dub` với whisper + VieNeu **trong chính
+container**, nên một lượt dub thường không đụng tới API tính tiền nào. Tiền
+thật chỉ phát sinh khi dùng dịch AI qua máy chủ, nhạc AI hoặc hiệu ứng âm
+thanh (ElevenLabs) — không có trong đường dub cơ bản.
+
+### Còn thiếu
+
+- V55 (huỷ job) vẫn chưa live-verify: cần một job đủ dài để bấm huỷ giữa
+  chừng, job 24 giây xong trước khi kịp gửi lệnh.
+- V52 mới chạy 1 video nên đường ống `--queue-ahead` chưa thực sự bị ép: muốn
+  kiểm thông lượng phải nộp nhiều video cùng lúc.
+- V53 (ô chọn trên trang Batch) vẫn chưa click thử trên Windows.
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật
