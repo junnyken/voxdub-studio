@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QScrollArea,
-    QSizePolicy, QVBoxLayout, QWidget,
+    QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
+    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from autodub_gui import icons, tokens
@@ -212,6 +212,8 @@ class Sidebar(QFrame):
         widget.setMaximumHeight(height)
         widget.setSizePolicy(QSizePolicy.Policy.Expanding,
                              QSizePolicy.Policy.Fixed)
+        # Xem `eventFilter`: nhường bánh xe chuột cho vùng cuộn bao ngoài.
+        widget.viewport().installEventFilter(self)
         return widget
 
     def _build_user_card(self) -> QWidget:
@@ -286,6 +288,27 @@ class Sidebar(QFrame):
             if match < 0:
                 widget.clearSelection()
             widget.blockSignals(False)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 — quy ước của Qt
+        """Lăn chuột trên danh sách phải cuộn CẢ thanh bên — mini-spec V73.
+
+        `QListWidget` là một vùng cuộn, nên nó NUỐT sự kiện bánh xe chuột kể
+        cả khi chính nó không cuộn được (chiều cao đã khoá vừa đủ nội dung).
+        Ba danh sách phủ gần hết thanh bên, nên không chuyển tiếp thì người
+        dùng lăn chuột ở chỗ nào cũng không ăn — chỉ trừ vài dải lề mỏng.
+
+        Đo được: trước khi có hàm này, lăn trên nền vùng cuộn thì cuộn 60px,
+        lăn trên danh sách thì đứng im ở 0.
+        """
+        if event.type() == QEvent.Type.Wheel:
+            khung = getattr(self, "_nav_scroll", None)
+            ds = (getattr(self, "nav", None), getattr(self, "nav_tools", None),
+                  getattr(self, "nav2", None))
+            if khung is not None and any(
+                    w is not None and obj is w.viewport() for w in ds):
+                QApplication.sendEvent(khung.viewport(), event)
+                return True
+        return super().eventFilter(obj, event)
 
     # -- Thu gọn khi cửa sổ hẹp ----------------------------------------
     def resizeEvent(self, event) -> None:  # noqa: N802 — theo quy ước của Qt

@@ -53,13 +53,56 @@ def test_download_video_cung_chi_lay_mot_video(tmp_path, monkeypatch):
     "https://www.youtube.com/watch?v=x1F3EdwrYw4&list=RDMMx1F3EdwrYw4&start_radio=1",
     "https://www.youtube.com/watch?v=abc123",
     "https://youtu.be/abc123",
+    # Id video nằm ở ĐƯỜNG DẪN, không phải tham số `v=` — bản chặn đầu tiên
+    # viết lúc sửa V73 đã chặn nhầm đúng nhóm này. Chính nút Chia sẻ của
+    # YouTube sinh ra `youtu.be/<id>?list=…` khi video nằm trong playlist,
+    # nên chặn nhầm ở đây còn tai hại hơn lỗi ban đầu.
+    "https://youtu.be/abc123?list=RDMMabc123",
+    "https://youtu.be/abc123?list=PLabc&index=2",
+    "https://www.youtube.com/shorts/abc123?list=PLabc",
+    "https://www.youtube.com/embed/abc123",
+    "https://www.youtube.com/live/abc123",
     "https://www.facebook.com/share/r/1EUSdYJeXN/",
     "https://www.tiktok.com/@ai/video/123",
 ])
 def test_lien_ket_co_video_cu_the_van_di_qua(url):
-    """Có ``v=`` là có video để `noplaylist` cắt về — không được chặn nhầm.
-    Chặn nhầm ở đây làm chết đúng cái liên kết người dùng đang muốn dùng."""
+    """Có video cụ thể thì không được chặn — chặn nhầm ở đây làm chết đúng
+    cái liên kết người dùng đang muốn dùng."""
     dl.ensure_single_video_url(url)
+
+
+# -- 3. Cắt tham số ngữ cảnh playlist khỏi liên kết YouTube --------------------
+
+@pytest.mark.parametrize("goc,mong_doi", [
+    ("https://www.youtube.com/watch?v=x1F3EdwrYw4&list=RDMMx1F3EdwrYw4&start_radio=1",
+     "https://www.youtube.com/watch?v=x1F3EdwrYw4"),
+    ("https://youtu.be/x1F3EdwrYw4?list=PLabc&index=2",
+     "https://youtu.be/x1F3EdwrYw4"),
+    ("https://www.youtube.com/shorts/x1F3EdwrYw4?list=RDMMx1F3EdwrYw4",
+     "https://www.youtube.com/shorts/x1F3EdwrYw4"),
+])
+def test_cat_tham_so_playlist(goc, mong_doi):
+    """`noplaylist` KHÔNG đủ, đo bằng yt-dlp thật (2026.03.17):
+
+    | liên kết | + noplaylist |
+    |---|---|
+    | `youtu.be/<id>?list=…` | OK |
+    | `youtube.com/shorts/<id>?list=…` | **HỎNG** — "This playlist type is unviewable" |
+
+    Vì thấy `list=` là yt-dlp chọn extractor `youtube:tab` ngay từ đầu, trước
+    cả lúc `noplaylist` có tiếng nói. Cắt tham số thì mọi dạng đi chung đường.
+    """
+    assert dl.normalize_url(goc) == mong_doi
+
+
+@pytest.mark.parametrize("url", [
+    "https://www.youtube.com/watch?v=abc&t=42",          # mốc thời gian: giữ
+    "https://www.facebook.com/share/r/1EUSdYJeXN/",
+    "https://www.tiktok.com/@ai/video/123",
+    "https://www.youtube.com/playlist?list=PLabc",       # để `ensure_` chặn
+])
+def test_khong_dung_toi_lien_ket_khong_lien_quan(url):
+    assert dl.normalize_url(url) == url
 
 
 # -- 2. playlist?list=… → chặn, kèm lời người đọc hiểu -------------------------

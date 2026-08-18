@@ -1,7 +1,7 @@
 """Video download via yt-dlp, with Douyin routed through Playwright."""
 import os
 import re
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import yt_dlp
 
@@ -48,6 +48,26 @@ def normalize_url(url: str) -> str:
         if modal_id and modal_id.isdigit():
             return f"https://www.douyin.com/video/{modal_id}"
 
+    # YouTube: bỏ các tham số NGỮ CẢNH DANH SÁCH PHÁT — mini-spec V73.
+    #
+    # `noplaylist` chưa đủ. Đo bằng yt-dlp thật (2026.03.17):
+    #   youtu.be/<id>?list=…            + noplaylist → OK, ra đúng video
+    #   youtube.com/shorts/<id>?list=…  + noplaylist → HỎNG, "This playlist
+    #                                     type is unviewable"
+    # Vì thấy `list=` là yt-dlp đẩy sang extractor `youtube:tab` (playlist)
+    # ngay từ khâu chọn extractor, trước cả lúc `noplaylist` có tiếng nói.
+    # Cắt tham số đi thì mọi dạng liên kết đi chung một đường.
+    #
+    # Không đụng tới `/playlist` — `ensure_single_video_url` chặn theo ĐƯỜNG
+    # DẪN nên vẫn bắt được, và biến nó thành liên kết video giả là sai.
+    if "youtube.com" in host or "youtu.be" in host:
+        qs = parse_qs(parsed.query, keep_blank_values=True)
+        bo = [k for k in ("list", "start_radio", "index") if k in qs]
+        if bo and not parsed.path.rstrip("/").lower().endswith("/playlist"):
+            for k in bo:
+                qs.pop(k)
+            return urlunparse(parsed._replace(query=urlencode(qs, doseq=True)))
+
     return url
 
 
@@ -69,10 +89,21 @@ def ensure_single_video_url(url: str) -> None:
     host = parsed.netloc.lower()
     if "youtube.com" not in host and "youtu.be" not in host:
         return
-    qs = parse_qs(parsed.query)
-    if qs.get("v", [""])[0].strip():
-        return          # có video cụ thể → noplaylist lo phần còn lại
-    if parsed.path.rstrip("/").endswith("/playlist") or qs.get("list"):
+    duong = parsed.path.rstrip("/").lower()
+    # Chặn HẸP: chỉ hai dạng chắc chắn không có video nào để tải. Mọi dạng
+    # khác cho đi qua.
+    #
+    # Không được suy ra "có `list=` là danh sách phát" — id video của YouTube
+    # nằm ở ĐƯỜNG DẪN chứ không phải lúc nào cũng ở tham số `v=`:
+    # `youtu.be/<id>?list=…`, `youtube.com/shorts/<id>?list=…`,
+    # `/embed/<id>`, `/live/<id>`. Chính nút Chia sẻ của YouTube sinh ra
+    # `youtu.be/<id>?list=…` khi video đang nằm trong playlist — chặn theo
+    # `list=` là chặn đúng loại liên kết người dùng hay dán nhất.
+    khong_co_video = (
+        duong.endswith("/playlist")
+        or (duong.endswith("/watch") and not parse_qs(parsed.query).get("v", [""])[0].strip())
+    )
+    if khong_co_video:
         raise PlaylistUrlError(
             "Đây là liên kết DANH SÁCH PHÁT, không phải một video. Mở video "
             "bạn muốn rồi sao chép liên kết của riêng nó (dạng "

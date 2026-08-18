@@ -109,3 +109,39 @@ def test_che_do_chi_bieu_tuong_van_nguyen_ven():
     assert sb.width() == tokens.SIDEBAR_W_ICON
     assert not sb._tools_label.isVisibleTo(sb)
     assert not sb._system_label.isVisibleTo(sb)
+
+
+def test_lan_chuot_tren_menu_van_cuon_duoc():
+    """`QListWidget` là một vùng cuộn nên nó NUỐT bánh xe chuột, kể cả khi
+    chính nó không cuộn được (chiều cao đã khoá vừa đủ nội dung).
+
+    Ba danh sách phủ gần hết thanh bên, nên nếu không chuyển tiếp sự kiện thì
+    vùng cuộn V73 gần như vô dụng: người dùng chỉ cuộn được khi trỏ đúng vào
+    vài dải lề mỏng. Đo được lúc sửa: gỡ bộ lọc ra thì lăn trên danh sách cho
+    ra 0, để nguyên thì ra 60.
+
+    Lưu ý cho người sửa sau: Qt giao sự kiện bánh xe cho `viewport()` chứ
+    không cho chính `QListWidget` — gửi nhầm vào list thì test luôn ra 0 và
+    trông như lỗi chưa được sửa."""
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+
+    host, sb = _sidebar(True)
+    _dat_chieu_cao(host, sb, 600)
+    thanh_cuon = sb._nav_scroll.verticalScrollBar()
+    assert thanh_cuon.maximum() > 0, "phải đang ở trạng thái cuộn được"
+
+    def lan(widget) -> int:
+        thanh_cuon.setValue(0)
+        QApplication.processEvents()
+        ev = QWheelEvent(
+            QPointF(10, 10), widget.mapToGlobal(QPoint(10, 10)),
+            QPoint(0, -120), QPoint(0, -120), Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+        QApplication.sendEvent(widget, ev)
+        QApplication.processEvents()
+        return thanh_cuon.value()
+
+    for ds, ten in ((sb.nav, "chính"), (sb.nav_tools, "CÔNG CỤ"),
+                    (sb.nav2, "HỆ THỐNG")):
+        assert lan(ds.viewport()) > 0, f"lăn chuột trên danh sách {ten} không cuộn"

@@ -7768,7 +7768,67 @@ Tức ở đúng cấu hình máy người dùng, mọi mục hiện ra hết m�
 17 test, chạy 3 vòng bố cục liên tiếp ở mỗi chiều cao để chắc thẻ không bật
 tắt loạn. Hoàn nguyên `shell.py`: **14/17 fail** — test bắt đúng lỗi.
 
-**1395 passed, 7 skipped, 0 failed** (Python; trước khi sửa 1365).
+### Soát lại sau khi sửa — 2 lỗi do CHÍNH bản sửa V73 gây ra
+
+Cả hai đều tự tìm ra khi rà lại, chưa ai gặp phải.
+
+**a) `ensure_single_video_url` chặn nhầm liên kết youtu.be có `list=`.** Bản
+đầu suy ra "không có tham số `v=` mà có `list=` → danh sách phát". Sai: id
+video của YouTube nằm ở ĐƯỜNG DẪN với `youtu.be/<id>`,
+`youtube.com/shorts/<id>`, `/embed/<id>`, `/live/<id>`. Mà `youtu.be/<id>?list=…`
+chính là thứ nút Chia sẻ của YouTube sinh ra khi video nằm trong playlist —
+tức bản sửa đã chặn đúng nhóm liên kết người dùng hay dán nhất, còn tệ hơn
+lỗi ban đầu. Sửa: chặn HẸP theo đường dẫn — chỉ `/playlist`, hoặc `/watch` mà
+không có `v=`. 7 ca chống-chặn-nhầm thêm vào test.
+
+**b) `noplaylist` một mình KHÔNG đủ.** Đo bằng yt-dlp thật:
+
+| liên kết | + `noplaylist` |
+|---|---|
+| `youtu.be/<id>?list=…` | OK, ra đúng video |
+| `youtube.com/shorts/<id>?list=…` | **HỎNG** — "This playlist type is unviewable" |
+
+Vì thấy `list=` là yt-dlp chọn extractor `youtube:tab` ngay từ khâu chọn
+extractor, trước cả lúc `noplaylist` có tiếng nói. Sửa: `normalize_url` cắt
+`list`/`start_radio`/`index` khỏi liên kết YouTube (không đụng `/playlist`, và
+giữ `t=` vì đó là mốc thời gian). Xác nhận lại bằng yt-dlp thật: cả 3 dạng
+`watch?v=…&list=`, `youtu.be/<id>?list=`, `shorts/<id>?list=` đều ra đúng
+video `x1F3EdwrYw4`.
+
+**c) Lăn chuột trên menu không cuộn được** — hệ quả trực tiếp của vùng cuộn
+mới. `QListWidget` là một vùng cuộn nên nó nuốt bánh xe chuột kể cả khi chính
+nó không cuộn được. Ba danh sách phủ gần hết thanh bên → vùng cuộn gần như vô
+dụng, chỉ cuộn được khi trỏ vào vài dải lề mỏng. Sửa bằng `eventFilter`
+chuyển tiếp sang vùng cuộn. Đo: gỡ bộ lọc ra → 0, để nguyên → 60.
+
+> **Bẫy khi đo:** Qt giao sự kiện bánh xe cho `viewport()` chứ không cho chính
+> `QListWidget`. Phép đo đầu tiên gửi nhầm vào list nên ra 0 ở CẢ HAI trạng
+> thái — suýt nữa kết luận sai theo cả hai hướng. Phải gỡ bộ lọc rồi đo lại
+> mới chứng minh được lỗi có thật.
+
+### Đã soát, KHÔNG có lỗi
+
+- **17 trang nội dung ở cửa sổ nhỏ nhất (1024×680)**: không trang nào chồng
+  mục. Vùng nội dung cao 586px; trang sát nhất là `DownloadPage` (cần 566px,
+  không tự cuộn) — còn 20px, chật nhưng chưa hỏng.
+- **Các worker khác**: cả 3 tín hiệu `item_status` trong `workers.py` giờ đều
+  mang `detail`. Không còn chỗ nào nuốt lý do lỗi.
+- **`output_dir` tương đối**: `env_dir` neo vào `app_root()`, không phụ thuộc
+  thư mục làm việc — bản `.exe` không ghi ra chỗ bất ngờ.
+
+### Còn tồn (chưa sửa, chờ chủ dự án quyết)
+
+- **`chep_loi/_tam/` không bao giờ được dọn.** Chứng minh bằng chạy thật:
+  chép lời xong, `_tam` vẫn giữ `asr_16k.wav`. Với FILE trên máy thì vô hại
+  (tên cố định, bị ghi đè). Với LIÊN KẾT thì `build_ydl_opts` đặt tên theo
+  `<extractor>_<id>` nên mỗi video là một file mới — chép lời 20 video
+  YouTube là giữ lại 20 video đầy đủ mà người dùng không hề xin. Chưa sửa vì
+  đây là quyết định sản phẩm: xoá sau khi xong, hay giữ để lần sau khỏi tải
+  lại (hiện code KHÔNG dùng lại, luôn tải mới — nên đang là lãng phí thuần).
+- **Liên kết thiếu `http://`** (`www.youtube.com/…`) bị `is_url` coi là đường
+  dẫn file → báo "Không tìm thấy". yt-dlp vốn nhận được dạng này.
+
+**1408 passed, 7 skipped, 0 failed** (Python; trước khi sửa 1365).
 
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
