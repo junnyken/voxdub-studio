@@ -232,7 +232,33 @@ def _check_asr(settings: Settings) -> CheckResult:
             message="Cấu hình đang chọn Paraformer nhưng máy chưa cài.",
             advice="Chạy: py scripts/setup_paraformer.py — hoặc trong Cài đặt "
                    "đổi Bộ nghe về Whisper (không cần cài thêm).")
-    # Whisper tải model tự động ở lần chạy đầu — chỉ cần xác nhận gói có mặt.
+    # Kiểm ĐÚNG thứ lúc chạy thật sẽ dùng — mini-spec V74.
+    #
+    # Bản đóng gói CỐ Ý không bundle faster-whisper/ctranslate2/av
+    # (`autodub.spec`, cắt ~112 MB): Whisper chạy trong `.venv-whisper` qua
+    # `asr_whisper_worker.py`. Nên `import faster_whisper` ở tiến trình này
+    # KHÔNG BAO GIỜ thành công trong bản .exe — kiểm bằng nó là báo "thiếu
+    # thư viện" ở mọi lần mở app, kể cả khi Whisper đã cài đúng và chạy tốt.
+    # Người dùng báo đúng lỗi này trên v3.4.0 (2026-08-19).
+    #
+    # Cùng một sai lầm đã mắc ở `_smoke_report` và sửa ở V38 — lần đó chưa
+    # rà hết các chỗ khác cũng đang giả định như vậy.
+    if settings.whisper_venv_configured():
+        return CheckResult(key="asr", title="Bộ nghe (Whisper)", level="ok",
+                           message="Đã cài trong .venv-whisper.")
+
+    if getattr(sys, "frozen", False):
+        # Bản .exe: venv là đường DUY NHẤT, không có phương án dự phòng.
+        return CheckResult(
+            key="asr", title="Bộ nghe (Whisper)", level="fail",
+            message="Thư mục này chưa cài bộ nghe Whisper.",
+            advice='Đúp chuột "Cai dat Whisper ASR.bat" trong thư mục VoxDub '
+                   "Studio. Lưu ý: bộ nghe được cài RIÊNG cho từng thư mục "
+                   "ứng dụng, nên khi lên phiên bản mới (giải nén ra thư mục "
+                   "khác) phải cài lại — hoặc chép thư mục .venv-whisper và "
+                   "models từ bản cũ sang.")
+
+    # Bản chạy từ mã nguồn: in-process là đường hợp lệ, kiểm như cũ.
     try:
         import faster_whisper  # noqa: F401
     except ImportError:
@@ -240,7 +266,7 @@ def _check_asr(settings: Settings) -> CheckResult:
             key="asr", title="Bộ nghe (Whisper)", level="fail",
             message="Thiếu thư viện faster-whisper.",
             advice="Cài lại phụ thuộc: py -m pip install -r requirements.txt "
-                   "— hoặc cài lại ứng dụng nếu đang dùng bản đóng gói.")
+                   "— hoặc chạy: py scripts/setup_whisper.py")
     # Báo trước khi Whisper tải model lần đầu — tránh người dùng tưởng treo.
     model_name = settings.whisper_model
     model_dir = os.path.join(

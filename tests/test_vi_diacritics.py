@@ -47,12 +47,19 @@ _EXEMPT: dict[str, str] = {
     "scripts/build_exe.py": "sinh tệp .bat cho cmd.exe, chữ console phải là ASCII",
 }
 
-# Tên ba tệp cài đặt đóng gói kèm ứng dụng. Đây là tên tệp có thật trên đĩa,
-# đóng vai trò như mã định danh: đổi tên sẽ làm hỏng bản cài của người dùng
-# hiện tại. Chủ dự án đã chốt giữ nguyên, nên mọi dòng nhắc tới chúng được
-# bỏ qua khi quét.
+# Tên BỐN tệp cài đặt đóng gói kèm ứng dụng (xem `scripts/build_exe.py`).
+# Đây là tên tệp có thật trên đĩa, đóng vai trò như mã định danh: đổi tên sẽ
+# làm hỏng bản cài của người dùng hiện tại. Chủ dự án đã chốt giữ nguyên, nên
+# mọi dòng nhắc tới chúng được bỏ qua khi quét.
+#
+# "Cai dat Whisper ASR" từng thiếu ở đây: `build_exe.py` đóng gói nó từ đầu
+# nhưng chưa có mã Python nào nhắc tên, nên chỗ thiếu không lộ ra. Tới V74
+# (preflight chỉ người dùng chạy tệp này) thì test chặn thẳng — danh sách
+# miễn trừ phải khớp với thứ thật sự được đóng gói, không phải với thứ tình
+# cờ đang được nhắc tới.
 _INSTALLER_FILES = (
     "Cai dat giong VieNeu",
+    "Cai dat Whisper ASR",
     "Cai dat ASR tieng",        # tên bị ngắt dòng ở vài chỗ nên khớp phần đầu
     "Cai dat tinh nang Douyin",
 )

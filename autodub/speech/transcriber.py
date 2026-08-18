@@ -3,6 +3,7 @@ import ctypes
 import json
 import os
 import subprocess
+import sys
 import threading
 from collections import deque
 
@@ -208,10 +209,31 @@ def transcribe(audio_path: str, language: str, settings: Settings,
             try:
                 segments = _transcribe_whisper_subprocess(
                     audio_path, language, settings, cancel_event=cancel_event)
+            except TranscribeCancelled:
+                # V74 — Dừng KHÔNG phải lỗi. `TranscribeCancelled` kế thừa
+                # `RuntimeError` nên `except Exception` bên dưới nuốt gọn nó,
+                # rồi chạy LẠI TOÀN BỘ ở in-process: bấm Dừng xong máy vẫn
+                # cày tiếp, chỉ khác là đổi đường. V72 không bắt được vì máy
+                # thử nghiệm không có `.venv-whisper` nên chưa bao giờ đi
+                # vào nhánh này.
+                raise
             except Exception as e:
+                # Bản .exe không có đường in-process: `autodub.spec` cố ý
+                # loại faster-whisper/ctranslate2/av. Nuốt lỗi thật rồi rơi
+                # sang đó chỉ đổi một lỗi nói được thành `No module named
+                # 'av'` — xem V74.
+                if getattr(sys, "frozen", False):
+                    raise
                 logger.warning(
                     f"Whisper subprocess lỗi ({e}) — thử in-process")
                 segments = None
+        elif getattr(sys, "frozen", False) and whisper_cache is None:
+            raise RuntimeError(
+                "Thư mục này chưa cài bộ nghe Whisper. Đúp chuột "
+                '"Cai dat Whisper ASR.bat" trong thư mục VoxDub Studio rồi '
+                "thử lại. Lưu ý: bộ nghe được cài riêng cho từng thư mục ứng "
+                "dụng, nên khi lên phiên bản mới phải cài lại (hoặc chép "
+                "thư mục .venv-whisper và models từ bản cũ sang).")
         if segments is None:
             segments = _transcribe_whisper(audio_path, language, settings,
                                            whisper_cache, cancel_event=cancel_event)

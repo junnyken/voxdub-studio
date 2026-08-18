@@ -7879,6 +7879,91 @@ Nói rõ giới hạn này thay vì tuyên bố "đã verify đầu-cuối".
 
 **1426 passed, 7 skipped, 0 failed** (Python; trước khi sửa 1365).
 
+## V74 — "Đã cài Whisper rồi mà app vẫn bảo chưa" (Phase H, 2026-08-19)
+
+Người dùng báo trên bản `.exe` vừa phát hành: mở app là hiện hộp thoại chặn
+"Máy chưa đủ điều kiện lồng tiếng — Thiếu thư viện faster-whisper" dù script
+cài đã in `faster-whisper đã cài — bỏ qua` và `smoke test đã đạt`; chép lời
+thì hỏng với `No module named 'av'`.
+
+**Dòng lỗi có lý do (V73) chính là thứ làm ca này chẩn đoán được.** Nếu vẫn
+là `[1/1] HỎNG: <liên kết>` trống trơn thì không có đường nào lần ra.
+
+### Một gốc rễ, ba biểu hiện
+
+`autodub.spec` CỐ Ý loại `faster_whisper` / `ctranslate2` / `av` khỏi bundle —
+Whisper chạy trong `.venv-whisper` qua `asr_whisper_worker.py`, cắt ~112 MB.
+Nhưng hai chỗ khác vẫn giả định import được chúng trong tiến trình chính.
+
+Đây đúng là lớp lỗi đã sửa ở `_smoke_report` hồi V38. Lần đó sửa đúng một
+chỗ gặp phải mà không rà những chỗ khác cùng giả định như vậy.
+
+**(1) `preflight._check_asr` kiểm bằng `import faster_whisper`.** Trong bản
+`.exe` phép import này không bao giờ thành công, nên hộp thoại chặn hiện ở
+MỌI lần mở app, với 100% người dùng bản đóng gói — kể cả người đã cài đúng và
+máy đang chạy tốt. Lời khuyên kèm theo (`pip install -r requirements.txt`)
+cũng vô nghĩa với họ: bản `.exe` không có `requirements.txt`, cũng không có
+Python nào để chạy pip.
+
+Sửa: kiểm `settings.whisper_venv_configured()` — đúng thứ lúc chạy thật sẽ
+dùng. Bản chạy từ mã nguồn vẫn kiểm import như cũ, vì ở đó in-process là
+đường hợp lệ.
+
+**(2) `transcribe()` rơi sang in-process khi không có venv.** Đường đó không
+tồn tại trong bản `.exe`, nên nó chỉ đổi một tình huống nói được thành
+`No module named 'av'`.
+
+> Vì sao là `av` chứ không phải `faster_whisper`: spec liệt kê cả hai trong
+> `excludes`, nhưng `collect_all("faster_whisper")` ở trên lại thêm chúng
+> vào `hiddenimports`, còn `_ML_PRUNE` chỉ lọc `a.binaries`. Kết quả là
+> phần Python của faster-whisper VẪN nằm trong gói, chỉ `av` là bị cắt sạch
+> — nên import đi được một đoạn rồi mới chết ở dependency. Bằng chứng là
+> chính thông báo lỗi: thiếu hẳn thì đã báo `No module named
+> 'faster_whisper'`. Tức phần "cắt ~112 MB" của spec nhiều khả năng không
+> đạt được như ghi chú nói. **Chưa sửa** — đụng vào spec thì phải có một
+> lượt build Windows thật để đối chiếu kích thước, xem mục Còn tồn.
+
+Sửa: bản đóng gói báo thẳng "Thư mục này chưa cài bộ nghe Whisper" kèm tên
+tệp `.bat` phải bấm. Subprocess hỏng thì giữ nguyên lý do thật, không nuốt.
+
+**(3) Bấm Dừng bị nuốt thành "chạy lại bằng đường khác".**
+`TranscribeCancelled` kế thừa `RuntimeError`, nên `except Exception` ở
+`transcribe()` bắt gọn nó rồi chạy LẠI TOÀN BỘ ở in-process: người dùng bấm
+Dừng, worker bị giết thật, và máy lập tức cày lại từ đầu bằng đường kia.
+
+V72 tuyên bố "nút Dừng thật sự dừng" và đã sửa hai lần, nhưng không bắt được
+ca này — chính TEST_LOG V72 ghi rằng máy thử nghiệm không có `.venv-whisper`,
+nên nhánh subprocess chưa bao giờ được đi vào. Lỗi nằm đúng ở chỗ không ai
+chạy tới.
+
+### Cạm bẫy nâng cấp (nguyên nhân trực tiếp của ca này)
+
+`.venv-whisper` và `models/` nằm TRONG thư mục ứng dụng
+(`app_root()`). Người dùng cài Whisper cho `D:\VoxDub-Studio-v3.4.0-win64\`,
+rồi giải nén v3.4.1 ra thư mục khác — bản mới không thấy gì cả. Đúng nghĩa
+"đã cài xong" mà app vẫn bảo chưa.
+
+Lời khuyên trong preflight giờ nói thẳng điều này: cài lại, hoặc chép
+`.venv-whisper` + `models` từ bản cũ sang.
+
+### Test
+
+6 test. Hoàn nguyên bản sửa preflight → 2/6 fail đúng chỗ.
+
+Một chi tiết phụ lộ ra: `tests/test_vi_diacritics.py` có danh sách miễn trừ
+tên tệp cài đặt, nhưng chỉ liệt kê 3 trong 4 tệp `.bat` mà `build_exe.py`
+thật sự đóng gói — thiếu đúng "Cai dat Whisper ASR". Chỗ thiếu không lộ ra
+suốt thời gian qua vì chưa có mã Python nào nhắc tên tệp đó. Đã bổ sung.
+
+### Còn tồn
+
+- Phần Python của faster-whisper vẫn nằm trong bundle dù spec định loại (xem
+  giải thích ở mục 2). Sau V74 nó là mã chết trong bản `.exe`, không còn gây
+  hại, nhưng có thể đang gánh dung lượng thừa. Kiểm chứng cần một lượt build
+  Windows thật rồi so kích thước — v3.4.0 là 75,1 MB, v3.4.1 là 78,7 MB.
+
+**1432 passed, 7 skipped, 0 failed.**
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật
