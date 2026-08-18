@@ -7211,6 +7211,92 @@ Vẫn CHƯA thử được: `schtasks` và hành vi khi máy tắt — cần má
 
 **1299 test Python + 324 test Node, 0 fail.**
 
+## Khảo sát: vì sao vẫn gộp người nói, và chi phí Gemini nằm ở đâu (2026-08-18)
+
+Không phải mini-spec — khảo sát trả lời 2 câu hỏi của chủ dự án, ghi lại để
+lần sau không phải đo lại.
+
+### 1. Nút vặn của pyannote và giới hạn thật
+
+`pipeline.parameters(instantiated=True)` cho thấy 3 tham số chỉnh được:
+
+```
+segmentation.min_duration_off = 0.0
+clustering.method             = centroid
+clustering.min_cluster_size   = 12      ← nghi phạm đầu tiên
+clustering.threshold          = 0.7046
+```
+
+`min_cluster_size=12` nghĩa là một người phải có ≥12 cửa sổ embedding mới được
+tách thành cụm riêng — lượt thoại ngắn thì bị nuốt vào cụm bên cạnh. Giả
+thuyết hợp lý, nên đem đo trên `tap2.wav` (sự thật 4 người):
+
+| cấu hình | nhận ra |
+|---|---|
+| mặc định | 2 |
+| khai `num_speakers=4` | 3 |
+| `min_cluster_size=3`, ngưỡng 0.60 | 3 |
+| `min_cluster_size=3`, ngưỡng 0.60, khai 4 | 3 |
+| `min_cluster_size=2`, ngưỡng 0.50, khai 4 | 3 |
+
+**Giả thuyết SAI.** Nới clustering hết cỡ vẫn dừng ở 3. Nút vặn không phải chỗ
+nghẽn — **embedding mới là chỗ nghẽn**. Khớp với số đo cosine hôm nay: hai
+giọng nữ TTS KHÁC NHAU đo được 0.651, quá gần ngưỡng 0.72 của cùng-một-người.
+
+Điều này cũng nói rằng vật liệu thử đang ở ca XẤU NHẤT: giọng TTS cùng một bộ
+tổng hợp có chữ ký phổ giống nhau bất thường, người thật trong video thật khác
+xa hơn. **Đừng tối ưu tiếp dựa trên số đo này** — cần clip thật mới biết có
+phải vấn đề thật hay không.
+
+### 2. Chi phí Gemini — đo bằng chính prompt của máy chủ
+
+| Thành phần | token vào |
+|---|---|
+| system prompt dịch (gửi kèm MỖI lô) | **2.562** |
+| user prompt, lô 40 câu | 796 |
+| → 1 lô 40 câu | 3.358 (**84 token/câu**) |
+| → nếu lô chỉ 2 câu | 2.639 (**1.320 token/câu**) |
+| prompt phân tích, 150 câu | 1.015 (một lần) |
+| prompt review, **1 câu** | 73 |
+
+Con số 1.320 token/câu khớp đúng với lượt gọi thật duy nhất ghi trong
+`usagelogs` (2.470 token cho 2 câu) — công thức đo được xác nhận bằng dữ liệu
+thật, không phải ước lượng.
+
+**Chỗ đốt tiền là bước REVIEW**: `ai-gateway.service.js:468` gọi
+`buildTranslateSystemPrompt` cho **TỪNG CÂU** được rà soát. Mỗi câu review =
+2.562 + 73 ≈ **2.635 token vào**, trong khi dịch cả câu đó chỉ tốn 84.
+
+Video 10 phút (~150 câu), giả sử 20% câu bị gắn cờ review:
+
+```
+dịch    : 4 lô × 3.358        =  13.432 token
+phân tích:                    =   1.015 token
+review  : 30 câu × 2.635      =  79.050 token   ← gấp ~6 lần bước dịch
+```
+
+Bước review tốn gấp ~6 lần bước nó đi sửa. Không phải vì nó gọi nhiều lần, mà
+vì **mỗi lần lại gửi lại toàn bộ system prompt 2.562 token cho đúng 1 câu**.
+
+Hướng sửa, theo thứ tự hiệu quả: (a) gom review theo lô như bước dịch — một
+system prompt cho N câu thay vì N lần; (b) system prompt riêng, gọn hơn cho
+review; (c) `TRANSLATE_REVIEW=false` (preset `fast`) nếu chấp nhận bỏ hẳn.
+
+### 3. Dịch local (miễn phí) hiện KHÔNG với tới được
+
+`pipeline.py:1341` — nhánh dịch local NLLB (V6) chỉ chạy khi
+`is_configured()` là False, tức khi **chưa cấu hình máy chủ nào**. Ai đã kết
+nối SaaS thì mọi lượt dịch đều đi Gemini, không có cách nào chọn local. Muốn
+dùng bản miễn phí đã có sẵn thì cần một cổng mới kiểu "ưu tiên local", đây là
+thay đổi thiết kế chứ không phải cấu hình.
+
+### 4. TTS đang MIỄN PHÍ — đổi sang ElevenLabs sẽ ĐẮT LÊN
+
+Giọng đọc hiện do VieNeu (ONNX) tổng hợp ngay trên máy/trong container: 0 đ
+mỗi câu. ElevenLabs trong hệ thống chỉ dùng cho nhạc nền (500 Vox/lượt) và
+hiệu ứng âm thanh (100 Vox/lượt), KHÔNG dùng cho giọng đọc. Chuyển giọng đọc
+sang ElevenLabs là đi từ 0 đ lên tính tiền theo ký tự — ngược hướng tiết kiệm.
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật
