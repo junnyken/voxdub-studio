@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
 
 from autodub_gui import tokens
 from autodub_gui.pages.tool_page_base import BasePage
-from autodub_gui.ui.buttons import DangerButton, GhostButton, PrimaryButton
+from autodub_gui.ui.buttons import (
+    DangerButton, GhostButton, PrimaryButton, SecondaryButton)
 from autodub_gui.ui.modal import ConfirmDialog
 from autodub_gui.ui.toast import TOASTS
 
@@ -106,6 +107,14 @@ class CharacterPage(BasePage):
         self.btn_delete = DangerButton("Xoá nhân vật đang chọn")
         self.btn_delete.clicked.connect(self._delete_selected)
         footer.addWidget(self.btn_delete)
+        # V68 — hai lỗi ngược nhau của bước tách người nói, không lỗi nào
+        # chỉnh ngưỡng mà khỏi được (xem TEST_LOG 18-08), nên phải cho sửa tay.
+        self.btn_merge = SecondaryButton("Gộp vào nhân vật khác…")
+        self.btn_merge.clicked.connect(self._merge_selected)
+        footer.addWidget(self.btn_merge)
+        self.btn_forget = SecondaryButton("Nhận diện sai — học lại")
+        self.btn_forget.clicked.connect(self._forget_selected)
+        footer.addWidget(self.btn_forget)
         footer.addStretch()
         self.btn_save = PrimaryButton("Lưu hồ sơ")
         self.btn_save.clicked.connect(self._save)
@@ -177,6 +186,21 @@ class CharacterPage(BasePage):
 
         self._loading = True
         self._profile = CharacterProfile.load(self._profiles_dir(), name)
+        self._render_table()
+
+        self.pronouns.setPlainText(self._profile.pronouns)
+        self.glossary.setPlainText(self._profile.glossary)
+        self._loading = False
+        self._dirty = False
+
+    def _render_table(self) -> None:
+        """Vẽ lại bảng từ `self._profile` — KHÔNG đọc lại đĩa.
+
+        Tách ra ở V68: gộp/học-lại sửa trong bộ nhớ và chưa lưu, gọi `_load`
+        để vẽ lại sẽ đọc đè từ đĩa và nuốt mất đúng thay đổi vừa làm.
+        """
+        dang_nap = self._loading
+        self._loading = True
         self.table.setRowCount(len(self._profile.characters))
         for row, character in enumerate(self._profile.characters):
             self.table.setItem(row, COL_NAME, QTableWidgetItem(character.name))
@@ -195,11 +219,7 @@ class CharacterPage(BasePage):
             item = QTableWidgetItem(how)
             item.setFlags(item.flags() & ~Qt.ItemIsEditable)
             self.table.setItem(row, COL_MATCH, item)
-
-        self.pronouns.setPlainText(self._profile.pronouns)
-        self.glossary.setPlainText(self._profile.glossary)
-        self._loading = False
-        self._dirty = False
+        self._loading = dang_nap
 
     # ------------------------------------------------------------ hành động --
 
@@ -220,6 +240,74 @@ class CharacterPage(BasePage):
         self._profile.characters.pop(row)
         self.table.removeRow(row)
         self._dirty = True
+
+    def _selected_character(self):
+        """Nhân vật đang chọn, hoặc ``None`` kèm lời nhắc — dùng chung 3 nút."""
+        row = self.table.currentRow()
+        if self._profile is None or row < 0 or row >= len(self._profile.characters):
+            TOASTS.warn("Chọn một nhân vật trong bảng trước đã.")
+            return None
+        return self._profile.characters[row]
+
+    def _merge_selected(self) -> None:
+        """Gộp nhân vật đang chọn VÀO một nhân vật khác — mini-spec V68.
+
+        Dùng khi hệ thống tách nhầm MỘT người thành hai (nhãn diarization
+        không ổn định giữa các tập). Gộp trộn embedding theo trọng số số tập
+        chứ không xoá — xoá là mất phần đã học của bên bị gộp.
+        """
+        character = self._selected_character()
+        if character is None:
+            return
+        khac = [c.name for c in self._profile.characters if c.name != character.name]
+        if not khac:
+            TOASTS.warn("Hồ sơ chỉ có một nhân vật — không có ai để gộp vào.")
+            return
+
+        from PySide6.QtWidgets import QInputDialog
+        giu_lai, ok = QInputDialog.getItem(
+            self, "Gộp vào nhân vật nào?",
+            f"«{character.name}» sẽ biến mất, phần đã học của nó được nhập vào "
+            "nhân vật bạn chọn.\nSố tập cộng dồn, giọng giữ theo nhân vật đích.",
+            khac, 0, False)
+        if not ok or not giu_lai:
+            return
+        if self._profile.merge_characters(giu_lai, character.name):
+            self._dirty = True
+            self._render_table()
+            TOASTS.info(f"Đã gộp «{character.name}» vào «{giu_lai}». Nhớ Lưu hồ sơ.")
+
+    def _forget_selected(self) -> None:
+        """Xoá phần nhận diện đã học của nhân vật đang chọn — mini-spec V68.
+
+        Dùng cho ca NGƯỢC LẠI của gộp nhầm: bước tách người nói dồn nhiều
+        người vào một nhãn, nên phần đã học là bản trộn của mấy người và càng
+        dùng càng khớp sai.
+
+        Cố ý KHÔNG có nút "tách thành 2 nhân vật": hồ sơ chỉ giữ MỘT vector
+        cho mỗi nhân vật, không có dữ liệu để tách. Tách thật phải chạy lại
+        bước tách người nói trên audio — việc của lượt dub sau.
+        """
+        character = self._selected_character()
+        if character is None:
+            return
+        confirmed, _ = ConfirmDialog.ask(
+            self, "Cho nhận diện lại từ đầu?",
+            f"Xoá phần nhận diện giọng đã học của «{character.name}».\n\n"
+            "Dùng khi bạn thấy nhân vật này bị nhận nhầm — ví dụ hệ thống gộp "
+            "hai người thành một. Tên, giọng đọc và số tập giữ nguyên; tập sau "
+            "sẽ học lại giọng từ đầu.",
+            kind="warning", confirm_label="Học lại", cancel_label="Giữ nguyên")
+        if not confirmed:
+            return
+        if self._profile.forget_embedding(character.name):
+            self._dirty = True
+            self._render_table()
+            TOASTS.info(f"«{character.name}» sẽ được nhận diện lại ở tập sau. "
+                        "Nhớ Lưu hồ sơ.")
+        else:
+            TOASTS.warn(f"«{character.name}» vốn chưa học được giọng nào — "
+                        "không có gì để xoá.")
 
     def _save(self) -> None:
         """Ghi hồ sơ xuống đĩa, kèm kiểm tra tên trùng.

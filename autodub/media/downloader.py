@@ -51,7 +51,23 @@ def normalize_url(url: str) -> str:
     return url
 
 
-def download_video(url: str, output_dir: str) -> str:
+def cookie_opts_from(settings) -> dict:
+    """Tham số cookie lấy từ Settings — mini-spec V67.
+
+    File tường minh THẮNG trình duyệt: người vừa xuất `cookies.txt` ra là
+    người đang cố sửa một lỗi cụ thể, còn "đọc từ Chrome" là đường tự đoán và
+    hay hỏng lặng lẽ (trình duyệt đang mở khoá hồ sơ, sai profile...).
+    """
+    if settings is None:
+        return {}
+    f = str(getattr(settings, "cookies_file", "") or "").strip()
+    if f:
+        return {"cookies_file": f}
+    b = str(getattr(settings, "cookies_from_browser", "") or "").strip()
+    return {"cookies_from_browser": b} if b else {}
+
+
+def download_video(url: str, output_dir: str, settings=None) -> str:
     if not url:
         raise ValueError("URL cannot be empty")
 
@@ -71,6 +87,8 @@ def download_video(url: str, output_dir: str) -> str:
     if canonical != url:
         logger.info(f"Normalized URL: {url} -> {canonical}")
 
+    _ck = cookie_opts_from(settings)
+
     ydl_opts = {
         "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "outtmpl": os.path.join(output_dir, "%(id)s.%(ext)s"),
@@ -82,6 +100,10 @@ def download_video(url: str, output_dir: str) -> str:
         "fragment_retries": 5,
         "socket_timeout": 30,
     }
+    if _ck.get("cookies_file"):
+        ydl_opts["cookiefile"] = _ck["cookies_file"]
+    elif _ck.get("cookies_from_browser"):
+        ydl_opts["cookiesfrombrowser"] = (_ck["cookies_from_browser"],)
 
     logger.info(f"Downloading video from: {canonical}")
 
@@ -180,6 +202,7 @@ def download_one(
     output_dir: str,
     cookies_from_browser: str | None = None,
     cookies_file: str | None = None,
+    settings=None,
 ) -> dict:
     """Download a single URL and return metadata + saved filepath.
 
@@ -196,6 +219,12 @@ def download_one(
     if canonical != url:
         logger.info(f"Normalized: {url} -> {canonical}")
 
+    # V67 — caller không truyền cookie tay thì lấy từ Settings. Truyền tay vẫn
+    # thắng: chỗ gọi biết rõ hơn cấu hình chung.
+    if not cookies_from_browser and not cookies_file:
+        _ck = cookie_opts_from(settings)
+        cookies_file = _ck.get("cookies_file") or None
+        cookies_from_browser = _ck.get("cookies_from_browser") or None
     ydl_opts = build_ydl_opts(output_dir, cookies_from_browser, cookies_file)
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:

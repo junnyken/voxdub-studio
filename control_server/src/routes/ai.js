@@ -502,7 +502,20 @@ module.exports = async function aiRoutes(fastify) {
     let promptTokens = 0
     let completionTokens = 0
 
-    const results = await Promise.all(items.map(async (item) => {
+    // V66 — gom theo lô thay vì mỗi câu một lượt gọi.
+    //
+    // Bản cũ `Promise.all(items.map(...))` gọi riêng từng câu, mỗi lượt gánh
+    // trọn system prompt của bước DỊCH: 2.562 token cho đúng một câu, trong
+    // khi dịch chính câu đó chỉ tốn 84. Với system prompt riêng cho review
+    // (139 token) và lô 20 câu, đo được giảm 33 lần token vào.
+    //
+    // Lô hỏng thì rơi về gọi từng câu CHỈ cho lô đó — giữ nguyên chất lượng
+    // của bản cũ, và chỉ trả giá token cũ ở đúng đường hỏng hiếm gặp.
+    const CHUNK = 20
+    const chunks = []
+    for (let i = 0; i < items.length; i += CHUNK) chunks.push(items.slice(i, i + CHUNK))
+
+    const perItem = async (item) => {
       try {
         const { text, usage } = await gateway.reviewOne({
           segment: {
@@ -524,7 +537,31 @@ module.exports = async function aiRoutes(fastify) {
         // Một câu rà soát hỏng không được phép làm hỏng cả lượt — giữ bản cũ.
         return null
       }
+    }
+
+    const nested = await Promise.all(chunks.map(async (chunk) => {
+      try {
+        const { fixes, usage } = await gateway.reviewBatch({
+          items: chunk.map((it) => ({ ...it, [targetField]: it.current })),
+          targetKey: targetLang,
+          context,
+          cpsBudget,
+        })
+        promptTokens += usage.promptTokens
+        completionTokens += usage.completionTokens
+        return chunk.map((item) => {
+          const text = fixes.get(item.id)
+          // Mô hình bỏ sót câu nào thì giữ bản cũ — KHÔNG gọi lại lẻ cho nó.
+          // Bỏ sót lác đác là chuyện thường; gọi lại lẻ sẽ lặng lẽ kéo chi phí
+          // về đúng mức cũ mà không ai thấy.
+          if (!text || !accept(item, text)) return null
+          return { id: item.id, [targetField]: text }
+        })
+      } catch {
+        return Promise.all(chunk.map(perItem))
+      }
     }))
+    const results = nested.flat()
 
     const fixed = results.filter(Boolean)
     const paid = await charge(device, {

@@ -7297,6 +7297,86 @@ mỗi câu. ElevenLabs trong hệ thống chỉ dùng cho nhạc nền (500 Vox/
 hiệu ứng âm thanh (100 Vox/lượt), KHÔNG dùng cho giọng đọc. Chuyển giọng đọc
 sang ElevenLabs là đi từ 0 đ lên tính tiền theo ký tự — ngược hướng tiết kiệm.
 
+## V66/V67/V68 + thử Facebook thật (Phase H, 2026-08-18)
+
+### Facebook — dự đoán của tôi SAI, tải được không cần cookie
+
+Tôi đoán Facebook sẽ gãy vì `cloud_batch` gọi `download_one` không truyền
+cookie. Đem link thật của chủ dự án ra thử
+(`facebook.com/share/r/1EUSdYJeXN/`):
+
+```
+extractor: Facebook | id: 4404013619838973 | 20.166 giây
+→ tải thật: Facebook_4404013619838973.mp4, 6.247.458 byte (đã ghép video+audio)
+```
+
+Reel công khai đi qua đường yt-dlp bình thường. Cookie chỉ cần cho video giới
+hạn (riêng tư, tuổi, nhóm kín) — nên V67 làm nó thành ĐƯỜNG LUI, không phải
+thứ bắt buộc cấu hình trước.
+
+### V67 — cookie cho yt-dlp
+
+`COOKIES_FILE` (file Netscape xuất từ extension) hoặc `COOKIES_FROM_BROWSER`
+(chrome/edge/firefox…). Nối vào CẢ HAI đường tải: `download_video` (lượt dub
+thường) và `download_one` (cloud-batch) — sửa một chỗ quên chỗ kia là kiểu lỗi
+"chặn ở tầng này, lọt ở tầng kia" mà V50 đã dính.
+
+Thứ tự ưu tiên có lý do: **file THẮNG trình duyệt** (người vừa xuất
+`cookies.txt` là người đang cố sửa một lỗi cụ thể; "đọc từ Chrome" là đường tự
+đoán và hỏng lặng lẽ khi sai profile), và **tham số truyền tay THẮNG cấu hình
+chung** (chỗ gọi biết rõ hơn). 8 test.
+
+### V66 — gom bước rà soát vào một lượt gọi
+
+Đo được ở khảo sát sáng nay: `reviewOne` gửi trọn system prompt của bước DỊCH
+(2.562 token) cho ĐÚNG MỘT câu, trong khi dịch chính câu đó chỉ tốn 84.
+
+Hai việc, cộng lại:
+
+| | token vào |
+|---|---|
+| cũ: 20 câu × (2.562 + 73) | **52.700** |
+| mới: 1 lượt, system prompt riêng 139 token + 20 câu | **1.596** |
+| | **giảm 33 lần** |
+
+`buildReviewSystemPrompt` cố ý gọn: câu đã được dịch một lần bằng đủ bộ luật
+văn phong rồi, việc ở đây là sửa MỘT khuyết điểm cụ thể. Nhưng giữ lại đúng
+những thứ bỏ đi là hỏng cả video: ngôn ngữ đích, ngân sách ký tự/`max_chars`,
+và xưng hô/thuật ngữ người dùng đặt. Có test khoá từng cái.
+
+**Đường hỏng**: lô lỗi thì rơi về gọi từng câu CHỈ cho lô đó — chất lượng
+đúng bằng bản cũ, và chỉ trả giá token cũ ở đường hiếm gặp. Còn câu mô hình
+BỎ SÓT trong một lô thành công thì giữ bản cũ, KHÔNG gọi lại lẻ: bỏ sót lác
+đác là chuyện thường, gọi lại lẻ sẽ lặng lẽ kéo chi phí về mức cũ mà không ai
+thấy. 7 test.
+
+### V68 — sửa tay hồ sơ nhân vật
+
+Số đo hôm nay cho thấy hai lỗi NGƯỢC NHAU, và không lỗi nào chỉnh ngưỡng mà
+khỏi được (đã thử: nới clustering hết cỡ vẫn sai):
+
+- diarization dồn nhiều người vào một nhãn → embedding của nhân vật là bản
+  trộn, càng dùng càng khớp sai → **"Nhận diện sai — học lại"**
+  (`forget_embedding`): xoá vector đã bẩn, GIỮ tên/giọng/số tập.
+- nhãn diarization đổi giữa các tập → một người thành hai nhân vật →
+  **"Gộp vào nhân vật khác…"** (`merge_characters`).
+
+Gộp **trộn** embedding theo trọng số SỐ TẬP chứ không xoá một bên: người xuất
+hiện 9 tập đáng tin hơn người 1 tập, và xoá là mất trắng phần đã học.
+
+**Cố ý KHÔNG có nút "tách thành 2 nhân vật"** dù chủ dự án nêu: hồ sơ chỉ giữ
+MỘT vector mỗi nhân vật, không có dữ liệu nào để tách nó thành hai. Tách thật
+đòi chạy lại diarization trên audio gốc — việc của lượt dub sau, không phải
+của trang quản lý. Thứ làm được ở đây là xoá cái đã bẩn để tập sau học lại
+sạch, và đó đúng là bản sửa cho ca này.
+
+**Bug tránh được nhờ tách `_render_table`**: gộp/học-lại sửa trong bộ nhớ và
+chưa lưu; gọi `_load()` để vẽ lại sẽ đọc đè từ đĩa và nuốt mất đúng thay đổi
+vừa làm — cùng họ với bug mất dữ liệu âm thầm đã sửa ở V62. 13 test (10 tầng
+dữ liệu + 3 tầng trang).
+
+**1320 test Python + 331 test Node, 0 fail.**
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật

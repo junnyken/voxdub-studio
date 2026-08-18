@@ -206,3 +206,37 @@ def test_switching_after_saving_does_not_ask(page, monkeypatch, profiles_dir):
 
     assert not asked, "đã lưu rồi thì đừng hỏi nữa"
     assert page.profile_picker.currentText() == "Phim B"
+
+
+
+# ------------------------------------------------------------------ V68 --
+def test_gop_hai_nhan_vat_bi_tach_nham(page):
+    """Gộp phải cộng dồn số tập và vẽ lại bảng NGAY, không đọc đè từ đĩa.
+
+    `_load()` đọc lại file; nếu nút Gộp gọi nó để vẽ lại thì đúng thay đổi vừa
+    làm bị nuốt mất không một lời nào. Đây là lý do V68 tách `_render_table`.
+    """
+    assert page.table.rowCount() == 2
+    assert page._profile.merge_characters("SPEAKER_00", "SPEAKER_01") is True
+    page._render_table()
+
+    assert page.table.rowCount() == 1, "bảng phải theo bộ nhớ, không theo đĩa"
+    assert page.table.item(0, 0).text() == "SPEAKER_00"
+    assert page.table.item(0, 2).text() == "5", "3 tập + 2 tập phải cộng dồn"
+
+
+def test_hoc_lai_doi_cot_nhan_dien_ve_cao_do(page):
+    assert "chính xác" in page.table.item(0, 3).text().lower()
+
+    assert page._profile.forget_embedding("SPEAKER_00") is True
+    page._render_table()
+
+    assert "cao độ" in page.table.item(0, 3).text().lower(), \
+        "xoá phần đã học rồi thì cột Nhận diện phải nói thật là chỉ còn cao độ"
+
+
+def test_ve_lai_bang_khong_tu_dat_co_da_sua(page):
+    """`_render_table` chỉ vẽ — không được tự bật cờ dirty qua itemChanged."""
+    page._dirty = False
+    page._render_table()
+    assert page._dirty is False

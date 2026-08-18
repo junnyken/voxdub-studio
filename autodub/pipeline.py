@@ -1637,7 +1637,8 @@ class DubPipeline:
 
         if url:
             from autodub.media.downloader import download_video
-            return download_video(url, work_dir)
+            # V67 — cookie (nếu người dùng đã cấu hình) cho video giới hạn.
+            return download_video(url, work_dir, settings=self.settings)
 
         raise RuntimeError(
             f"No source video found in {work_dir} and no --url/--file given. "

@@ -244,6 +244,68 @@ class CharacterProfile:
                 f"kế tiếp {runner_up:.3f} → {verdict}")
         return lines
 
+    def merge_characters(self, giu_lai: str, gop_vao: str) -> bool:
+        """Gộp hai nhân vật thành một — mini-spec V68.
+
+        Dùng khi hệ thống TÁCH NHẦM một người thành hai (nhãn diarization đổi
+        giữa các tập, hoặc embedding của tập đầu chưa đủ tốt).
+
+        Xoá thẳng một cái là mất embedding đã tích luỹ của nó — nên gộp phải
+        TRỘN: embedding lấy trung bình có trọng số theo số tập (người xuất
+        hiện 9 tập đáng tin hơn người 1 tập), số tập cộng dồn, F0 lấy trung
+        bình cùng trọng số. Giọng và tên giữ theo bản ``giu_lai``.
+
+        Trả ``False`` khi không tìm thấy một trong hai, hoặc khi gộp chính nó.
+        """
+        if giu_lai == gop_vao:
+            return False
+        theo_ten = {c.name: c for c in self.characters}
+        a, b = theo_ten.get(giu_lai), theo_ten.get(gop_vao)
+        if a is None or b is None:
+            return False
+
+        na, nb = max(1, a.episodes), max(1, b.episodes)
+        if a.embedding and b.embedding:
+            tron = [(x * na + y * nb) / (na + nb)
+                    for x, y in zip(a.embedding, b.embedding)]
+            a.embedding = _normalise(tron)
+        elif b.embedding and not a.embedding:
+            a.embedding = list(b.embedding)
+
+        if a.median_f0 > 0 and b.median_f0 > 0:
+            a.median_f0 = round((a.median_f0 * na + b.median_f0 * nb) / (na + nb), 2)
+        elif b.median_f0 > 0:
+            a.median_f0 = b.median_f0
+
+        a.episodes = a.episodes + b.episodes
+        if not a.gender:
+            a.gender = b.gender
+        self.characters = [c for c in self.characters if c.name != gop_vao]
+        return True
+
+    def forget_embedding(self, character_name: str) -> bool:
+        """Xoá embedding đã học của một nhân vật, GIỮ tên/giọng — mini-spec V68.
+
+        Đây là bản sửa đúng cho ca NGƯỢC LẠI của gộp nhầm: diarization dồn
+        nhiều người vào một nhãn, nên embedding của nhân vật này là bản trộn
+        của mấy người — càng dùng càng khớp sai.
+
+        **Cố ý KHÔNG làm "tách thành 2 nhân vật"**: hồ sơ chỉ giữ MỘT vector
+        cho mỗi nhân vật, không có dữ liệu nào để tách nó thành hai. Tách thật
+        đòi chạy lại diarization trên audio gốc — việc của lượt dub sau, không
+        phải của trang quản lý. Thứ làm được ở đây là xoá cái đã bẩn đi để tập
+        sau học lại từ đầu bằng dữ liệu sạch.
+
+        Số tập giữ nguyên: đó là lịch sử có thật, không phải thứ bị bẩn.
+        """
+        for c in self.characters:
+            if c.name == character_name:
+                if not c.embedding:
+                    return False
+                c.embedding = []
+                return True
+        return False
+
     def voice_for(self, character_name: str) -> str:
         for c in self.characters:
             if c.name == character_name:

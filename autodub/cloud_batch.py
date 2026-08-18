@@ -296,7 +296,11 @@ def run_cloud_batch(
                     from autodub.media.downloader import download_one
 
                     download_dir.mkdir(parents=True, exist_ok=True)
-                    info = download_one(item.source, str(download_dir))
+                    # V67 — dùng cookie đã cấu hình nếu có; link công khai
+                    # vẫn tải được khi không có, nên đây là đường lui.
+                    from autodub.config import Settings
+                    info = download_one(item.source, str(download_dir),
+                                        settings=Settings.load())
                     item.path = Path(info["filepath"])
                     item.downloaded = True
                     _remember_download(download_dir, item.source, item.path)

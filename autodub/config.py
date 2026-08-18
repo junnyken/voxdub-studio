@@ -133,6 +133,20 @@ class Settings:
     # CHỌN (mặc định TẮT, cài qua scripts/setup_diarization.py giống
     # Paraformer) — venv riêng .venv-diar (pyannote.audio + torch), không
     # đóng gói mặc định.
+    # mini-spec V67 — cookie cho yt-dlp. Video giới hạn (Facebook riêng tư,
+    # YouTube tuổi/thành viên, TikTok vài vùng) đòi đăng nhập; không có cookie
+    # thì yt-dlp chỉ báo lỗi chung chung và người dùng không biết đường xử lý.
+    #
+    # Đo 18-08: reel Facebook CÔNG KHAI tải được mà KHÔNG cần cookie — nên đây
+    # là đường lui khi gặp lỗi, không phải thứ bắt buộc cấu hình trước.
+    #
+    # `cookies_file`: file Netscape cookies.txt xuất từ extension trình duyệt.
+    # `cookies_from_browser`: tên trình duyệt để yt-dlp tự đọc (chrome, edge,
+    # firefox...). Điền cả hai thì FILE thắng — đường tường minh thắng đường
+    # tự đoán, và người vừa xuất file ra là người đang cố sửa một lỗi cụ thể.
+    cookies_file: str = ""
+    cookies_from_browser: str = ""
+
     diarization_enabled: bool = False
     diarization_venv_python: str = ""  # mặc định: <app>/.venv-diar/Scripts/python.exe
     diarization_model_dir: str = ""    # mặc định: <app>/models/diarization
@@ -414,6 +428,8 @@ class Settings:
                                ("whisper", "paraformer"), "whisper"),
             asr_venv_python=env("ASR_VENV_PYTHON"),
             paraformer_model_dir=env("PARAFORMER_MODEL_DIR"),
+            cookies_file=env("COOKIES_FILE", ""),
+            cookies_from_browser=env("COOKIES_FROM_BROWSER", ""),
             diarization_enabled=env_bool("DIARIZATION_ENABLED", "false"),
             speaker_count=env_int("SPEAKER_COUNT", "0"),
             diarization_venv_python=env("DIARIZATION_VENV_PYTHON"),

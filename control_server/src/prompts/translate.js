@@ -653,6 +653,49 @@ function reviewReason(reason, targetName) {
   return reasons[reason]
 }
 
+/**
+ * System prompt RIÊNG cho bước rà soát — cố ý gọn hơn hẳn bản dịch.
+ *
+ * Đo ngày 18-08: `buildTranslateSystemPrompt` là 2.562 token, và bản cũ gửi
+ * TRỌN gói đó cho ĐÚNG MỘT câu. Dịch một câu tốn 84 token, rà soát lại chính
+ * câu đó tốn 2.635 — bước sửa đắt gấp ~31 lần bước nó đi sửa.
+ *
+ * Rà soát không cần trọn bộ luật văn phong: câu đã được dịch một lần bằng
+ * đúng bộ luật đó rồi, việc ở đây là sửa MỘT khuyết điểm cụ thể (còn chữ Hán,
+ * dài quá chỗ trống, rụng mất nghĩa). Giữ lại đúng phần cần để không phá văn
+ * phong: ngôn ngữ đích, ngân sách ký tự, xưng hô/thuật ngữ người dùng đặt.
+ */
+function buildReviewSystemPrompt({ targetKey = 'vi', context, cpsBudget } = {}) {
+  const { name: targetName, field } = resolveTargetLang(targetKey)
+  const ctx = userContextBlock(sanitizeContext(context || {}))
+  const cps = Number(cpsBudget) > 0 ? Number(cpsBudget) : DEFAULT_CPS
+  return `You fix flawed ${targetName} subtitle translations. Each item names exactly what is wrong with it.
+Rules:
+- Output natural spoken ${targetName}. Never leave source-language characters in the result.
+- Respect each item's max_chars — subtitles must fit their time slot (budget ~${cps} chars/second).
+- Keep the meaning of the source line complete. Do not add commentary or explanation.
+- Keep the same register and the same names/terms as the surrounding lines.
+${ctx}
+Return ONLY JSON: {"segments": [{"id": ..., "${field}": "..."}]} — one entry per item you were given.`
+}
+
+/** Gom NHIỀU câu vào một lượt gọi (V66) — thay cho N lượt, mỗi lượt một prompt. */
+function buildReviewBatchUserPrompt({ items, targetField, targetKey = 'vi' }) {
+  const { name: targetName } = resolveTargetLang(targetKey)
+  const lines = items.map((it) => JSON.stringify({
+    id: it.id,
+    problem: reviewReason(it.reason, targetName),
+    source: it.text,
+    current_bad_translation: String(it[targetField] || it.current || ''),
+    duration: it.duration,
+    max_chars: it.max_chars,
+    nearby_lines: it.neighbors || undefined,
+  })).join('\n')
+  return `Fix each of the ${items.length} segments below. Each line is one segment as JSON, `
+    + `and its "problem" field says exactly why it needs fixing.\n`
+    + `"nearby_lines" is context only — never translate it, never return it.\n\n${lines}`
+}
+
 function buildReviewUserPrompt({ segment, reason, targetField, targetKey = 'vi', neighbors }) {
   const { name: targetName } = resolveTargetLang(targetKey)
   return `One translated segment needs fixing because ${reviewReason(reason, targetName)}.\n`
@@ -751,6 +794,8 @@ module.exports = {
   ANALYSIS_SCHEMA,
   buildAnalysisPrompt,
   buildReviewUserPrompt,
+  buildReviewSystemPrompt,
+  buildReviewBatchUserPrompt,
   CONTENT_SYSTEM,
   CONTENT_SCHEMA,
   buildContentPrompt,

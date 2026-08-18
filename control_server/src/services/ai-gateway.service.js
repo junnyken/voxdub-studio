@@ -461,6 +461,34 @@ async function analyze({ lines, sourceLang, videoTitle, targetKey = 'vi' }) {
   return { analysis: data, usage, provider: provider.name, model: provider.model }
 }
 
+/**
+ * Rà soát và dịch lại NHIỀU câu trong MỘT lượt gọi (mini-spec V66).
+ *
+ * Bản cũ (`reviewOne`) gọi riêng từng câu, mỗi lượt gánh trọn system prompt
+ * của bước dịch — 2.562 token cho đúng một câu, trong khi dịch chính câu đó
+ * chỉ tốn 84. Gom 20 câu + system prompt riêng gọn hơn: đo được **giảm 33
+ * lần** token vào.
+ *
+ * Trả `{ fixes: Map<id, text>, usage }`. Câu nào mô hình không trả về thì
+ * đơn giản là không có trong map — caller giữ nguyên bản cũ, đúng như hành vi
+ * "một câu hỏng không làm hỏng cả lượt" của bản cũ.
+ */
+async function reviewBatch({ items, targetKey = 'vi', context, cpsBudget }) {
+  const { field: targetField } = prompts.resolveTargetLang(targetKey)
+  const system = prompts.buildReviewSystemPrompt({ targetKey, context, cpsBudget })
+  const user = prompts.buildReviewBatchUserPrompt({ items, targetField, targetKey })
+  const { content, usage } = await callWithFallback('translate', {
+    system, user, schema: prompts.translateSchema(targetField), maxRetries: 2,
+  })
+  const fixes = new Map()
+  for (const seg of parseResponseSegments(content)) {
+    const id = Number(seg && seg.id)
+    const text = String((seg && seg[targetField]) || '').trim()
+    if (Number.isFinite(id) && text) fixes.set(id, text)
+  }
+  return { fixes, usage }
+}
+
 /** Rà soát và dịch lại một câu nghi vấn. */
 async function reviewOne({ segment, reason, neighbors, sourceLang, targetKey = 'vi',
   context, cpsBudget }) {
@@ -517,6 +545,7 @@ module.exports = {
   fixCjkLeftovers,
   analyze,
   reviewOne,
+  reviewBatch,
   generatePost,
   invalidateProviders,
   providersFor,
