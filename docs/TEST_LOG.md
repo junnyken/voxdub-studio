@@ -7638,6 +7638,42 @@ Xong: 2 | Hỏng: 0 | Đã huỷ: 0
   chờ tải xong mới biết tiêu đề).
 - Chưa chạy thử trên Windows.
 
+## V72b — Đóng nốt 2 gap của V72 (Phase H, 2026-08-18)
+
+### Liên kết trùng tiêu đề không còn ghi đè nhau
+
+Gap V72 để lại: tên file của liên kết lấy từ TIÊU ĐỀ video nên chỉ biết sau
+khi tải xong, không chặn trước được như file trên máy. Hai tập cùng tên
+«Tập 1» của hai kênh khác nhau là chuyện thường — không xử lý thì file sau đè
+file trước, âm thầm.
+
+Sửa: `transcribe_media` nhận thêm tập tên ĐÃ DÙNG và tự thêm hậu tố sau khi
+biết tiêu đề. Chạy LẺ một mục thì không thêm gì (không có gì để đụng độ —
+đẻ ra `_2` vô cớ cũng là một kiểu sai). 3 test.
+
+### Đường subprocess: từ "tin là được" thành "đo được"
+
+V72 tuyên bố luồng canh giết tiến trình nên huỷ ăn ngay, nhưng **chưa từng
+chạy thử** — máy này không có `.venv-whisper`. Đó chính là lý do bản V72 đầu
+treo mà không ai biết.
+
+Giờ có test giả lập worker bằng script Python `sleep(600)` không phát câu nào:
+nếu huỷ chỉ đặt cờ mà không giết tiến trình thì test treo. Đo được: huỷ xong
+trong **~1,5 giây** thay vì chờ hết `_WHISPER_SEGMENT_TIMEOUT_S`.
+
+**Kết luận về độ trễ huỷ** — khác nhau theo đường chạy, cần nói rõ:
+
+| đường ASR | độ trễ huỷ | vì sao |
+|---|---|---|
+| subprocess (`.venv-whisper`) | **~ngay** | giết được tiến trình con |
+| in-process (không có venv) | tới câu kế tiếp (đo 10s) | không thể ngắt generator giữa chừng |
+
+Nên máy nào cài `scripts/setup_whisper.py` thì nút Dừng ăn ngay; máy chạy
+in-process phải chờ hết câu đang nhận dạng. Đây là giới hạn thật, không phải
+thứ chỉnh tham số là xong.
+
+**1376 test Python, 0 fail.**
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật

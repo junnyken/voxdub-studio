@@ -368,3 +368,100 @@ def test_huy_TRUOC_khi_tai_thi_khong_dung_toi_mang(monkeypatch, tmp_path):
     with pytest.raises(TranscribeCancelled):
         tt.transcribe_media("https://youtu.be/x", str(tmp_path), Settings(),
                             formats=("txt",), cancel_event=cancel)
+
+
+# ------------------------------------- V72b: liên kết trùng tiêu đề (đóng gap)
+def test_hai_LIEN_KET_cung_tieu_de_khong_ghi_de_nhau(monkeypatch, tmp_path):
+    """Hai tập cùng tên «Tập 1» của hai kênh khác nhau là chuyện thường.
+
+    Tên của liên kết chỉ biết SAU khi tải xong nên không chặn trước được —
+    đây là gap V72 để lại, giờ đóng.
+    """
+    media = tmp_path / "tai_ve.mp4"
+    media.write_bytes(b"\0")
+    _gia_lap(monkeypatch, tmp_path)
+    monkeypatch.setattr("autodub.media.downloader.download_one",
+                        lambda url, out, **k: {"filepath": str(media),
+                                               "title": "Tập 1"})
+
+    ket = tt.transcribe_many(["https://kenh-a/x", "https://kenh-b/y"],
+                             str(tmp_path / "out"), Settings(), formats=("txt",))
+
+    duong = [m.result.outputs["txt"] for m in ket]
+    assert os.path.basename(duong[0]) == "Tập 1.txt"
+    assert os.path.basename(duong[1]) == "Tập 1_2.txt", "file sau không được đè file trước"
+    assert all(os.path.isfile(d) for d in duong), "cả hai file phải cùng tồn tại"
+
+
+def test_chay_le_mot_lien_ket_khong_them_hau_to(monkeypatch, tmp_path):
+    """Chạy lẻ thì không có gì để đụng độ — đừng đẻ ra `_2` vô cớ."""
+    media = tmp_path / "tai_ve.mp4"
+    media.write_bytes(b"\0")
+    _gia_lap(monkeypatch, tmp_path)
+    monkeypatch.setattr("autodub.media.downloader.download_one",
+                        lambda url, out, **k: {"filepath": str(media),
+                                               "title": "Tập 1"})
+
+    kq = tt.transcribe_media("https://kenh-a/x", str(tmp_path / "out"),
+                             Settings(), formats=("txt",))
+    assert os.path.basename(kq.outputs["txt"]) == "Tập 1.txt"
+
+
+def test_lien_ket_va_file_cung_ten_cung_khong_dung_nhau(monkeypatch, tmp_path):
+    media = tmp_path / "tai_ve.mp4"
+    media.write_bytes(b"\0")
+    (tmp_path / "Tập 1.mp4").write_bytes(b"\0")
+    _gia_lap(monkeypatch, tmp_path)
+    monkeypatch.setattr("autodub.media.downloader.download_one",
+                        lambda url, out, **k: {"filepath": str(media),
+                                               "title": "Tập 1"})
+
+    ket = tt.transcribe_many([str(tmp_path / "Tập 1.mp4"), "https://kenh-a/x"],
+                             str(tmp_path / "out"), Settings(), formats=("txt",))
+    ten = [os.path.basename(m.result.outputs["txt"]) for m in ket]
+    assert ten == ["Tập 1.txt", "Tập 1_2.txt"]
+
+
+# ------------------- V72b: đường SUBPROCESS phải huỷ NGAY, không chờ hết câu
+def test_duong_subprocess_huy_GIET_tien_trinh_ngay(monkeypatch, tmp_path):
+    """Máy có `.venv-whisper` thì huỷ không được chờ tới câu kế tiếp.
+
+    Máy chạy test này không có `.venv-whisper` (nên bản V72 đầu treo mà không
+    ai biết), vì vậy giả lập worker bằng một script Python ngủ thật lâu: nếu
+    huỷ chỉ đặt cờ mà không giết tiến trình, test này sẽ treo.
+    """
+    import sys as _sys
+    import textwrap
+    import threading as _th
+    import time as _time
+
+    from autodub.speech import transcriber as tr
+
+    worker = tmp_path / "fake_whisper_worker.py"
+    worker.write_text(textwrap.dedent("""
+        import json, sys, time
+        print(json.dumps({"ready": True}), flush=True)
+        sys.stdin.readline()
+        time.sleep(600)          # không bao giờ phát câu nào
+    """), encoding="utf-8")
+
+    settings = Settings()
+    monkeypatch.setattr(settings, "whisper_venv_python_path", lambda: _sys.executable)
+    monkeypatch.setattr(settings, "whisper_model_dir_path", lambda: str(tmp_path))
+    monkeypatch.setattr(tr, "_WHISPER_WORKER_SCRIPT", str(worker))
+
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(b"\0")
+
+    cancel = _th.Event()
+    _th.Timer(1.5, cancel.set).start()
+
+    t0 = _time.monotonic()
+    with pytest.raises(tr.TranscribeCancelled):
+        tr._transcribe_whisper_subprocess(str(audio), "vi", settings,
+                                          cancel_event=cancel)
+    troi_qua = _time.monotonic() - t0
+
+    assert troi_qua < 15, (
+        f"huỷ mất {troi_qua:.1f}s — phải giết tiến trình chứ không chờ "
+        "`_WHISPER_SEGMENT_TIMEOUT_S`")

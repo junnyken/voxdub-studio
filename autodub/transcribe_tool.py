@@ -156,7 +156,7 @@ def transcribe_media(source: str, output_dir: str, settings,
                      language: str = "", formats=("txt", "srt"),
                      with_timestamps: bool = False,
                      progress=None, cancel_event=None,
-                     output_name: str = "") -> TranscribeResult:
+                     output_name: str = "", taken_names=None) -> TranscribeResult:
     """Chuyển một liên kết/file thành văn bản.
 
     ``language``: mã ngôn ngữ NGUỒN (vd ``en``, ``vi``, ``zh``). Để trống thì
@@ -194,7 +194,11 @@ def transcribe_media(source: str, output_dir: str, settings,
 
     # `output_name` do lượt hàng loạt truyền vào để tránh hai nguồn cùng tên
     # ghi đè kết quả của nhau — xem `transcribe_many`.
-    base = output_name or _output_basename(source, title)
+    #
+    # Với LIÊN KẾT thì tên chỉ biết được SAU khi tải xong (lấy từ tiêu đề
+    # video), nên việc chống trùng phải làm ở đây chứ không làm trước được:
+    # hai tập cùng tên «Tập 1» của hai kênh khác nhau là chuyện thường.
+    base = output_name or _du_phong_ten(_output_basename(source, title), taken_names)
     result = TranscribeResult(source=source, audio_path=audio_path,
                               segments=segments, title=title)
 
@@ -312,7 +316,8 @@ def transcribe_many(sources, output_dir: str, settings, *,
                 muc.source, output_dir, settings, language=language,
                 formats=formats, with_timestamps=with_timestamps,
                 cancel_event=cancel_event,
-                output_name=_ten_khong_trung(muc.source, ten_da_dung))
+                output_name=_ten_khong_trung(muc.source, ten_da_dung),
+                taken_names=ten_da_dung)
             muc.status = "xong"
         except TranscribeCancelled:
             for con_lai in muc_list[i:]:
@@ -352,4 +357,24 @@ def _ten_khong_trung(source: str, da_dung: set[str]) -> str:
         ten = f"{goc}_{lan}"
         lan += 1
     da_dung.add(ten)
+    return ten
+
+
+def _du_phong_ten(base: str, taken_names) -> str:
+    """Thêm hậu tố nếu tên đã bị dùng trong cùng lượt — mini-spec V72b.
+
+    Dùng cho LIÊN KẾT, vì tên của liên kết lấy từ tiêu đề video nên chỉ biết
+    sau khi tải xong. Hai tập cùng tên «Tập 1» của hai kênh khác nhau là
+    chuyện thường; không xử lý thì file sau ghi đè file trước, âm thầm.
+
+    `taken_names` là ``None`` khi chạy lẻ một mục — không có gì để đụng độ.
+    """
+    if taken_names is None:
+        return base
+    ten = base
+    lan = 2
+    while ten in taken_names:
+        ten = f"{base}_{lan}"
+        lan += 1
+    taken_names.add(ten)
     return ten
