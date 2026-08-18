@@ -155,6 +155,13 @@ dựng lại database từ đầu (kể cả cùng app Coolify) sẽ mất, ph�
 
 ## 7. Backup MongoDB
 
+> **[HẾT HIỆU LỰC TỪ 2026-08-17 — đọc trước khi tin mục này]** Toàn bộ mục 7
+> mô tả backup **của Coolify**. Ngày 17-08 dự án chuyển sang Vibe Host, nên
+> lịch backup này **không còn tồn tại và không có lượt nào chạy nữa**. Giữ lại
+> vì runbook còn dùng khi dựng lại trên Coolify. Cách sao lưu ĐANG dùng nằm ở
+> mục 7b ngay dưới.
+
+
 ```bash
 curl -X POST ".../databases/<mongo-uuid>/backups" -d '{"frequency": "0 3 * * *"}'
 # response mặc định save_s3=true dù CHƯA có S3 storage nào — PHẢI tắt đi,
@@ -174,6 +181,67 @@ chưa làm — xem `docs/PLAN.md` Remaining Limits).
 Không có endpoint API "chạy backup ngay" — muốn kiểm tra thật, đổi tạm
 `frequency` thành `*/2 * * * *`, đợi 1 lượt chạy (`GET .../backups` xem
 field `executions`), rồi đặt lại lịch thật.
+
+## 7b. Sao lưu thật sau khi rời Coolify — lịch đặt trên máy NGOÀI
+
+Vibe Host không có ổ đĩa bền vững: bản dump ghi trong container bay theo lần
+redeploy kế tiếp. Nên sao lưu là kiểu **KÉO** — một máy bên ngoài gọi
+`GET /v1/admin/backup` rồi giữ file. Không có máy ngoài đặt lịch thì **không
+có bản sao lưu nào cả**, kể cả khi endpoint hoạt động hoàn hảo.
+
+Hai script, cùng ràng buộc, khác vỏ:
+
+| Máy | Script | Đặt lịch bằng |
+|---|---|---|
+| Windows | `scripts/backup-pull.ps1` | Task Scheduler |
+| Linux/macOS | `scripts/backup-pull.sh` | `cron` |
+
+Cả hai đều: kiểm HTTP 200, **giải nén thật** để chắc file không hỏng, từ chối
+bản dump rỗng, chỉ đổi tên `.part` → tên chính thức khi đã qua hết, và xoay
+vòng giữ N bản mới nhất. File `.gz` hỏng nằm trong thư mục sao lưu là kiểu
+hỏng tệ nhất — chỉ phát hiện đúng lúc cần khôi phục.
+
+### Windows (máy chủ dự án)
+
+```powershell
+# 1. Cất token vào biến môi trường của user (không nhét vào dòng lệnh của
+#    Task Scheduler — chỗ đó ai mở Task Scheduler cũng đọc được).
+setx VOXDUB_ADMIN_TOKEN "<ADMIN_TOKEN của máy chủ>"
+
+# 2. Chạy TAY một lần trước khi đặt lịch. Đặt lịch cho một thứ chưa từng chạy
+#    thành công = lên lịch cho một thất bại im lặng.
+cd C:\voxdub\control_server
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-pull.ps1 C:\voxdub-backups 14
+
+# 3. Đặt lịch 3h sáng hằng ngày. Để NGUYÊN một dòng — dấu `^` xuống dòng là
+#    của cmd.exe, dán vào PowerShell sẽ hỏng.
+schtasks /Create /SC DAILY /ST 03:00 /TN "VoxDub backup" /TR "powershell -NoProfile -ExecutionPolicy Bypass -File C:\voxdub\control_server\scripts\backup-pull.ps1 C:\voxdub-backups 14"
+```
+
+Máy tắt lúc 3h sáng thì lượt đó **mất luôn**, không chạy bù. Muốn chạy bù khi
+máy bật lại, thêm `/RI` hoặc bật "Run task as soon as possible after a
+scheduled start is missed" trong Task Scheduler UI.
+
+### Linux/macOS
+
+```bash
+0 3 * * * VOXDUB_ADMIN_TOKEN=... /đường/dẫn/backup-pull.sh ~/voxdub-backups 14
+```
+
+### Kiểm lại — bắt buộc, không phải tuỳ chọn
+
+Sao lưu không ai kiểm là sao lưu giả vờ. Mỗi vài tuần mở thư mục đích xem file
+mới nhất có đúng ngày hôm qua không, và dung lượng không đột ngột tụt.
+
+### Khôi phục
+
+```bash
+node scripts/restore-backup.js <file.ndjson.gz>          # upsert: giữ bản ghi mới hơn
+node scripts/restore-backup.js <file.ndjson.gz> --wipe   # xoá sạch rồi nhập: quay ngược thời gian
+```
+
+Kết nối bằng `MONGODB_URI` giống máy chủ nên chạy được từ bất kỳ đâu thấy được
+database.
 
 ## 8. Publish GitHub Release cho app desktop (không liên quan `control_server`
    nhưng chung 1 repo, dễ nhầm)
