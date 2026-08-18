@@ -39,6 +39,13 @@ def normalize_url(url: str) -> str:
     if not url:
         return url
     url = url.strip()
+    # Thêm lược đồ khi người dùng gõ tay `www.youtube.com/…`. Làm ở đây để
+    # mọi khâu sau (chọn extractor, cắt tham số playlist, `urlparse`) nhìn
+    # thấy một địa chỉ đầy đủ — `urlparse` không có lược đồ thì đẩy cả tên
+    # miền vào `path` và mọi phép kiểm theo `netloc` đều trượt.
+    from autodub.utils import looks_like_bare_url
+    if looks_like_bare_url(url):
+        url = "https://" + url
     parsed = urlparse(url)
     host = parsed.netloc.lower()
 

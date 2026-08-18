@@ -1,8 +1,40 @@
 import json
 import os
 import logging
+import re
 import sys
 import tempfile
+
+
+#: Địa chỉ web THIẾU `https://` — vd `www.youtube.com/watch?v=…`.
+#:
+#: Cố tình HẸP, vì đoán sai theo hướng ngược lại thì tai hại hơn nhiều: coi
+#: một đường dẫn file là địa chỉ web sẽ khiến thông báo "không tìm thấy file"
+#: biến thành một lỗi tải khó hiểu. Nên đòi đủ ba dấu hiệu cùng lúc:
+#:   1. có dấu `/` — tức có phần đường dẫn, loại được `phim.mp4` (tên file có
+#:      dấu chấm, nếu chỉ soi phần đuôi thì `mp4` trông y hệt một tên miền);
+#:   2. đoạn đầu là một tên miền hợp lệ, có ít nhất một dấu chấm và đuôi toàn
+#:      chữ cái — loại được đường dẫn tương đối `thu_muc/phim.mp4`;
+#:   3. không có `\` và không mở đầu bằng ổ đĩa Windows (`D:`).
+_DIA_CHI_TRONG = re.compile(
+    r"^(?!\w+://)[A-Za-z0-9][A-Za-z0-9-]*(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(/|$)")
+
+
+def looks_like_bare_url(text: str) -> bool:
+    """True nếu đây là địa chỉ web bị thiếu `https://`.
+
+    yt-dlp vốn nhận được dạng thiếu lược đồ; chỗ từ chối là ứng dụng, nên
+    người dùng gõ tay `www.youtube.com/watch?v=…` sẽ nhận thông báo "không
+    tìm thấy file" — đúng kỹ thuật nhưng vô nghĩa với họ.
+    """
+    t = (text or "").strip()
+    if not t or "\\" in t or "/" not in t:
+        return False
+    if len(t) > 1 and t[1] == ":":          # D:/phim/a.mp4
+        return False
+    if os.path.exists(t):                   # có thật trên đĩa → là file
+        return False
+    return bool(_DIA_CHI_TRONG.match(t))
 
 
 def app_root() -> str:

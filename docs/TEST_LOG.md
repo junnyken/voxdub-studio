@@ -7828,7 +7828,56 @@ chuyển tiếp sang vùng cuộn. Đo: gỡ bộ lọc ra → 0, để nguyên 
 - **Liên kết thiếu `http://`** (`www.youtube.com/…`) bị `is_url` coi là đường
   dẫn file → báo "Không tìm thấy". yt-dlp vốn nhận được dạng này.
 
-**1408 passed, 7 skipped, 0 failed** (Python; trước khi sửa 1365).
+### Đóng nốt 2 việc còn tồn
+
+**a) `chep_loi/_tam/` giờ được dọn sau khi xuất xong.** `prepare_audio` trả
+thêm đường dẫn media để biết cái gì là file TẢI VỀ.
+
+Ràng buộc quan trọng nhất: với file trên máy, `prepare_audio` trả về chính
+đường dẫn CỦA NGƯỜI DÙNG làm `media_path` — dọn mà không kiểm thư mục là xoá
+thẳng dữ liệu gốc của họ, hỏng nặng hơn mọi thứ việc dọn dẹp định sửa. Nên
+`_don_tam` chỉ xoá thứ nằm TRONG `work_dir` (`os.path.commonpath`, bắt luôn
+`ValueError` cho ca hai ổ đĩa khác nhau trên Windows).
+
+Chỉ dọn khi đã xuất xong — mục HỎNG giữ nguyên file để còn dò nguyên nhân.
+
+Kiểm bằng chạy thật cả hai ca: file trên máy → file gốc CÒN NGUYÊN, `_tam`
+sạch; liên kết → video tải về bị xoá, `_tam` sạch, `.txt` vẫn đúng tên theo
+tiêu đề video.
+
+**b) Liên kết thiếu `https://`** (`www.youtube.com/watch?v=…`) trước đây bị
+`is_url` coi là đường dẫn file → báo "Không tìm thấy", trong khi yt-dlp vốn
+nhận được dạng này.
+
+`looks_like_bare_url` cố tình HẸP, vì đoán sai theo hướng ngược lại tai hại
+hơn nhiều: coi một đường dẫn file là địa chỉ web sẽ biến thông báo "không tìm
+thấy file" rõ ràng thành một lỗi tải khó hiểu. Đòi đủ ba dấu hiệu: có `/`, đoạn
+đầu là tên miền hợp lệ, không phải đường dẫn Windows — và file có thật trên đĩa
+thì luôn thắng.
+
+> Cái bẫy đáng nói: `phim.mp4` trông y hệt một tên miền nếu chỉ soi phần sau
+> dấu chấm cuối (`mp4` là chuỗi chữ cái hợp lệ như `com`). Đòi phải có `/` mới
+> loại được nó — 9 ca "không được nhầm thành địa chỉ" nằm trong test.
+
+Lược đồ được thêm ở `normalize_url` chứ không ở `is_url`: `urlparse` mà không
+có lược đồ thì đẩy cả tên miền vào `path`, làm mọi phép kiểm theo `netloc`
+(kể cả `ensure_single_video_url`) trượt hết.
+
+### Chạy thật đúng liên kết người dùng đã dán
+
+Gọi thẳng `download_one` với
+`watch?v=x1F3EdwrYw4&list=RDMMx1F3EdwrYw4&start_radio=1`:
+
+- **Phân giải liên kết: ĐÚNG** — ra đúng một video `x1F3EdwrYw4`, yt-dlp đi
+  vào `process_video_result` (một video) chứ không lặp qua 194 mục playlist.
+- **Tải dữ liệu: KHÔNG kiểm được ở đây** — `HTTP Error 403: Forbidden`. Đã
+  xác định là do môi trường: video "Me at the zoo" (19 giây, không dính
+  playlist nào) cũng 403 y hệt. Tức YouTube chặn IP sandbox này ở khâu tải
+  media, không liên quan bản sửa. Trên máy Windows của người dùng không gặp.
+
+Nói rõ giới hạn này thay vì tuyên bố "đã verify đầu-cuối".
+
+**1426 passed, 7 skipped, 0 failed** (Python; trước khi sửa 1365).
 
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 

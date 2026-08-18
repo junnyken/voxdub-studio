@@ -39,6 +39,8 @@ class TranscribeError(RuntimeError):
 @dataclass
 class TranscribeResult:
     source: str
+    #: File WAV đã đưa cho ASR. Đã bị `_don_tam` xoá lúc xuất xong — giữ lại
+    #: đường dẫn để đọc nhật ký, không phải để mở ra dùng.
     audio_path: str
     segments: list[dict]
     outputs: dict[str, str] = field(default_factory=dict)
@@ -51,7 +53,19 @@ class TranscribeResult:
 
 
 def is_url(source: str) -> bool:
-    return source.strip().lower().startswith(("http://", "https://"))
+    """Đầu vào này là địa chỉ web hay đường dẫn file?
+
+    Nhận cả dạng THIẾU `https://` (`www.youtube.com/watch?v=…`): yt-dlp vốn
+    tải được, chỗ từ chối là ứng dụng — người gõ tay sẽ nhận thông báo "không
+    tìm thấy file", đúng kỹ thuật nhưng vô nghĩa với họ. `looks_like_bare_url`
+    cố tình hẹp để không bao giờ coi một đường dẫn file là địa chỉ web.
+    Lược đồ được `downloader.normalize_url` thêm vào trước khi tải.
+    """
+    from autodub.utils import looks_like_bare_url
+
+    text = source.strip()
+    return (text.lower().startswith(("http://", "https://"))
+            or looks_like_bare_url(text))
 
 
 def is_audio_file(path: str) -> bool:
@@ -106,11 +120,16 @@ def write_txt(segments: list[dict], output_path: str,
     return output_path
 
 
-def prepare_audio(source: str, work_dir: str, settings=None) -> tuple[str, str]:
+def prepare_audio(source: str, work_dir: str,
+                  settings=None) -> tuple[str, str, str]:
     """Đưa mọi kiểu đầu vào về MỘT file WAV 16 kHz cho ASR.
 
-    Trả ``(đường_dẫn_wav, tiêu_đề)``. Tiêu đề rỗng khi đầu vào là file trên máy
-    — chỉ liên kết mới mang sẵn tiêu đề.
+    Trả ``(đường_dẫn_wav, tiêu_đề, đường_dẫn_media)``. Tiêu đề rỗng khi đầu vào
+    là file trên máy — chỉ liên kết mới mang sẵn tiêu đề.
+
+    ``đường_dẫn_media`` là file nguồn đã dùng: với liên kết thì đó là video vừa
+    TẢI VỀ nằm trong ``work_dir`` (dọn được), với file trên máy thì đó chính là
+    file CỦA NGƯỜI DÙNG (tuyệt đối không được đụng vào) — xem `_don_tam`.
 
     File âm thanh vẫn phải đi qua ffmpeg chứ không dùng thẳng: ASR cần 16 kHz
     mono, mà mp3 tải trên mạng thường 44.1 kHz stereo.
@@ -137,7 +156,38 @@ def prepare_audio(source: str, work_dir: str, settings=None) -> tuple[str, str]:
     if not os.path.isfile(audio_path) or os.path.getsize(audio_path) == 0:
         raise TranscribeError(
             "Không bóc được tiếng từ file này — kiểm tra xem nó có tiếng không.")
-    return audio_path, title
+    return audio_path, title, media_path
+
+
+def _don_tam(work_dir: str, *duong_dan: str) -> None:
+    """Xoá file trung gian sau khi đã xuất xong — mini-spec V73.
+
+    Chép lời từ LIÊN KẾT tải nguyên video về rồi chỉ dùng phần tiếng. Tên file
+    đặt theo `<extractor>_<id>` nên mỗi video là một file mới: không dọn thì
+    chép lời 20 video YouTube là giữ lại 20 video đầy đủ (hàng GB) mà người
+    dùng không hề xin — họ vào đây để lấy CHỮ. Và code không hề dùng lại file
+    cũ (luôn tải mới), nên giữ lại không đổi lấy được gì.
+
+    **Chỉ xoá thứ NẰM TRONG ``work_dir``.** Khi đầu vào là file trên máy thì
+    `prepare_audio` trả về chính đường dẫn của NGƯỜI DÙNG — xoá nhầm là phá dữ
+    liệu gốc của họ, hỏng nặng hơn mọi thứ hàm này định sửa. Nên phép kiểm là
+    bắt buộc, không phải cho chắc.
+
+    Chỉ gọi khi đã xuất xong: mục HỎNG thì giữ lại file để còn dò nguyên nhân.
+    """
+    goc = os.path.realpath(work_dir)
+    for duong in duong_dan:
+        if not duong:
+            continue
+        try:
+            that = os.path.realpath(duong)
+            # commonpath ném ValueError khi hai đường ở hai ổ đĩa khác nhau
+            # (Windows) — nghĩa là chắc chắn nằm ngoài work_dir.
+            if os.path.commonpath([that, goc]) != goc:
+                continue
+            os.remove(that)
+        except (OSError, ValueError):
+            pass        # dọn dẹp không được phép làm hỏng một lượt đã thành công
 
 
 def _kiem_huy(cancel_event) -> None:
@@ -179,7 +229,8 @@ def transcribe_media(source: str, output_dir: str, settings,
 
     _kiem_huy(cancel_event)
     say("download", "Đang chuẩn bị âm thanh…")
-    audio_path, title = prepare_audio(source, work_dir, settings=settings)
+    audio_path, title, media_path = prepare_audio(source, work_dir,
+                                                  settings=settings)
 
     _kiem_huy(cancel_event)
 
@@ -218,6 +269,7 @@ def transcribe_media(source: str, output_dir: str, settings,
         result.outputs[fmt] = path
 
     say("done", f"Xong: {len(segments)} câu")
+    _don_tam(work_dir, audio_path, media_path)
     return result
 
 
