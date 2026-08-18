@@ -14,9 +14,18 @@ Các bước resume-safe — chạy lại script sẽ bỏ qua phần đã xong:
 pyannote/speaker-diarization-3.1 là "gated model" trên HuggingFace Hub —
 KHÔNG có cách nào tải được nếu chưa:
   (a) Tạo tài khoản tại https://huggingface.co (miễn phí)
-  (b) Vào https://huggingface.co/pyannote/speaker-diarization-3.1 và
-      https://huggingface.co/pyannote/segmentation-3.0, bấm "Agree and
-      access repository" ở CẢ HAI trang
+  (b) Bấm "Agree and access repository" ở các trang model — DANH SÁCH KHÁC
+      NHAU THEO PHIÊN BẢN pyannote mà pip cài về (script này không ghim
+      phiên bản):
+        - pyannote 3.1.x:
+            https://huggingface.co/pyannote/speaker-diarization-3.1
+            https://huggingface.co/pyannote/segmentation-3.0
+        - pyannote 4.x (bản pip cài về hôm nay): tên 'speaker-diarization-3.1'
+          được CHUYỂN HƯỚNG sang một repo gated KHÁC, phải xin quyền riêng:
+            https://huggingface.co/pyannote/speaker-diarization-community-1
+      Bấm đủ ở nhóm 3.1.x rồi vẫn 403 trên máy cài 4.x là chuyện bình thường,
+      không phải token hỏng — xem thông báo lỗi của smoke test, nó in ra ĐÚNG
+      repo đang khoá.
   (c) Tạo access token (read-only đủ dùng) tại
       https://huggingface.co/settings/tokens
   (d) Chạy lại script này với --hf-token <token>, hoặc đặt biến môi trường
@@ -85,22 +94,42 @@ def step_smoke(hf_token: str) -> None:
     log("nạp thử model diarization thật (cần mạng, có thể mất vài phút "
         "lần đầu) ...")
     os.makedirs(MODEL_DIR, exist_ok=True)
+    # Tên tham số truyền token đổi giữa hai dòng pyannote (3.1.x
+    # `use_auth_token`, 4.x `token`) và không bản nào có `**kwargs` — xem
+    # `autodub/speech/diarize_worker.py::_token_kwarg`. Script này KHÔNG import
+    # được hàm đó (chạy ở env khác, đúng quy ước worker) nên dò lại tại chỗ.
+    #
+    # Không dò thì thông báo lỗi bên dưới đổ tội cho token và user agreement —
+    # đã xảy ra thật ngày 18-08: token hợp lệ, agreement đã bấm, lỗi thật là
+    # sai tên tham số.
     gen = (
-        "import os, sys\n"
+        "import inspect, os, sys\n"
         f"os.environ['HF_HOME'] = {MODEL_DIR!r}\n"
         "from pyannote.audio import Pipeline\n"
+        "params = inspect.signature(Pipeline.from_pretrained).parameters\n"
+        "kw = 'use_auth_token' if 'use_auth_token' in params else 'token'\n"
         "Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', "
-        f"use_auth_token={hf_token!r})\n"
+        f"**{{kw: {hf_token!r}}})\n"
         "print('OK')\n"
     )
     result = subprocess.run([VENV_PY, "-c", gen], capture_output=True,
                             encoding="utf-8", errors="replace", timeout=600)
     if "OK" not in (result.stdout or ""):
+        err = (result.stderr or "")
+        # `GatedRepoError` nói THẲNG repo nào đang khoá — dựng lại lời khuyên
+        # theo đúng repo đó thay vì đọc thuộc lòng danh sách 2 model, vì
+        # pyannote 4.x chuyển hướng sang `speaker-diarization-community-1`
+        # (một repo gated KHÁC, phải xin quyền riêng). Bảo người dùng đi bấm
+        # Agree ở model họ đã bấm rồi là cách chắc chắn nhất làm họ bỏ cuộc.
+        goi_y = ("pyannote/speaker-diarization-3.1 và pyannote/segmentation-3.0")
+        for dong in err.splitlines():
+            if "Cannot access gated repo" in dong or "is restricted" in dong:
+                goi_y = dong.strip()
+                break
         raise SystemExit(
-            "!! smoke test thất bại — kiểm tra lại token và việc đã bấm "
-            "'Agree and access repository' ở cả 2 model "
-            "(pyannote/speaker-diarization-3.1 và pyannote/segmentation-3.0)"
-            f":\n{result.stdout}\n{(result.stderr or '')[-800:]}")
+            "!! smoke test thất bại. Nếu là lỗi quyền truy cập thì vào đúng "
+            f"trang model bên dưới bấm 'Agree and access repository':\n  {goi_y}"
+            f"\n{result.stdout}\n{err[-800:]}")
     with open(MARKER, "w", encoding="utf-8") as f:
         json.dump({"ok": True, "model": "pyannote/speaker-diarization-3.1"},
                   f, ensure_ascii=False, indent=2)

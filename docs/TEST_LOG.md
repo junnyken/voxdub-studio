@@ -6877,8 +6877,28 @@ Chạy lại đúng lời gọi đã sửa với token giả: **không còn Type
 được HuggingFace Hub và dừng ở `GatedRepoError` — tức tham số đã tới nơi, chỉ
 còn thiếu quyền truy cập model (đúng như mong đợi với token giả).
 
-**Vẫn CHƯA chạy diarization thật** — cần HF token thật + user agreement ở cả
-`speaker-diarization-3.1` và `segmentation-3.0`.
+### Chạy với HF token thật — lộ tiếp 2 chỗ nữa
+
+Có token thật rồi chạy `setup_diarization.py` thì **lỗi y hệt tái diễn**: smoke
+test của chính script cũng truyền `use_auth_token` bằng một đoạn mã sinh tại
+chỗ (script chạy ở env khác nên không import được `_token_kwarg`). Và thông báo
+lỗi của nó nói *"kiểm tra lại token và việc đã bấm Agree..."* trong khi token
+hợp lệ, agreement đã bấm — **đúng kiểu chỉ đường sai đã dự đoán, quan sát được
+trên người dùng thật**. Đã dò chữ ký tại chỗ như worker.
+
+Sửa xong thì token đi tới được Hub và lộ chỗ thứ hai, lần này không phải bug
+của mình: **pyannote 4.x chuyển hướng `speaker-diarization-3.1` sang một repo
+gated KHÁC** — `pyannote/speaker-diarization-community-1` — phải xin quyền
+riêng. Docstring cũ chỉ liệt kê 2 repo của dòng 3.1.x, nên người dùng bấm đủ
+Agree theo hướng dẫn vẫn 403 và không hiểu vì sao.
+
+Docstring giờ tách danh sách repo theo phiên bản, và thông báo lỗi **đọc thẳng
+tên repo đang khoá từ `GatedRepoError`** thay vì đọc thuộc lòng danh sách cũ —
+bảo người dùng đi bấm Agree ở model họ đã bấm rồi là cách chắc chắn nhất làm
+họ bỏ cuộc.
+
+**Vẫn CHƯA chạy diarization thật** — đang chờ quyền truy cập
+`speaker-diarization-community-1`.
 
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
