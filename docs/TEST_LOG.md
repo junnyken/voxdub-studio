@@ -6900,6 +6900,53 @@ họ bỏ cuộc.
 **Vẫn CHƯA chạy diarization thật** — đang chờ quyền truy cập
 `speaker-diarization-community-1`.
 
+## V48 — Sao lưu KÉO: verify đầu-cuối thật (Phase G, 2026-08-18)
+
+V48 ship ngày 17-08 ở trạng thái "xong code, CHƯA có cron chạy thật", và
+ADMIN_TOKEN prod không ai có nên chưa từng kéo được lần nào. Hôm nay xoay token
+mới qua cổng Vibe Host rồi redeploy (nhánh `deploy/vays-control-server` tip
+17-08 22:02 — build lại ĐÚNG mã đang chạy, chỉ đổi biến môi trường).
+
+### Kết quả — lần đầu tiên có một bản sao lưu thật
+
+```
+$ bash control_server/scripts/backup-pull.sh ~/voxdub-backups 14
+OK: /home/coder/voxdub-backups/voxdub-backup-20260818-101724.ndjson.gz (8.0K, 75 dòng)
+```
+
+Nội dung kiểm bằng cách giải nén và đếm theo collection, không chỉ nhìn dung
+lượng file:
+
+| collection | bản ghi |
+|---|---|
+| devices | 21 |
+| pipelineevents | 21 |
+| auditlogs | 14 |
+| creditledgers | 6 |
+| dubusageledgers | 5 |
+| usagelogs | 3 |
+| aiproviders / apikeys / appconfigs / jobresults | 1 mỗi loại |
+
+`creditledgers` và `apikeys` là phần không dựng lại được nếu mất — đúng thứ cần
+bảo vệ. Định dạng EJSON giữ nguyên `ObjectId`/`Date` (`{"$oid":…}`,
+`{"$date":…}`) nên `restore-backup.js` nhập lại được, khác JSON thường.
+
+### Vẫn còn thiếu để gọi là "có sao lưu"
+
+Bản kéo này chạy TAY một lần. **Chưa có lịch nào chạy trên máy ngoài** —
+`schtasks` phải đặt trên máy Windows của chủ dự án (xem
+`control_server/docs/DEPLOY_RUNBOOK.md` mục 7b). Một bản sao lưu duy nhất nằm
+trong workspace không phải là sao lưu.
+
+## V61b — Smoke test diarization PASS lần đầu (Phase H, 2026-08-18)
+
+Sau khi cấp quyền `pyannote/speaker-diarization-community-1`, chạy lại
+`setup_diarization.py` với token thật: **`smoke test PASS`** — model
+diarization thật nạp được, lần đầu trong lịch sử dự án (V26 chưa từng
+live-verify, đó chính là lý do 2 bug tên tham số nằm im tới hôm nay).
+
+Vẫn chưa đo được ngưỡng cosine: cần 2 clip cùng series có chung nhân vật.
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật
