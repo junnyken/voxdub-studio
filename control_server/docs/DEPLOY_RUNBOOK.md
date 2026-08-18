@@ -182,6 +182,32 @@ Không có endpoint API "chạy backup ngay" — muốn kiểm tra thật, đổ
 `frequency` thành `*/2 * * * *`, đợi 1 lượt chạy (`GET .../backups` xem
 field `executions`), rồi đặt lại lịch thật.
 
+## 6b. **Nhánh deploy KHÔNG tự theo `main`** — bẫy đã sập thật 18-08
+
+Vibe Host build từ nhánh `deploy/vays-control-server`, là nhánh **SINH RA** từ
+`main` bằng `scripts/gen_vays_control_server_branch.sh`. Push lên `main` KHÔNG
+cập nhật nó. Redeploy cũng không — nó chỉ build lại đúng nhánh cũ đó.
+
+Ngày 18-08 chuyện này sập thật: V55 (huỷ job) landed 17-08 23:35, nhánh deploy
+có tip 22:02, nên prod chạy code cũ hơn 5 tiếng. `main` xanh, test đủ, mà prod
+thiếu hẳn một tính năng — và **không có gì báo cho biết**. Chỉ lộ ra khi gọi
+API thật và nhận về "Không có endpoint này".
+
+**Quy tắc**: đụng vào `control_server/` thì sau khi push `main` phải chạy
+
+```bash
+scripts/gen_vays_control_server_branch.sh   # sinh lại + push nhánh deploy
+```
+
+rồi mới redeploy. Kiểm nhanh nhánh deploy có cũ không:
+
+```bash
+git log -1 --format='%ad %s' --date=iso deploy/vays-control-server
+git log -1 --format='%ad %s' --date=iso main -- control_server/
+```
+
+Dòng thứ hai mới hơn dòng thứ nhất = prod đang thiếu code.
+
 ## 7b. Sao lưu thật sau khi rời Coolify — lịch đặt trên máy NGOÀI
 
 Vibe Host không có ổ đĩa bền vững: bản dump ghi trong container bay theo lần
