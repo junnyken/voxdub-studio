@@ -7479,6 +7479,86 @@ mọi so sánh với NaN đều False. 3 test, chạy worker THẬT với pyanno
 
 **1323 test Python, 0 fail.**
 
+## V71 — Chép lời: giọng nói thành văn bản (Phase H, 2026-08-18)
+
+Chủ dự án yêu cầu: nhận liên kết video, hoặc mp3, hoặc file tải lên, rồi đọc
+và chuyển thành văn bản.
+
+### Audit trước khi build — gần như KHÔNG cần code mới
+
+Đọc code trước thì thấy mọi mảnh nặng đã có và đã chạy thật trong luồng dub:
+
+| việc | đã có sẵn |
+|---|---|
+| tải liên kết | `download_one` (V54/V67, verify thật với Facebook) |
+| bóc tiếng | `media.audio.extract_audio` |
+| ASR | `speech.transcriber.transcribe` (Whisper/Paraformer, venv riêng) |
+| xuất SRT | `text.srt.generate_srt` |
+| lưu JSON | `transcriber.save_transcript` |
+
+Nên V71 là **lớp nối mỏng**, không dựng ASR mới. Thứ thật sự thiếu: đường đi
+DỪNG LẠI sau ASR, và bản xuất `.txt`/`.vtt`.
+
+**Vì sao là module riêng chứ không phải cờ `--skip-*` cắm vào `pipeline.py`**:
+luồng dub luôn chạy tiếp sang dịch + TTS + ghép video. Ai chỉ cần bản chữ thì
+mọi bước sau ASR là thời gian và tiền bỏ đi. Cắm thêm cờ vào một luồng dài là
+cách sinh ra những nhánh không ai test.
+
+### 3 bug do test và smoke test bắt được
+
+1. **`_vtt_timestamp(59.9999)` → `00:00:60.000`** — không có giây thứ 60,
+   trình phát từ chối cả file. Bản đầu tách giờ/phút/giây rồi mới xử lý ca
+   `ms == 1000` bằng `s += 1`; cộng bù ở một bậc thì phải cộng bù ở mọi bậc.
+   Sửa: làm tròn về mili-giây TRƯỚC rồi mới tách.
+2. **Tiêu đề toàn ký tự cấm** (`///:::`) → tên file `______`, không rỗng nên
+   lọt qua phép kiểm `or`, mà cũng chẳng nói lên gì. Giờ đòi có ít nhất một
+   chữ hoặc số mới coi là tên dùng được.
+3. **`LabeledCombo` nhận `(NHÃN, khoá)`** — tôi viết ngược thành `(khoá,
+   nhãn)`, nên combo hiện ra khoá và `current_key()` trả về nhãn. Smoke test
+   dựng trang bắt được ngay; có test khoá vĩnh viễn.
+
+### Chạy THẬT trên clip của chủ dự án
+
+```
+$ voxdub transcribe --input tap01_clip.mp4 --output-dir … \
+    --language vi --format txt,srt,vtt,json --timestamps
+[download] Đang chuẩn bị âm thanh…
+[asr] Đang nghe và chép lời…
+[export] Đang xuất 20 câu…
+Xong 20 câu: txt / srt / vtt / json
+```
+
+Kiểm định dạng thật (đúng chỗ hay sai nhất giữa 2 chuẩn):
+
+```
+SRT: 00:00:00,240 --> 00:00:01,440     ← dấu PHẨY
+VTT: 00:00:00.240 --> 00:00:01.440     ← dấu CHẤM
+TXT: [00:00:00.240] Bạn sẵn sàng chứ?
+```
+
+### Giao diện
+
+Trang "Chép lời" (`ROW_TRANSCRIBE`), chạy trong `TranscribeWorker` (QThread) —
+ASR mất từ vài chục giây tới vài phút, để ở luồng giao diện là app đứng hình
+và người dùng tưởng hỏng.
+
+**Một ô nhập cho cả liên kết lẫn file**: người dùng dán gì thì dán,
+`is_url()` tự phân đường. Bắt họ chọn trước "tôi sắp dán liên kết hay chọn
+file" là bắt trả lời một câu hỏi máy tự trả lời được. File trên máy được kiểm
+tồn tại NGAY, không để chờ hết bước chuẩn bị mới báo gõ sai đường dẫn.
+
+Lỗi báo **nguyên văn** (vd "Video này yêu cầu đăng nhập") thay vì nuốt thành
+"có lỗi xảy ra" — người dùng cần biết là sai đường dẫn, mất mạng, hay video
+có khoá thì mới biết đường xử lý (video khoá thì dùng cookie của V67).
+
+**1352 test Python, 0 fail** (+29: 21 lớp lõi, 8 trang).
+
+### Chưa làm
+
+- Chưa chạy thử trên Windows (cùng nhóm với V53/V56–V64).
+- Chưa có nút huỷ giữa chừng — ASR một video dài chạy tới hết.
+- Chưa nhận nhiều file một lượt (hàng loạt), mới từng file/liên kết một.
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật

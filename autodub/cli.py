@@ -372,6 +372,34 @@ def _cmd_batch(args: argparse.Namespace) -> int:
     return 0 if summary.failed == 0 else 1
 
 
+def _cmd_transcribe(args: argparse.Namespace) -> int:
+    """Chép lời một liên kết/file — mini-spec V71."""
+    from autodub.transcribe_tool import TranscribeError, transcribe_media
+
+    settings = Settings.load()
+    formats = tuple(f.strip().lower() for f in str(args.format).split(",") if f.strip())
+    if not formats:
+        print("Lỗi: --format rỗng.", file=sys.stderr)
+        return 1
+    try:
+        kq = transcribe_media(
+            args.input, args.output_dir, settings,
+            language=args.language, formats=formats,
+            with_timestamps=args.timestamps,
+            progress=lambda step, detail: print(f"[{step}] {detail}", flush=True))
+    except TranscribeError as e:
+        print(f"Lỗi: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:  # noqa: BLE001 — lỗi thật của tải/ASR, báo rõ rồi thoát
+        print(f"Chép lời thất bại: {e}", file=sys.stderr)
+        return 1
+
+    print(f"Xong {len(kq.segments)} câu:")
+    for fmt, path in kq.outputs.items():
+        print(f"  {fmt}: {path}")
+    return 0
+
+
 def _cmd_watch(args: argparse.Namespace) -> int:
     import signal
     import threading
@@ -492,6 +520,24 @@ def build_parser() -> argparse.ArgumentParser:
                             "không giữa 2 video. Đặt 1 = chạy tuần tự như cũ. "
                             "Đừng đặt cao: mỗi job chờ đã giữ chỗ quota")
     cloud.set_defaults(func=_cmd_cloud_batch)
+
+    # ---- mini-spec V71: chỉ chép lời, KHÔNG dịch/lồng tiếng ----
+    tr = sub.add_parser(
+        "transcribe",
+        help="Chuyển giọng nói thành văn bản (liên kết, file video, hoặc mp3) "
+             "— chỉ chép lời, không dịch, không lồng tiếng")
+    tr.add_argument("--input", required=True,
+                    help="Liên kết video, file video, hoặc file âm thanh")
+    tr.add_argument("--output-dir", required=True, help="Thư mục nhận kết quả")
+    tr.add_argument("--language", default="",
+                    help="Ngôn ngữ NGUỒN (vd en, vi, zh). Để trống = dùng "
+                         "DEFAULT_SOURCE_LANG trong .env")
+    tr.add_argument("--format", default="txt,srt",
+                    help="Định dạng xuất, ngăn bằng dấu phẩy: "
+                         "txt, srt, vtt, json (mặc định: txt,srt)")
+    tr.add_argument("--timestamps", action="store_true",
+                    help="Chèn mốc thời gian vào bản .txt")
+    tr.set_defaults(func=_cmd_transcribe)
 
     watch = sub.add_parser(
         "watch", help="Theo dõi 1 thư mục, tự dub video mới xuất hiện "

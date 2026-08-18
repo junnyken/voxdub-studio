@@ -906,6 +906,46 @@ class SubtitleTranslateWorker(QThread):
             detach_gui_logging(handler)
 
 
+class TranscribeWorker(QThread):
+    """Chép lời một liên kết/file — mini-spec V71.
+
+    Chạy trong luồng riêng vì ASR mất từ vài chục giây tới vài phút; để ở
+    luồng giao diện là app đứng hình và người dùng tưởng hỏng.
+    """
+
+    log = Signal(str, int)
+    progress = Signal(str, str)      # bước, mô tả
+    finished_ok = Signal(object)     # TranscribeResult
+    failed = Signal(str)
+
+    def __init__(self, source: str, output_dir: str, settings: Settings, *,
+                 language: str = "", formats=("txt", "srt"),
+                 with_timestamps: bool = False, parent=None):
+        super().__init__(parent)
+        self._source = source
+        self._output_dir = output_dir
+        self._settings = settings
+        self._language = language
+        self._formats = tuple(formats)
+        self._with_timestamps = with_timestamps
+
+    def run(self) -> None:
+        from autodub.transcribe_tool import transcribe_media
+
+        handler = attach_gui_logging(self.log)
+        try:
+            result = transcribe_media(
+                self._source, self._output_dir, self._settings,
+                language=self._language, formats=self._formats,
+                with_timestamps=self._with_timestamps,
+                progress=lambda step, detail: self.progress.emit(step, detail))
+            self.finished_ok.emit(result)
+        except Exception as e:  # noqa: BLE001 — lỗi tải/ASR thật, báo nguyên văn
+            self.failed.emit(str(e))
+        finally:
+            detach_gui_logging(handler)
+
+
 class MusicSfxWorker(QThread):
     """Nhạc nền/hiệu ứng âm thanh AI — mini-spec V37, docs/PLAN.md Phase G.
 
