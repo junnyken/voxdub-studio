@@ -33,7 +33,7 @@ APP_NAME = "VoxDub Studio"
 APP_TAGLINE = "Lồng tiếng video bằng AI"
 logger = setup_logging("autodub_gui.app")
 
-APP_VERSION = "3.4.6"
+APP_VERSION = "3.4.7"
 
 # -- Danh mục trang ----------------------------------------------------
 ROW_HOME, ROW_NEW, ROW_PROJECTS, ROW_BATCH, ROW_DOWNLOAD = 0, 1, 2, 3, 4
