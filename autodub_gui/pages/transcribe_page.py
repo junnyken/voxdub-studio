@@ -225,7 +225,18 @@ class TranscribePage(BasePage):
         # cảnh báo "Chép lời hỏng «…»: …" của `transcribe_many` KHÔNG bao giờ
         # lên tới đây — dòng này là chỗ duy nhất người dùng thấy được lý do.
         if status == "hong" and detail:
-            dong += f" — {detail}"
+            # V82 — trước đây in nguyên văn lỗi kỹ thuật: người dùng nhận
+            # `[WinError 2] The system cannot find the file specified` và
+            # không có cách nào đoán ra là thiếu FFmpeg. Có lời soạn sẵn thì
+            # dùng, kèm nguyên văn trong ngoặc cho ai cần tra cứu.
+            from autodub_gui.dub_constants import friendly_error
+
+            soan = friendly_error(detail)
+            if soan is not None:
+                tieu_de, cach_chua = soan
+                dong += f" — {tieu_de}. {cach_chua}"
+            else:
+                dong += f" — {detail}"
         self.log.append_log(dong, 40 if status == "hong" else 20)
 
     def _on_done(self, items) -> None:

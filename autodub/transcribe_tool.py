@@ -224,6 +224,13 @@ def transcribe_media(source: str, output_dir: str, settings,
         if progress:
             progress(step, detail)
 
+    # Thiếu FFmpeg thì mọi đường đều gãy, nhưng mỗi đường gãy một kiểu khó
+    # hiểu: file trên máy cho `[WinError 2] The system cannot find the file
+    # specified`, còn liên kết YouTube cho lỗi của yt-dlp. Nói thẳng ở đây
+    # (mini-spec V82).
+    from autodub.ffmpeg_deps import bao_dam_co_ffmpeg
+    bao_dam_co_ffmpeg(TranscribeError)
+
     os.makedirs(output_dir, exist_ok=True)
     work_dir = os.path.join(output_dir, "_tam")
 

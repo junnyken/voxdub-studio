@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from autodub.config import Settings
+from autodub.utils import setup_logging
 from autodub_gui import icons, theme, tokens
 from autodub_gui.startup_check import check_startup
 from autodub_gui.run_state import REGISTRY
@@ -30,6 +31,8 @@ from autodub_gui.ui.toast import TOASTS
 
 APP_NAME = "VoxDub Studio"
 APP_TAGLINE = "Lồng tiếng video bằng AI"
+logger = setup_logging("autodub_gui.app")
+
 APP_VERSION = "3.4.6"
 
 # -- Danh mục trang ----------------------------------------------------
@@ -495,7 +498,13 @@ class MainWindow(QMainWindow):
         try:
             from autodub_gui.setup_wizard import maybe_show_setup_wizard
             showed = maybe_show_setup_wizard(self)
-        except Exception:  # noqa: BLE001 — wizard hỏng không được chặn app
+        except Exception as e:  # noqa: BLE001 — wizard hỏng không được chặn app
+            # V83: chỗ này nuốt im lặng một `AttributeError` (icons.brand_logo
+            # không tồn tại) qua NHIỀU bản phát hành — trình cài đặt tự động
+            # chưa từng chạy được lần nào mà không ai biết, người dùng phải tự
+            # cài tay tất cả. Không chặn app, nhưng phải để lại dấu vết.
+            logger.exception("Trình cài đặt không mở được: %s", e)
+            TOASTS.warn("Không mở được trình cài đặt tự động — xem nhật ký.")
             showed = False
 
         # Fallback: nếu wizard không hiện thì vẫn kiểm tra first_run cũ

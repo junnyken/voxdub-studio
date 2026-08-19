@@ -8021,6 +8021,71 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V82–V83 — Thiếu FFmpeg, và vì sao trình cài đặt không bao giờ cứu được (Phase H, 2026-08-19)
+
+### V83 — Trình cài đặt tự động chưa từng chạy được lần nào
+
+Người dùng bấm nút "Tải giúp tôi" (mới thêm ở V81) và nhận:
+
+```
+Không mở được trình cài đặt: module 'autodub_gui.icons' has no attribute 'brand_logo'
+```
+
+`icons.brand_logo()` được gọi ở **ba** nơi — `icons.app_logo()` (đường lui khi
+thiếu `logo.ico`), `setup_wizard.py:224`, `app.py:929` — nhưng **chưa bao giờ
+được định nghĩa**. Dựng `SetupWizard` là ném `AttributeError` ngay dòng logo,
+trước cả khi hiện ra.
+
+Vì sao sống lâu đến vậy: `_maybe_first_run()` bọc
+
+```python
+except Exception:  # noqa: BLE001 — wizard hỏng không được chặn app
+    showed = False
+```
+
+Không log, không toast, không gì cả. Nên **trình cài đặt tự động (FFmpeg,
+Whisper, VieNeu) chưa chạy được lần nào qua nhiều bản phát hành** — và đó
+chính là lý do sâu xa khiến người dùng phải tự cài tay mọi thứ rồi gặp hết lỗi
+này tới lỗi khác suốt mấy hôm nay. Nút V81 không "tạo ra" lỗi; nó chỉ là lần
+đầu tiên lỗi được PHÉP nói ra.
+
+Sửa: viết `brand_logo()` thật (vẽ tay bằng token màu, không phụ thuộc tệp
+ngoài); sửa call site gọi `.pixmap()` lên một QPixmap (lỗi thứ hai cùng dòng);
+và bỏ nuốt im lặng — hỏng thì `logger.exception` + toast.
+
+Test: dựng `SetupWizard` thật (offscreen) — chỉ cần dựng được là chặn được cả
+lớp lỗi; và quét AST mọi `icons.<tên>` trong gói giao diện đối chiếu thuộc
+tính thật, để lần sau gọi nhầm tên là đỏ ngay chứ không đợi người dùng bấm.
+
+**Bài học chung: `except Exception` không kèm log = một lỗi có thể sống nhiều
+tháng.** Đây là lần thứ ba trong tuần cùng một cơ chế (V75 canh chữ hỏng âm
+thầm, V78 43 cảnh báo bị lọc, giờ là đây).
+
+### V82 — Nói ra "thiếu FFmpeg" ở đúng chỗ người dùng đứng
+
+Hai dòng lỗi thật trong ảnh chụp, cùng một nguyên nhân, không dòng nào nói
+được nguyên nhân đó:
+
+```
+[1/1] HỎNG: C:/Users/.../tap01_clip.mp4 — [WinError 2] The system cannot find the file specified
+[1/1] HỎNG: https://youtube.com/shorts/... — ERROR: You have requested merging of multiple formats but ffmpeg is not installed.
+```
+
+- `autodub/ffmpeg_deps.py` — một chỗ duy nhất trả lời "máy có FFmpeg chưa"
+  (nhìn cả PATH lẫn `bin/` cạnh app), kèm lời nhắc dùng chung để preflight,
+  Nhật ký và hộp thoại không nói ba kiểu khác nhau.
+- `transcribe_media()` dừng NGAY từ đầu với lời rõ ràng, thay vì để từng thư
+  viện con gãy theo kiểu riêng.
+- `FRIENDLY_ERRORS` bắt cả `WinError 2` lẫn câu của yt-dlp; trang Chép lời in
+  lời đã soạn thay vì nguyên văn (dòng đó là chỗ DUY NHẤT người dùng thấy lý
+  do — bộ lọc Nhật ký loại mọi thông báo có đường dẫn/URL).
+- Thêm **`Cai dat FFmpeg (bat buoc).bat`**: FFmpeg là thành phần bắt buộc mà
+  lại là thứ duy nhất không có tệp .bat để đúp chuột, trong khi Whisper,
+  VieNeu, Paraformer, Douyin đều có. Người dùng mở thư mục ứng dụng, thấy 4
+  tệp .bat, không tệp nào nói về FFmpeg.
+
+**1548 passed, 7 skipped, 0 failed** (Python) + **334 pass** (Node).
+
 ## V81 — "Máy chưa có FFmpeg" sau khi nâng cấp (Phase H, 2026-08-19)
 
 Người dùng báo bằng ảnh chụp ngay sau khi cài v3.4.5: hộp thoại chặn *"Máy

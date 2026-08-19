@@ -125,7 +125,7 @@ def step_assemble() -> None:
     scripts_dst = os.path.join(DIST_DIR, "scripts")
     os.makedirs(scripts_dst, exist_ok=True)
     for script in ("setup_vieneu.py", "setup_paraformer.py",
-                   "setup_whisper.py", "setup_douyin.py",
+                   "setup_whisper.py", "setup_douyin.py", "setup_ffmpeg.py",
                    # Module dùng chung của 3 script trên — quên chép là bản
                    # đóng gói chết ngay dòng import (V80).
                    "_python_ho_tro.py"):
@@ -143,7 +143,11 @@ def step_assemble() -> None:
             ("Cai dat giong VieNeu.bat", SETUP_VIENEU_BAT),
             ("Cai dat Whisper ASR.bat", SETUP_WHISPER_BAT),
             ("Cai dat ASR tieng Trung (Paraformer).bat", SETUP_PARAFORMER_BAT),
-            ("Cai dat tinh nang Douyin.bat", SETUP_DOUYIN_BAT)):
+            ("Cai dat tinh nang Douyin.bat", SETUP_DOUYIN_BAT),
+            # V82 — FFmpeg là thành phần BẮT BUỘC nhưng lại là thứ duy nhất
+            # không có tệp .bat để đúp chuột. Người dùng mở thư mục ra, thấy
+            # 4 tệp .bat không tệp nào nói về FFmpeg, rồi phải tự đi tìm.
+            ("Cai dat FFmpeg (bat buoc).bat", SETUP_FFMPEG_BAT)):
         with open(os.path.join(DIST_DIR, name), "w", encoding="utf-8") as f:
             f.write(content)
 
@@ -287,6 +291,26 @@ if errorlevel 1 (
     echo.
     echo  !! Cai dat that bai. Kiem tra da cai Python chua: py --version
     echo     Xem muc "Xu ly loi" trong HUONG_DAN_CAI_DAT.md
+)
+echo.
+pause
+"""
+
+SETUP_FFMPEG_BAT = r"""@echo off
+chcp 65001 >nul
+title Cai dat FFmpeg cho VoxDub Studio
+echo.
+echo  FFmpeg la cong cu BAT BUOC: doc/cat video, tai YouTube, chep loi.
+echo  Script nay tai ban day du (~80 MB) ve thu muc bin cua ung dung.
+echo  Khong can Python phien ban dac biet.
+echo.
+cd /d "%~dp0"
+py -3.12 scripts\setup_ffmpeg.py 2>nul || py scripts\setup_ffmpeg.py || python scripts\setup_ffmpeg.py
+if errorlevel 1 (
+    echo.
+    echo  !! Tai that bai. Kiem tra mang, hoac tai tay:
+    echo     https://github.com/BtbN/ffmpeg-builds/releases
+    echo     Giai nen roi chep ffmpeg.exe va ffprobe.exe vao thu muc bin.
 )
 echo.
 pause

@@ -137,8 +137,21 @@ FRIENDLY_ERRORS: list[tuple[str, str, str]] = [
      "Đóng bớt ứng dụng đang dùng card đồ họa như trò chơi hoặc trình duyệt "
      "mở nhiều video, hoặc đổi Nhạc nền sang Giảm nhỏ tiếng gốc cho nhẹ hơn, "
      "rồi chạy tiếp thư mục dự án đang dở."),
+    # V82 — hai dòng lỗi người dùng thật sự gặp đều KHÔNG có chữ nào gợi ý
+    # FFmpeg với người không rành: mã lỗi của Windows khi không tìm thấy
+    # chương trình, và lời than của yt-dlp. Bắt cả hai.
     ("ffmpeg", "Máy chưa có FFmpeg",
-     "Cài FFmpeg rồi thêm vào đường dẫn hệ thống, sau đó mở lại ứng dụng."),
+     "Mở lại ứng dụng rồi bấm \"Tải giúp tôi\" ở hộp thoại hiện ra — ứng "
+     "dụng tự tải giúp (~80 MB). Hoặc chép ffmpeg.exe và ffprobe.exe vào "
+     "thư mục bin nằm cạnh ứng dụng."),
+    ("the system cannot find the file specified", "Máy chưa có FFmpeg",
+     "Windows không tìm thấy chương trình phụ trợ (thường là FFmpeg). Mở lại "
+     "ứng dụng rồi bấm \"Tải giúp tôi\" ở hộp thoại hiện ra, hoặc chép "
+     "ffmpeg.exe và ffprobe.exe vào thư mục bin nằm cạnh ứng dụng."),
+    ("winerror 2", "Máy chưa có FFmpeg",
+     "Windows không tìm thấy chương trình phụ trợ (thường là FFmpeg). Mở lại "
+     "ứng dụng rồi bấm \"Tải giúp tôi\" ở hộp thoại hiện ra, hoặc chép "
+     "ffmpeg.exe và ffprobe.exe vào thư mục bin nằm cạnh ứng dụng."),
     ("VieNeu worker", "Bộ giọng đọc gặp sự cố",
      "Chọn chạy tiếp thư mục dự án đang dở để tiếp tục từ chỗ dừng. Nếu vẫn "
      "lỗi, cài lại một lần: py scripts/setup_vieneu.py"),

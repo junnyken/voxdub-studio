@@ -221,7 +221,9 @@ class _WelcomePage(QWidget):
 
         # Icon + tiêu đề
         icon_lbl = QLabel()
-        icon_lbl.setPixmap(icons.brand_logo(48).pixmap(48, 48))
+        # `app_logo()` trả về QPixmap sẵn (ưu tiên logo.ico, thiếu thì vẽ
+        # tay). Gọi `.pixmap()` lên nó là lỗi thứ hai cùng dòng này — V83.
+        icon_lbl.setPixmap(icons.app_logo(48))
         layout.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignHCenter)
 
         title = QLabel("Chào mừng đến VoxDub Studio!")
