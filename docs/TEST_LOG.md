@@ -8021,6 +8021,59 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V89 lên production (Phase H, 2026-08-19)
+
+Triển khai `voxdub-app` (control_server + website) lên Vibe Host và phát hành
+app `.exe` v3.5.1.
+
+### Lượt deploy đầu tiên "thành công" nhưng build MÃ CŨ
+
+Deploy báo `succeeded`, 11/11 chặng xanh, container chạy, MongoDB nối, worker
+vẫn nhận việc — mà cửa mới vẫn 404.
+
+Cách phát hiện, và đây là phần đáng nhớ: **so mã lỗi của cửa MỚI với một cửa
+CŨ**.
+
+```
+POST /v1/ai/translate      -> 400   (tồn tại, chỉ sai dữ liệu)
+POST /v1/ai/generate-post  -> 400   (tồn tại)
+POST /v1/ai/assist         -> 404   ← chưa có mã mới
+```
+
+Nếu chỉ nhìn trạng thái deploy thì mọi thứ đều xanh. Nếu chỉ thử cửa mới thì
+404 dễ bị hiểu nhầm là "route đăng ký sai". Phải có cái ĐỐI CHỨNG.
+
+### Nguyên nhân: deploy không lấy từ `main`
+
+`voxdub-app` theo dõi nhánh **`deploy/vays-control-server`** — nhánh sinh tự
+động chứa thư mục `webapp/` (bản sao `control_server/` + `website/`), vì VAYS
+build theo model "một thư mục con = một build context" mà Dockerfile của
+control_server cần cả hai. Nhật ký build ghi rõ: `nạp source (git_url) @
+10ce832c` — commit của nhánh deploy, không phải `b72cad8` của `main`.
+
+Quy trình đúng đã có sẵn trong repo từ trước:
+
+1. sửa trên `main`
+2. chạy `scripts/gen_vays_control_server_branch.sh` (tự sinh lại + force-push)
+3. mới redeploy
+
+Bỏ bước 2 thì deploy chỉ build lại đúng mã cũ, và không có dấu hiệu nào báo.
+
+### Kiểm chứng sau khi làm đúng
+
+```
+POST /v1/ai/assist              -> 401  (tồn tại, đòi đăng nhập)
+POST … task:"tac_vu_bia"        -> 400  "body/task must be equal to one of the allowed values"
+GET  /v1/admin/analytics/assist -> 401
+POST /v1/ai/translate           -> 400  (đường cũ còn nguyên)
+```
+
+Dòng thứ hai là thứ đáng giá nhất: **danh sách tác vụ đóng đang chặn thật ở
+tầng schema**, trước cả khi chạm tới xác thực hay ví tiền — đúng lớp chặn chi
+phí số 1 trong bản kế hoạch.
+
+App `.exe` v3.5.1: CI build + test đều xanh, tải được.
+
 ## V89 hoàn thiện — nhớ đệm, phiên bản prompt, tên nhân vật (Phase H, 2026-08-19)
 
 Ba việc còn lại sau khi ba giai đoạn của bản kế hoạch đã dựng xong.
