@@ -34,20 +34,34 @@ class MusicSfxMixin:
 
     # -- Nhạc nền --------------------------------------------------------
     def _on_music_suggest_requested(self) -> None:
-        """Đề xuất mô tả nhạc từ chính lời thoại của video (V88).
+        """Đề xuất mô tả nhạc từ chính lời thoại của video (V88, V89).
 
-        Chạy thẳng trong luồng giao diện: chỉ đếm chữ và dò từ khoá trên
-        transcript đã nạp sẵn — mili giây, không đụng mạng, không tốn Vox.
+        Có tài khoản thì hỏi trợ lý ở máy chủ (đọc hiểu nội dung thật, 2 Vox);
+        không thì đo trên máy bằng luật — tức thì, 0 Vox. Chạy trong luồng
+        riêng vì đường máy chủ mất vài giây.
         """
-        from autodub.media.music_suggest import goi_y_nhac
+        if getattr(self, "_music_suggest_worker", None) is not None \
+                and self._music_suggest_worker.isRunning():
+            return
+        from autodub_gui.workers import MusicSuggestWorker
 
         segments = getattr(self, "_segments", None) or []
         text_field = ""
         state = getattr(self, "_state", None)
         if state is not None and getattr(state, "target", None) is not None:
             text_field = getattr(state.target, "text_field", "") or ""
-        self.music_sfx_panel.show_music_suggestions(
-            goi_y_nhac(segments, text_field))
+        tieu_de = ""
+        if state is not None:
+            tieu_de = str(getattr(state, "title", "") or "")
+
+        self.music_sfx_panel.set_music_status("Đang xem nội dung video…")
+        worker = MusicSuggestWorker(segments, text_field, tieu_de, parent=self)
+        worker.finished_ok.connect(self._on_music_suggest_done)
+        self._music_suggest_worker = worker
+        worker.start()
+
+    def _on_music_suggest_done(self, goi_y: list, nguon: str) -> None:
+        self.music_sfx_panel.show_music_suggestions(goi_y, nguon=nguon)
 
     def _on_music_requested(self, description: str) -> None:
         if self._busy_warn() or self._busy_music_sfx():

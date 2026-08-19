@@ -147,7 +147,13 @@ def test_giao_dien_co_nut_va_duong_day():
     mixin = open(os.path.join(repo, "autodub_gui", "pages",
                               "editor_music_sfx.py"), encoding="utf-8").read()
     assert "_on_music_suggest_requested" in mixin
-    assert "goi_y_nhac" in mixin
+    # V89 dời lời gọi vào luồng riêng (đường máy chủ có thể mất vài giây),
+    # nên mắt xích ở đây là worker chứ không còn là hàm luật gọi thẳng.
+    assert "MusicSuggestWorker" in mixin
+
+    workers = open(os.path.join(repo, "autodub_gui", "workers.py"),
+                   encoding="utf-8").read()
+    assert "goi_y_nhac_thong_minh" in workers
 
     page = open(os.path.join(repo, "autodub_gui", "pages", "editor_page.py"),
                 encoding="utf-8").read()

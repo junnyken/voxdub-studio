@@ -28,9 +28,25 @@ const holds = require('../services/hold.service')
 const config = require('../services/config.service')
 const gateway = require('../services/ai-gateway.service')
 const prompts = require('../prompts/translate')
+const assistPrompts = require('../prompts/assist')
 const { containsCjk } = require('../utils/json-repair')
 
 /** Kết quả đã lưu của jobId này, hoặc null. */
+/**
+ * Số lượt trợ lý máy này đã dùng HÔM NAY (mini-spec V89).
+ *
+ * Server mới chỉ có giới hạn theo PHÚT (fastify rateLimit) — thứ chặn được
+ * bấm dồn dập nhưng không chặn được một vòng lặp hỏng chạy cả ngày, hay một
+ * máy gọi đều đặn suốt 24 tiếng. Đếm theo ngày là lớp chặn còn thiếu.
+ */
+async function assistUsedToday(fingerprint, task) {
+  const dau_ngay = new Date()
+  dau_ngay.setHours(0, 0, 0, 0)
+  const dieu_kien = { fingerprint, action: 'assist', createdAt: { $gte: dau_ngay } }
+  if (task) dieu_kien.assistTask = task
+  return UsageLog.countDocuments(dieu_kien)
+}
+
 async function replay(jobId, fingerprint) {
   if (!jobId) return null
   const doc = await JobResult.findOne({ jobId, fingerprint }).lean()
@@ -827,6 +843,143 @@ module.exports = async function aiRoutes(fastify) {
         jobId,
         action: 'generate_post',
         inputSize: 1,
+        creditCharged: paid.charged,
+        aiProvider: result.provider,
+        aiModel: result.model,
+        promptTokens: result.usage.promptTokens,
+        completionTokens: result.usage.completionTokens,
+        durationMs: Date.now() - started,
+        status: 'success',
+        ip: request.ip,
+        appVersion: device.appVersion,
+      }),
+    ])
+    return response
+  })
+
+  // ------------------------------------ cổng trợ lý (mini-spec V89) --
+  //
+  // MỘT cửa cho mọi việc cần mô hình ngôn ngữ, nhận TÊN tác vụ chứ không
+  // nhận prompt. Bốn lớp chặn chi phí, không lớp nào thay được lớp nào:
+  //   1. danh sách tác vụ đóng (`assistPrompts.TASK_NAMES` trong schema)
+  //   2. trần ký tự đầu vào — cắt TRƯỚC khi gọi mô hình
+  //   3. hạn mức theo ngày mỗi máy (`assistUsedToday`)
+  //   4. giá Vox theo từng tác vụ, đổi được lúc chạy
+  fastify.post('/assist', {
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['jobId', 'task'],
+        properties: {
+          jobId: { type: 'string', minLength: 8, maxLength: 100 },
+          task: { type: 'string', enum: assistPrompts.TASK_NAMES },
+          holdId: { type: 'string', minLength: 8, maxLength: 100 },
+          input: { type: 'object', additionalProperties: true },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { device } = request
+    const { jobId, task, input = {}, holdId } = request.body
+    const spec = assistPrompts.getTask(task)
+
+    const cached = await replay(jobId, device.fingerprint)
+    if (cached) return cached
+
+    const cfg = await config.getMany([
+      'credit.enabled', spec.costKey,
+      'assist.daily.limit', `assist.daily.limit.${task}`,
+    ])
+    const cost = cfg['credit.enabled'] ? (cfg[spec.costKey] || 0) : 0
+
+    // Hạn mức riêng của tác vụ (nếu có) đi trước hạn mức chung: tác vụ miễn
+    // phí như explain_error cần trần riêng vì nó không bị giá Vox chặn.
+    const tranRieng = cfg[`assist.daily.limit.${task}`]
+    if (tranRieng > 0) {
+      const daDung = await assistUsedToday(device.fingerprint, task)
+      if (daDung >= tranRieng) {
+        return reply.code(429).send({
+          code: 'DAILY_LIMIT',
+          message: `Hôm nay đã dùng hết ${tranRieng} lượt cho việc này. Thử lại vào ngày mai.`,
+        })
+      }
+    }
+    const tranChung = cfg['assist.daily.limit']
+    if (tranChung > 0) {
+      const daDung = await assistUsedToday(device.fingerprint, '')
+      if (daDung >= tranChung) {
+        return reply.code(429).send({
+          code: 'DAILY_LIMIT',
+          message: `Hôm nay đã dùng hết ${tranChung} lượt trợ lý. Thử lại vào ngày mai.`,
+        })
+      }
+    }
+
+    const lacking = await precheck(device.fingerprint, holdId, cost,
+      { action: 'assist', jobId })
+    if (lacking) {
+      return reply.code(402).send({
+        code: 'INSUFFICIENT_CREDIT',
+        message: `Không đủ Vox. Cần ${lacking.required}, bạn có ${lacking.balance}.`,
+        balance: lacking.balance,
+        required: lacking.required,
+      })
+    }
+
+    const started = Date.now()
+    let result
+    try {
+      result = await gateway.assist({ task, input })
+    } catch (err) {
+      request.log.warn({ err, jobId, task }, 'assist failed')
+      UsageLog.create({
+        fingerprint: device.fingerprint,
+        jobId,
+        action: 'assist',
+        assistTask: task,
+        status: 'error',
+        errorCode: err.code || 'AI_UNAVAILABLE',
+        errorMessage: String(err.message).slice(0, 300),
+        durationMs: Date.now() - started,
+        ip: request.ip,
+        appVersion: device.appVersion,
+      }).catch(() => {})
+      // App LUÔN có đường lui cho các tác vụ này (tầng luật chạy trên máy),
+      // nên hỏng ở đây không phải chuyện lớn — nhưng phải nói ra để phía app
+      // biết mà rơi về đường lui, thay vì tưởng là không có gợi ý nào.
+      return reply.code(503).send({
+        code: 'AI_UNAVAILABLE',
+        message: 'Trợ lý chưa trả lời được. Bạn vẫn dùng bình thường được.',
+        retryAfter: 30,
+      })
+    }
+
+    const paid = await charge(device, {
+      holdId,
+      jobId,
+      action: 'assist',
+      walletCost: cost,
+      internalVox: 0,
+      description: `Trợ lý: ${task}`,
+      ip: request.ip,
+    })
+
+    const response = {
+      jobId,
+      task,
+      results: result.results,
+      creditCharged: paid.charged,
+      balanceAfter: paid.balanceAfter,
+    }
+    await Promise.all([
+      remember(jobId, device.fingerprint, 'assist', response, paid.charged),
+      UsageLog.create({
+        fingerprint: device.fingerprint,
+        jobId,
+        action: 'assist',
+        assistTask: task,
+        inputSize: result.results.length,
         creditCharged: paid.charged,
         aiProvider: result.provider,
         aiModel: result.model,

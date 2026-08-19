@@ -8021,6 +8021,87 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V89 — Cổng trợ lý đa tác vụ, giai đoạn 1 (Phase H, 2026-08-19)
+
+Bản kế hoạch được duyệt, bắt đầu bằng giai đoạn 1: mở cửa vào và chứng minh
+cả đường dây lẫn đường tiền bằng hai tác vụ thật.
+
+### Cửa vào
+
+`POST /v1/ai/assist` nhận **tên tác vụ**, không nhận prompt. Toàn bộ câu chữ
+hướng dẫn mô hình nằm ở `src/prompts/assist.js` — sửa chúng, hay đổi mô hình,
+**không cần phát hành lại bản .exe**. Đó là lợi ích lớn nhất của cả mini-spec
+này: tuần này người dùng đã phải tải 7 bản.
+
+Không xây lại gì: `callWithFallback` (tự rơi sang nhà cung cấp khác),
+`replay`/`remember` (chống gọi trùng), `precheck`/`charge` (ví + hold),
+`UsageLog` — đều dùng nguyên.
+
+### Bốn lớp chặn chi phí
+
+| lớp | chặn được gì | trạng thái |
+|---|---|---|
+| Danh sách tác vụ đóng (enum trong schema route) | gửi prompt tự do | đã có qua `TASK_NAMES` |
+| Trần ký tự, cắt TRƯỚC khi gọi | trả tiền rồi mới biết là quá dài | mỗi tác vụ tự khai `maxInput` |
+| Hạn mức theo NGÀY mỗi máy | vòng lặp hỏng chạy cả ngày | **mới** — server trước đó chỉ có giới hạn theo phút |
+| Giá Vox theo từng tác vụ | — | `credit.cost.assist.<task>`, đổi lúc chạy |
+
+Lớp thứ ba là thứ đã thiếu: `fastify rateLimit` chặn được bấm dồn dập nhưng
+không chặn được một máy gọi đều đặn suốt 24 tiếng.
+
+### Hai tác vụ đầu
+
+`explain_error` — **0 Vox và chạy cả khi hết Vox**. Người đang gặp lỗi mà còn
+bị chặn vì hết tiền là lúc tệ nhất để thu phí; chặn bằng hạn mức 30 lượt/ngày
+thay vì bằng giá. Nối vào trang Chép lời, chỗ trước đây in nguyên văn
+`[WinError 2] The system cannot find the file specified`.
+
+`music_suggest` — 2 Vox, có tính tiền nên chứng minh nốt đường ví. Nối vào
+đúng nút "Gợi ý từ nội dung video" của V88.
+
+### Đường lui là bắt buộc, không phải tuỳ chọn
+
+Tầng luật V88 **không bị thay thế**. Chưa cấu hình máy chủ, mất mạng, hết Vox,
+mô hình trả sai khuôn — tất cả đều rơi về nó, và giao diện nói rõ gợi ý đến từ
+đâu ("trợ lý đã đọc lời thoại" so với "đo trên máy, chưa cần tài khoản"). Hai
+đường cho chất lượng khác nhau; người dùng có quyền biết mình đang xem cái nào.
+
+Chiều ngược lại cũng được khoá: **mô hình trả thiếu `reason` thì bỏ kết quả đó**
+và rơi về tầng luật. Gợi ý không kèm lý do thì người dùng không kiểm chứng
+được — mà lý do của tầng luật luôn là con số đo được.
+
+Cả hai worker giao diện đều không bao giờ ném ra ngoài: gợi ý hỏng không được
+giết Trình chỉnh sửa, và `explain_error` hỏng thì **im lặng** — người đang bực
+vì lỗi không cần thêm một thông báo "không giải thích được lỗi".
+
+### Test (22)
+
+Server (7, chạy thuần không DB): danh sách tác vụ đóng — kể cả `toString` và
+`constructor` cũng không lọt; mỗi tác vụ khai đủ trần + khoá giá; đầu vào 50.000
+ký tự bị cắt còn dưới 5.000; khuôn kết quả ép có `reason`; lời hướng dẫn
+`explain_error` phải cấm bịa cách sửa và cấm đẩy người dùng đi báo lỗi GitHub.
+
+App (15): đi máy chủ khi có tài khoản; **gửi tên tác vụ chứ không gửi prompt**
+(quét chính dữ liệu gửi lên, cấm lọt "bạn là"/"json"/"system"); cắt lời thoại
+trước khi gửi; ba dạng hỏng đều rơi về luật; trả rỗng cũng rơi về luật; thiếu
+`reason` thì bỏ; lời thoại quá ngắn thì **không tốn Vox**; chưa có tài khoản
+thì tuyệt đối không gọi ra ngoài; và giao diện nói đúng nguồn gợi ý.
+
+**Test cũ bắt đúng việc của nó**: `hold.test.js` có danh sách trắng các khoá
+giá công khai — thêm khoá mới làm nó đỏ ngay, buộc phải cập nhật *có chủ đích*
+thay vì để giá nội bộ rò rỉ thành giá người dùng. Đã cập nhật kèm lý do.
+
+**1600 passed, 7 skipped, 0 failed** (Python) + **341 pass, 0 fail** (Node).
+
+### Còn tồn — trước khi bật thật
+
+- **Chưa có nhà cung cấp cho vai `assist`**: phải thêm một dòng trong trang
+  quản trị (`/v1/admin/providers`), trỏ vào mô hình rẻ. Chưa thêm thì tự dùng
+  chung vai `translate` — chạy được nhưng đắt hơn khoảng 25 lần.
+- **Chưa chạy thử với mô hình thật** — mọi test đều dùng máy chủ giả. Phải gọi
+  thật một lượt rồi đọc `UsageLog` xem token và tiền có khớp dự tính không.
+- Bộ đo 20 mẫu mỗi tác vụ và 4 tác vụ còn lại thuộc giai đoạn 2.
+
 ## V88 — Gợi ý mô tả nhạc nền từ chính lời thoại (Phase H, 2026-08-19)
 
 Người dùng hỏi: *"app có tự nhận định và chọn âm nhạc phù hợp cho video

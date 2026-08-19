@@ -18,6 +18,7 @@ const {
   parseResponseSegments, parseJsonObject, mergeTranslations, containsCjk,
 } = require('../utils/json-repair')
 const prompts = require('../prompts/translate')
+const assistPrompts = require('../prompts/assist')
 const subtitlePrompts = require('../prompts/subtitle-translate')
 
 class AiError extends Error {
@@ -538,8 +539,48 @@ async function generatePost({ scriptOriginal, scriptVi, videoTitle }) {
   return { metadata: stripEmoji(data), usage, provider: provider.name, model: provider.model }
 }
 
+/**
+ * Chạy một tác vụ trợ lý (mini-spec V89).
+ *
+ * Vai "assist" nên trỏ vào mô hình RẺ: các tác vụ này ngắn (vài trăm token)
+ * và không đòi chất lượng như dịch thuật — chênh lệch giá giữa hai hạng mô
+ * hình tới hàng chục lần. Chưa cấu hình vai riêng thì dùng chung với dịch để
+ * tính năng vẫn chạy, đúng cách `generatePost` đã làm.
+ */
+async function assist({ task, input }) {
+  const spec = assistPrompts.getTask(task)
+  if (!spec) throw new AiError('UNKNOWN_TASK', `Không có tác vụ "${task}"`, 400)
+
+  const assistProviders = await providersFor('assist')
+  const role = assistProviders.length ? 'assist' : 'translate'
+  const { content, usage, provider } = await callWithFallback(role, {
+    system: spec.system,
+    user: spec.buildUser(input || {}),
+    schema: assistPrompts.resultsSchema(spec.maxResults),
+    maxRetries: 2,
+  })
+
+  const data = parseJsonObject(content)
+  const results = Array.isArray(data && data.results) ? data.results : []
+  const sach = results
+    .map((r) => ({
+      value: String((r && r.value) || '').trim(),
+      reason: String((r && r.reason) || '').trim(),
+    }))
+    .filter((r) => r.value && r.reason)
+    .slice(0, spec.maxResults)
+
+  // Mô hình trả sai khuôn thì tính là LỖI, không im lặng đưa mảng rỗng: phía
+  // app còn đường lui (tầng luật), nhưng chỉ khi biết là đường này hỏng.
+  if (!sach.length) {
+    throw new AiError('BAD_AI_RESPONSE', 'Kết quả trả về không dùng được', 502)
+  }
+  return { results: sach, usage, provider: provider.name, model: provider.model }
+}
+
 module.exports = {
   AiError,
+  assist,
   translateBatch,
   translateSubtitleBatch,
   fixCjkLeftovers,

@@ -173,3 +173,64 @@ def goi_y_nhac(segments: list[dict], text_field: str = "",
         da_co.add(g.mo_ta)
         loc.append(g)
     return loc[:toi_da]
+
+
+# --------------------------------------------- đường qua máy chủ (V89) -- #
+
+#: Trần ký tự gửi lên — máy chủ cũng cắt, nhưng cắt sớm ở đây thì không phải
+#: đẩy vài trăm KB lời thoại qua mạng chỉ để bên kia vứt đi.
+_TRAN_CHU = 4000
+
+
+def _loi_thoai(segments: list[dict], text_field: str = "") -> str:
+    return do_dac(segments, text_field)["noi_dung"][:_TRAN_CHU]
+
+
+def goi_y_nhac_thong_minh(segments: list[dict], text_field: str = "",
+                          video_title: str = "") -> tuple[list[GoiYNhac], str]:
+    """Gợi ý tốt nhất có thể trong hoàn cảnh hiện tại.
+
+    Trả ``(danh sách, nguồn)`` với ``nguồn`` là ``"may_chu"`` hoặc ``"luat"``
+    — nơi gọi cần biết để nói đúng cho người dùng, chứ không phải để trang trí.
+
+    Có tài khoản thì hỏi máy chủ (hiểu nội dung thật); hỏng hoặc chưa cấu hình
+    thì rơi về luật đo trên máy. Đường luật KHÔNG bị thay thế: nó là thứ duy
+    nhất chạy được khi không mạng, không tài khoản, và tốn 0 Vox.
+    """
+    from autodub.utils import setup_logging
+
+    log = setup_logging("autodub.music_suggest")
+    theo_luat = goi_y_nhac(segments, text_field)
+
+    try:
+        from autodub.saas_client import is_configured
+        if not is_configured():
+            return theo_luat, "luat"
+    except Exception:
+        return theo_luat, "luat"
+
+    noi_dung = _loi_thoai(segments, text_field)
+    if len(noi_dung) < 60:
+        # Quá ít lời thoại để hỏi cho ra hồn — đừng tốn Vox của người dùng.
+        return theo_luat, "luat"
+
+    try:
+        from autodub.saas_client import get_client, new_job_id
+
+        ket = get_client().assist(
+            "music_suggest",
+            {"transcript": noi_dung, "videoTitle": (video_title or "")[:200]},
+            job_id=new_job_id())
+    except Exception as e:  # noqa: BLE001 — mọi lỗi đều rơi về đường luật
+        log.info(f"Trợ lý chưa gợi ý được ({str(e)[:120]}) — dùng cách đo "
+                 "trên máy")
+        return theo_luat, "luat"
+
+    tu_may_chu = [GoiYNhac(str(r.get("value", "")).strip(),
+                           str(r.get("reason", "")).strip())
+                  for r in ket
+                  if str(r.get("value", "")).strip()
+                  and str(r.get("reason", "")).strip()]
+    if not tu_may_chu:
+        return theo_luat, "luat"
+    return tu_may_chu, "may_chu"

@@ -598,6 +598,29 @@ class SaasClient:
         self._note_usage(data)
         return data
 
+    def assist(self, task: str, input_data: dict, *, job_id: str,
+               hold_id: str | None = None, timeout: float = 45.0) -> list[dict]:
+        """Chạy một tác vụ trợ lý — mini-spec V89.
+
+        Trả về danh sách ``[{"value": ..., "reason": ...}]``. Mỗi kết quả LUÔN
+        kèm lý do: giao diện hiện lý do đó cho người dùng, và người dùng cần
+        biết vì sao máy đề xuất như vậy thay vì tin một cái nhãn.
+
+        App chỉ gửi TÊN tác vụ và dữ liệu; toàn bộ câu chữ hướng dẫn mô hình
+        nằm ở máy chủ, nên sửa chúng không cần phát hành lại bản .exe.
+
+        Ném :class:`SaasError` khi hỏng — mọi nơi gọi hàm này đều phải có
+        đường lui chạy trên máy (xem `music_suggest.goi_y_nhac`).
+        """
+        payload = {"jobId": job_id, "task": task, "input": input_data or {}}
+        if hold_id:
+            payload["holdId"] = hold_id
+        data = self._request("POST", "/v1/ai/assist", timeout=timeout,
+                             json_body=payload)
+        self._note_usage(data)
+        ket_qua = data.get("results")
+        return ket_qua if isinstance(ket_qua, list) else []
+
     def generate_post(self, script_original: str, script_vi: str, *,
                       job_id: str, video_title: str = "",
                       hold_id: str | None = None) -> dict:

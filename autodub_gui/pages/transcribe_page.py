@@ -236,8 +236,29 @@ class TranscribePage(BasePage):
                 tieu_de, cach_chua = soan
                 dong += f" — {tieu_de}. {cach_chua}"
             else:
+                # Không có lời soạn sẵn — vẫn in nguyên văn (người dùng cần
+                # thấy ngay), rồi nhờ trợ lý giải thích thêm ở dòng sau nếu
+                # có tài khoản (mini-spec V89). Bảng soạn tay vẫn là đường
+                # chính; đây chỉ là lớp bồi cho những ca chưa ai lường tới.
                 dong += f" — {detail}"
+                self._nho_tro_ly_giai_thich(detail)
         self.log.append_log(dong, 40 if status == "hong" else 20)
+
+    def _nho_tro_ly_giai_thich(self, detail: str) -> None:
+        from autodub_gui.workers import ExplainErrorWorker
+
+        worker = ExplainErrorWorker(detail, step="chép lời", parent=self)
+        worker.finished_ok.connect(self._hien_loi_giai_thich)
+        # Giữ tham chiếu: QThread bị thu gom giữa chừng là tự crash.
+        self._explain_workers = getattr(self, "_explain_workers", [])
+        self._explain_workers.append(worker)
+        worker.start()
+
+    def _hien_loi_giai_thich(self, viec: str, chuyen: str) -> None:
+        dong = f"    → {viec}"
+        if chuyen:
+            dong += f" ({chuyen})"
+        self.log.append_log(dong, 30)
 
     def _on_done(self, items) -> None:
         self.btn_run.setEnabled(True)

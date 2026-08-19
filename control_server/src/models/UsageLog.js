@@ -16,10 +16,14 @@ const usageLogSchema = new mongoose.Schema({
     // đề rời, tách khỏi 'translate' (pipeline dub).
     // 'sound_effect'/'music' thêm ở mini-spec V37 — nhạc nền/hiệu ứng âm
     // thanh AI qua ElevenLabs.
+    // 'assist' thêm ở mini-spec V89 — cổng trợ lý đa tác vụ. Tên tác vụ cụ
+    // thể nằm ở `assistTask` để thống kê tách được từng loại mà không phải
+    // nới enum mỗi lần thêm việc mới.
     enum: ['translate', 'analyze', 'review', 'generate_post', 'translate_subtitle',
-          'sound_effect', 'music'],
+          'sound_effect', 'music', 'assist'],
     required: true,
   },
+  assistTask: { type: String, default: '' },
   inputSize: { type: Number, default: 0 },
   status: { type: String, enum: ['pending', 'success', 'error'], default: 'pending' },
   errorCode: { type: String, default: '' },

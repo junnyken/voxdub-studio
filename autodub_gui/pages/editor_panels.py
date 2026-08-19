@@ -1096,7 +1096,7 @@ class MusicSfxPanel(CollapsibleSection):
         self.btn_preview_music.setVisible(bool(path))
         self.btn_apply_music.setVisible(bool(path))
 
-    def show_music_suggestions(self, goi_y: list) -> None:
+    def show_music_suggestions(self, goi_y: list, nguon: str = "luat") -> None:
         """Hiện các mô tả đề xuất; bấm một cái là điền vào ô mô tả.
 
         Mỗi nút mang theo lý do ở tooltip — người dùng thấy được vì sao máy
@@ -1120,8 +1120,13 @@ class MusicSfxPanel(CollapsibleSection):
             nut.clicked.connect(
                 lambda _=False, mo_ta=g.mo_ta: self.music_desc.setText(mo_ta))
             self._suggest_box.addWidget(nut)
+        # Nói rõ gợi ý đến từ đâu: hai đường cho chất lượng khác nhau, người
+        # dùng có quyền biết mình đang xem cái nào (mini-spec V89).
+        goc = ("trợ lý đã đọc lời thoại" if nguon == "may_chu"
+               else "đo trên máy, chưa cần tài khoản")
         self.set_music_status(
-            "Bấm một gợi ý để điền vào ô mô tả, rồi bấm Sinh nhạc nền.")
+            f"Bấm một gợi ý để điền vào ô mô tả, rồi bấm Sinh nhạc nền "
+            f"({goc}).")
 
     def _preview_music(self) -> None:
         if self._music_path:

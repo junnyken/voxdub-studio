@@ -42,6 +42,17 @@ const DEFAULTS = {
   'credit.cost.segment.base': 10,
   'credit.cost.segment.autotranslate': 2,
   'credit.cost.metadata': 20,
+  // --- Cổng trợ lý (mini-spec V89) ---------------------------------------
+  // Giá cố ý rất nhỏ so với 12 Vox/câu của dịch: một video 200 câu tốn ~2.400
+  // Vox tiền dịch, thêm vài lượt gợi ý là dưới 0,4%. Đủ nhỏ để không ai phải
+  // cân nhắc trước khi bấm, nhưng KHÁC 0 nên một vòng lặp hỏng của app không
+  // thể âm thầm đốt ví người dùng.
+  'credit.cost.assist.music_suggest': 2,
+  // Báo lỗi thì miễn phí và chạy cả khi hết Vox — người đang gặp lỗi mà còn
+  // bị chặn vì hết tiền là lúc tệ nhất để thu phí. Chặn bằng hạn mức ngày.
+  'credit.cost.assist.explain_error': 0,
+  'assist.daily.limit': 150,
+  'assist.daily.limit.explain_error': 30,
   // GIÁ NỘI BỘ — để ghi `CreditHold.usage` (đối soát biên lợi nhuận) và làm
   // giá dự phòng chống lạm dụng khi một lượt AI được gọi lẻ KHÔNG kèm hold.
   // Trong luồng bình thường (có hold) các số này không bao giờ trừ vào ví

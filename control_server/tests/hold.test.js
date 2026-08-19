@@ -88,6 +88,13 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     // credit.cost.cloud.demucs: giá công khai mới cho cloud rendering
     // (mini-spec V9, xem docs/PLAN.md) — thêm có chủ đích, không phải rò
     // rỉ giá nội bộ.
+    // credit.cost.assist.*: giá công khai của cổng trợ lý đa tác vụ
+    // (mini-spec V89, xem docs/PLAN.md). Cố ý rất nhỏ so với 10-12
+    // Vox/câu của dịch — mục đích là chặn vòng lặp hỏng, không phải
+    // kiếm lời. explain_error để 0: người đang gặp lỗi mà bị chặn vì
+    // hết Vox là lúc tệ nhất để thu phí.
+    'credit.cost.assist.explain_error',
+    'credit.cost.assist.music_suggest',
     'credit.cost.cloud.demucs',
     // credit.cost.cloud.dub.vox.per.minute(.demucs): giá công khai mới cho
     // API lồng tiếng đầy đủ theo phút (mini-spec V34b, xem docs/PLAN.md) —

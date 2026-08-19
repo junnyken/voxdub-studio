@@ -962,6 +962,74 @@ class TranscribeWorker(QThread):
             detach_gui_logging(handler)
 
 
+class ExplainErrorWorker(QThread):
+    """Nhờ trợ lý dịch một dòng lỗi kỹ thuật sang việc người dùng làm được.
+
+    Mini-spec V89. Đây là lớp BỒI THÊM cho bảng lời soạn tay: chỉ chạy khi
+    bảng đó không có câu nào khớp. Hỏng thì im lặng — người dùng đã có dòng
+    lỗi gốc, thêm một thông báo "không giải thích được lỗi" chỉ làm rối lúc
+    họ đang bực.
+
+    Miễn phí (0 Vox) và chạy cả khi hết Vox: người đang gặp lỗi mà còn bị
+    chặn vì hết tiền là lúc tệ nhất để thu phí.
+    """
+
+    finished_ok = Signal(str, str)   # việc cần làm, chuyện đã xảy ra
+
+    def __init__(self, message: str, step: str = "", parent=None):
+        super().__init__(parent)
+        self._message = message
+        self._step = step
+
+    def run(self) -> None:
+        try:
+            from autodub.saas_client import get_client, is_configured, new_job_id
+
+            if not is_configured():
+                return
+            ket = get_client().assist(
+                "explain_error",
+                {"message": self._message[:2000], "step": self._step[:100]},
+                job_id=new_job_id(), timeout=30.0)
+        except Exception:  # noqa: BLE001 — im lặng có chủ đích, xem docstring
+            return
+        if ket:
+            dau = ket[0]
+            viec = str(dau.get("value", "")).strip()
+            chuyen = str(dau.get("reason", "")).strip()
+            if viec:
+                self.finished_ok.emit(viec, chuyen)
+
+
+class MusicSuggestWorker(QThread):
+    """Gợi ý mô tả nhạc nền — mini-spec V89.
+
+    Tách khỏi luồng giao diện vì đường qua máy chủ có thể mất vài giây; đường
+    luật thì tức thì nhưng không đáng tách hai lối gọi khác nhau ở nơi dùng.
+    Không có tín hiệu `failed`: hàm bên dưới LUÔN trả về được — hỏng máy chủ
+    thì rơi về đo trên máy, đó chính là điểm của thiết kế hai tầng.
+    """
+
+    finished_ok = Signal(list, str)   # danh sách GoiYNhac, nguồn ("may_chu"|"luat")
+
+    def __init__(self, segments: list, text_field: str = "",
+                 video_title: str = "", parent=None):
+        super().__init__(parent)
+        self._segments = segments
+        self._text_field = text_field
+        self._video_title = video_title
+
+    def run(self) -> None:
+        from autodub.media.music_suggest import goi_y_nhac_thong_minh
+
+        try:
+            ra, nguon = goi_y_nhac_thong_minh(
+                self._segments, self._text_field, self._video_title)
+        except Exception:  # noqa: BLE001 — gợi ý hỏng không được giết Editor
+            ra, nguon = [], "luat"
+        self.finished_ok.emit(list(ra), nguon)
+
+
 class MusicSfxWorker(QThread):
     """Nhạc nền/hiệu ứng âm thanh AI — mini-spec V37, docs/PLAN.md Phase G.
 
