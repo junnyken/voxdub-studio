@@ -87,3 +87,21 @@ test('mã lỗi hay gặp có trần để không đổ cả bảng ra màn hìn
   const limit = stats.theoMaLoi(7, MOC).find((b) => b.$limit)
   assert.ok(limit && limit.$limit <= 20)
 })
+
+// -- Vai trò và lượt dùng lại (V89 hoàn thiện) ------------------------------
+
+test('gộp theo vai trò để thấy đang chạy nhờ vai dịch hay vai riêng', () => {
+  const p = stats.theoVaiTro(7, MOC)
+  assert.strictEqual(p[0].$match.action, 'assist')
+  assert.strictEqual(p[0].$match.status, 'success',
+    'lượt hỏng chưa chắc đã chọn được vai nào — đếm vào là sai bức tranh')
+  assert.strictEqual(p[1].$group._id, '$assistRole')
+})
+
+test('đếm lượt dùng lại kết quả cũ', () => {
+  const group = stats.theoTacVu(7, MOC)[1].$group
+  assert.deepStrictEqual(group.dungLai, { $sum: { $cond: ['$fromCache', 1, 0] } })
+  const t = stats.tomTat([{ task: 'a', luot: 5, hong: 0, dungLai: 2, vox: 6 }], 10)
+  assert.strictEqual(t.dungLai, 2)
+  assert.strictEqual(t.vox, 6, 'lượt dùng lại 0 đồng nên không cộng vào Vox')
+})

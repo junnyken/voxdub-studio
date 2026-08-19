@@ -24,6 +24,12 @@ const usageLogSchema = new mongoose.Schema({
     required: true,
   },
   assistTask: { type: String, default: '' },
+  // V89 hoàn thiện: vai trò THẬT đã dùng (chưa cấu hình vai 'assist' thì rơi
+  // về 'translate' — đắt hơn nhiều lần, phải nhìn thấy được ở bảng theo dõi)
+  // và phiên bản prompt, để tách chất lượng trước/sau mỗi lần sửa câu chữ.
+  assistRole: { type: String, default: '' },
+  assistPromptVersion: { type: Number, default: 0 },
+  fromCache: { type: Boolean, default: false },
   inputSize: { type: Number, default: 0 },
   status: { type: String, enum: ['pending', 'success', 'error'], default: 'pending' },
   errorCode: { type: String, default: '' },

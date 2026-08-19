@@ -38,6 +38,9 @@ function theoTacVu(days, now = new Date()) {
         _id: '$assistTask',
         luot: { $sum: 1 },
         hong: { $sum: { $cond: [{ $eq: ['$status', 'error'] }, 1, 0] } },
+        // Lượt dùng lại kết quả cũ: 0 đồng, nhưng phải thấy được — tỷ lệ này
+        // cao nghĩa là người dùng đang bấm đi bấm lại cùng một thứ.
+        dungLai: { $sum: { $cond: ['$fromCache', 1, 0] } },
         vox: { $sum: '$creditCharged' },
         tokenVao: { $sum: '$promptTokens' },
         tokenRa: { $sum: '$completionTokens' },
@@ -49,7 +52,7 @@ function theoTacVu(days, now = new Date()) {
       $project: {
         _id: 0,
         task: '$_id',
-        luot: 1, hong: 1, vox: 1, tokenVao: 1, tokenRa: 1,
+        luot: 1, hong: 1, dungLai: 1, vox: 1, tokenVao: 1, tokenRa: 1,
         thoiGianMs: { $round: ['$thoiGian', 0] },
         soMay: { $size: '$soMay' },
       },
@@ -83,6 +86,27 @@ function theoMoHinh(days, now = new Date()) {
   ]
 }
 
+/**
+ * Đang chạy bằng vai trò nào.
+ *
+ * Chưa cấu hình nơi gọi mô hình cho vai `assist` thì hệ thống dùng chung vai
+ * `translate` — vẫn chạy, nhưng đắt hơn hàng chục lần. Không nhìn thấy được
+ * thì cứ tưởng đang tiết kiệm.
+ */
+function theoVaiTro(days, now = new Date()) {
+  return [
+    {
+      $match: {
+        action: 'assist', status: 'success',
+        createdAt: { $gte: since(days, now) },
+      },
+    },
+    { $group: { _id: '$assistRole', luot: { $sum: 1 } } },
+    { $project: { _id: 0, vai: '$_id', luot: 1 } },
+    { $sort: { luot: -1 } },
+  ]
+}
+
 /** Mã lỗi hay gặp nhất — đọc là biết nên sửa prompt hay đổi nhà cung cấp. */
 function theoMaLoi(days, now = new Date()) {
   return [
@@ -111,6 +135,7 @@ function tomTat(dongTacVu, voxToVnd = 10) {
   const vox = dongTacVu.reduce((t, d) => t + (d.vox || 0), 0)
   const tokenVao = dongTacVu.reduce((t, d) => t + (d.tokenVao || 0), 0)
   const tokenRa = dongTacVu.reduce((t, d) => t + (d.tokenRa || 0), 0)
+  const dungLai = dongTacVu.reduce((t, d) => t + (d.dungLai || 0), 0)
   const tonNhat = dongTacVu.reduce(
     (max, d) => ((d.vox || 0) > (max?.vox || -1) ? d : max), null)
   return {
@@ -121,8 +146,11 @@ function tomTat(dongTacVu, voxToVnd = 10) {
     vnd: vox * (Number(voxToVnd) || 0),
     tokenVao,
     tokenRa,
+    dungLai,
     tacVuTonNhat: tonNhat ? tonNhat.task : '',
   }
 }
 
-module.exports = { since, theoTacVu, theoMoHinh, theoMaLoi, tomTat }
+module.exports = {
+  since, theoTacVu, theoMoHinh, theoVaiTro, theoMaLoi, tomTat,
+}

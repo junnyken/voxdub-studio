@@ -84,12 +84,13 @@ export default function Assist() {
         />
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {[
               ['Số lượt', t.luot.toLocaleString('vi-VN')],
               ['Đã thu', `${formatVox(t.vox)} · ${formatVnd(t.vnd)}`],
               ['Token vào / ra',
                 `${(t.tokenVao / 1000).toFixed(1)}k / ${(t.tokenRa / 1000).toFixed(1)}k`],
+              ['Dùng lại kết quả cũ', `${t.dungLai || 0} lượt · 0đ`],
               ['Tốn nhất', tenViec(t.tacVuTonNhat)],
             ].map(([nhan, gia_tri]) => (
               <div key={nhan} className="rounded-xl bg-panel border border-border-subtle p-3">
@@ -98,6 +99,16 @@ export default function Assist() {
               </div>
             ))}
           </div>
+
+          {data.dungChungVaiDich && (
+            <div className="rounded-xl border border-danger/40 bg-danger/10 p-3 text-sm">
+              <strong>Đang chạy nhờ vai «dịch thuật».</strong> Chưa có nơi gọi
+              mô hình nào đặt vai trò «assist», nên mỗi lượt trợ lý đang dùng
+              đúng mô hình dành cho dịch — đắt hơn nhiều lần cho việc ngắn như
+              thế này. Thêm một dòng ở trang «Nơi gọi mô hình», vai trò
+              «assist», trỏ vào mô hình rẻ.
+            </div>
+          )}
 
           {t.tyLeHong >= 5 && (
             <div className="rounded-xl border border-warning/40 bg-warning/10 p-3 text-sm">
@@ -116,6 +127,7 @@ export default function Assist() {
                     <th className="text-left px-3 py-2">Việc</th>
                     <th className="text-right px-3 py-2">Lượt</th>
                     <th className="text-right px-3 py-2">Máy</th>
+                    <th className="text-right px-3 py-2">Dùng lại</th>
                     <th className="text-right px-3 py-2">Vox</th>
                     <th className="text-right px-3 py-2">Token vào/ra</th>
                     <th className="text-right px-3 py-2">Trung bình</th>
@@ -128,6 +140,9 @@ export default function Assist() {
                       <td className="px-3 py-2 font-medium">{tenViec(r.task)}</td>
                       <td className="px-3 py-2 text-right">{r.luot}</td>
                       <td className="px-3 py-2 text-right">{r.soMay}</td>
+                      <td className="px-3 py-2 text-right text-ink-soft">
+                        {r.dungLai || 0}
+                      </td>
                       <td className="px-3 py-2 text-right">{r.vox}</td>
                       <td className="px-3 py-2 text-right text-ink-soft">
                         {r.tokenVao} / {r.tokenRa}

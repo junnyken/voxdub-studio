@@ -49,6 +49,16 @@ function cat(text, max) {
   return s.length > max ? `${s.slice(0, max)}…` : s
 }
 
+/**
+ * Phiên bản của BỘ PROMPT. Sửa câu chữ hướng dẫn mô hình thì TĂNG số này.
+ *
+ * Hai việc phụ thuộc vào nó, cả hai đều hỏng âm thầm nếu quên tăng:
+ *   - nhớ đệm theo nội dung (dưới đây) sẽ trả lại kết quả của prompt CŨ;
+ *   - bảng theo dõi không tách được chất lượng trước/sau khi sửa prompt, nên
+ *     sửa xong thấy tệ hơn cũng không quy được trách nhiệm.
+ */
+const PROMPT_VERSION = 1
+
 const TASKS = {
   /**
    * Gợi ý mô tả nhạc nền từ lời thoại.
@@ -225,4 +235,23 @@ function getTask(name) {
   return Object.prototype.hasOwnProperty.call(TASKS, name) ? TASKS[name] : null
 }
 
-module.exports = { TASKS, TASK_NAMES, getTask, resultsSchema, cat }
+/**
+ * Khoá nhớ đệm theo NỘI DUNG câu hỏi.
+ *
+ * `jobId` chống gọi trùng do mạng chập chờn, nhưng người dùng bấm lại nút thì
+ * `jobId` mới → trả tiền lần nữa cho câu hỏi y hệt. Khoá này băm (tác vụ +
+ * phiên bản prompt + dữ liệu vào) nên bấm lại là dùng lại, còn sửa prompt thì
+ * nhớ đệm tự hết hiệu lực.
+ */
+function cacheKey(task, input) {
+  const crypto = require('node:crypto')
+  // Sắp khoá trước khi băm: {a,b} và {b,a} là cùng một câu hỏi.
+  const chuan = JSON.stringify(input || {}, Object.keys(input || {}).sort())
+  const bam = crypto.createHash('sha1')
+    .update(`${task}|${PROMPT_VERSION}|${chuan}`).digest('hex').slice(0, 32)
+  return `assist-cache-${bam}`
+}
+
+module.exports = {
+  TASKS, TASK_NAMES, getTask, resultsSchema, cat, cacheKey, PROMPT_VERSION,
+}

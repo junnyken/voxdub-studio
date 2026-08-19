@@ -907,7 +907,46 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
             return
         dialog = SpeakerPreviewDialog(speakers, self)
         dialog.voice_changed.connect(self._on_speaker_voice_changed)
+        dialog.name_requested.connect(
+            lambda nhan, mau: self._goi_y_ten_nhan_vat(dialog, nhan, mau))
         dialog.exec()
+
+    def _goi_y_ten_nhan_vat(self, dialog, speaker_label: str, mau: str) -> None:
+        """Nhờ trợ lý đặt tên cho một người nói (V89).
+
+        Lấy thêm lời của CHÍNH người đó từ transcript đang mở — câu mẫu một
+        dòng thì không đủ để đặt tên cho ra hồn.
+        """
+        from autodub_gui.workers import AssistWorker
+
+        loi = " ".join(
+            str(s.get("text", "")).strip() for s in self._segments
+            if str(s.get("speaker_label", "")) == speaker_label)[:3000].strip()
+        if len(loi) < 40:
+            loi = mau
+        if len(loi) < 20:
+            TOASTS.warn("Người này nói quá ít để đặt tên.")
+            return
+        so_cau = sum(1 for s in self._segments
+                     if str(s.get("speaker_label", "")) == speaker_label)
+        worker = AssistWorker("character_name",
+                              {"lines": loi, "lineCount": so_cau}, parent=self)
+        worker.finished_ok.connect(
+            lambda ket: self._hien_ten_nhan_vat(dialog, speaker_label, ket))
+        worker.failed.connect(lambda m: TOASTS.warn(friendly_assist_error(m)))
+        self._assist_worker = worker
+        TOASTS.info("Đang đọc lời của người này…")
+        worker.start()
+
+    def _hien_ten_nhan_vat(self, dialog, speaker_label: str, ket: list) -> None:
+        if not ket:
+            return
+        dau = ket[0]
+        dialog.show_name(speaker_label,
+                         str(dau.get("value", "")).strip(),
+                         str(dau.get("reason", "")).strip())
+        TOASTS.info("Tên chỉ là gợi ý — gõ vào trang Hồ sơ nhân vật để dùng "
+                    "cho các tập sau.")
 
     def _on_speaker_voice_changed(self, speaker_label: str, voice: str) -> None:
         """Áp giọng mới cho MỌI câu của 1 người nói (V26 Scope E)."""

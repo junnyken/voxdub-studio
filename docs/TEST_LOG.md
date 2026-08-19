@@ -8021,6 +8021,63 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V89 hoàn thiện — nhớ đệm, phiên bản prompt, tên nhân vật (Phase H, 2026-08-19)
+
+Ba việc còn lại sau khi ba giai đoạn của bản kế hoạch đã dựng xong.
+
+### Nhớ đệm theo nội dung: chỗ rò tiền dễ thấy nhất
+
+`jobId` chống được gọi trùng do mạng chập chờn, nhưng **người dùng bấm lại nút
+thì jobId mới** — cùng một câu hỏi, trả tiền lần thứ hai. Với `tighten_line`
+(bấm thử vài phương án cho một câu) hay `music_suggest` (bấm lại vì chưa ưng)
+thì đây là chuyện thường ngày.
+
+Khoá nhớ đệm băm ba thứ: tác vụ + **phiên bản prompt** + dữ liệu vào đã sắp
+khoá (nên `{a,b}` và `{b,a}` là cùng một câu hỏi). Lượt dùng lại tính 0 Vox,
+và hiện thành **cột riêng** ở bảng theo dõi — tỷ lệ dùng lại cao nghĩa là
+người dùng đang bấm đi bấm lại cùng một thứ, đó là tín hiệu về giao diện chứ
+không phải về mô hình.
+
+### Phiên bản prompt: thứ giữ cho bộ đo có nghĩa
+
+`PROMPT_VERSION` ghi vào nhật ký và nằm **trong** khoá nhớ đệm. Hai việc hỏng
+âm thầm nếu quên tăng số này khi sửa prompt:
+
+- nhớ đệm trả lại kết quả của prompt CŨ;
+- bảng theo dõi không tách được chất lượng trước/sau, nên sửa xong thấy tệ hơn
+  cũng không quy được trách nhiệm.
+
+### Vai trò thật: chặn cái đắt gấp hàng chục lần
+
+Chưa cấu hình nơi gọi mô hình cho vai `assist` thì hệ thống **vẫn chạy** —
+dùng chung vai `translate`. Đó chính là kiểu hỏng nguy hiểm: không có triệu
+chứng, chỉ có hoá đơn. Nay vai trò thật được ghi mỗi lượt, và trang quản trị
+hiện cảnh báo đỏ khi còn lượt nào chạy bằng vai dịch.
+
+### `character_name` — nối nốt tác vụ cuối
+
+Giai đoạn 2 để lại vì "không trang nào giữ lời thoại theo từng người nói". Tìm
+lại thì `autodub.editor.list_speakers()` đã gom sẵn theo `speaker_label`, và
+hộp thoại **Xem trước người nói** đang hiện đúng dữ liệu đó.
+
+Thêm nút "Gợi ý tên gọi" cho từng người nói. Ba chi tiết cố ý:
+
+- Lấy lời của **chính người đó** từ transcript đang mở, không dùng câu mẫu một
+  dòng — một câu thì đặt tên gì cũng là đoán.
+- Tên hiện **kèm nhãn gốc** ("Người nói 1 — Người dẫn") và lý do ở tooltip.
+- **Không tự ghi vào hồ sơ nhân vật.** Hồ sơ áp cho mọi tập sau; đặt nhầm còn
+  phiền hơn để nguyên "Người nói 2". Có test đọc thẳng mã hàm để chặn ai đó
+  sau này thêm lệnh ghi vào đấy.
+
+**1619 passed (Python), 366 pass (Node), website build sạch.**
+
+### Trạng thái cuối
+
+Toàn bộ cổng trợ lý đã dựng xong: 6 tác vụ, 6 chỗ bấm thật trong app, bốn lớp
+chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Chặn duy nhất còn
+lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
+qua đây.
+
 ## V89 giai đoạn 3 — bảng theo dõi chi phí (Phase H, 2026-08-19)
 
 Giai đoạn cuối của bản kế hoạch: nhìn MỘT trang là biết tuần rồi tốn bao nhiêu

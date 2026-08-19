@@ -159,3 +159,60 @@ def test_giu_lai_thuat_ngu_nguoi_dung_da_go(qapp):
     thuat_ngu = panel._ctx_fields["glossary"].toPlainText()
     assert "有的 = có" in thuat_ngu, "không được xoá thứ người dùng đã gõ"
     assert "小米 = Xiaomi" in thuat_ngu
+
+
+# -- 4. Đặt tên nhân vật (V89 hoàn thiện) ------------------------------------
+
+def test_hop_thoai_nguoi_noi_co_nut_goi_y_ten(qapp):
+    from autodub_gui.ui.speaker_dialog import SpeakerPreviewDialog
+
+    d = SpeakerPreviewDialog([{
+        "speaker_label": "SPEAKER_00", "segment_count": 12,
+        "sample_text": "Kính thưa quý vị và các bạn.", "voice": ""}])
+    assert hasattr(d._rows["SPEAKER_00"], "btn_name")
+
+
+def test_khong_hien_nut_khi_chua_co_cau_mau(qapp):
+    """Không có lời thì đặt tên bằng gì — đừng bày nút bấm vô nghĩa."""
+    from autodub_gui.ui.speaker_dialog import SpeakerPreviewDialog
+
+    d = SpeakerPreviewDialog([{
+        "speaker_label": "SPEAKER_01", "segment_count": 1,
+        "sample_text": "", "voice": ""}])
+    assert not hasattr(d._rows["SPEAKER_01"], "btn_name")
+
+
+def test_ten_goi_y_hien_kem_ly_do(qapp):
+    from autodub_gui.ui.speaker_dialog import SpeakerPreviewDialog
+
+    d = SpeakerPreviewDialog([{
+        "speaker_label": "SPEAKER_00", "segment_count": 12,
+        "sample_text": "Kính thưa quý vị.", "voice": ""}])
+    d.show_name("SPEAKER_00", "Người dẫn", "đọc bản tin")
+    row = d._rows["SPEAKER_00"]
+    assert "Người dẫn" in row._title.text()
+    assert "Người nói 1" in row._title.text(), "vẫn phải thấy nhãn gốc"
+    assert "đọc bản tin" in row._title.toolTip()
+
+
+def test_khong_tu_ghi_ten_vao_ho_so(qapp):
+    """Hồ sơ nhân vật áp cho MỌI tập sau — đặt nhầm còn phiền hơn để nguyên
+    "Người nói 2". Gợi ý chỉ hiện lên màn hình."""
+    import inspect
+
+    from autodub_gui.ui import speaker_dialog
+
+    src = inspect.getsource(speaker_dialog._dat_ten_goi_y)
+    assert "setText" in src
+    for cam in ("save", "CharacterProfile", "write", "open("):
+        assert cam not in src, f"gợi ý mà tự ghi xuống đĩa: {cam}"
+
+
+def test_nguoi_noi_qua_it_loi_thi_khong_goi_tro_ly(qapp, monkeypatch):
+    from autodub_gui.pages.editor_page import EditorPage
+
+    trang = EditorPage(lambda: Settings())
+    trang._segments = [{"id": 1, "text": "ừ", "speaker_label": "SPEAKER_00"}]
+    monkeypatch.setattr("autodub_gui.workers.AssistWorker",
+                        lambda *a, **k: pytest.fail("quá ít lời mà vẫn gọi"))
+    trang._goi_y_ten_nhan_vat(None, "SPEAKER_00", "ừ")

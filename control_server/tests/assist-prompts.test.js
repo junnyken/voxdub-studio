@@ -62,3 +62,46 @@ test('cat() giữ nguyên chuỗi ngắn và thêm dấu lược khi cắt', () 
   assert.strictEqual(assist.cat('abcdef', 3), 'abc…')
   assert.strictEqual(assist.cat(null, 10), '')
 })
+
+// -- Nhớ đệm theo nội dung + phiên bản prompt (V89 hoàn thiện) --------------
+
+test('cùng câu hỏi thì cùng khoá, bất kể thứ tự trường', () => {
+  const a = assist.cacheKey('music_suggest', { transcript: 'abc', videoTitle: 'x' })
+  const b = assist.cacheKey('music_suggest', { videoTitle: 'x', transcript: 'abc' })
+  assert.strictEqual(a, b, '{a,b} và {b,a} là cùng một câu hỏi')
+})
+
+test('đổi một chữ trong dữ liệu là đổi khoá', () => {
+  const a = assist.cacheKey('music_suggest', { transcript: 'abc' })
+  const b = assist.cacheKey('music_suggest', { transcript: 'abd' })
+  assert.notStrictEqual(a, b)
+})
+
+test('hai tác vụ khác nhau không dùng chung kết quả', () => {
+  const a = assist.cacheKey('music_suggest', { transcript: 'abc' })
+  const b = assist.cacheKey('video_summary', { transcript: 'abc' })
+  assert.notStrictEqual(a, b)
+})
+
+test('khoá mang theo phiên bản prompt', () => {
+  // Sửa câu chữ hướng dẫn mô hình mà nhớ đệm vẫn trả kết quả cũ là hỏng âm
+  // thầm: đo thấy tệ hơn cũng không hiểu vì sao.
+  const crypto = require('node:crypto')
+  const chuan = JSON.stringify({ transcript: 'abc' }, ['transcript'])
+  const mong_doi = `assist-cache-${crypto.createHash('sha1')
+    .update(`music_suggest|${assist.PROMPT_VERSION}|${chuan}`)
+    .digest('hex').slice(0, 32)}`
+  assert.strictEqual(assist.cacheKey('music_suggest', { transcript: 'abc' }),
+    mong_doi)
+})
+
+test('khoá đủ ngắn để làm _id và không lẫn với jobId của app', () => {
+  const k = assist.cacheKey('music_suggest', { transcript: 'abc' })
+  assert.ok(k.startsWith('assist-cache-'))
+  assert.ok(k.length <= 100)
+})
+
+test('dữ liệu rỗng vẫn ra khoá hợp lệ, không nổ', () => {
+  assert.ok(assist.cacheKey('music_suggest', undefined).startsWith('assist-cache-'))
+  assert.ok(assist.cacheKey('music_suggest', {}).startsWith('assist-cache-'))
+})

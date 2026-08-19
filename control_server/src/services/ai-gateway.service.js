@@ -575,7 +575,7 @@ async function assist({ task, input }) {
   if (!sach.length) {
     throw new AiError('BAD_AI_RESPONSE', 'Kết quả trả về không dùng được', 502)
   }
-  return { results: sach, usage, provider: provider.name, model: provider.model }
+  return { results: sach, usage, provider: provider.name, model: provider.model, role }
 }
 
 module.exports = {

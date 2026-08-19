@@ -37,10 +37,12 @@ class _SpeakerRow(QFrame):
     """Một người nói: tên hiển thị, số câu, câu mẫu, ô chọn giọng."""
 
     voice_changed = Signal(str, str)   # speaker_label, tên giọng
+    name_requested = Signal(str, str)  # speaker_label, câu mẫu — V89
 
     def __init__(self, speaker: dict, parent: QWidget | None = None):
         super().__init__(parent)
         self._label = speaker["speaker_label"]
+        self._sample = str(speaker.get("sample_text") or "")
         self.setStyleSheet(
             f"QFrame {{ background: {tokens.BG_PANEL}; "
             f"border: 1px solid {tokens.BORDER_DEFAULT}; "
@@ -64,6 +66,7 @@ class _SpeakerRow(QFrame):
             f"background: transparent;")
         head.addWidget(count)
         root.addLayout(head)
+        self._title = title
 
         sample_text = speaker.get("sample_text") or ""
         if sample_text:
@@ -74,12 +77,36 @@ class _SpeakerRow(QFrame):
                 f"font-style: italic; background: transparent;")
             root.addWidget(sample)
 
+        # V89 — "Người nói 1/2/3" không giúp nhớ ai là ai khi dub cả series.
+        # Trợ lý đọc chính lời họ nói rồi đề xuất tên gọi ngắn.
+        if self._sample:
+            self.btn_name = GhostButton("Gợi ý tên gọi")
+            self.btn_name.setToolTip(
+                "Nhờ trợ lý đọc lời của người này rồi đề xuất tên gọi ngắn, "
+                "dễ nhớ. Cần tài khoản VoxDub.")
+            self.btn_name.clicked.connect(
+                lambda: self.name_requested.emit(self._label, self._sample))
+            root.addWidget(self.btn_name)
+
         self.picker = VoicePicker("Giọng cho người nói này")
         if speaker.get("voice"):
             self.picker.set_voice(speaker["voice"])
         self.picker.changed.connect(
             lambda: self.voice_changed.emit(self._label, self.picker.voice()))
         root.addWidget(self.picker)
+
+
+def _dat_ten_goi_y(row, ten: str, ly_do: str) -> None:
+    """Hiện tên trợ lý đề xuất ngay trên tiêu đề hàng.
+
+    KHÔNG ghi vào hồ sơ: hồ sơ nhân vật là thứ áp cho mọi tập sau, đặt nhầm
+    còn phiền hơn để nguyên "Người nói 2". Đây chỉ là gợi ý để người dùng đọc
+    rồi tự gõ vào trang Hồ sơ nhân vật.
+    """
+    goc = _display_name(row._label)
+    row._title.setText(f"{goc} — {ten}")
+    if ly_do:
+        row._title.setToolTip(f"Trợ lý đề xuất vì: {ly_do}")
 
 
 class SpeakerPreviewDialog(QDialog):
@@ -91,12 +118,21 @@ class SpeakerPreviewDialog(QDialog):
     """
 
     voice_changed = Signal(str, str)   # speaker_label, tên giọng
+    name_requested = Signal(str, str)  # speaker_label, câu mẫu — V89
+
+    def show_name(self, speaker_label: str, ten: str, ly_do: str = "") -> None:
+        """Hiện tên trợ lý đề xuất cho một người nói (V89)."""
+        row = self._rows.get(speaker_label)
+        if row is not None and ten:
+            _dat_ten_goi_y(row, ten, ly_do)
 
     def __init__(self, speakers: list[dict], parent: QWidget | None = None):
         super().__init__(parent)
         self.setWindowTitle("Xem trước người nói")
         self.setModal(True)
         self.setMinimumSize(_DIALOG_MIN_W, _DIALOG_MIN_H)
+
+        self._rows: dict[str, _SpeakerRow] = {}
 
         root = QVBoxLayout(self)
         root.setContentsMargins(tokens.SP_5, tokens.SP_5,
@@ -122,6 +158,8 @@ class SpeakerPreviewDialog(QDialog):
         for speaker in speakers:
             row = _SpeakerRow(speaker)
             row.voice_changed.connect(self.voice_changed.emit)
+            row.name_requested.connect(self.name_requested.emit)
+            self._rows[speaker["speaker_label"]] = row
             col.addWidget(row)
         col.addStretch()
         scroll.setWidget(holder)

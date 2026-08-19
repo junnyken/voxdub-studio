@@ -887,6 +887,27 @@ module.exports = async function aiRoutes(fastify) {
     const cached = await replay(jobId, device.fingerprint)
     if (cached) return cached
 
+    // Nhớ đệm theo NỘI DUNG: `jobId` chỉ chống gọi trùng do mạng chập chờn,
+    // còn người dùng bấm lại nút thì jobId mới → trả tiền lần nữa cho câu hỏi
+    // y hệt. Khoá băm gồm cả phiên bản prompt nên sửa prompt là tự hết hiệu lực.
+    const khoaNoiDung = assistPrompts.cacheKey(task, input)
+    const cuNoiDung = await replay(khoaNoiDung, device.fingerprint)
+    if (cuNoiDung) {
+      UsageLog.create({
+        fingerprint: device.fingerprint,
+        jobId,
+        action: 'assist',
+        assistTask: task,
+        assistPromptVersion: assistPrompts.PROMPT_VERSION,
+        fromCache: true,
+        creditCharged: 0,
+        status: 'success',
+        ip: request.ip,
+        appVersion: device.appVersion,
+      }).catch(() => {})
+      return { ...cuNoiDung, jobId, creditCharged: 0, fromCache: true }
+    }
+
     const cfg = await config.getMany([
       'credit.enabled', spec.costKey,
       'assist.daily.limit', `assist.daily.limit.${task}`,
@@ -974,11 +995,15 @@ module.exports = async function aiRoutes(fastify) {
     }
     await Promise.all([
       remember(jobId, device.fingerprint, 'assist', response, paid.charged),
+      // Lưu thêm dưới khoá nội dung để lần bấm sau không tính tiền lại.
+      remember(khoaNoiDung, device.fingerprint, 'assist', response, paid.charged),
       UsageLog.create({
         fingerprint: device.fingerprint,
         jobId,
         action: 'assist',
         assistTask: task,
+        assistRole: result.role,
+        assistPromptVersion: assistPrompts.PROMPT_VERSION,
         inputSize: result.results.length,
         creditCharged: paid.charged,
         aiProvider: result.provider,
