@@ -63,7 +63,7 @@ def test_gpu_worker_used_when_available(tmp_path):
     input_wav = str(tmp_path / "original_audio.wav")
     _make_wav(input_wav)
 
-    def fake_worker(src, vocals_out, no_vocals_out, model_name):
+    def fake_worker(src, vocals_out, no_vocals_out, model_name, cancel_event=None):
         _make_wav(vocals_out)
         _make_wav(no_vocals_out)
         return True
@@ -129,7 +129,8 @@ def test_demucs_cache_used_when_it_succeeds(tmp_path):
 
     cache = mock.Mock(spec=vocal_separator.DemucsCache)
 
-    def fake_separate(src, vocals_out, no_vocals_out, chunked):
+    def fake_separate(src, vocals_out, no_vocals_out, chunked,
+                      cancel_event=None):
         _make_wav(vocals_out)
         _make_wav(no_vocals_out)
         return True
@@ -163,7 +164,7 @@ def test_demucs_cache_failure_falls_back_to_one_shot(tmp_path):
     cache = mock.Mock(spec=vocal_separator.DemucsCache)
     cache.separate.return_value = False
 
-    def fake_worker(src, vocals_out, no_vocals_out, model_name):
+    def fake_worker(src, vocals_out, no_vocals_out, model_name, cancel_event=None):
         _make_wav(vocals_out)
         _make_wav(no_vocals_out)
         return True

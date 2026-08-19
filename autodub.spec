@@ -26,6 +26,18 @@ datas = [
      os.path.join("autodub", "speech", "tts")),
     (os.path.join(ROOT, "autodub", "speech", "asr_paraformer_worker.py"),
      os.path.join("autodub", "speech")),
+    # V80 — tệp này THIẾU từ đầu: `transcriber.py` gọi nó qua `bundled_file`
+    # và `scripts/setup_whisper.py` cần nó để smoke test, nhưng nó chưa bao
+    # giờ có trong `datas`. Hậu quả trên MỌI bản đóng gói: cài Whisper luôn
+    # dừng ở "!! không thấy worker script", `installed_ok.json` không bao giờ
+    # được ghi, nên app mãi mãi báo "chưa cài bộ nghe" dù người dùng đã cài.
+    (os.path.join(ROOT, "autodub", "speech", "asr_whisper_worker.py"),
+     os.path.join("autodub", "speech")),
+    # Cùng lỗi, tìm ra nhờ chính test quét `bundled_file()` viết cho ca trên:
+    # nhận diện người nói (`diarization.py`) cũng gọi worker qua subprocess mà
+    # tệp worker chưa từng được đóng gói.
+    (os.path.join(ROOT, "autodub", "speech", "diarize_worker.py"),
+     os.path.join("autodub", "speech")),
     (os.path.join(ROOT, "autodub", "speech", "align_whisper_worker.py"),
      os.path.join("autodub", "speech")),
     (os.path.join(ROOT, "autodub", "media", "demucs_worker.py"),

@@ -125,7 +125,10 @@ def step_assemble() -> None:
     scripts_dst = os.path.join(DIST_DIR, "scripts")
     os.makedirs(scripts_dst, exist_ok=True)
     for script in ("setup_vieneu.py", "setup_paraformer.py",
-                   "setup_whisper.py", "setup_douyin.py"):
+                   "setup_whisper.py", "setup_douyin.py",
+                   # Module dùng chung của 3 script trên — quên chép là bản
+                   # đóng gói chết ngay dòng import (V80).
+                   "_python_ho_tro.py"):
         shutil.copy2(os.path.join(PROJECT_ROOT, "scripts", script),
                      scripts_dst)
 

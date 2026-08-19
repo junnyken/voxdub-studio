@@ -79,6 +79,7 @@ def is_available(settings, source_lang: str) -> bool:
 def run_local_worker(
     items: list[tuple[int, str]], src: str, tgt: str, settings,
     reporter: ProgressReporter | None = None, progress_step: str = "translate",
+    cancel_event=None,
 ) -> dict[int, str]:
     """Chạy ``translate_local_worker.py`` MỘT LẦN, trả về ``{id: bản dịch}``.
 
@@ -120,6 +121,12 @@ def run_local_worker(
 
     threading.Thread(target=_drain, daemon=True).start()
     reader = WatchedLineReader(proc)
+    # Dịch cả video bằng model local mất nhiều phút; nút Dừng phải cắt ngang
+    # được chứ không chỉ có tác dụng sau khi dịch xong (V79). Luồng canh tự
+    # tắt khi worker thoát; việc đổi lỗi thành PipelineCancelled do
+    # `translate_segments_local` lo.
+    from autodub.cancel_guard import bat_dau_canh
+    bat_dau_canh(proc, cancel_event)
 
     try:
         ready_line = reader.readline(_READY_TIMEOUT_S).strip()
@@ -195,7 +202,7 @@ def run_local_worker(
 
 def translate_segments_local(
     segments: list[dict], target: TargetLang, source_lang: str, settings,
-    reporter: ProgressReporter | None = None,
+    reporter: ProgressReporter | None = None, cancel_event=None,
 ) -> list[dict]:
     """Dịch toàn bộ câu bằng model local (NLLB, subprocess trong .venv-mt).
 
@@ -213,7 +220,15 @@ def translate_segments_local(
             f"Dịch local chưa hỗ trợ ngôn ngữ nguồn '{source_lang}'")
 
     items = [(s.get("id"), s.get("text", "")) for s in segments]
-    by_id = run_local_worker(items, src, tgt, settings, reporter)
+    from autodub.cancel_guard import kiem_dung
+    try:
+        by_id = run_local_worker(items, src, tgt, settings, reporter,
+                                 cancel_event=cancel_event)
+    except Exception:
+        # Giết tiến trình con làm bước này "hỏng" đủ kiểu; cú bấm Dừng phải
+        # trông ra cú bấm Dừng, nếu không pipeline lại rơi sang "dịch tay".
+        kiem_dung(cancel_event)
+        raise
 
     # mini-spec V27 (docs/PLAN.md, Phase G) — bug thật: glossary
     # (`settings.translate_glossary`) trước đây CHỈ được enforce ở nhánh

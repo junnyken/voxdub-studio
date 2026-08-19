@@ -588,18 +588,38 @@ class Settings:
 
     # --- Đường dẫn của các bộ chạy riêng ------------------------------------
 
+    def _ban_cu(self, ten_venv: str, ten_model: str, lay_model: bool) -> str:
+        """Đường dẫn lấy từ bản cài CŨ cạnh bên, hoặc "" nếu không có.
+
+        Mini-spec V77: venv và models nằm trong thư mục ứng dụng nên nâng cấp
+        (giải nén bản mới ra thư mục khác) là mất sạch. Xem
+        autodub/venv_discovery.py.
+        """
+        from autodub.venv_discovery import tim_ban_cai_cu
+
+        found = tim_ban_cai_cu(ten_venv, ten_model)
+        if not found:
+            return ""
+        return found[1] if lay_model else found[0]
+
     def asr_venv_python_path(self) -> str:
         """Trình thông dịch Python của venv dành riêng cho Paraformer."""
         if self.asr_venv_python:
             return self.asr_venv_python
         exe = "Scripts/python.exe" if os.name == "nt" else "bin/python"
-        return os.path.join(app_root(), ".venv-asr", *exe.split("/"))
+        mac_dinh = os.path.join(app_root(), ".venv-asr", *exe.split("/"))
+        if os.path.isfile(mac_dinh):
+            return mac_dinh
+        return self._ban_cu(".venv-asr", "paraformer-zh", False) or mac_dinh
 
     def paraformer_model_dir_path(self) -> str:
         """Thư mục chứa model Paraformer + silero-VAD (+ chấm câu)."""
         if self.paraformer_model_dir:
             return self.paraformer_model_dir
-        return os.path.join(app_root(), "models", "paraformer-zh")
+        mac_dinh = os.path.join(app_root(), "models", "paraformer-zh")
+        if os.path.isfile(os.path.join(mac_dinh, "installed_ok.json")):
+            return mac_dinh
+        return self._ban_cu(".venv-asr", "paraformer-zh", True) or mac_dinh
 
     def paraformer_configured(self) -> bool:
         """venv ASR và dấu hiệu cài đặt xong đều có mặt hay chưa."""
@@ -667,13 +687,19 @@ class Settings:
         if self.whisper_venv_python:
             return self.whisper_venv_python
         exe = "Scripts/python.exe" if os.name == "nt" else "bin/python"
-        return os.path.join(app_root(), ".venv-whisper", *exe.split("/"))
+        mac_dinh = os.path.join(app_root(), ".venv-whisper", *exe.split("/"))
+        if os.path.isfile(mac_dinh):
+            return mac_dinh
+        return self._ban_cu(".venv-whisper", "whisper", False) or mac_dinh
 
     def whisper_model_dir_path(self) -> str:
         """Thư mục cache model Whisper (HuggingFace)."""
         if self.whisper_model_dir:
             return self.whisper_model_dir
-        return os.path.join(app_root(), "models", "whisper")
+        mac_dinh = os.path.join(app_root(), "models", "whisper")
+        if os.path.isfile(os.path.join(mac_dinh, "installed_ok.json")):
+            return mac_dinh
+        return self._ban_cu(".venv-whisper", "whisper", True) or mac_dinh
 
     def whisper_venv_configured(self) -> bool:
         """venv Whisper đã cài và có marker hay chưa."""
@@ -686,13 +712,19 @@ class Settings:
         if self.vieneu_venv_python:
             return self.vieneu_venv_python
         exe = "Scripts/python.exe" if os.name == "nt" else "bin/python"
-        return os.path.join(app_root(), ".venv-vieneu", *exe.split("/"))
+        mac_dinh = os.path.join(app_root(), ".venv-vieneu", *exe.split("/"))
+        if os.path.isfile(mac_dinh):
+            return mac_dinh
+        return self._ban_cu(".venv-vieneu", "vieneu", False) or mac_dinh
 
     def vieneu_model_dir_path(self) -> str:
         """Thư mục chứa các tệp model VieNeu đã tải về."""
         if self.vieneu_model_dir:
             return self.vieneu_model_dir
-        return os.path.join(app_root(), "models", "vieneu")
+        mac_dinh = os.path.join(app_root(), "models", "vieneu")
+        if os.path.isfile(os.path.join(mac_dinh, "installed_ok.json")):
+            return mac_dinh
+        return self._ban_cu(".venv-vieneu", "vieneu", True) or mac_dinh
 
     def vieneu_custom_voices_path(self) -> str:
         """Tệp JSON chứa giọng người dùng tự thêm.

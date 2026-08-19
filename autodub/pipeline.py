@@ -895,6 +895,7 @@ class DubPipeline:
                 subtitle_lang=target.iso639_2,
                 speed=deferred_speed[0] if deferred_speed else None,
                 fps=deferred_speed[1] if deferred_speed else None,
+                cancel_event=self._cancel_event,
             )
             rep.emit("merge_video", "done", detail=dubbed_video_path)
         else:
@@ -1237,7 +1238,8 @@ class DubPipeline:
         try:
             output_video = lipsync_module.run(
                 video_path, audio_path, os.path.join(work_dir, "lipsync"),
-                settings, video_duration_s=duration_s)
+                settings, video_duration_s=duration_s,
+                cancel_event=self._cancel_event)
             return output_video, {"status": "applied"}
         except lipsync_module.LipsyncBlocked as e:
             logger.warning(
@@ -1355,7 +1357,8 @@ class DubPipeline:
             if settings.translate_local_enabled and is_available(settings, source_lang):
                 try:
                     return translate_segments_local(
-                        segments, target, source_lang, settings, rep)
+                        segments, target, source_lang, settings, rep,
+                        cancel_event=self._cancel_event)
                 except LocalTranslateError as e:
                     logger.warning(f"Dịch local lỗi ({e}) — chuyển sang dịch tay")
                     return None
@@ -1701,7 +1704,8 @@ class DubPipeline:
                 from autodub.media.vocal_separator import separate_vocals
                 sep = separate_vocals(audio_path, data_dir(work_dir, create=True),
                                       sample_rate=rate, channels=ch,
-                                      demucs_cache=self._demucs_cache)
+                                      demucs_cache=self._demucs_cache,
+                                      cancel_event=self._cancel_event)
             background_path = sep.get("no_vocals")
             if background_path is None:
                 logger.warning(

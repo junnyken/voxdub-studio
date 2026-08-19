@@ -8021,6 +8021,122 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V77–V80 — Đợt rà "còn chỗ nào hỏng nữa không" (Phase H, 2026-08-19)
+
+Người dùng hỏi thẳng: *"còn mục nào bị lỗi nữa không để khắc phục 1 lần"*. Ba
+nhóm dưới đây tìm bằng cách quét có bằng chứng, nhóm thứ tư do chính người
+dùng báo bằng ảnh chụp màn hình giữa lúc đang làm.
+
+### V80 — "Cài rồi mà app vẫn bảo chưa": hai lỗi chặn cứng
+
+**(a) Tệp worker chưa bao giờ được đóng gói.** Ảnh chụp của người dùng:
+
+```
+[setup-whisper] faster-whisper đã cài — bỏ qua
+!! không thấy worker script: ...\VoxDub-Studio-v3.4.4-win64\autodub\speech\asr_whisper_worker.py
+```
+
+`asr_whisper_worker.py` **không có trong `datas` của `autodub.spec`** — chưa
+bao giờ có. Mở bản phát hành v3.4.4 ra đếm: 6 tệp worker, thiếu đúng tệp này.
+Hậu quả trên MỌI bản đóng gói từ trước tới nay: bộ cài luôn chết ở bước smoke
+test → `installed_ok.json` không bao giờ được ghi → app mãi báo "chưa cài bộ
+nghe"; và ngay cả khi có marker thì `_transcribe_whisper_subprocess` cũng
+không có tệp để chạy.
+
+Đây là **gốc rễ sâu hơn cả V74/V75**. Hai mini-spec đó sửa đúng phần "app
+kiểm sai điều kiện", nhưng đường chép lời trong bản `.exe` vốn dĩ chưa từng
+chạy được lần nào.
+
+Test không viết riêng cho một tệp mà bắt CẢ LỚP: quét AST tìm mọi
+`bundled_file(...)` trỏ tới `.py`, đối chiếu với khối `datas`. Ngay lần chạy
+đầu nó **lòi thêm một tệp nữa cũng thiếu**: `diarize_worker.py` (nhận diện
+người nói) — tính năng đó cũng chưa từng chạy được trong bản đóng gói.
+
+**(b) Bộ cài tạo venv bằng Python 3.14.** Ảnh chụp thứ hai: cài giọng VieNeu
+gãy ở `failed-wheel-build-for-install → kaldi-native-fbank`, traceback đi qua
+`pythoncore-3.14-64`. Các gói ONNX/ASR chưa có wheel cho 3.14 nên pip build từ
+mã nguồn rồi gãy.
+
+Tệp .bat ĐÃ thử `py -3.12` trước, nhưng vẫn thủng ở hai cảnh có thật:
+
+1. Máy có 3.12 mà `py -3.12` không tìm ra (cài bằng Python Install Manager,
+   hoặc cài 3.12 SAU khi đã chạy .bat lần đầu) → rơi xuống `py` = bản mới nhất.
+2. Lần chạy trước đã tạo venv bằng 3.14 → lần sau dù chạy đúng 3.12 thì
+   `step_venv` vẫn "venv đã có — bỏ qua" rồi cài tiếp vào venv hỏng.
+
+Nên phép kiểm phải nằm trong CHÍNH script cài (`scripts/_python_ho_tro.py`):
+đang chạy bản không hỗ trợ thì tự chạy lại bằng bản đúng; không có bản nào thì
+dừng ngay với MỘT dòng chỉ dẫn thay vì chết giữa mấy chục dòng log của pip; và
+venv cũ tạo bằng bản không hỗ trợ thì xoá dựng lại.
+
+### V79 — Nút Dừng cho các bước dài nhất
+
+`rep.check_cancelled()` có đúng 12 chỗ trong `pipeline.py`, **toàn bộ nằm giữa
+hai bước**. Nên bấm Dừng lúc đang tách nhạc nền (Demucs, 10+ phút), xuất video
+(ffmpeg re-encode), dịch máy hay đồng bộ khẩu hình đều không có tác dụng gì.
+
+`autodub/cancel_guard.py` gói sẵn hai bài học để lần sau nối thêm bước mới
+không phải học lại: giết tiến trình con (V72 — kiểm-rồi-chờ chỉ đúng khi cái
+chờ ngắn), và đổi mọi lỗi phát sinh SAU khi cờ bật thành `PipelineCancelled`
+(V74/V76).
+
+Bẫy riêng của nhóm này: mỗi bước đều có sẵn một đường **dự phòng âm thầm**.
+Demucs "hỏng" thì video ra không có nhạc nền; dịch máy "hỏng" thì rơi sang
+dịch tay. Test viết trước đã bắt đúng khoảng hở đó ở `separate_vocals` —
+phải chặn `kiem_dung()` ngay trong `except Exception` của nó.
+
+Xuất video giữ nguyên `subprocess.run` khi KHÔNG có cờ Dừng: không đổi cách
+chạy bước quan trọng nhất chỉ vì một tính năng mà đường gọi đó (Trình chỉnh
+sửa, CLI) không dùng tới.
+
+### V78 — 43 cảnh báo không bao giờ tới được người dùng
+
+Quét AST mọi `logger.warning/error` của lõi rồi cho chạy qua chính
+`log_text.notice_for`: **43 dòng bị lọc mất**. Phần lớn đúng là chi tiết kỹ
+thuật nên ẩn, nhưng 10 dòng thì người dùng lãnh hậu quả thật:
+
+| việc vẫn chạy tiếp | nhưng kết quả đã khác |
+|---|---|
+| Demucs hỏng | video ra **không có nhạc/tiếng động nền** |
+| thiếu `no_vocals.wav`/`ai_music.wav` | bản dựng lại mất nhạc nền |
+| Demucs/Whisper không dùng được GPU | chạy CPU, lâu hơn nhiều |
+| thiếu bộ chấm câu tiếng Trung | transcript **không có dấu câu** |
+| Paraformer chưa cài / video không phải tiếng Trung | lựa chọn trong Cài đặt bị bỏ qua |
+| atempo lỗi | câu đó giữ tốc độ gốc, lệch so với hình |
+| không ghi được sổ dịch tạm | lượt chạy lại phải **trả tiền dịch lần nữa** |
+
+Đã soạn lời thường cho từng ca; test copy nguyên văn thông báo của lõi nên đổi
+lời trong lõi mà quên bảng NOTICES là bị bắt ngay. Riêng "Rà soát bản dịch
+lỗi" GIỮ ẩn — đã có quyết định từ trước ở dòng `(..., None, ...)`; không lật
+quyết định cũ trong một đợt đang sửa việc khác, nhưng ghi thành test để lần
+sau ai đổi thì đổi có ý thức.
+
+### V77 — Nâng cấp không còn mất bộ nghe đã cài
+
+Cạm bẫy đã ghi trong V74 mà để ngỏ: venv và `models/` nằm trong thư mục ứng
+dụng, nên giải nén bản mới ra thư mục khác là app báo "chưa cài" dù người dùng
+đã cài từ lâu — chữa tay là chép 2 thư mục hoặc tải lại ~1,5 GB.
+
+Giờ khi thư mục mặc định trống, app dò các thư mục nằm CẠNH nó (chính là các
+bản cũ giải nén cạnh nhau) và dùng lại tại chỗ — không chép, không tải lại.
+Ba ràng buộc cố ý, mỗi cái một test: không đè đường dẫn người dùng tự đặt;
+không nhận bản cài dở (có venv nhưng thiếu `installed_ok.json`); có nhớ đệm
+(đo: 5 lượt hỏi = **1 lần quét đĩa**) và trần 60 thư mục (app có thể nằm trong
+Downloads với hàng trăm thư mục — quét vô hạn ở đó là treo app lúc khởi động).
+
+**Lỗi tự bắt được khi viết test**: tên thư mục in ra Nhật ký lùi thiếu một cấp
+nên hiện `.venv-whisper` thay vì tên bản cũ.
+
+**1529 passed, 7 skipped, 0 failed** (Python) + **334 pass, 0 fail** (Node).
+
+### Còn tồn
+
+- Đường Demucs chạy CPU in-process (chỉ có ở bản mã nguồn) không giết ngang
+  được — chỉ chặn trước khi bắt đầu.
+- `editor.py` gọi `refresh_subtitles`/`merge_video` không truyền cờ Dừng
+  (luồng đó chưa có nút).
+- OCR vùng chữ (`text_regions`) vẫn dùng `subprocess.run` trần, timeout 60s.
+
 ## V76 — Nút Dừng dừng được cả lúc canh chữ karaoke (Phase H, 2026-08-19)
 
 Hạn chế V75 để lại. Canh chữ là bước **lâu nhất** của việc ghi phụ đề (nghe

@@ -18,6 +18,8 @@ import os
 import subprocess
 import threading
 
+from autodub.cancel_guard import giet_khi_dung, kiem_dung
+from autodub.progress import PipelineCancelled
 from autodub.resources import GPU_LOCK
 from autodub.utils import (
     bundled_file,
@@ -115,9 +117,12 @@ class DemucsCache:
         return result[0]
 
     def separate(self, input_wav: str, vocals_out: str, no_vocals_out: str,
-                 chunked: bool) -> bool:
+                 chunked: bool, cancel_event=None) -> bool:
         """Tách một video qua worker bền. False → caller dùng đường cũ."""
+        from autodub.cancel_guard import giet_khi_dung, kiem_dung
+
         with self._lock:
+            kiem_dung(cancel_event)
             if not self._ensure():
                 return False
             req = {"input": os.path.abspath(input_wav),
@@ -125,9 +130,15 @@ class DemucsCache:
                    "no_vocals": os.path.abspath(no_vocals_out),
                    "chunked": chunked}
             try:
-                self._proc.stdin.write(json.dumps(req) + "\n")
-                self._proc.stdin.flush()
-                resp = json.loads(self._read_line(_SEPARATE_TIMEOUT))
+                # Tách một video có thể mất hàng chục phút — không giết tiến
+                # trình thì nút Dừng chỉ có tác dụng sau khi nó xong (V79).
+                with giet_khi_dung(self._proc, cancel_event):
+                    self._proc.stdin.write(json.dumps(req) + "\n")
+                    self._proc.stdin.flush()
+                    resp = json.loads(self._read_line(_SEPARATE_TIMEOUT))
+            except PipelineCancelled:
+                self._shutdown()
+                raise
             except Exception as e:
                 logger.warning(f"Demucs cache chết giữa chừng ({e}) — "
                                "video này tách theo đường thường")
@@ -172,6 +183,7 @@ def separate_vocals(
     sample_rate: int = 16000,
     channels: int = 1,
     demucs_cache: "DemucsCache | None" = None,
+    cancel_event=None,
 ) -> dict[str, str | None]:
     """Run Demucs two-stem separation on ``input_wav``.
 
@@ -205,11 +217,28 @@ def separate_vocals(
     try:
         done = (demucs_cache is not None
                 and demucs_cache.separate(input_wav, raw_vocals,
-                                          raw_no_vocals, _low_ram()))
+                                          raw_no_vocals, _low_ram(),
+                                          cancel_event=cancel_event))
         if not done and not _run_demucs_gpu_worker(
-                input_wav, raw_vocals, raw_no_vocals, model):
+                input_wav, raw_vocals, raw_no_vocals, model,
+                cancel_event=cancel_event):
+            # Đường CPU chạy in-process (torch/demucs không đóng trong .exe
+            # nên đường này chỉ tồn tại ở bản mã nguồn): không giết ngang
+            # được, chỉ chặn trước khi bắt đầu.
+            kiem_dung(cancel_event)
             _run_demucs(input_wav, raw_vocals, raw_no_vocals, model)
+    except PipelineCancelled:
+        # Bấm Dừng KHÔNG phải "tách hỏng". Nuốt ở đây là video vẫn ra, mất
+        # sạch nhạc nền, mà người dùng tưởng mình chỉ dừng lượt chạy (V79).
+        for path in (raw_vocals, raw_no_vocals):
+            if os.path.exists(path):
+                os.remove(path)
+        raise
     except Exception as exc:
+        # Người dùng bấm Dừng → tiến trình con bị giết → bước này "hỏng" theo
+        # đủ kiểu. Không kiểm ở đây thì cú bấm Dừng biến thành video MẤT NHẠC
+        # NỀN, mà người dùng không đời nào đoán ra (V79).
+        kiem_dung(cancel_event)
         logger.warning(f"Demucs separation failed: {exc}; falling back to silent base.")
         for path in (raw_vocals, raw_no_vocals):
             if os.path.exists(path):
@@ -221,6 +250,7 @@ def separate_vocals(
         _normalize(raw_vocals, vocals_out, sample_rate_str, channels)
         _normalize(raw_no_vocals, no_vocals_out, sample_rate_str, channels)
     except RuntimeError as exc:
+        kiem_dung(cancel_event)
         logger.warning(f"Post-processing Demucs output failed: {exc}")
         for path in (vocals_out, no_vocals_out):
             if os.path.exists(path):
@@ -268,7 +298,8 @@ def _low_ram() -> bool:
 
 
 def _run_demucs_gpu_worker(
-    input_wav: str, vocals_out: str, no_vocals_out: str, model_name: str
+    input_wav: str, vocals_out: str, no_vocals_out: str, model_name: str,
+    cancel_event=None,
 ) -> bool:
     """Thử tách bằng tiến trình con chạy trên card đồ họa.
 
@@ -303,7 +334,8 @@ def _run_demucs_gpu_worker(
             # pattern VieNeu worker đã dùng từ trước.
             atexit.register(proc.kill)
             try:
-                stdout, stderr = proc.communicate(timeout=3600)
+                with giet_khi_dung(proc, cancel_event):
+                    stdout, stderr = proc.communicate(timeout=3600)
             finally:
                 atexit.unregister(proc.kill)
             result = subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)

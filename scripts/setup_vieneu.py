@@ -11,10 +11,17 @@ Các bước đều resume-safe — chạy lại script sẽ bỏ qua phần đ�
 """
 import json
 import os
+import shutil
 import subprocess
 import sys
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _python_ho_tro import (  # noqa: E402
+    bao_dam_python_ho_tro,
+    venv_dung_python_ho_tro,
+)
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VENV_DIR = os.path.join(PROJECT_ROOT, ".venv-vieneu")
@@ -36,8 +43,14 @@ def log(msg: str) -> None:
 
 def step_venv() -> None:
     if os.path.isfile(VENV_PY):
-        log("venv .venv-vieneu đã có — bỏ qua")
-        return
+        if venv_dung_python_ho_tro(VENV_PY):
+            log("venv .venv-vieneu đã có — bỏ qua")
+            return
+        # Lần chạy trước lỡ tạo venv bằng Python quá mới (vd 3.14): mọi lần
+        # cài SAU đó cũng gãy vì bước này thấy thư mục có sẵn nên bỏ qua.
+        # Xoá đi dựng lại — người dùng không có cách nào tự đoán ra (V80).
+        log("venv .venv-vieneu được tạo bằng Python không hỗ trợ — dựng lại")
+        shutil.rmtree(VENV_DIR, ignore_errors=True)
     log("tạo virtualenv .venv-vieneu ...")
     subprocess.run([sys.executable, "-m", "venv", VENV_DIR], check=True)
 
@@ -87,6 +100,11 @@ print("model OK,", len(voices), "giọng")
 
 
 def main() -> None:
+    # Chạy bằng Python quá mới thì tự chạy lại bằng bản có wheel dựng sẵn;
+    # không có bản nào thì dừng NGAY với lời chỉ dẫn, thay vì chết giữa lúc
+    # pip build wheel (thông báo ở đó dài mấy chục dòng và vô nghĩa với
+    # người dùng cuối) — xem scripts/_python_ho_tro.py.
+    bao_dam_python_ho_tro()
     log("Cài đặt VieNeu-TTS — giọng đọc tiếng Việt chạy CPU")
     log("Model: pnnbao-ump/VieNeu-TTS-v3-Turbo (kiểm tra license trên "
         "HuggingFace trước khi dùng thương mại)")

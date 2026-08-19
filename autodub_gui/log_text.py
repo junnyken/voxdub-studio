@@ -265,6 +265,55 @@ _RAW_NOTICES: list[tuple[str, _Template, int]] = [
     (r"Đã dựng đoạn xem thử câu (\d+)",
      "Đã dựng xong đoạn xem thử câu {0}", SUCCESS),
 
+    # -- Suy giảm âm thầm: việc vẫn chạy tiếp nhưng KẾT QUẢ đã khác đi -------
+    #
+    # Mini-spec V78. Quét toàn bộ `logger.warning/error` của lõi rồi cho chạy
+    # qua chính `notice_for` này: 43 dòng KHÔNG BAO GIỜ hiện lên Nhật ký (rơi
+    # tự do rồi bị `_TECH_RE` chặn vì có chữ "demucs"/"gpu"/"json"...). Phần
+    # lớn là chi tiết kỹ thuật, đúng ra nên ẩn — nhưng 8 dòng dưới đây thì
+    # người dùng LÃNH HẬU QUẢ THẬT mà không được báo: video mất nhạc nền,
+    # transcript không dấu câu, tốc độ giọng không áp được, lượt chạy lại
+    # phải dịch (và trả tiền) lần nữa. Đây đúng là lớp lỗi của V75/V76.
+    (r"Demucs separation failed|Post-processing Demucs output failed",
+     "Không tách được nhạc nền của video này — bản lồng tiếng sẽ CHỈ CÓ giọng "
+     "đọc, không có nhạc/tiếng động nền", logging.WARNING),
+    (r"no_vocals\.wav missing|ai_music\.wav missing",
+     "Không tìm thấy tệp nhạc nền của dự án — bản dựng lại sẽ chỉ có giọng "
+     "đọc, không có nhạc nền", logging.WARNING),
+    (r"Demucs GPU worker (?:quá 60 phút|failed)",
+     "Tách nhạc nền không dùng được card đồ họa — chuyển sang CPU, bước này "
+     "sẽ lâu hơn nhiều", logging.WARNING),
+    (r"Không chạy được Whisper trên GPU|Whisper GPU không chạy được",
+     "Bước nghe lời thoại không dùng được card đồ họa — chạy bằng CPU, chậm "
+     "hơn nhiều", logging.WARNING),
+    (r"Model chấm câu tiếng Trung .* không có",
+     "Thiếu bộ chấm câu tiếng Trung — lời thoại nhận được sẽ KHÔNG có dấu "
+     "câu, bản dịch vì thế cũng kém mượt", logging.WARNING),
+    (r"Paraformer chưa cài",
+     "Bạn đang chọn bộ nghe tiếng Trung (Paraformer) nhưng máy chưa cài — "
+     'lượt này nghe bằng Whisper. Đúp chuột "Cai dat ASR tieng Trung '
+     '(Paraformer).bat" nếu muốn dùng đúng bộ đã chọn.', logging.WARNING),
+    (r"Paraformer chỉ hỗ trợ tiếng Trung",
+     "Video này không phải tiếng Trung nên bộ nghe Paraformer bạn chọn không "
+     "dùng được — lượt này nghe bằng Whisper", logging.WARNING),
+    (r"atempo lỗi trên|atempo x* *failed",
+     "Không chỉnh được tốc độ một câu giọng đọc — câu đó giữ tốc độ gốc nên "
+     "có thể lệch so với hình", logging.WARNING),
+    (r"VOICE_SPEED=.* ngoài khoảng",
+     "Tốc độ giọng đọc bạn đặt nằm ngoài mức máy chỉnh được — đã dùng mức "
+     "gần nhất", logging.WARNING),
+    (r"Không ghi được sổ dịch tạm",
+     "Không lưu được bản dịch tạm — nếu lượt chạy này dừng giữa chừng, lần "
+     "sau sẽ phải dịch lại từ đầu (tốn thêm chi phí dịch)", logging.WARNING),
+    # ("Rà soát bản dịch lỗi" CỐ Ý vẫn ẩn — đã có quyết định trước ở dòng
+    #  `(r"Rà soát bản dịch lỗi|Soát lại câu .* lỗi", None, ...)` phía trên;
+    #  không lật quyết định cũ trong một đợt đang sửa việc khác.)
+
+    # -- Cài đặt bộ máy nặng ------------------------------------------------
+    (r"Dùng lại bộ đã cài của bản trước ở thư mục: (\S.*)",
+     "Đang dùng lại bộ đã cài của bản trước (thư mục {0}) — không phải tải "
+     "lại", logging.INFO),
+
     # -- Phụ đề -------------------------------------------------------------
     (r"Đang canh phụ đề",
      "Đang canh phụ đề chạy khớp giọng đọc", logging.INFO),

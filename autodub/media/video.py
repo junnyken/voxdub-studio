@@ -3,6 +3,7 @@ import os
 import subprocess
 from functools import lru_cache
 
+from autodub.cancel_guard import giet_khi_dung
 from autodub.utils import ffmpeg_timeout_s, setup_logging
 
 logger = setup_logging("autodub.video_merger")
@@ -199,6 +200,7 @@ def merge_video(
     subtitle_lang: str = "und",
     speed: float | None = None,
     fps: str | None = None,
+    cancel_event=None,
 ) -> str:
     """Mux the dubbed audio into the video, optionally adding subtitles/blur.
 
@@ -299,8 +301,22 @@ def merge_video(
     timeout = (max(900, int(dur * 8)) if filter_complex and dur
                else ffmpeg_timeout_s(dur))
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True,
-                                timeout=timeout)
+        if cancel_event is None:
+            # Không ai bấm Dừng được (Trình chỉnh sửa, CLI) — giữ nguyên
+            # đường cũ, đừng đổi cách chạy tiến trình ở bước quan trọng nhất
+            # chỉ vì một tính năng không dùng tới ở đây.
+            result = subprocess.run(cmd, capture_output=True, text=True,
+                                    timeout=timeout)
+        else:
+            # `subprocess.run` không huỷ ngang được: xuất video re-encode
+            # chạy hàng chục phút, mà nút Dừng trước V79 chỉ có tác dụng SAU
+            # khi ffmpeg xong. Popen + giết tiến trình mới cắt ngang được.
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True)
+            with giet_khi_dung(proc, cancel_event):
+                stdout, stderr = proc.communicate(timeout=timeout)
+            result = subprocess.CompletedProcess(cmd, proc.returncode,
+                                                 stdout, stderr)
     except subprocess.TimeoutExpired:
         raise RuntimeError(
             f"FFmpeg treo quá {timeout}s khi ghép video — kiểm tra file "

@@ -29,6 +29,7 @@ import json
 import os
 import subprocess
 
+from autodub.cancel_guard import giet_khi_dung
 from autodub.resources import GPU_LOCK
 from autodub.utils import setup_logging
 
@@ -79,7 +80,7 @@ def check_duration(settings, video_duration_s: float | None) -> None:
 
 
 def run(video_path: str, audio_path: str, output_dir: str, settings,
-       video_duration_s: float | None = None) -> str:
+       video_duration_s: float | None = None, cancel_event=None) -> str:
     """Chạy lip-sync THẬT qua worker trong ``.venv-lipsync``, trả về đường
     dẫn video kết quả (đã watermark). Ném ``LipsyncUnavailable``/
     ``LipsyncBlocked``/``LipsyncFailed`` — caller (``pipeline.py``) quyết
@@ -116,7 +117,10 @@ def run(video_path: str, audio_path: str, output_dir: str, settings,
             # áp cho Whisper/Demucs GPU worker.
             atexit.register(proc.kill)
             try:
-                stdout, _ = proc.communicate(timeout=_WORKER_TIMEOUT_S)
+                # Lip-sync chạy hàng chục phút — nút Dừng phải cắt ngang
+                # được (V79).
+                with giet_khi_dung(proc, cancel_event):
+                    stdout, _ = proc.communicate(timeout=_WORKER_TIMEOUT_S)
             finally:
                 atexit.unregister(proc.kill)
     except subprocess.TimeoutExpired:

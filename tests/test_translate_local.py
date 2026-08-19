@@ -160,7 +160,7 @@ def test_translate_segments_local_applies_glossary(monkeypatch):
     settings.translate_glossary = "AI = Trí Tuệ Nhân Tạo"
     monkeypatch.setattr(
         "autodub.text.translate_local.run_local_worker",
-        lambda items, src, tgt, settings, reporter=None: {
+        lambda items, src, tgt, settings, reporter=None, cancel_event=None: {
             item_id: "We use AI a lot." for item_id, _ in items})
 
     segments = [{"id": 1, "text": "Chúng tôi dùng AI nhiều."}]
@@ -179,7 +179,7 @@ def test_translate_segments_local_empty_glossary_no_regression(monkeypatch):
     assert settings.translate_glossary == ""
     monkeypatch.setattr(
         "autodub.text.translate_local.run_local_worker",
-        lambda items, src, tgt, settings, reporter=None: {
+        lambda items, src, tgt, settings, reporter=None, cancel_event=None: {
             item_id: "We use AI a lot." for item_id, _ in items})
 
     segments = [{"id": 1, "text": "Chúng tôi dùng AI nhiều."}]

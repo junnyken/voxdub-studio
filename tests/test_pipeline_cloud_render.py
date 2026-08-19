@@ -63,7 +63,8 @@ def test_falls_back_to_local_when_cloud_errors(tmp_path, audio_path, monkeypatch
 
     called = {}
 
-    def fake_local(input_wav, output_dir, sample_rate=16000, channels=1, demucs_cache=None):
+    def fake_local(input_wav, output_dir, sample_rate=16000, channels=1,
+                   demucs_cache=None, cancel_event=None):
         called["used"] = True
         return {"vocals": "/tmp/v-local.wav", "no_vocals": "/tmp/nv-local.wav"}
     monkeypatch.setattr("autodub.media.vocal_separator.separate_vocals", fake_local)
@@ -102,7 +103,8 @@ def test_local_only_mode_never_touches_cloud_render(tmp_path, audio_path, monkey
         raise AssertionError("không được gọi cloud khi cloud_render_enabled=False")
     monkeypatch.setattr("autodub.cloud_render.separate_vocals_cloud", fail_cloud)
 
-    def fake_local(input_wav, output_dir, sample_rate=16000, channels=1, demucs_cache=None):
+    def fake_local(input_wav, output_dir, sample_rate=16000, channels=1,
+                   demucs_cache=None, cancel_event=None):
         return {"vocals": "/tmp/v.wav", "no_vocals": "/tmp/nv.wav"}
     monkeypatch.setattr("autodub.media.vocal_separator.separate_vocals", fake_local)
 
