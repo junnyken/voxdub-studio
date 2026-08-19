@@ -239,9 +239,21 @@ def test_mot_clip_hong_khong_giet_ca_me(st, tmp_path, monkeypatch, fake_fw):
 
 
 def test_worker_thieu_faster_whisper_thi_bao_loi_ro(st, tmp_path, monkeypatch):
-    """venv rỗng (cài dở) — phải raise nói rõ, không trả về {} lặng lẽ."""
+    """venv cài dở — phải raise nói rõ, không trả về {} lặng lẽ.
+
+    Chặn bằng một `faster_whisper` STUB tự ném ImportError chứ không phải
+    PYTHONPATH rỗng: `requirements.txt` có faster-whisper thật, nên trên máy
+    CI (và mọi máy dev đã cài đủ) worker vẫn import được và test rỗng kia
+    PASS GIẢ — đúng lỗi đã làm CI đỏ ở lần chạy đầu của V75.
+    """
     _cai_venv(st, tmp_path, python_that=sys.executable)
-    monkeypatch.setenv("PYTHONPATH", str(tmp_path / "rong"))
+    chan = tmp_path / "venv-cai-do"
+    chan.mkdir()
+    # PYTHONPATH đứng trước site-packages nên stub này luôn thắng, bất kể máy
+    # chạy test có faster-whisper hay không.
+    (chan / "faster_whisper.py").write_text(
+        'raise ImportError("giả lập venv cài dở")', encoding="utf-8")
+    monkeypatch.setenv("PYTHONPATH", str(chan))
     monkeypatch.setattr(align_mod, "_ALIGN_READY_TIMEOUT_S", 120)
 
     with pytest.raises(RuntimeError, match="faster-whisper chưa cài"):

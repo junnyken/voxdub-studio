@@ -8116,7 +8116,29 @@ hình; `align_whisper_worker.py` có mặt trong `autodub.spec` (quên dòng
 gì từ `autodub`; in-process tự chặn ở bản đóng gói; `notice_for` cho ra được
 lời khuyên bấm `.bat`.
 
-**1454 passed, 7 skipped, 0 failed.**
+**1454 passed, 7 skipped, 0 failed** (máy dev) — nhưng xem mục dưới.
+
+### CI đỏ ngay lần chạy đầu: một test PASS GIẢ vì môi trường
+
+`test_worker_thieu_faster_whisper_thi_bao_loi_ro` chặn bằng cách trỏ
+`PYTHONPATH` vào thư mục rỗng. Máy dev này KHÔNG cài `faster-whisper` nên
+worker chết đúng như mong đợi → xanh. Máy CI thì cài đủ `requirements.txt`,
+worker import được thật → **DID NOT RAISE**, 1 failed / 1453 passed.
+
+Bài học đúng loại đã gặp ở V74 ("máy thử nghiệm không có `.venv-whisper` nên
+nhánh subprocess chưa bao giờ chạy tới"): **cái vắng mặt trên máy dev không
+phải là điều kiện test**. Sửa bằng stub `faster_whisper.py` tự ném
+`ImportError`, đặt trên `PYTHONPATH` (đứng trước `site-packages`) nên thắng ở
+mọi máy. Đã kiểm lại đúng trong điều kiện làm CI đỏ — cho stub đứng cạnh
+`site-packages` CÓ faster-whisper thật:
+
+```
+venv thật có faster-whisper? True
+KẾT QUẢ: raise đúng -> bộ canh chữ báo lỗi: faster-whisper chưa cài trong .venv-whisper: ...
+```
+
+Bản `.exe` v3.4.3 không bị ảnh hưởng: job build chạy độc lập và đã success,
+lỗi nằm ở phép kiểm chứ không ở mã sản phẩm.
 
 ### Còn tồn
 
