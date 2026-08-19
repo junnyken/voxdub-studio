@@ -37,6 +37,7 @@ from autodub_gui.ui.buttons import PrimaryButton
 from autodub_gui.ui.modal import ConfirmDialog, confirm_discard
 from autodub_gui.ui.progress import SaveIndicator
 from autodub_gui.ui.style import clear_background, panel_background
+from autodub_gui.dub_constants import friendly_assist_error
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.video.player import VideoPlayer
 from autodub_gui.video.timeline import Timeline
@@ -222,6 +223,7 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
         self.overview.open_other.connect(self._open_other_folder)
         self.overview.issue_clicked.connect(self._jump_to_issue)
         self.overview.context_saved.connect(self._save_context)
+        self.overview.context_suggest_requested.connect(self._suggest_context)
 
         self.subtitles = SubtitleListPanel()
         self.subtitles.text_edited.connect(self._on_text_edited)
@@ -229,6 +231,7 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
         self.subtitles.segment_selected.connect(self._on_segment_selected)
         self.subtitles.play_requested.connect(self._play_segment)
         self.subtitles.resynth_requested.connect(self._resynth_one)
+        self.subtitles.tighten_requested.connect(self._tighten_one)
         self.subtitles.split_requested.connect(self._split_at_playhead)
         self.subtitles.merge_requested.connect(self._merge_with_next)
         self.subtitles.delete_requested.connect(self._delete_segment)
@@ -401,6 +404,103 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
             return data if isinstance(data, dict) else {}
         except (OSError, ValueError):
             return {}
+
+    def _tighten_one(self, seg_id: int) -> None:
+        """Nhờ trợ lý viết ngắn lại một câu quá dài so với chỗ trống (V89)."""
+        from autodub_gui.workers import AssistWorker
+
+        seg = next((s for s in self._segments if s.get("id") == seg_id), None)
+        if seg is None:
+            return
+        field = self._state.target.text_field if self._state else "text_vi"
+        cau = str(seg.get(field, "")).strip()
+        if not cau:
+            TOASTS.warn("Câu này chưa có lời dịch để rút gọn.")
+            return
+
+        cho_trong = max(0.1, float(seg.get("end", 0)) - float(seg.get("start", 0)))
+        # Thời gian đọc THẬT nếu đã có giọng; chưa có thì ước theo tốc độ đọc
+        # trong Cài đặt. Con số này đi thẳng vào lời nhờ nên phải là số đo,
+        # không phải phỏng đoán tròn trịa.
+        can = 0.0
+        try:
+            from autodub.media.audio import wav_duration_s
+            from autodub.utils import seg_wav_path
+            from autodub.workdir import data_path
+
+            can = wav_duration_s(
+                seg_wav_path(data_path(self._work_dir, "segments"), seg_id)) or 0.0
+        except Exception:  # noqa: BLE001
+            can = 0.0
+        if not can:
+            cai_dat = self._settings_provider()
+            cps = float(getattr(cai_dat, "translate_cps_budget", 12.5) or 12.5)
+            can = len(cau) / max(1.0, cps)
+        if can <= cho_trong * 1.05:
+            TOASTS.info("Câu này đã đọc kịp chỗ trống rồi.")
+            return
+
+        cat_bot = int(max(10, min(60, (can - cho_trong) / can * 100)))
+        self._tighten_seg_id = seg_id
+        worker = AssistWorker("tighten_line", {
+            "line": cau,
+            "needSeconds": round(can, 1),
+            "roomSeconds": round(cho_trong, 1),
+            "trimPercent": cat_bot,
+        }, parent=self)
+        worker.finished_ok.connect(self._on_tighten_done)
+        worker.failed.connect(lambda m: TOASTS.warn(friendly_assist_error(m)))
+        self._assist_worker = worker
+        TOASTS.info("Đang nhờ trợ lý viết ngắn lại…")
+        worker.start()
+
+    def _on_tighten_done(self, ket_qua: list) -> None:
+        from autodub_gui.ui.modal import ConfirmDialog
+
+        seg_id = getattr(self, "_tighten_seg_id", None)
+        if seg_id is None or not ket_qua:
+            return
+        dau = ket_qua[0]
+        cau_moi = str(dau.get("value", "")).strip()
+        ly_do = str(dau.get("reason", "")).strip()
+        if not cau_moi:
+            return
+        them = "\n\n".join(
+            f"• {str(r.get('value', '')).strip()}" for r in ket_qua[1:]
+            if str(r.get("value", "")).strip())
+        dong_y, _ = ConfirmDialog.ask(
+            self, "Câu ngắn hơn của trợ lý",
+            f"{cau_moi}\n\n({ly_do})" if ly_do else cau_moi,
+            kind="info", confirm_label="Dùng câu này", cancel_label="Giữ nguyên",
+            detail=(f"Phương án khác:\n{them}" if them else ""))
+        if dong_y:
+            self._on_text_edited(seg_id, cau_moi)
+            TOASTS.success("Đã thay câu. Nhớ bấm Đọc lại câu này để giọng khớp.")
+
+    def _suggest_context(self) -> None:
+        """Nhờ trợ lý dựng quy ước dịch cho series từ lời thoại gốc (V89)."""
+        from autodub_gui.workers import AssistWorker
+
+        loi_goc = " ".join(str(s.get("text", "")).strip()
+                           for s in self._segments)[:8000].strip()
+        if len(loi_goc) < 200:
+            TOASTS.warn("Chưa đủ lời thoại để dựng quy ước dịch.")
+            return
+        ten = ""
+        if self._state is not None:
+            ten = str(getattr(self._state, "title", "") or "")
+        worker = AssistWorker("series_glossary",
+                              {"transcript": loi_goc, "seriesName": ten},
+                              parent=self)
+        worker.finished_ok.connect(self._on_context_suggested)
+        worker.failed.connect(lambda m: TOASTS.warn(friendly_assist_error(m)))
+        self._assist_worker = worker
+        TOASTS.info("Đang đọc lời thoại gốc…")
+        worker.start()
+
+    def _on_context_suggested(self, ket_qua: list) -> None:
+        self.overview.fill_context_suggestion(ket_qua)
+        TOASTS.success("Đã điền đề xuất — xem lại rồi bấm Lưu ngữ cảnh.")
 
     def _save_context(self, context: dict) -> None:
         """Lưu ngữ cảnh dịch người dùng vừa sửa vào video_context.json."""

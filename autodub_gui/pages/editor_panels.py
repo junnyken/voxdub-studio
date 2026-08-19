@@ -96,6 +96,7 @@ class SegmentRow(QWidget):
     split_requested = Signal(int)
     merge_requested = Signal(int)
     delete_requested = Signal(int)
+    tighten_requested = Signal(int)      # V89 — nhờ trợ lý viết ngắn lại
     height_changed = Signal(int)         # id câu — dòng cần được đo lại
     voice_changed = Signal(int, str)     # (id, tên giọng) — "" = dùng giọng chung
 
@@ -195,6 +196,10 @@ class SegmentRow(QWidget):
             (icons.merge(tokens.TEXT_SECONDARY), "Gộp với câu bên dưới",
              self.merge_requested),
             (icons.trash(tokens.DANGER), "Xóa câu này", self.delete_requested),
+            # V89 — câu dài buộc giọng phải đọc nhanh cho kịp chỗ trống, nghe
+            # méo. Đây là lỗi đứng đầu bảng "đáng sửa trước" (V64).
+            (icons.edit(tokens.TEXT_SECONDARY), "Nhờ trợ lý viết ngắn lại",
+             self.tighten_requested),
         )
         for icon, tip, signal in specs:
             button = IconButton(icon, tip, size=_ROW_ICON)
@@ -266,6 +271,7 @@ class SubtitleListPanel(QWidget):
     split_requested = Signal(int)
     merge_requested = Signal(int)
     delete_requested = Signal(int)
+    tighten_requested = Signal(int)
     voice_changed = Signal(int, str)     # (seg_id, tên giọng) — "" = giọng chung
     add_requested = Signal()
 
@@ -358,6 +364,7 @@ class SubtitleListPanel(QWidget):
             row.split_requested.connect(self.split_requested.emit)
             row.merge_requested.connect(self.merge_requested.emit)
             row.delete_requested.connect(self.delete_requested.emit)
+            row.tighten_requested.connect(self.tighten_requested.emit)
             row.voice_changed.connect(self.voice_changed.emit)
             row.height_changed.connect(self._on_row_height_changed)
             item = QListWidgetItem(self.list)
@@ -437,6 +444,7 @@ class OverviewPanel(QScrollArea):
     open_other = Signal()
     issue_clicked = Signal(int)          # id câu trong báo cáo chất lượng
     context_saved = Signal(dict)         # ngữ cảnh dịch người dùng vừa sửa
+    context_suggest_requested = Signal()  # V89 — nhờ trợ lý dựng quy ước dịch
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -554,6 +562,14 @@ class OverviewPanel(QScrollArea):
             section.add_widget(box)
 
         row = QHBoxLayout()
+        # V89 — xưng hô và thuật ngữ là thứ quyết định các tập sau có dịch
+        # nhất quán không, mà hiện người dùng phải tự gõ từng dòng.
+        self.btn_suggest_ctx = GhostButton("Gợi ý quy ước dịch")
+        self.btn_suggest_ctx.setToolTip(
+            "Nhờ trợ lý đọc lời thoại gốc rồi đề xuất cách xưng hô và các "
+            "thuật ngữ nên dịch cố định. Cần tài khoản VoxDub.")
+        self.btn_suggest_ctx.clicked.connect(self.context_suggest_requested.emit)
+        row.addWidget(self.btn_suggest_ctx)
         save = GhostButton("Lưu ngữ cảnh")
         save.setToolTip("Lưu vào dự án này. Lần dịch lại kế tiếp sẽ dùng "
                         "đúng các thông tin trên.")
@@ -562,6 +578,31 @@ class OverviewPanel(QScrollArea):
         row.addStretch()
         section.add_layout(row)
         return section
+
+    def fill_context_suggestion(self, ket_qua: list) -> None:
+        """Điền đề xuất của trợ lý vào ô xưng hô và ô thuật ngữ (V89).
+
+        KHÔNG tự lưu: người dùng phải đọc rồi bấm "Lưu ngữ cảnh" — quy ước
+        dịch sai còn tệ hơn không có, vì nó áp cho mọi tập sau.
+        """
+        xung_ho = ""
+        thuat_ngu: list[str] = []
+        for r in ket_qua:
+            gia_tri = str(getattr(r, "value", "") or r.get("value", "")).strip()
+            if not gia_tri:
+                continue
+            if "=" in gia_tri:
+                thuat_ngu.append(gia_tri)
+            elif not xung_ho:
+                xung_ho = gia_tri
+
+        if xung_ho and "pronouns" in self._ctx_fields:
+            self._ctx_fields["pronouns"].setPlainText(xung_ho)
+        if thuat_ngu and "glossary" in self._ctx_fields:
+            co_san = self._ctx_fields["glossary"].toPlainText().strip()
+            gop = ([co_san] if co_san else []) + [
+                d for d in thuat_ngu if d not in co_san]
+            self._ctx_fields["glossary"].setPlainText("\n".join(gop))
 
     def set_context(self, context: dict) -> None:
         """Đổ ``video_context.json`` vào các ô sửa (glossary: list → text)."""

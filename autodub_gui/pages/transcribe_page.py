@@ -23,6 +23,7 @@ from autodub_gui.system_open import open_folder
 from autodub_gui.ui.buttons import GhostButton, PrimaryButton, SecondaryButton
 from autodub_gui.ui.cards import Card
 from autodub_gui.ui.inputs import LabeledCombo, LabeledLineEdit
+from autodub_gui.dub_constants import friendly_assist_error
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.widgets import LogPanel
 from autodub_gui.workers import TranscribeWorker
@@ -63,6 +64,8 @@ class TranscribePage(BasePage):
 
     def __init__(self, settings_provider, parent: QWidget | None = None):
         super().__init__(parent)
+        self._loi_thoai_gan_nhat: list[str] = []
+        self._tieu_de_gan_nhat = ""
         self._settings_provider = settings_provider
         self._worker: TranscribeWorker | None = None
         self._last_output_dir: str = ""
@@ -122,6 +125,15 @@ class TranscribePage(BasePage):
         self.btn_open.clicked.connect(self._open_output)
         self.btn_open.setEnabled(False)
         hanh_dong.addWidget(self.btn_open)
+        # V89 — chép lời xong thì thứ người ta muốn biết ngay là "video này
+        # nói gì", chứ không phải đọc hết vài trăm câu.
+        self.btn_tom_tat = GhostButton("Tóm tắt video")
+        self.btn_tom_tat.setToolTip(
+            "Nhờ trợ lý đọc lời thoại vừa chép rồi tóm tắt trong 3 câu kèm "
+            "từ khoá. Cần tài khoản VoxDub.")
+        self.btn_tom_tat.clicked.connect(self._tom_tat_video)
+        self.btn_tom_tat.setEnabled(False)
+        hanh_dong.addWidget(self.btn_tom_tat)
         hanh_dong.addStretch()
         root.addLayout(hanh_dong)
 
@@ -260,7 +272,53 @@ class TranscribePage(BasePage):
             dong += f" ({chuyen})"
         self.log.append_log(dong, 30)
 
+    def _tom_tat_video(self) -> None:
+        """Nhờ trợ lý tóm tắt video vừa chép lời (V89).
+
+        Đặt ở đây vì đây là chỗ DUY NHẤT vừa có lời thoại đầy đủ vừa có người
+        đang muốn biết video nói gì mà không phải đọc hết.
+        """
+        from autodub_gui.workers import AssistWorker
+
+        loi = " ".join(self._loi_thoai_gan_nhat)[:8000].strip()
+        if len(loi) < 200:
+            TOASTS.warn("Chưa đủ lời thoại để tóm tắt — hãy chép lời trước.")
+            return
+        worker = AssistWorker("video_summary",
+                              {"transcript": loi,
+                               "videoTitle": self._tieu_de_gan_nhat}, parent=self)
+        worker.finished_ok.connect(self._hien_tom_tat)
+        worker.failed.connect(
+            lambda m: TOASTS.warn(friendly_assist_error(m)))
+        self._assist_worker = worker
+        self.btn_tom_tat.setEnabled(False)
+        TOASTS.info("Đang đọc lời thoại…")
+        worker.start()
+
+    def _hien_tom_tat(self, ket_qua: list) -> None:
+        self.btn_tom_tat.setEnabled(True)
+        if not ket_qua:
+            return
+        # Mục đầu là bản tóm tắt, các mục sau là từ khoá (xem prompts/assist.js).
+        self.log.append_log(f"Tóm tắt: {str(ket_qua[0].get('value', '')).strip()}",
+                            25)
+        tu_khoa = [str(r.get("value", "")).strip() for r in ket_qua[1:]
+                   if str(r.get("value", "")).strip()]
+        if tu_khoa:
+            self.log.append_log(f"Từ khoá: {', '.join(tu_khoa)}", 20)
+
     def _on_done(self, items) -> None:
+        # Giữ lại lời thoại vừa chép: nút Tóm tắt cần nó, và đọc lại từ đĩa
+        # thì phải đoán tên tệp của lượt vừa chạy.
+        self._loi_thoai_gan_nhat = [
+            str(seg.get("text", "")).strip()
+            for m in items if m.status == "xong" and m.result
+            for seg in (m.result.segments or [])
+            if str(seg.get("text", "")).strip()]
+        self._tieu_de_gan_nhat = next(
+            (str(getattr(m.result, "title", "") or "") for m in items
+             if m.status == "xong" and m.result), "")[:200]
+        self.btn_tom_tat.setEnabled(bool(self._loi_thoai_gan_nhat))
         self.btn_run.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.btn_open.setEnabled(True)

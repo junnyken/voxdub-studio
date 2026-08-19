@@ -8021,6 +8021,64 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V89 giai đoạn 2 — bốn tác vụ còn lại và bộ đo (Phase H, 2026-08-19)
+
+### Bộ đo: chấm bằng tính chất, không bằng đáp án mẫu
+
+Đây là phần đáng nói nhất của giai đoạn này. Cách thường làm — viết sẵn "đáp
+án đúng" cho mỗi mẫu rồi so — hỏng ngay từ đầu với việc này: mô hình có vô số
+cách trả lời đúng, nên so chuỗi thì luôn trượt, mà chấm bằng người thì chạy
+được vài lần rồi bỏ.
+
+Nên bộ đo kiểm **những tính chất mà kết quả kém chắc chắn vi phạm**:
+
+| tác vụ | tính chất kiểm được bằng máy |
+|---|---|
+| `tighten_line` | phải NGẮN HƠN câu gốc rõ rệt, và giữ nguyên mọi con số |
+| `video_summary` | mọi từ khoá phải CÓ trong lời thoại (bắt bịa) |
+| `explain_error` | không chứa từ kỹ thuật, không đẩy người dùng đi báo lỗi GitHub |
+| `music_suggest` | phải nói về ÂM NHẠC, không phải về hình ảnh |
+| `character_name` | tối đa 3 chữ, không đoán giới tính khi lời thoại không cho biết |
+| `series_glossary` | thuật ngữ phải lấy từ lời thoại |
+
+Chạy khô (`npm run eval:assist`) không cần mô hình — chặn lỗi cấu hình: tác vụ
+thiếu mẫu, đầu vào vượt trần, mẫu không có phép kiểm nào. Chạy thật
+(`--live`) gọi mô hình qua biến môi trường, **không đụng cơ sở dữ liệu**, để
+chạy được trên máy dev mà không phải dựng Mongo. Ngưỡng đạt 85%.
+
+**Bộ đo phải tự chứng minh nó bắt được kết quả kém.** 7 test cho ăn kết quả
+GIẢ đã biết trước là tốt/xấu rồi bắt nó chấm đúng — ví dụ `tighten_line` trả
+lại y nguyên câu gốc, hay từ khoá "lẩu thái" cho một video nấu phở. Một bộ đo
+luôn xanh còn tệ hơn không có: nó tạo cảm giác đã kiểm.
+
+Thêm một test chặn quên: **thêm tác vụ mới mà không có mẫu đo là đỏ ngay**.
+
+### Ba chỗ bấm thật
+
+- **"Tóm tắt video"** ở trang Chép lời — chép xong thì thứ người ta muốn biết
+  ngay là video nói gì, không phải đọc hết vài trăm câu. Lời thoại quá ngắn thì
+  không gọi (đỡ tốn Vox vô ích).
+- **Nút rút gọn trên TỪNG DÒNG câu** ở Trình chỉnh sửa — câu dài buộc giọng
+  đọc nhanh cho kịp, nghe méo; đây là lỗi đứng đầu bảng "đáng sửa trước" (V64).
+  Đo thời gian đọc THẬT từ tệp giọng nếu đã có, chưa có thì ước theo tốc độ
+  đọc trong Cài đặt. Câu đã kịp chỗ trống thì **không gọi trợ lý**.
+- **"Gợi ý quy ước dịch"** ở khung ngữ cảnh — điền vào ô xưng hô và ô thuật
+  ngữ, nhưng **không tự lưu**: quy ước dịch sai còn tệ hơn không có vì nó áp
+  cho mọi tập sau. Thuật ngữ người dùng đã gõ được giữ nguyên, chỉ thêm vào.
+
+### Còn tồn
+
+`character_name` đã xong phía server và có mẫu đo, nhưng **chưa nối vào giao
+diện**: nó cần lời thoại theo TỪNG NGƯỜI NÓI, mà trang Hồ sơ nhân vật chỉ giữ
+tên/giọng/đặc trưng giọng, không giữ câu thoại. Nối đúng chỗ đòi sửa cả cấu
+trúc hồ sơ — để sang đợt sau thay vì nhét bừa vào một trang không có dữ liệu.
+
+Và điều quan trọng nhất vẫn chưa làm được từ đây: **chưa có nhà cung cấp cho
+vai `assist`**, nên chưa lượt gọi thật nào chạy qua đường này. Mọi test đều
+dùng máy chủ giả.
+
+**1614 passed, 7 skipped, 0 failed** (Python) + **348 pass, 0 fail** (Node).
+
 ## V89 — Cổng trợ lý đa tác vụ, giai đoạn 1 (Phase H, 2026-08-19)
 
 Bản kế hoạch được duyệt, bắt đầu bằng giai đoạn 1: mở cửa vào và chứng minh

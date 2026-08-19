@@ -51,6 +51,11 @@ const DEFAULTS = {
   // Báo lỗi thì miễn phí và chạy cả khi hết Vox — người đang gặp lỗi mà còn
   // bị chặn vì hết tiền là lúc tệ nhất để thu phí. Chặn bằng hạn mức ngày.
   'credit.cost.assist.explain_error': 0,
+  // Tác vụ đọc cả transcript (đầu vào lớn gấp 3-5 lần) nên đắt hơn.
+  'credit.cost.assist.video_summary': 5,
+  'credit.cost.assist.series_glossary': 5,
+  'credit.cost.assist.character_name': 2,
+  'credit.cost.assist.tighten_line': 2,
   'assist.daily.limit': 150,
   'assist.daily.limit.explain_error': 30,
   // GIÁ NỘI BỘ — để ghi `CreditHold.usage` (đối soát biên lợi nhuận) và làm

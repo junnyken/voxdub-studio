@@ -192,3 +192,22 @@ def friendly_error(message: str) -> tuple[str, str] | None:
         if needle.lower() in lowered:
             return title, advice
     return None
+
+
+def friendly_assist_error(message: str) -> str:
+    """Lỗi của cổng trợ lý, nói bằng tiếng người (mini-spec V89).
+
+    Trợ lý là lớp BỒI THÊM: hỏng thì người dùng vẫn làm việc bình thường
+    được. Nên lời báo phải ngắn, nói rõ còn dùng được gì, và tuyệt đối không
+    dựng lên như một sự cố nghiêm trọng.
+    """
+    thap = (message or "").lower()
+    if "tài khoản" in thap or "chưa cấu hình" in thap:
+        return "Tính năng này cần tài khoản VoxDub — mở Cài đặt để kết nối."
+    if "insufficient" in thap or "không đủ vox" in thap:
+        return "Không đủ Vox cho lượt này. Mọi thứ khác vẫn dùng bình thường."
+    if "daily_limit" in thap or "hết" in thap and "lượt" in thap:
+        return "Hôm nay đã dùng hết lượt trợ lý. Thử lại vào ngày mai."
+    if "timeout" in thap or "timed out" in thap or "mạng" in thap:
+        return "Trợ lý phản hồi chậm — thử lại sau ít phút."
+    return "Trợ lý chưa trả lời được. Bạn vẫn làm tiếp bình thường được."

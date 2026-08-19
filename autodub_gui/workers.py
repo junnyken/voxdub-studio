@@ -962,6 +962,43 @@ class TranscribeWorker(QThread):
             detach_gui_logging(handler)
 
 
+class AssistWorker(QThread):
+    """Chạy MỘT tác vụ trợ lý ngoài luồng giao diện — mini-spec V89.
+
+    Một lớp cho mọi tác vụ vì hình dạng giống hệt nhau: gửi tên tác vụ + dữ
+    liệu, nhận về danh sách ``{value, reason}``. Nơi gọi tự quyết hiển thị.
+
+    Chưa cấu hình máy chủ thì báo `failed` NGAY, không thử gọi — chạy thuần
+    trên máy là không bao giờ gọi ra ngoài (nguyên tắc xuyên suốt dự án).
+    """
+
+    finished_ok = Signal(list)   # [{"value":…, "reason":…}]
+    failed = Signal(str)
+
+    def __init__(self, task: str, input_data: dict, parent=None):
+        super().__init__(parent)
+        self._task = task
+        self._input = input_data or {}
+
+    def run(self) -> None:
+        try:
+            from autodub.saas_client import get_client, is_configured, new_job_id
+
+            if not is_configured():
+                self.failed.emit(
+                    "Tính năng này cần tài khoản VoxDub — mở Cài đặt để kết nối.")
+                return
+            ket = get_client().assist(self._task, self._input,
+                                      job_id=new_job_id(), timeout=60.0)
+        except Exception as e:  # noqa: BLE001 — nơi gọi hiện lời thân thiện
+            self.failed.emit(str(e))
+            return
+        if not ket:
+            self.failed.emit("Trợ lý chưa trả lời được. Thử lại sau ít phút.")
+            return
+        self.finished_ok.emit(list(ket))
+
+
 class ExplainErrorWorker(QThread):
     """Nhờ trợ lý dịch một dòng lỗi kỹ thuật sang việc người dùng làm được.
 
