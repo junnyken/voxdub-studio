@@ -148,6 +148,9 @@ export const adminApi = {
   // -- Thống kê --
   overview: (days) => adminRequest(`/analytics/overview${qs({ days })}`),
   usage: (days) => adminRequest(`/analytics/usage${qs({ days })}`),
+  // Mini-spec V89 — usage gộp theo `action`, mà mọi lượt trợ lý đều
+  // mang action 'assist'; cửa này tách được từng việc.
+  assistStats: (days) => adminRequest(`/analytics/assist${qs({ days })}`),
   retention: (weeks) => adminRequest(`/analytics/retention${qs({ weeks })}`),
   // Mini-spec V13 (docs/PLAN.md) — phễu hoàn thành/bỏ dở theo stage.
   pipelineFunnel: (days, staleHours) =>

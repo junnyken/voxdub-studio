@@ -8021,6 +8021,65 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V89 giai đoạn 3 — bảng theo dõi chi phí (Phase H, 2026-08-19)
+
+Giai đoạn cuối của bản kế hoạch: nhìn MỘT trang là biết tuần rồi tốn bao nhiêu
+cho việc gì.
+
+### Vì sao không dùng lại trang thống kê sẵn có
+
+`GET /analytics/usage` đã gộp theo `action` — nhưng mọi lượt trợ lý đều mang
+`action: 'assist'`, nên nó chỉ cho ra một dòng duy nhất. Muốn biết việc nào
+tốn nhất thì phải gộp theo `assistTask`, thứ được thêm từ giai đoạn 1 đúng cho
+mục đích này.
+
+Cửa mới `GET /v1/admin/analytics/assist?days=7` gộp ba chiều: theo việc, theo
+mô hình, theo mã lỗi.
+
+### Truy vấn gộp sai thì không kêu lên
+
+Đây là lý do phần dựng truy vấn tách hẳn sang `assist-stats.service.js`: một
+`$group` sai vẫn trả về số, chỉ là số sai — đúng lớp "hỏng âm thầm" đã dính
+nhiều lần trong tuần. Tách ra thì test được mà không cần dựng Mongo, đúng quy
+ước "test thuần" của `control_server`.
+
+Những chỗ test khoá lại, mỗi chỗ là một cách làm sai từng thấy:
+
+- **Không lọc sẵn `status: 'success'`** — lọc ở đó thì tỷ lệ hỏng vĩnh viễn
+  bằng 0, tức là tự bịt mắt trước lúc mô hình xuống cấp.
+- **Đếm số MÁY riêng biệt** (`$addToSet`), không phải số lượt.
+- **Xếp theo Vox**, không theo số lượt: `explain_error` miễn phí nên gọi nhiều
+  cũng không phải chỗ tốn tiền.
+- **Tỷ lệ hỏng tính trên tổng lượt**, không phải trên số dòng.
+- Chưa có lượt nào thì không chia cho 0.
+
+**Test bắt lỗi thật trong mã vừa viết**: `Number(days) || 7` khiến `days=0`
+thành 7 ngày, trong khi `Math.max(1, …)` ngay dòng dưới tuyên bố là kẹp về 1 —
+mã và ý định lệch nhau. Sửa: số hợp lệ thì kẹp [1, 90], không phải số thì mới
+dùng mặc định 7.
+
+### Trang quản trị
+
+Thêm mục **Cổng trợ lý** cạnh "Nơi gọi mô hình". Bốn ô tóm tắt (số lượt, đã
+thu Vox + quy ra tiền, token vào/ra, việc tốn nhất), rồi bảng theo việc và
+bảng theo mô hình.
+
+Hai chi tiết cố ý:
+
+- **Cảnh báo tự hiện khi tỷ lệ hỏng ≥5%**, kèm cách đọc: hỏng dồn vào một nơi
+  gọi thì đổi thứ tự ưu tiên, hỏng đều khắp thì nhiều khả năng là prompt.
+- **Khi chưa có lượt nào**, trang không để trống mà nhắc đúng việc còn thiếu:
+  chưa cấu hình nơi gọi mô hình cho vai `assist` thì hệ thống dùng chung vai
+  `translate`, đắt hơn nhiều lần.
+
+**1614 passed (Python), 358 pass (Node), website build sạch.**
+
+### Ba giai đoạn đã xong — còn đúng một việc
+
+Toàn bộ bản kế hoạch đã dựng: cửa vào, 6 tác vụ, bộ đo, bảng theo dõi. Nhưng
+**chưa lượt gọi thật nào chạy qua đây** vì chưa có nhà cung cấp cho vai
+`assist`. Đó là việc duy nhất chặn giữa "đã dựng xong" và "đang chạy".
+
 ## V89 giai đoạn 2 — bốn tác vụ còn lại và bộ đo (Phase H, 2026-08-19)
 
 ### Bộ đo: chấm bằng tính chất, không bằng đáp án mẫu

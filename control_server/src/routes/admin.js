@@ -576,6 +576,29 @@ module.exports = async function adminRoutes(fastify) {
 
   // Mini-spec V10 (docs/PLAN.md) — retention cohort theo tuần, dùng lại
   // Device.firstSeenAt/lastSeenAt đã có sẵn (không thu thập gì mới).
+  // Mini-spec V89 giai đoạn 3 — bảng theo dõi cổng trợ lý. `analytics/usage`
+  // gộp theo `action`, mà mọi lượt trợ lý đều mang action 'assist', nên
+  // không tách được việc nào tốn nhất. Đây là chỗ trả lời đúng ba câu đã hứa
+  // trong bản kế hoạch: tốn bao nhiêu, việc nào tốn nhất, mô hình nào hay hỏng.
+  fastify.get('/analytics/assist', async (request) => {
+    const stats = require('../services/assist-stats.service')
+    const days = Math.min(90, Math.max(1, Number(request.query.days) || 7))
+    const [theoTacVu, theoMoHinh, maLoi, cfg] = await Promise.all([
+      UsageLog.aggregate(stats.theoTacVu(days)),
+      UsageLog.aggregate(stats.theoMoHinh(days)),
+      UsageLog.aggregate(stats.theoMaLoi(days)),
+      config.getMany(['credit.vox.to.vnd', 'assist.daily.limit']),
+    ])
+    return {
+      days,
+      tomTat: stats.tomTat(theoTacVu, cfg['credit.vox.to.vnd']),
+      tacVu: theoTacVu,
+      moHinh: theoMoHinh,
+      maLoi,
+      hanMucNgay: cfg['assist.daily.limit'],
+    }
+  })
+
   fastify.get('/analytics/retention', async (request) => {
     const weeks = Math.min(26, Math.max(1, Number(request.query.weeks) || 8))
     const { computeWeeklyRetention } = require('../services/retention.service')

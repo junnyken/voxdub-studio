@@ -19,6 +19,7 @@ import Devices from './Devices'
 import DeviceDetail from './DeviceDetail'
 import Keys from './Keys'
 import Orders from './Orders'
+import Assist from './Assist'
 import Providers from './Providers'
 import Config from './Config'
 import AuditLog from './AuditLog'
@@ -29,6 +30,7 @@ const NAV = [
   { to: '/admin/don-hang', label: 'Đơn hàng' },
   { to: '/admin/ma-kich-hoat', label: 'Mã kích hoạt' },
   { to: '/admin/mo-hinh', label: 'Nơi gọi mô hình' },
+  { to: '/admin/tro-ly', label: 'Cổng trợ lý' },
   { to: '/admin/cau-hinh', label: 'Cấu hình' },
   { to: '/admin/nhat-ky', label: 'Nhật ký' },
 ]
@@ -91,6 +93,7 @@ export default function AdminApp() {
         <Route path="don-hang" element={<Orders />} />
         <Route path="ma-kich-hoat" element={<Keys />} />
         <Route path="mo-hinh" element={<Providers />} />
+        <Route path="tro-ly" element={<Assist />} />
         <Route path="cau-hinh" element={<Config />} />
         <Route path="nhat-ky" element={<AuditLog />} />
         <Route path="*" element={<Navigate to="/admin" replace />} />
