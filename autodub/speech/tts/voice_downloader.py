@@ -31,7 +31,39 @@ _ENROLL_READ_TIMEOUT_S = 3600
 
 # URL voices.zip trên GitHub release — chỉ dùng khi thư mục voices/ trống
 # (bản đóng gói exe, hoặc người dùng tải mã nguồn dạng zip thiếu thư mục).
-VOICES_RELEASE_URL = "https://github.com/ttthanh2044/voxdub/releases/download/voices-v1.0.0/preset_voices_vn.zip"
+#: Kho phát hành mặc định — PHẢI khớp `Settings.update_repo`. V84: hằng số
+#: này từng ghim `ttthanh2044/voxdub`, một kho KHÁC với nơi thật sự đăng bản
+#: phát hành (`junnyken/voxdub-studio`) → link 404, nên bản đóng gói KHÔNG
+#: BAO GIỜ tải được bộ giọng mẫu. Đã đo: URL cũ trả 404, URL mới trả 302.
+_REPO_MAC_DINH = "junnyken/voxdub-studio"
+_VOICES_TAG = "voices-v1.0.0"
+_VOICES_FILE = "preset_voices_vn.zip"
+
+
+def voices_release_url(settings=None) -> str:
+    """URL bộ giọng mẫu, lấy theo kho phát hành đang cấu hình.
+
+    Đọc từ `Settings.update_repo` để chỉ còn MỘT nguồn sự thật: đổi kho phát
+    hành ở một chỗ là mọi thứ đi theo, không còn hằng số nào âm thầm trỏ về
+    kho cũ.
+    """
+    repo = ""
+    try:
+        if settings is None:
+            from autodub.config import Settings
+            settings = Settings.load()
+        repo = (getattr(settings, "update_repo", "") or "").strip().strip("/")
+    except Exception:
+        repo = ""
+    if "/" not in repo:
+        repo = _REPO_MAC_DINH
+    return (f"https://github.com/{repo}/releases/download/"
+            f"{_VOICES_TAG}/{_VOICES_FILE}")
+
+
+#: Giữ tên cũ cho mã đã gọi tới, nhưng đọc lúc DÙNG chứ không phải lúc nạp
+#: module — người dùng đổi kho phát hành trong Cài đặt thì phải ăn ngay.
+VOICES_RELEASE_URL = voices_release_url()
 VOICES_TARGET_DIR = "voices/preset_voices_vn"
 MANIFEST_NAME = "voices_manifest.json"
 
@@ -88,7 +120,8 @@ def download_voices(progress_callback=None) -> str:
     Returns:
         Đường dẫn file zip đã tải
     """
-    logger.info(f"Đang tải voice library từ {VOICES_RELEASE_URL}...")
+    url = voices_release_url()
+    logger.info(f"Đang tải voice library từ {url}...")
 
     temp_zip = os.path.join(tempfile.gettempdir(), "voxdub_voices.zip")
 
@@ -97,7 +130,7 @@ def download_voices(progress_callback=None) -> str:
         if progress_callback:
             progress_callback(downloaded, total_size)
 
-    urllib.request.urlretrieve(VOICES_RELEASE_URL, temp_zip, _report)
+    urllib.request.urlretrieve(url, temp_zip, _report)
     logger.info(f"Đã tải xong: {temp_zip}")
     return temp_zip
 

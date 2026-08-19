@@ -140,6 +140,15 @@ FRIENDLY_ERRORS: list[tuple[str, str, str]] = [
     # V82 — hai dòng lỗi người dùng thật sự gặp đều KHÔNG có chữ nào gợi ý
     # FFmpeg với người không rành: mã lỗi của Windows khi không tìm thấy
     # chương trình, và lời than của yt-dlp. Bắt cả hai.
+    # V85 — TikTok (và đôi khi Facebook/Instagram) chặn máy tải ẩn danh:
+    # yt-dlp báo "Unexpected response from webpage request", không gợi ý gì.
+    # Cách chữa CÓ THẬT trong app là mượn cookie trình duyệt (COOKIES_FROM_
+    # BROWSER trong Cài đặt) — nói thẳng ra thay vì để người dùng đi báo lỗi
+    # cho yt-dlp như thông báo gốc bảo.
+    ("unexpected response from webpage request", "Trang video chặn lượt tải",
+     "Trang này (thường là TikTok) đòi trình duyệt đã đăng nhập. Mở Cài đặt "
+     "→ mục Cookie, chọn trình duyệt bạn hay dùng (chrome hoặc edge) rồi thử "
+     "lại. Hoặc tải video về máy bằng trình duyệt rồi dùng nút Tải tệp lên."),
     ("ffmpeg", "Máy chưa có FFmpeg",
      "Mở lại ứng dụng rồi bấm \"Tải giúp tôi\" ở hộp thoại hiện ra — ứng "
      "dụng tự tải giúp (~80 MB). Hoặc chép ffmpeg.exe và ffprobe.exe vào "

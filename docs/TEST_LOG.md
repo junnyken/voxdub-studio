@@ -8021,6 +8021,60 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V84–V85 — Link chết và TikTok chặn (Phase H, 2026-08-19)
+
+### V84 — Bộ giọng mẫu: gọi tới một kho không tồn tại
+
+`voice_downloader.VOICES_RELEASE_URL` ghim `ttthanh2044/voxdub`, trong khi bản
+phát hành thật nằm ở `junnyken/voxdub-studio`. Đo bằng HTTP:
+
+```
+URL trong mã  -> HTTP/2 404
+URL thật      -> HTTP/2 302
+```
+
+⇒ Tính năng "Nạp bộ giọng đọc mẫu" (120 giọng) **chưa bao giờ tải được** trên
+bản đóng gói. Đây là cái thứ ba trong tuần cùng một hình dạng: thứ được gọi
+tới thì có, thứ ở đầu bên kia thì không (V80 tệp worker không được đóng gói,
+V83 `icons.brand_logo` không tồn tại, giờ là một kho GitHub không tồn tại).
+
+Chữa bằng cách bỏ hằng số ghim tay: `voices_release_url()` đọc
+`Settings.update_repo` — cùng nguồn sự thật với việc kiểm tra bản cập nhật,
+nên đổi kho ở một chỗ là mọi thứ đi theo. Test quét toàn repo chặn kho chết
+tái xuất, và ngay lần chạy đầu **lòi thêm `chay_app.bat`** cũng đang chỉ người
+dùng đi báo lỗi ở kho cũ.
+
+### V85 — TikTok: đo trước, đừng đoán
+
+Người dùng dán link TikTok, nhận `ERROR: [TikTok] ...: Unexpected response from
+webpage request; please report this issue on https://github.com/yt-dlp/...`.
+
+Phản xạ đầu tiên là "yt-dlp cũ rồi". **Đo trước khi sửa** — bản trong gói là
+`2026.07.04`, và đó cũng là bản MỚI NHẤT trên PyPI. Thử tiếp từ sandbox:
+
+| thử | kết quả |
+|---|---|
+| yt-dlp 2026.07.04 | hỏng ở bước "Downloading webpage" |
+| yt-dlp cài từ master | hỏng y hệt |
+| `--impersonate chrome` (curl_cffi) | hỏng y hệt |
+| 3 `api_hostname` mobile khác nhau | hỏng y hệt |
+
+Luôn gãy ở đúng bước đầu tiên ⇒ không phải extractor lạc hậu, mà là TikTok
+chặn lượt tải ẩn danh (IP máy chủ). Nâng phiên bản sẽ không sửa được gì.
+
+Cách chữa CÓ THẬT trong app là mượn cookie trình duyệt
+(`COOKIES_FROM_BROWSER`, có từ V67) — nay được nói thẳng trong
+`FRIENDLY_ERRORS`, kèm phương án 2 là tải bằng trình duyệt rồi dùng nút "Tải
+tệp lên". Thông báo gốc của yt-dlp bảo người dùng đi mở issue trên GitHub —
+lời khuyên vô nghĩa với người chỉ muốn lồng tiếng một video.
+
+**Giới hạn thành thật: không kiểm chứng được cách chữa từ đây** — IP sandbox
+bị chặn ngay bước đầu nên cookie hay không cũng hỏng như nhau. Trên máy người
+dùng (IP dân dụng, trình duyệt đã vào TikTok) thì cookie là cách xưa nay vẫn
+hiệu quả, nhưng đó là kỳ vọng chứ không phải phép đo.
+
+**1554 passed, 7 skipped, 0 failed** (Python) + **334 pass** (Node).
+
 ## V82–V83 — Thiếu FFmpeg, và vì sao trình cài đặt không bao giờ cứu được (Phase H, 2026-08-19)
 
 ### V83 — Trình cài đặt tự động chưa từng chạy được lần nào
