@@ -979,6 +979,7 @@ class MusicSfxPanel(CollapsibleSection):
     """
 
     music_requested = Signal(str)                 # mô tả tâm trạng
+    music_suggest_requested = Signal()            # V88 — gợi ý từ lời thoại
     sfx_points_requested = Signal()
     sfx_requested = Signal(float, str, str)        # timestamp, mô tả, tên
     sfx_apply_requested = Signal(float, str)       # timestamp, đường dẫn wav đã sinh
@@ -1003,6 +1004,22 @@ class MusicSfxPanel(CollapsibleSection):
         self.music_desc.setPlaceholderText(
             "Mô tả tâm trạng nhạc nền, ví dụ: nhạc vui tươi, tempo nhanh")
         self.add_widget(self.music_desc)
+        # V88 — phần khó nhất của tính năng nhạc AI không phải sinh nhạc, mà
+        # là nghĩ ra mô tả. Nút này đọc lời thoại đã chép rồi đề xuất vài mô
+        # tả kèm LÝ DO đo được, người dùng bấm một cái là điền sẵn vào ô trên.
+        row0 = QHBoxLayout()
+        self.btn_suggest_music = GhostButton("Gợi ý từ nội dung video")
+        self.btn_suggest_music.setToolTip(
+            "Đọc lời thoại đã chép của video này rồi đề xuất vài kiểu nhạc "
+            "hợp với nó. Chạy ngay trên máy, không tốn Vox.")
+        self.btn_suggest_music.clicked.connect(
+            self.music_suggest_requested.emit)
+        row0.addWidget(self.btn_suggest_music)
+        row0.addStretch()
+        self.add_layout(row0)
+        self._suggest_box = QVBoxLayout()
+        self.add_layout(self._suggest_box)
+
         row1 = QHBoxLayout()
         self.btn_gen_music = GhostButton("Sinh nhạc nền")
         self.btn_gen_music.clicked.connect(
@@ -1078,6 +1095,33 @@ class MusicSfxPanel(CollapsibleSection):
         self._music_path = path
         self.btn_preview_music.setVisible(bool(path))
         self.btn_apply_music.setVisible(bool(path))
+
+    def show_music_suggestions(self, goi_y: list) -> None:
+        """Hiện các mô tả đề xuất; bấm một cái là điền vào ô mô tả.
+
+        Mỗi nút mang theo lý do ở tooltip — người dùng thấy được vì sao máy
+        đề xuất như vậy thay vì phải tin một cái nhãn.
+        """
+        while self._suggest_box.count():
+            item = self._suggest_box.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        if not goi_y:
+            self.set_music_status(
+                "Chưa đủ lời thoại để gợi ý — hãy chạy bước nghe/chép lời "
+                "trước, hoặc tự mô tả nhạc bạn muốn.")
+            return
+
+        for g in goi_y:
+            nut = GhostButton(f"↳ {g.mo_ta}")
+            nut.setToolTip(f"Vì: {g.ly_do}")
+            nut.clicked.connect(
+                lambda _=False, mo_ta=g.mo_ta: self.music_desc.setText(mo_ta))
+            self._suggest_box.addWidget(nut)
+        self.set_music_status(
+            "Bấm một gợi ý để điền vào ô mô tả, rồi bấm Sinh nhạc nền.")
 
     def _preview_music(self) -> None:
         if self._music_path:

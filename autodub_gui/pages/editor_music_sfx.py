@@ -33,6 +33,22 @@ class MusicSfxMixin:
         ConfirmDialog.show_error(self, title, advice, detail=message)
 
     # -- Nhạc nền --------------------------------------------------------
+    def _on_music_suggest_requested(self) -> None:
+        """Đề xuất mô tả nhạc từ chính lời thoại của video (V88).
+
+        Chạy thẳng trong luồng giao diện: chỉ đếm chữ và dò từ khoá trên
+        transcript đã nạp sẵn — mili giây, không đụng mạng, không tốn Vox.
+        """
+        from autodub.media.music_suggest import goi_y_nhac
+
+        segments = getattr(self, "_segments", None) or []
+        text_field = ""
+        state = getattr(self, "_state", None)
+        if state is not None and getattr(state, "target", None) is not None:
+            text_field = getattr(state.target, "text_field", "") or ""
+        self.music_sfx_panel.show_music_suggestions(
+            goi_y_nhac(segments, text_field))
+
     def _on_music_requested(self, description: str) -> None:
         if self._busy_warn() or self._busy_music_sfx():
             return

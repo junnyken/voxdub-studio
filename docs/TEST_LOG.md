@@ -8021,6 +8021,66 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V88 — Gợi ý mô tả nhạc nền từ chính lời thoại (Phase H, 2026-08-19)
+
+Người dùng hỏi: *"app có tự nhận định và chọn âm nhạc phù hợp cho video
+không?"*. V37 đã sinh được nhạc AI qua ElevenLabs, nhưng ô nhập chỉ có
+placeholder *"nhạc vui tươi, tempo nhanh"* — tức là **phần khó nhất (nghĩ ra
+mô tả) vẫn đẩy về phía người dùng**.
+
+### Vì sao KHÔNG dùng AI cho việc này
+
+Kiểm trước khi hứa: `saas_client` chỉ có 4 endpoint cố định — dịch, viết bài
+đăng, sinh nhạc, sinh hiệu ứng. **Không có đường hỏi tự do nào**, và app cũng
+không có khoá LLM riêng (`grep gemini` trong `autodub/` chỉ ra một dòng hướng
+dẫn người dùng tự mở gemini.google.com). Thêm endpoint mới là việc phía
+server, không làm gọn trong bản này.
+
+Mà nhìn kỹ thì mọi tín hiệu cần thiết **đã nằm sẵn trong transcript**:
+
+| đo được | suy ra |
+|---|---|
+| chữ/giây | lời dày thì nhạc phải nhanh và mỏng, nói thong thả thì nhạc dồn dập sẽ chỏi |
+| tỷ lệ câu cảm thán | nhiều cảm thán → nhạc có cao trào |
+| tỷ lệ câu hỏi | kiểu dẫn dắt → nhạc lửng lơ, tò mò |
+| từ khoá 7 nhóm chủ đề | nấu ăn / du lịch / thể thao / công nghệ / hài / kể chuyện / tin tức |
+
+Suy từ số đo thì **tức thì, chạy offline, 0 Vox, và giải thích được**.
+
+### Mỗi gợi ý phải kèm lý do
+
+Nút hiện ra tối đa 3 mô tả, mỗi cái mang tooltip là lý do bằng **con số thật**:
+*"lời thoại dày (4,2 chữ/giây) — nhạc chậm sẽ bị lời lấn"*. Người dùng tự đánh
+giá được thay vì phải tin một cái nhãn từ trên trời rơi xuống. Đây đúng
+nguyên tắc `emphasis_points.py` của V37: **đưa ứng viên, không tự quyết**.
+
+Transcript quá ngắn (dưới 3 câu hoặc dưới 20 chữ) thì trả về danh sách RỖNG và
+nói rõ vì sao — thà không gợi ý còn hơn gợi ý bừa.
+
+### Test (18)
+
+Số đo trước (chữ/giây tính đúng, không chia cho 0 khi thiếu thời lượng, đọc
+được cả transcript gốc lẫn bản dịch); rồi từng luật suy diễn (nói nhanh → sôi
+động, nói chậm → nhẹ nhàng, từ khoá → chủ đề, cảm thán → kịch tính, câu hỏi →
+dẫn dắt); rồi các ca "không được bịa" (4 dạng transcript quá ngắn, dữ liệu
+rác không làm nổ, không trả hai gợi ý trùng nhau, trần 3 gợi ý); cuối cùng là
+đường dây giao diện — có nút, có tín hiệu, bấm gợi ý thì điền vào ô mô tả, và
+tooltip phải chứa lý do.
+
+**Bẫy gặp khi viết test**: bốn test đầu dùng câu quá ngắn nên rơi thẳng vào
+ngưỡng "không đủ dữ liệu" và trả rỗng — ngưỡng làm đúng việc của nó, test mới
+là cái sai. Đã sửa dữ liệu test cho dài đủ thật.
+
+**1585 passed, 7 skipped, 0 failed** (Python) + **334 pass** (Node).
+
+### Còn tồn
+
+- Từ khoá chủ đề là danh sách tay (7 nhóm) — video ngoài các nhóm đó chỉ nhận
+  được gợi ý theo nhịp nói và cảm xúc. Mở rộng bằng cách thêm dòng vào
+  `_CHU_DE`, không phải sửa logic.
+- Chưa nhìn hình ảnh (chuyển cảnh, màu sắc) — vẫn là giới hạn từ V37.
+- Sinh nhạc vẫn cần chế độ có máy chủ; phần gợi ý thì chạy offline được.
+
 ## V86–V87 — Tách nhạc nền không có bộ cài, và tuỳ chọn vô hình (Phase H, 2026-08-19)
 
 ### V86 — Vì sao "Không tách được nhạc nền" trên MỌI bản đóng gói

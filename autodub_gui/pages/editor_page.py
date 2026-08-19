@@ -249,6 +249,8 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
         self.background_panel.changed.connect(self._save_render_opts)
         self.music_sfx_panel = MusicSfxPanel()
         self.music_sfx_panel.music_requested.connect(self._on_music_requested)
+        self.music_sfx_panel.music_suggest_requested.connect(
+            self._on_music_suggest_requested)
         self.music_sfx_panel.apply_music_requested.connect(self._on_apply_music)
         self.music_sfx_panel.sfx_points_requested.connect(
             self._on_sfx_points_requested)
