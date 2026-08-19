@@ -270,6 +270,13 @@ _RAW_NOTICES: list[tuple[str, _Template, int]] = [
      "Đang canh phụ đề chạy khớp giọng đọc", logging.INFO),
     (r"Canh phụ đề xong: (\d+)/(\d+)",
      "Đã canh phụ đề: {0}/{1} câu khớp chính xác", SUCCESS),
+    # Phải đứng TRƯỚC dòng gộp bên dưới: đây là ca duy nhất người dùng tự
+    # sửa được, mà lời gộp kia thì không nói cách sửa (mini-spec V75).
+    (r"Không canh được phụ đề: chưa cài bộ nghe",
+     "Chữ phụ đề chưa nhảy đúng nhịp giọng đọc vì thư mục này chưa cài bộ "
+     'nghe — đúp chuột tệp "Cai dat Whisper ASR.bat" trong thư mục VoxDub '
+     "Studio rồi dựng lại phụ đề",
+     logging.WARNING),
     (r"Không canh được phụ đề|Không tạo được phụ đề kiểu cụm chữ",
      "Không canh được phụ đề theo giọng đọc — dùng phụ đề cả câu",
      logging.WARNING),

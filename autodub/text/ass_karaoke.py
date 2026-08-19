@@ -116,8 +116,12 @@ def resolve_word_times(
     if use_align:
         try:
             from autodub.speech.align import align_segments
+            # settings phải đi xuống tận đây: align_segments cần biết
+            # `.venv-whisper` nằm đâu, nếu không bản đóng gói sẽ rơi về đường
+            # in-process không tồn tại (mini-spec V75).
             aligned = align_segments(segments, merge_dir, text_field,
-                                     cache_path=cache_path, language=language)
+                                     cache_path=cache_path, language=language,
+                                     settings=settings)
         except Exception as e:
             logger.warning(f"Không canh được phụ đề theo giọng đọc ({e}) — "
                            "chữ sẽ chia đều theo thời lượng câu")

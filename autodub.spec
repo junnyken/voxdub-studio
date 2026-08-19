@@ -26,6 +26,8 @@ datas = [
      os.path.join("autodub", "speech", "tts")),
     (os.path.join(ROOT, "autodub", "speech", "asr_paraformer_worker.py"),
      os.path.join("autodub", "speech")),
+    (os.path.join(ROOT, "autodub", "speech", "align_whisper_worker.py"),
+     os.path.join("autodub", "speech")),
     (os.path.join(ROOT, "autodub", "media", "demucs_worker.py"),
      os.path.join("autodub", "media")),
     (os.path.join(ROOT, "autodub", "text", "translate_local_worker.py"),

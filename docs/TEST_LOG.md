@@ -8021,6 +8021,111 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V75 — Canh chữ karaoke chạy được ở bản đóng gói (Phase H, 2026-08-19)
+
+Lỗi thứ 6 cùng gốc rễ với V38/V74, và là cái **khó thấy nhất**: nó chưa từng
+kêu một tiếng nào.
+
+`align.py` import `faster_whisper` ngay trong tiến trình chính (dòng 49 cũ).
+`autodub.spec` cố ý không đóng gói gói đó. Call site
+`ass_karaoke.resolve_word_times` bọc `try/except` rồi rơi về ước lượng. Cộng
+lại: ở bản `.exe`, **mọi lượt canh chữ karaoke đều hỏng**, phụ đề chia đều
+theo thời lượng câu, không dòng log nào tới người dùng. Bảng rà cuối V74 đã
+xếp đúng nó là "suy giảm ÂM THẦM" và để lại — mục này đóng nốt.
+
+### Đo trước khi sửa
+
+Bản `.exe` không chạy được từ đây, nên đo bằng đúng điều kiện của nó: đặt
+`sys.frozen = True` rồi gọi `resolve_word_times`. Kết quả trước khi sửa: mọi
+chữ trong câu dài BẰNG NHAU tới từng mili giây (chia đều), và `caplog` trống
+— không có gì để người dùng nghi ngờ.
+
+### Sửa: thêm một venv worker nữa
+
+`autodub/speech/align_whisper_worker.py` — chạy trong `.venv-whisper`, không
+import gì từ `autodub` (khác môi trường, có test khoá lại).
+
+Khác `asr_whisper_worker.py` một điểm quyết định: **nhận cả mẻ trong một
+request**. Canh chữ là hàng trăm clip 1–3 giây; giao thức single-shot của
+worker ASR sẽ phải nạp lại model `base` cho từng clip — nạp mất ~4s, một
+video 200 câu là hơn 13 phút chỉ để nạp đi nạp lại. Nạp một lần rồi chạy
+`ThreadPoolExecutor` ngay trong worker giữ nguyên mức song song của đường
+in-process cũ.
+
+Một clip nghe hỏng thì gửi `{"clip": true, "id": .., "error": ..}` và mẻ
+chạy tiếp (câu đó ước lượng, đúng hành vi cũ); hỏng CẢ MẺ mới raise.
+
+Thứ tự chọn đường sao chép nguyên của `transcribe()` — có `.venv-whisper` thì
+subprocess, không có thì in-process, **trừ bản đóng gói** (ở đó in-process
+không tồn tại). Cố ý không nghĩ ra quy tắc thứ hai: hai quy tắc gần giống
+nhau là cách lỗi này sinh sôi.
+
+`_asr_words_in_process` giờ tự chặn khi `sys.frozen` — lưới an toàn cho lần
+sau, để người viết code kế tiếp nhận lý do THẬT thay vì
+`No module named 'av'`.
+
+### Chỗ suýt vẫn im lặng (bài học V73 cứu)
+
+Thông báo mới "chưa cài bộ nghe Whisper" **bị `log_text.notice_for` lọc sạch**
+nếu chỉ `logger.warning`: `NOTICES` là allowlist, phần rơi tự do bị `_TECH_RE`
+chặn vì câu có chữ "whisper". Đã thêm dòng riêng, đặt TRƯỚC dòng gộp "Không
+canh được phụ đề" (dòng gộp không nói cách sửa). Đo lại end-to-end:
+
+```
+LOG    : Không canh được phụ đề: chưa cài bộ nghe Whisper trong thư mục ứng dụng này — ...
+NHẬT KÝ: Chữ phụ đề chưa nhảy đúng nhịp giọng đọc vì thư mục này chưa cài bộ nghe —
+         đúp chuột tệp "Cai dat Whisper ASR.bat" trong thư mục VoxDub Studio rồi dựng lại phụ đề
+```
+
+### Kiểm bằng faster-whisper THẬT, không phải mock
+
+Mọi test mock vẫn xanh kể cả khi hai đầu giao thức JSON lệch nhau — nên dựng
+một venv thật (`faster-whisper 1.2.1`), để nó tải model `base` thật (**142 MB,
+đã đếm trên đĩa** — chứng minh luôn `--model-dir` đi đúng chỗ) và nghe giọng
+người thật (mẫu JFK của repo faster-whisper):
+
+```
+venv configured: True
+--- subprocess xong sau 4,0s (lần đầu 9,4s: cộng thời gian nạp model) ---
+clip 1: 22 chữ | 3 chữ đầu: [('And', 0.0, 0.52), ('so', 0.52, 0.82), ('my', 0.82, 1.18)]
+clip 2:  5 chữ | (clip cắt còn 3 giây — số chữ giảm đúng theo)
+--- resolve_word_times (đường thật của app) ---
+14 chữ | [('And', 10.0, 10.82), ('so', 10.52, 11.56), ('my', 11.18, 12.1), ...]
+mọi chữ dài BẰNG NHAU (tức là đang chia đều)? False
+```
+
+`False` ở dòng cuối chính là thứ cần chứng minh: mốc chữ tới từ giọng đọc
+thật, không phải phép chia.
+
+### Test (14)
+
+Chọn đường (5): có venv thì đi subprocess và KHÔNG được nạp model trong tiến
+trình chính; bản đóng gói thiếu venv thì **nói ra cách cài** và trả `None`;
+bản mã nguồn thiếu venv vẫn chạy in-process như cũ; mã nguồn + venv hỏng thì
+lùi về in-process; **đóng gói + venv hỏng thì KHÔNG lùi** (rơi về đó chỉ đổi
+lỗi thật thành `No module named 'av'` — đúng bẫy V74).
+
+Giao thức (3): chạy worker THẬT bằng `faster_whisper` giả — chữ ra đúng từng
+clip, chữ rỗng bị loại; một clip hỏng không giết cả mẻ; venv cài dở thì raise
+nói rõ thay vì trả `{}` lặng lẽ.
+
+Còn lại (6): mốc từ subprocess đi thẳng vào kết quả karaoke (mốc tuyệt đối =
+mốc trong clip + `start`); caller cũ không truyền `settings` thì tự đọc cấu
+hình; `align_whisper_worker.py` có mặt trong `autodub.spec` (quên dòng
+`datas` là bản `.exe` không có tệp worker, hỏng y như cũ); worker không import
+gì từ `autodub`; in-process tự chặn ở bản đóng gói; `notice_for` cho ra được
+lời khuyên bấm `.bat`.
+
+**1454 passed, 7 skipped, 0 failed.**
+
+### Còn tồn
+
+- Chưa có nút Dừng cho lúc canh chữ (`transcribe()` có `cancel_event`, đường
+  này thì chưa). Mẻ vẫn chạy hết rồi mới dừng được ở bước sau.
+- Bản `.exe` thật chưa chạy thử — không có máy Windows ở đây. Thứ đã chứng
+  minh: giao thức hai đầu khớp với `faster_whisper` thật, và nhánh
+  `sys.frozen` chọn đúng đường trong test.
+
 ## V62–V64 — Quản lý nhân vật, chạy nhanh, báo cáo chủ động (Phase H, 2026-08-18)
 
 ### V62 — Trang quản lý hồ sơ nhân vật

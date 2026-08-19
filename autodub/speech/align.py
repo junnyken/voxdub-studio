@@ -4,9 +4,9 @@ CapCut lấy mốc chữ bằng cách chạy ASR trên audio. Ở đây điều 
 hơn: audio là giọng TTS studio-sạch (không nhạc nền) và VĂN BẢN ĐÃ BIẾT
 TRƯỚC (chính là bản dịch) — chỉ cần mốc thời gian, không cần đoán chữ.
 
-Cách làm: Whisper ``base`` (đã có sẵn qua faster-whisper trong app, ~150 MB,
-tự tải lần đầu) nghe TỪNG clip WAV với ``word_timestamps=True``, rồi khớp
-chuỗi chữ Whisper nghe được với chuỗi chữ của bản dịch:
+Cách làm: Whisper ``base`` (~150 MB, tự tải lần đầu) nghe TỪNG clip WAV với
+``word_timestamps=True``, rồi khớp chuỗi chữ Whisper nghe được với chuỗi chữ
+của bản dịch:
 
 - Số chữ hai bên bằng nhau (đa số — tiếng Việt đơn âm tiết) → map 1:1.
 - Lệch nhau → nội suy vị trí (chữ thứ i của bản dịch lấy mốc của chữ
@@ -16,14 +16,33 @@ chuỗi chữ Whisper nghe được với chuỗi chữ của bản dịch:
 Mỗi clip độc lập — một clip khớp hỏng chỉ mất alignment của đúng clip đó
 (caller tự rơi về ước lượng). Kết quả cache JSON trong work_dir nên resume
 và rebuild không phải nghe lại.
+
+Whisper chạy ở ĐÂU (mini-spec V75): ưu tiên ``.venv-whisper`` qua
+``align_whisper_worker.py``; chỉ bản chạy từ mã nguồn mới được nạp model
+ngay trong tiến trình này. ``autodub.spec`` cố ý không đóng gói
+faster-whisper, nên trước V75 bản ``.exe`` KHÔNG canh được chữ lần nào —
+và vì lỗi bị ``try/except`` nuốt, phụ đề âm thầm rơi về chia đều thời lượng
+câu mà không ai biết.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
+import subprocess
+import sys
+import threading
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
-from autodub.utils import save_json_atomic, seg_wav_path, setup_logging
+from autodub.subprocess_watchdog import SubprocessTimeoutError, WatchedLineReader
+from autodub.utils import (
+    bundled_file,
+    gpu_venv_dir,
+    save_json_atomic,
+    seg_wav_path,
+    setup_logging,
+)
 
 logger = setup_logging("autodub.align")
 
@@ -32,6 +51,16 @@ ALIGN_MODEL = "base"
 
 # Clip ngắn hơn mức này không đáng chạy model — ước lượng là đủ.
 _MIN_CLIP_S = 0.4
+
+_ALIGN_WORKER_SCRIPT = bundled_file("autodub", "speech",
+                                    "align_whisper_worker.py")
+
+# Cùng lý do như transcriber.py: `for line in proc.stdout` không có timeout,
+# worker treo là treo luôn cả lượt xuất video. Model canh chữ là "base" (~150
+# MB) — nhỏ hơn nhiều large-v3, nhưng LẦN ĐẦU phải tải về nên ngưỡng "sẵn
+# sàng" vẫn để rộng.
+_ALIGN_READY_TIMEOUT_S = 900     # nạp (và có thể tải) model base
+_ALIGN_CLIP_TIMEOUT_S = 600      # giữa hai clip liên tiếp
 
 
 def _align_workers() -> int:
@@ -140,12 +169,247 @@ def _map_words(
     return fixed
 
 
+def _asr_words_subprocess(
+    todo: list[tuple[dict, str, float, str]],
+    language: str,
+    settings,
+) -> dict[int, list[tuple[str, float, float]]]:
+    """Nghe từng clip bằng Whisper TRONG ``.venv-whisper`` (tiến trình con).
+
+    Trả ``{seg_id: [(chữ, t0, t1), ...]}`` với mốc TƯƠNG ĐỐI trong clip —
+    đúng thứ ``_asr_words`` trả về ở đường in-process, để ``_map_words`` phía
+    sau không cần biết chữ tới từ đường nào.
+
+    Vì sao (mini-spec V75): bản đóng gói KHÔNG có ``faster_whisper`` trong
+    tiến trình chính, nên đường in-process ở đó chỉ ném ``ModuleNotFoundError``
+    rồi rơi lặng lẽ về chia đều thời lượng. Clip nào worker nghe hỏng thì vắng
+    mặt trong kết quả (câu đó ước lượng), nhưng hỏng CẢ MẺ thì raise để caller
+    quyết định — im lặng là thứ đã làm lỗi này sống sót qua nhiều bản phát
+    hành.
+    """
+    cuda_dll_dir = ""
+    venv = gpu_venv_dir()
+    if venv and os.name == "nt":
+        _lib = os.path.join(venv, "Lib", "site-packages", "torch", "lib")
+        if os.path.isdir(_lib):
+            cuda_dll_dir = _lib
+
+    cmd = [
+        settings.whisper_venv_python_path(),
+        _ALIGN_WORKER_SCRIPT,
+        "--model",     ALIGN_MODEL,
+        "--model-dir", settings.whisper_model_dir_path(),
+        "--language",  language or "vi",
+        "--workers",   str(_align_workers()),
+    ]
+    if cuda_dll_dir:
+        cmd += ["--cuda-dll-dir", cuda_dll_dir]
+
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    # Đóng app giữa chừng từng để lại tiến trình con mồ côi (mini-spec V40) —
+    # `finally` chỉ chạy khi tiến trình cha còn sống.
+    atexit.register(proc.kill)
+
+    stderr_tail: deque[str] = deque(maxlen=30)
+
+    def _drain() -> None:
+        try:
+            for line in proc.stderr:
+                line = line.rstrip()
+                if line:
+                    stderr_tail.append(line)
+                    logger.debug(f"[align-worker] {line}")
+        except (ValueError, OSError):
+            pass
+
+    threading.Thread(target=_drain, daemon=True).start()
+    reader = WatchedLineReader(proc)
+
+    words_by_sid: dict[int, list[tuple[str, float, float]]] = {}
+    n_loi_clip = 0
+    try:
+        try:
+            ready_line = reader.readline(_ALIGN_READY_TIMEOUT_S).strip()
+        except SubprocessTimeoutError as e:
+            raise RuntimeError(
+                f"bộ canh chữ không phản hồi trong {_ALIGN_READY_TIMEOUT_S}s "
+                "khi nạp model\n" + "\n".join(stderr_tail)) from e
+        try:
+            ready = json.loads(ready_line)
+        except (json.JSONDecodeError, ValueError):
+            raise RuntimeError(
+                f"bộ canh chữ không phản hồi ready: {ready_line!r}\n"
+                + "\n".join(stderr_tail))
+        if ready.get("error") or not ready.get("ready"):
+            raise RuntimeError(
+                f"bộ canh chữ báo lỗi: {ready.get('error') or ready}\n"
+                + "\n".join(stderr_tail))
+
+        req = {
+            "language": language or "vi",
+            "clips": [{"id": seg.get("id"), "wav": wav}
+                      for seg, wav, _dur, _key in todo],
+        }
+        proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
+        proc.stdin.flush()
+        proc.stdin.close()
+
+        done = False
+        while True:
+            try:
+                line = reader.readline(_ALIGN_CLIP_TIMEOUT_S)
+            except SubprocessTimeoutError as e:
+                raise RuntimeError(
+                    f"bộ canh chữ không phản hồi trong "
+                    f"{_ALIGN_CLIP_TIMEOUT_S}s giữa hai câu (đã canh được "
+                    f"{len(words_by_sid)} câu)\n"
+                    + "\n".join(stderr_tail)) from e
+            if not line:
+                break
+            line = line.strip()
+            if not line or not line.startswith("{"):
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get("error") and not msg.get("clip"):
+                raise RuntimeError(f"bộ canh chữ: {msg['error']}\n"
+                                   + "\n".join(stderr_tail))
+            if msg.get("clip"):
+                sid = msg.get("id")
+                if msg.get("error"):
+                    n_loi_clip += 1
+                    logger.debug(f"Canh chữ câu {sid} lỗi ({msg['error']}) "
+                                 "— ước lượng")
+                    continue
+                words_by_sid[sid] = [
+                    (str(w.get("word", "")).strip(),
+                     float(w.get("start", 0.0)), float(w.get("end", 0.0)))
+                    for w in (msg.get("words") or [])
+                    if str(w.get("word", "")).strip()
+                ]
+            elif msg.get("done"):
+                done = True
+        proc.wait(timeout=600)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        atexit.unregister(proc.kill)
+        for stream in (proc.stdout, proc.stderr):
+            if stream:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+    if not done:
+        raise RuntimeError(
+            f"bộ canh chữ thoát bất thường (mã {proc.returncode})"
+            + ("\n" + "\n".join(stderr_tail) if stderr_tail else ""))
+    if n_loi_clip:
+        logger.debug(f"{n_loi_clip}/{len(todo)} câu bộ canh chữ nghe hỏng")
+    return words_by_sid
+
+
+def _asr_words_in_process(
+    todo: list[tuple[dict, str, float, str]],
+    language: str,
+) -> dict[int, list[tuple[str, float, float]]]:
+    """Đường cũ: nạp model NGAY TRONG tiến trình này.
+
+    CHỈ hợp lệ khi chạy từ mã nguồn — bản ``.exe`` không đóng gói
+    faster-whisper (xem ``autodub.spec``).
+
+    Lưới an toàn cho lần sau: cùng một giả định sai ("cứ import là được") đã
+    tái diễn ở ``_smoke_report`` (V38), ``preflight`` (V74) rồi chính tệp này
+    (V75). Nên ở đây chặn thẳng thay vì để ``ModuleNotFoundError: av`` giả
+    làm nguyên nhân.
+    """
+    if getattr(sys, "frozen", False):
+        raise RuntimeError(
+            "bản đóng gói không có faster-whisper trong tiến trình chính — "
+            "phải nghe qua .venv-whisper")
+    model, _device, n_workers = _load_align_model()
+
+    def _one(item):
+        seg, wav, _dur, _key = item
+        sid = seg.get("id")
+        try:
+            return sid, _asr_words(model, wav, language)
+        except Exception as e:
+            logger.debug(f"ASR alignment câu {sid} lỗi ({e}) — ước lượng")
+            return sid, None
+
+    try:
+        if n_workers > 1:
+            with ThreadPoolExecutor(max_workers=n_workers) as pool:
+                done = list(pool.map(_one, todo))
+        else:
+            done = [_one(item) for item in todo]
+    finally:
+        # Model base nhỏ; thả tham chiếu là đủ (ctranslate2 tự nhả khi GC).
+        del model
+
+    return {sid: words for sid, words in done if words is not None}
+
+
+def _asr_words_for_clips(
+    todo: list[tuple[dict, str, float, str]],
+    language: str,
+    settings,
+) -> dict[int, list[tuple[str, float, float]]] | None:
+    """Chọn đường nghe rồi trả mốc chữ cho cả mẻ; ``None`` = không canh được.
+
+    Thứ tự y hệt ``transcriber.transcribe`` để không đẻ ra một quy tắc thứ
+    hai: có ``.venv-whisper`` thì đi subprocess; không có thì in-process,
+    TRỪ bản đóng gói — ở đó in-process không tồn tại nên phải nói thẳng là
+    chưa cài, thay vì âm thầm chia đều thời lượng.
+    """
+    dong_bang = getattr(sys, "frozen", False)
+    if settings is not None and settings.whisper_venv_configured():
+        try:
+            return _asr_words_subprocess(todo, language, settings)
+        except Exception as e:
+            if dong_bang:
+                logger.warning(
+                    f"Không canh được phụ đề theo giọng đọc ({e}) — chữ sẽ "
+                    "chia đều theo thời lượng câu")
+                return None
+            logger.warning(f"Bộ canh chữ trong .venv-whisper lỗi ({e}) — "
+                           "thử lại ngay trong tiến trình này")
+    elif dong_bang:
+        # Thông báo này có bản dịch riêng trong log_text.NOTICES nên tới được
+        # khung Nhật ký; đừng đổi 6 chữ đầu mà không sửa cả bảng đó.
+        logger.warning(
+            "Không canh được phụ đề: chưa cài bộ nghe Whisper trong thư mục "
+            'ứng dụng này — đúp chuột "Cai dat Whisper ASR.bat" rồi chạy lại '
+            "thì chữ mới nhảy đúng nhịp giọng đọc")
+        return None
+
+    try:
+        return _asr_words_in_process(todo, language)
+    except Exception as e:
+        logger.warning(f"Không canh được phụ đề theo giọng đọc ({e}) — "
+                       "chữ sẽ chia đều theo thời lượng câu")
+        return None
+
+
 def align_segments(
     segments: list[dict],
     merge_dir: str,
     text_field: str,
     cache_path: str | None = None,
     language: str = "vi",
+    settings=None,
 ) -> dict[int, list[tuple[str, float, float]]]:
     """Alignment thật cho mọi segment. Trả ``{id: [(chữ, t0, t1), ...]}``.
 
@@ -201,32 +465,33 @@ def align_segments(
                 f"({len(todo)} câu"
                 + (f", {n_cached} câu dùng lại của lần trước" if n_cached else "")
                 + ") — chờ chút...")
-    try:
-        model, _device, n_workers = _load_align_model()
-    except Exception as e:
-        logger.warning(f"Không canh được phụ đề theo giọng đọc ({e}) — "
-                       "chữ sẽ chia đều theo thời lượng câu")
+    if settings is None:
+        # Caller cũ không truyền settings — vẫn phải biết .venv-whisper nằm
+        # đâu, nếu không bản đóng gói lại rơi về đường in-process không tồn
+        # tại. Đọc cấu hình ở đây là rẻ (chỉ .env + biến môi trường).
+        try:
+            from autodub.config import Settings
+            settings = Settings.load()
+        except Exception as e:
+            logger.debug(f"Không đọc được cấu hình cho bộ canh chữ ({e})")
+
+    asr_by_sid = _asr_words_for_clips(todo, language, settings)
+    if asr_by_sid is None:
         return out
 
     def _one(item):
         seg, wav, dur, key = item
         sid = seg.get("id")
-        text_words = str(seg.get(text_field, "")).split()
-        try:
-            asr = _asr_words(model, wav, language)
-        except Exception as e:
-            logger.debug(f"ASR alignment câu {sid} lỗi ({e}) — ước lượng")
+        asr = asr_by_sid.get(sid)
+        if not asr:
             return None
+        text_words = str(seg.get(text_field, "")).split()
         mapped = _map_words(text_words, asr, float(seg["start"]), dur)
         if mapped is None:
             return None
         return sid, key, float(seg["start"]), mapped
 
-    if n_workers > 1:
-        with ThreadPoolExecutor(max_workers=n_workers) as pool:
-            done = list(pool.map(_one, todo))
-    else:
-        done = [_one(item) for item in todo]
+    done = [_one(item) for item in todo]
 
     new_cache_entries: dict = {}
     n_ok = 0
@@ -240,9 +505,6 @@ def align_segments(
             [w, round(t0 - base, 3), round(t1 - base, 3)]
             for w, t0, t1 in mapped
         ]
-
-    # Model base nhỏ; thả tham chiếu là đủ (ctranslate2 tự nhả khi GC).
-    del model
 
     n_est = len(todo) - n_ok
     logger.info(f"Canh phụ đề xong: {n_ok}/{len(todo)} câu khớp chính xác "
