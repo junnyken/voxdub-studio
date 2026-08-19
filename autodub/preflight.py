@@ -95,9 +95,11 @@ def _check_ffmpeg(settings: Settings) -> CheckResult:
         return CheckResult(
             key="ffmpeg", title=title, level="fail",
             message="Máy chưa có FFmpeg.",
-            advice="Tải bản đầy đủ (full build) từ gyan.dev hoặc BtbN, giải "
-                   "nén rồi thêm thư mục bin vào đường dẫn hệ thống (PATH), "
-                   "sau đó mở lại ứng dụng.")
+            advice="Mở lại ứng dụng — trình cài đặt sẽ hiện ra và tự tải "
+                   "FFmpeg giúp bạn (~80 MB). Muốn tự cài thì tải bản đầy đủ "
+                   "(full build) từ gyan.dev, giải nén rồi chép hai tệp "
+                   "ffmpeg.exe và ffprobe.exe vào thư mục bin nằm cạnh ứng "
+                   "dụng (không cần sửa PATH).")
     try:
         out = subprocess.run(
             [ffmpeg_cmd, "-hide_banner", "-filters"],
@@ -121,7 +123,8 @@ def _check_ffmpeg(settings: Settings) -> CheckResult:
 
 def _check_ffprobe(settings: Settings) -> CheckResult:
     """ffprobe — đọc thời lượng/thông số video, đi kèm gói FFmpeg."""
-    if shutil.which("ffprobe"):
+    local = os.path.join(app_root(), "bin", "ffprobe.exe")
+    if shutil.which("ffprobe") or os.path.isfile(local):
         return CheckResult(key="ffprobe", title="FFprobe", level="ok",
                            message="Sẵn sàng.")
     return CheckResult(

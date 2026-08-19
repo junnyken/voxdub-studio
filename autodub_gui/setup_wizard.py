@@ -86,7 +86,13 @@ def _is_setup_needed() -> bool:
     """True nếu chưa chạy wizard LẦN NÀO, hoặc tất cả components đã sẵn sàng
     (trường hợp người dùng install thủ công trước khi mở app)."""
     if os.path.isfile(_marker_path()):
-        return False          # wizard đã chạy xong
+        # V81 — marker nằm ở ~/.voxdub_cache, tức là theo MÁY chứ không theo
+        # thư mục ứng dụng. Nâng cấp (giải nén bản mới ra thư mục khác) thì
+        # `bin/ffmpeg.exe` nằm lại bản cũ, mà wizard thấy marker nên không
+        # hiện nữa → người dùng chỉ còn hộp thoại "Máy chưa có FFmpeg" kèm
+        # lời khuyên tự tải và sửa PATH. FFmpeg là thứ THIẾU LÀ KHÔNG CHẠY
+        # ĐƯỢC GÌ, nên còn thiếu thì vẫn phải mời cài lại.
+        return not _ffmpeg_ready()
     return True               # chưa chạy → cần wizard
 
 

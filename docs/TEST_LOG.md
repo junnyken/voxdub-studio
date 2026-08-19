@@ -8021,6 +8021,49 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V81 — "Máy chưa có FFmpeg" sau khi nâng cấp (Phase H, 2026-08-19)
+
+Người dùng báo bằng ảnh chụp ngay sau khi cài v3.4.5: hộp thoại chặn *"Máy
+chưa đủ điều kiện lồng tiếng — FFmpeg: Máy chưa có FFmpeg"*, kèm lời khuyên
+tải bản full từ gyan.dev rồi thêm vào PATH.
+
+Ba thứ sai cùng lúc, và cả ba đều là lỗi của app:
+
+1. **Tệp nằm lại bản cũ.** Trình cài đặt tải FFmpeg về `<thư mục app>/bin`.
+   Nâng cấp = giải nén ra thư mục mới ⇒ mất. Đúng cảnh ngộ của `.venv-*` đã
+   sửa ở V77 — chỉ khác là hôm đó chưa nghĩ tới `bin/`.
+2. **Wizard không mời lại.** Marker nằm ở `~/.voxdub_cache/setup_wizard_done`,
+   tức theo MÁY chứ không theo thư mục ứng dụng. Bản mới thấy marker nên bỏ
+   qua wizard, dù trong thư mục này chưa có gì cả.
+3. **Hộp thoại bắt người dùng làm phần việc của app.** `FFmpegDownloadWorker`
+   (tải bản full có libass từ BtbN về `bin/`) đã nằm sẵn trong mã từ lâu, chỉ
+   được gọi từ wizard lần đầu. Người dùng gặp lỗi thì chỉ nhận được hướng dẫn
+   tải tay và sửa PATH.
+
+### Sửa
+
+- `venv_discovery.tim_thu_muc_bin_cu()` + `_frozen.init()` nối thư mục `bin`
+  của bản cũ vào PATH khi máy chưa có ffmpeg → `shutil.which("ffmpeg")` của
+  preflight thấy ngay, người dùng không phải làm gì.
+- `_is_setup_needed()` trả True khi thiếu FFmpeg dù marker đã có. Giới hạn ở
+  đúng FFmpeg: thiếu nó thì app không chạy được gì, còn VieNeu/Whisper là lựa
+  chọn nên không lôi wizard ra mỗi lần mở.
+- Hộp thoại chặn giờ là câu hỏi: **"Tải giúp tôi"** → mở trình cài đặt → cài
+  xong tự chạy lại preflight, không bắt mở lại ứng dụng.
+- Lời khuyên đổi sang *"chép ffmpeg.exe và ffprobe.exe vào thư mục bin cạnh
+  ứng dụng (không cần sửa PATH)"* — việc ai cũng làm được. `_check_ffprobe`
+  cũng nhìn `bin/` cho nhất quán với `_check_ffmpeg`.
+
+### Test của chính đợt này làm đỏ 3 test khác
+
+`_frozen.init()` có `os.chdir(app_root())`. Test mới gọi `init()` với
+`app_root` giả mà không trả lại thư mục làm việc → 3 test `diarize_worker`
+(chạy worker bằng đường dẫn tương đối) đỏ ở lượt chạy đầy đủ nhưng **xanh khi
+chạy lẻ**. Đúng dấu hiệu ô nhiễm trạng thái toàn cục: khác nhau giữa chạy lẻ
+và chạy cả bộ thì đừng nghi test, hãy nghi cái vừa thêm.
+
+**1536 passed, 7 skipped, 0 failed.**
+
 ## V77–V80 — Đợt rà "còn chỗ nào hỏng nữa không" (Phase H, 2026-08-19)
 
 Người dùng hỏi thẳng: *"còn mục nào bị lỗi nữa không để khắc phục 1 lần"*. Ba

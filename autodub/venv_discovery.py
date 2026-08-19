@@ -100,3 +100,43 @@ def quen_cache() -> None:
     """Xoá nhớ đệm — dùng trong test, và sau khi cài thêm bộ máy mới."""
     with _lock:
         _cache.clear()
+
+
+def tim_thu_muc_bin_cu() -> str:
+    """Thư mục ``bin/`` có ffmpeg của một bản cài cũ cạnh bên, hoặc "".
+
+    Cùng cảnh ngộ với các venv (mini-spec V81): trình cài đặt tải ffmpeg về
+    ``<thư mục app>/bin``, nên nâng cấp sang thư mục mới là app lại báo "máy
+    chưa có FFmpeg" — dù người dùng đã cài rồi và tệp vẫn nằm ngay thư mục
+    bên cạnh.
+    """
+    key = ("__bin__", "ffmpeg")
+    with _lock:
+        if key in _cache:
+            return _cache[key] or ""
+
+    ten = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    ket_qua = None
+    goc = app_root()
+    try:
+        anh_em = sorted(os.scandir(os.path.dirname(goc)), key=lambda e: e.name)
+    except OSError:
+        anh_em = []
+    for i, entry in enumerate(anh_em):
+        if i >= _MAX_ANH_EM:
+            break
+        try:
+            if not entry.is_dir() or os.path.samefile(entry.path, goc):
+                continue
+        except OSError:
+            continue
+        bin_dir = os.path.join(entry.path, "bin")
+        if os.path.isfile(os.path.join(bin_dir, ten)):
+            ket_qua = bin_dir
+            logger.info(f"Dùng lại FFmpeg đã tải của bản trước ở thư mục: "
+                        f"{os.path.basename(entry.path)}")
+            break
+
+    with _lock:
+        _cache[key] = ket_qua
+    return ket_qua or ""

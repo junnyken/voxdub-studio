@@ -82,6 +82,16 @@ def init() -> None:
     # không cần người dùng chỉnh PATH hệ thống.
     _prepend_path(root, os.path.join(root, "bin"))
 
+    # Nâng cấp lên thư mục mới thì `bin/ffmpeg.exe` do trình cài đặt tải về
+    # nằm lại ở thư mục CŨ. Mượn luôn thay vì bắt người dùng tải lại ~80 MB
+    # (mini-spec V81, cùng cách chữa với .venv-* ở V77).
+    import shutil as _shutil
+    if not _shutil.which("ffmpeg"):
+        from autodub.venv_discovery import tim_thu_muc_bin_cu
+        bin_cu = tim_thu_muc_bin_cu()
+        if bin_cu:
+            _prepend_path(bin_cu)
+
     # Chromium của Playwright sống cạnh app (nút tải trong tab Cài đặt).
     os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", browsers_dir())
 

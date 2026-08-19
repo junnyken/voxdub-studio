@@ -560,6 +560,20 @@ class MainWindow(QMainWindow):
 
         if failures:
             body = "\n\n".join(_block(r) for r in failures + warns)
+            # V81 — FFmpeg là thứ ứng dụng TỰ TẢI ĐƯỢC. Bắt người dùng đọc
+            # hướng dẫn tải tay rồi sửa PATH trong khi trình cài đặt nằm sẵn
+            # trong app là bắt họ làm phần việc của mình.
+            if any(r.key in ("ffmpeg", "ffprobe") for r in failures):
+                dong_y, _ = ConfirmDialog.ask(
+                    self, "Máy chưa đủ điều kiện lồng tiếng",
+                    "Ứng dụng thiếu FFmpeg — thành phần bắt buộc để xử lý "
+                    "video. Ứng dụng có thể tự tải về giúp bạn (~80 MB), "
+                    "không cần cài đặt gì thêm.\n\n" + body,
+                    kind="error", confirm_label="Tải giúp tôi",
+                    cancel_label="Để sau")
+                if dong_y:
+                    self._chay_trinh_cai_dat()
+                return
             ConfirmDialog.show_error(
                 self, "Máy chưa đủ điều kiện lồng tiếng",
                 "Ứng dụng phát hiện thiếu thành phần bắt buộc. Hãy xử lý các "
@@ -567,6 +581,17 @@ class MainWindow(QMainWindow):
         else:
             for r in warns:
                 TOASTS.warn(f"{r.title}: {r.message}")
+
+    def _chay_trinh_cai_dat(self) -> None:
+        """Mở trình cài đặt (trang FFmpeg) rồi kiểm lại điều kiện máy."""
+        try:
+            from autodub_gui.setup_wizard import SetupWizard
+            SetupWizard(self).exec()
+        except Exception as e:  # noqa: BLE001 — wizard hỏng không giết app
+            TOASTS.warn(f"Không mở được trình cài đặt: {e}")
+            return
+        # Cài xong thì chạy lại preflight ngay, đừng bắt người dùng mở lại app.
+        self._run_preflight()
 
     # -- Thông báo -----------------------------------------------------
     def _show_notifications(self) -> None:
