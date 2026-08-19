@@ -189,6 +189,10 @@ class DubPipeline:
             _tel(event)
 
         self._reporter = ProgressReporter(_progress_with_telemetry, cancel_event)
+        # Giữ thẳng cờ Dừng: các bước chạy LÂU mà không phát progress (canh
+        # chữ karaoke nghe lại từng clip) cần tự canh cờ, `rep.check_cancelled()`
+        # giữa hai bước không cắt ngang được chúng (mini-spec V76).
+        self._cancel_event = cancel_event
         # Vòng đời hold Vox của lượt chạy này — logic đầy đủ nằm ở
         # autodub/billing.py (mini-spec V2, xem docs/PLAN.md); các phương
         # thức _setup_hold/_stop_for_export/_settle_hold_inline/
@@ -460,6 +464,7 @@ class DubPipeline:
             # thường trên đĩa. Phase Xuất video sinh lại đầy đủ SRT/ASS.
             if req.defer_export and HOLD.active:
                 return None, None
+            kwargs.setdefault("cancel_event", self._cancel_event)
             return refresh_subtitles(*args, **kwargs)
 
         # --- Step 3: Speech-to-Text (ASR) — GPU-exclusive ---
@@ -878,7 +883,8 @@ class DubPipeline:
             _srt_path, burn_path = refresh_subtitles(
                 segments, work_dir, target, subtitle_style,
                 merge_dir=merge_dir, settings=settings,
-                for_burn=req.subtitle_mode == "burn")
+                for_burn=req.subtitle_mode == "burn",
+                cancel_event=self._cancel_event)
             from autodub.media.video import merge_video
             merge_video(
                 lipsync_video_path, merged_audio_path, dubbed_video_path,
@@ -895,7 +901,8 @@ class DubPipeline:
             # Luồng wizard dừng trước khi sinh phụ đề — xuất chỉ-âm-thanh
             # vẫn phải có tệp .srt trong thư mục kết quả.
             refresh_subtitles(segments, work_dir, target, subtitle_style,
-                              merge_dir=merge_dir, settings=settings)
+                              merge_dir=merge_dir, settings=settings,
+                              cancel_event=self._cancel_event)
 
         # --- Step 8: Social post metadata ---
         content_result = self._generate_content(target, segments, req.url,

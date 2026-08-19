@@ -97,6 +97,7 @@ def resolve_word_times(
     settings=None,
     cache_path: str | None = None,
     language: str = "vi",
+    cancel_event=None,
 ) -> dict[int, list[tuple[str, float, float]]]:
     """Mốc từng chữ cho mọi segment: alignment thật trước, ước lượng bù sau.
 
@@ -105,6 +106,7 @@ def resolve_word_times(
     ước lượng (non-fatal, video vẫn ra).
     """
     from autodub.media.audio import wav_duration_s
+    from autodub.progress import PipelineCancelled
     from autodub.text.srt import has_subtitle_override, is_char_wrap_lang, subtitle_text
 
     # mini-spec V19 — `language` ở đây đã là mã Whisper ngắn ("ja"/"zh"/"th",
@@ -121,7 +123,12 @@ def resolve_word_times(
             # in-process không tồn tại (mini-spec V75).
             aligned = align_segments(segments, merge_dir, text_field,
                                      cache_path=cache_path, language=language,
-                                     settings=settings)
+                                     settings=settings,
+                                     cancel_event=cancel_event)
+        except PipelineCancelled:
+            # Người dùng bấm Dừng — không phải "canh hỏng". Nuốt ở đây là
+            # video vẫn chạy tiếp tới cùng với phụ đề chia đều (V76).
+            raise
         except Exception as e:
             logger.warning(f"Không canh được phụ đề theo giọng đọc ({e}) — "
                            "chữ sẽ chia đều theo thời lượng câu")
@@ -251,6 +258,7 @@ def build_karaoke_ass(
     settings=None,
     cache_path: str | None = None,
     language: str = "vi",
+    cancel_event=None,
 ) -> str:
     """Sinh file .ass hoàn chỉnh cho toàn video. Trả về ``out_path``.
 
@@ -269,7 +277,8 @@ def build_karaoke_ass(
 
     word_times = resolve_word_times(segments, merge_dir, text_field,
                                     settings=settings, cache_path=cache_path,
-                                    language=language)
+                                    language=language,
+                                    cancel_event=cancel_event)
 
     events: list[str] = []
     for seg in segments:

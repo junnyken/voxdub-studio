@@ -846,10 +846,14 @@ class ExportSubsFileWorker(QThread):
 
                 merge_dir = self._merge_dir or data_path(
                     self._work_dir, "segments")
+                # Cờ Dừng phải đi TỚI bước canh chữ: đây là bước lâu nhất
+                # của việc ghi phụ đề, mà trước V76 `cancel()` chỉ có tác
+                # dụng SAU khi nó chạy xong — bấm Dừng rồi vẫn phải ngồi chờ.
                 build_karaoke_ass(
                     self._segments, merge_dir, self._output_path,
                     self._style, text_field=self._text_field,
-                    cache_path=data_path(self._work_dir, "align_cache.json"))
+                    cache_path=data_path(self._work_dir, "align_cache.json"),
+                    cancel_event=self._cancel_event)
             else:
                 from autodub.text.srt import generate_srt_styled
 

@@ -35,6 +35,7 @@ import threading
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
+from autodub.progress import PipelineCancelled
 from autodub.subprocess_watchdog import SubprocessTimeoutError, WatchedLineReader
 from autodub.utils import (
     bundled_file,
@@ -173,6 +174,7 @@ def _asr_words_subprocess(
     todo: list[tuple[dict, str, float, str]],
     language: str,
     settings,
+    cancel_event=None,
 ) -> dict[int, list[tuple[str, float, float]]]:
     """Nghe từng clip bằng Whisper TRONG ``.venv-whisper`` (tiến trình con).
 
@@ -233,15 +235,42 @@ def _asr_words_subprocess(
     threading.Thread(target=_drain, daemon=True).start()
     reader = WatchedLineReader(proc)
 
+    # V76 — luồng canh cờ Dừng, GIẾT tiến trình chứ không chỉ kiểm cờ ở đầu
+    # vòng. Bài học V72: kiểm-rồi-chờ chỉ đúng khi cái chờ ngắn; ở đây câu
+    # đầu tiên có thể mất hàng chục giây (nạp model) nên vòng đọc đang kẹt
+    # trong `readline()` và không bao giờ chạy tới chỗ kiểm. Giết tiến trình
+    # làm stdout đóng → `readline` trả "" ngay → thoát tức thì.
+    _huy_xong = threading.Event()
+
+    def _canh_huy() -> None:
+        while not _huy_xong.is_set():
+            if cancel_event.wait(0.3):
+                proc.kill()
+                return
+
+    if cancel_event is not None:
+        threading.Thread(target=_canh_huy, daemon=True).start()
+
+    def _kiem_huy() -> None:
+        """Đo thật (V76): bấm Dừng LÚC ĐANG NẠP MODEL thì tiến trình bị giết
+        khi chưa có dòng nào ra, `readline` trả "" → trước khi thêm chỗ kiểm
+        này nó báo "bộ canh chữ không phản hồi ready" và tầng trên hiểu là
+        HỎNG: bản mã nguồn chạy lại toàn bộ ở in-process, bản .exe ghi phụ đề
+        chia đều rồi đi tiếp. Cú bấm Dừng phải trông ra cú bấm Dừng."""
+        if cancel_event is not None and cancel_event.is_set():
+            raise PipelineCancelled("Đã dừng theo yêu cầu.")
+
     words_by_sid: dict[int, list[tuple[str, float, float]]] = {}
     n_loi_clip = 0
     try:
         try:
             ready_line = reader.readline(_ALIGN_READY_TIMEOUT_S).strip()
         except SubprocessTimeoutError as e:
+            _kiem_huy()
             raise RuntimeError(
                 f"bộ canh chữ không phản hồi trong {_ALIGN_READY_TIMEOUT_S}s "
                 "khi nạp model\n" + "\n".join(stderr_tail)) from e
+        _kiem_huy()
         try:
             ready = json.loads(ready_line)
         except (json.JSONDecodeError, ValueError):
@@ -258,22 +287,36 @@ def _asr_words_subprocess(
             "clips": [{"id": seg.get("id"), "wav": wav}
                       for seg, wav, _dur, _key in todo],
         }
-        proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
-        proc.stdin.flush()
-        proc.stdin.close()
+        try:
+            proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
+            proc.stdin.flush()
+            proc.stdin.close()
+        except (BrokenPipeError, OSError, ValueError):
+            # Tiến trình vừa bị giết vì Dừng — không phải lỗi gửi request.
+            _kiem_huy()
+            raise
 
         done = False
         while True:
             try:
                 line = reader.readline(_ALIGN_CLIP_TIMEOUT_S)
             except SubprocessTimeoutError as e:
+                _kiem_huy()
                 raise RuntimeError(
                     f"bộ canh chữ không phản hồi trong "
                     f"{_ALIGN_CLIP_TIMEOUT_S}s giữa hai câu (đã canh được "
                     f"{len(words_by_sid)} câu)\n"
                     + "\n".join(stderr_tail)) from e
             if not line:
+                # stdout đóng: hoặc worker xong, hoặc ta vừa giết nó vì Dừng.
+                # Phân biệt hai ca — nếu không, lượt bị dừng trông y hệt một
+                # lượt canh xong với 0 câu (rồi phụ đề lặng lẽ chia đều).
+                if cancel_event is not None and cancel_event.is_set():
+                    raise PipelineCancelled("Đã dừng theo yêu cầu.")
                 break
+            if cancel_event is not None and cancel_event.is_set():
+                proc.kill()
+                raise PipelineCancelled("Đã dừng theo yêu cầu.")
             line = line.strip()
             if not line or not line.startswith("{"):
                 continue
@@ -301,6 +344,9 @@ def _asr_words_subprocess(
                 done = True
         proc.wait(timeout=600)
     finally:
+        # Dừng luồng canh trước tiên — để nó sống tiếp là giữ một luồng chờ
+        # vô ích cho mỗi mẻ đã xong.
+        _huy_xong.set()
         if proc.poll() is None:
             proc.kill()
         atexit.unregister(proc.kill)
@@ -323,6 +369,7 @@ def _asr_words_subprocess(
 def _asr_words_in_process(
     todo: list[tuple[dict, str, float, str]],
     language: str,
+    cancel_event=None,
 ) -> dict[int, list[tuple[str, float, float]]]:
     """Đường cũ: nạp model NGAY TRONG tiến trình này.
 
@@ -343,6 +390,10 @@ def _asr_words_in_process(
     def _one(item):
         seg, wav, _dur, _key = item
         sid = seg.get("id")
+        # Mỗi clip chỉ 1–3 giây nên kiểm ở đầu mỗi clip là đủ nhanh; không
+        # có cách nào cắt ngang một lượt `transcribe()` in-process.
+        if cancel_event is not None and cancel_event.is_set():
+            raise PipelineCancelled("Đã dừng theo yêu cầu.")
         try:
             return sid, _asr_words(model, wav, language)
         except Exception as e:
@@ -366,6 +417,7 @@ def _asr_words_for_clips(
     todo: list[tuple[dict, str, float, str]],
     language: str,
     settings,
+    cancel_event=None,
 ) -> dict[int, list[tuple[str, float, float]]] | None:
     """Chọn đường nghe rồi trả mốc chữ cho cả mẻ; ``None`` = không canh được.
 
@@ -377,7 +429,12 @@ def _asr_words_for_clips(
     dong_bang = getattr(sys, "frozen", False)
     if settings is not None and settings.whisper_venv_configured():
         try:
-            return _asr_words_subprocess(todo, language, settings)
+            return _asr_words_subprocess(todo, language, settings,
+                                         cancel_event=cancel_event)
+        except PipelineCancelled:
+            # Dừng KHÔNG phải lỗi. Nuốt nó ở đây là chạy lại toàn bộ ở
+            # in-process — đúng lỗi đã mắc ở V74 với TranscribeCancelled.
+            raise
         except Exception as e:
             if dong_bang:
                 logger.warning(
@@ -396,7 +453,9 @@ def _asr_words_for_clips(
         return None
 
     try:
-        return _asr_words_in_process(todo, language)
+        return _asr_words_in_process(todo, language, cancel_event=cancel_event)
+    except PipelineCancelled:
+        raise
     except Exception as e:
         logger.warning(f"Không canh được phụ đề theo giọng đọc ({e}) — "
                        "chữ sẽ chia đều theo thời lượng câu")
@@ -410,6 +469,7 @@ def align_segments(
     cache_path: str | None = None,
     language: str = "vi",
     settings=None,
+    cancel_event=None,
 ) -> dict[int, list[tuple[str, float, float]]]:
     """Alignment thật cho mọi segment. Trả ``{id: [(chữ, t0, t1), ...]}``.
 
@@ -475,7 +535,8 @@ def align_segments(
         except Exception as e:
             logger.debug(f"Không đọc được cấu hình cho bộ canh chữ ({e})")
 
-    asr_by_sid = _asr_words_for_clips(todo, language, settings)
+    asr_by_sid = _asr_words_for_clips(todo, language, settings,
+                                      cancel_event=cancel_event)
     if asr_by_sid is None:
         return out
 

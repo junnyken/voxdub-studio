@@ -66,7 +66,7 @@ def test_co_venv_thi_di_tien_trinh_con(st, tmp_path, monkeypatch):
     _cai_venv(st, tmp_path)
     goi = {}
     monkeypatch.setattr(align_mod, "_asr_words_subprocess",
-                        lambda todo, lang, s: goi.setdefault("sub", lang) or {})
+                        lambda todo, lang, s, cancel_event=None: goi.setdefault("sub", lang) or {})
     monkeypatch.setattr(align_mod, "_load_align_model",
                         lambda: pytest.fail("bản có venv KHÔNG được nạp "
                                             "model trong tiến trình chính"))
@@ -97,7 +97,7 @@ def test_ban_ma_nguon_thieu_venv_van_chay_in_process(st, tmp_path, monkeypatch):
                         lambda *a, **k: pytest.fail("không có venv thì đừng "
                                                     "gọi tiến trình con"))
     monkeypatch.setattr(align_mod, "_asr_words_in_process",
-                        lambda todo, lang: {1: [("xin", 0.0, 0.5)]})
+                        lambda todo, lang, cancel_event=None: {1: [("xin", 0.0, 0.5)]})
 
     assert align_mod._asr_words_for_clips(_todo(tmp_path), "vi", st) \
         == {1: [("xin", 0.0, 0.5)]}
@@ -111,7 +111,7 @@ def test_ma_nguon_venv_hong_thi_lui_ve_in_process(st, tmp_path, monkeypatch):
 
     monkeypatch.setattr(align_mod, "_asr_words_subprocess", _no)
     monkeypatch.setattr(align_mod, "_asr_words_in_process",
-                        lambda todo, lang: {2: [("chào", 0.1, 0.4)]})
+                        lambda todo, lang, cancel_event=None: {2: [("chào", 0.1, 0.4)]})
 
     assert align_mod._asr_words_for_clips(_todo(tmp_path), "vi", st) \
         == {2: [("chào", 0.1, 0.4)]}
@@ -145,7 +145,7 @@ def test_khong_co_settings_van_tu_doc_cau_hinh(tmp_path, monkeypatch):
     (tmp_path / "seg1.wav").write_bytes(b"RIFF")
     monkeypatch.setattr("autodub.media.audio.wav_duration_s", lambda p: 2.0)
     monkeypatch.setattr(align_mod, "_asr_words_for_clips",
-                        lambda todo, lang, s: thay.setdefault("settings", s)
+                        lambda todo, lang, s, cancel_event=None: thay.setdefault("settings", s)
                         and None)
 
     align_mod.align_segments([{"id": 1, "text_vi": "xin chào", "start": 0.0,
@@ -163,7 +163,7 @@ def test_mocs_tu_tien_trinh_con_di_thang_vao_ket_qua(st, tmp_path, monkeypatch):
     monkeypatch.setattr("autodub.media.audio.wav_duration_s", lambda p: 2.0)
     monkeypatch.setattr(
         align_mod, "_asr_words_subprocess",
-        lambda todo, lang, s: {7: [("xin", 0.0, 0.5), ("chào", 0.6, 1.2)]})
+        lambda todo, lang, s, cancel_event=None: {7: [("xin", 0.0, 0.5), ("chào", 0.6, 1.2)]})
 
     out = align_mod.align_segments(
         [{"id": 7, "text_vi": "xin chào", "start": 10.0, "end": 12.0}],

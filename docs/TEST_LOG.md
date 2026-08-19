@@ -8021,6 +8021,71 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V76 — Nút Dừng dừng được cả lúc canh chữ karaoke (Phase H, 2026-08-19)
+
+Hạn chế V75 để lại. Canh chữ là bước **lâu nhất** của việc ghi phụ đề (nghe
+lại từng clip giọng đọc; video 200 câu là hàng phút) và là bước duy nhất trên
+đường đó không nhìn cờ Dừng:
+
+- `SubtitleWorker.cancel()` set cờ, nhưng cờ chỉ được đọc **sau khi**
+  `build_karaoke_ass` chạy xong → bấm Dừng rồi vẫn phải ngồi chờ hết.
+- Trong pipeline, `rep.check_cancelled()` chỉ chạy **giữa** hai bước, không
+  cắt ngang được bước đang chạy.
+
+### Nối dây + giết tiến trình
+
+`cancel_event` đi xuyên `refresh_subtitles → build_karaoke_ass →
+resolve_word_times → align_segments → _asr_words_for_clips → worker`. Đứt một
+mắt là nút Dừng vô nghĩa, nên có test khoá cả đường dây.
+
+Cách dừng: **giết tiến trình con**, không chỉ kiểm cờ ở đầu vòng đọc — bài
+học V72 (kiểm-rồi-chờ chỉ đúng khi cái chờ ngắn). Giết xong stdout đóng →
+`readline` trả `""` ngay → thoát tức thì.
+
+Ba tầng `except Exception` trên đường này (`align`, `ass_karaoke`,
+`subtitles`) đều phải re-raise `PipelineCancelled`. Nuốt ở bất kỳ tầng nào là
+cú bấm Dừng biến thành "canh hỏng" rồi chạy tiếp với phụ đề chia đều — đúng
+lớp lỗi V74 (`TranscribeCancelled` kế thừa `RuntimeError` bị `except
+Exception` nuốt).
+
+### Đo đối chứng — và một lỗi thật lòi ra từ phép đo
+
+Worker giả nghe 2s/clip, mẻ 30 clip (~60s), bấm Dừng sau 1,0s:
+
+| ca | có luồng canh huỷ | không có (bản cũ) |
+|---|---|---|
+| đang nghe clip (2s/clip) | 1,0s | 2,1s |
+| **đang nạp model** (20s) | **1,0s** | **20,1s** |
+
+Ca thứ nhất gần như không khác nhau — worker phát một dòng mỗi 2 giây nên
+vòng đọc vẫn kịp thấy cờ. Đúng ca thứ hai mới là lý do luồng canh tồn tại.
+
+Phép đo đó lộ luôn một lỗi **của chính bản sửa**: giết tiến trình lúc chưa có
+dòng nào ra làm `readline` trả rỗng → hàm báo `"bộ canh chữ không phản hồi
+ready"`, tầng trên hiểu là HỎNG: bản mã nguồn **chạy lại toàn bộ ở
+in-process**, bản `.exe` ghi phụ đề chia đều rồi đi tiếp. Cú bấm Dừng phải
+trông ra cú bấm Dừng — thêm `_kiem_huy()` ở cả 3 chỗ (đọc ready, timeout, gửi
+request) và test khoá lại.
+
+### Test (8)
+
+Dừng khi đang nghe (đo < 20s cho mẻ ~60s); dừng khi **đang nạp model** (báo
+đúng `PipelineCancelled`, không phải "không phản hồi ready"); cờ set sẵn từ
+trước thì không nghe clip nào; `_asr_words_for_clips` không nuốt rồi chạy lại
+in-process; `resolve_word_times` và `refresh_subtitles` không biến Dừng thành
+"chia đều"; cả đường dây `refresh_subtitles → align_segments` mang đúng cờ;
+`DubPipeline` giữ lại `cancel_event`.
+
+**1462 passed, 7 skipped, 0 failed** (Python) + **334 pass, 0 fail** (Node).
+
+### Còn tồn
+
+- Đường in-process chỉ kiểm cờ **giữa các clip** — không cắt ngang được một
+  lượt `transcribe()` đang chạy (thư viện không có hook huỷ). Clip 1–3 giây
+  nên độ trễ tối đa bằng đúng một clip.
+- `editor.py` gọi `refresh_subtitles` không truyền cờ (chưa có nút Dừng ở
+  luồng đó).
+
 ## V75 — Canh chữ karaoke chạy được ở bản đóng gói (Phase H, 2026-08-19)
 
 Lỗi thứ 6 cùng gốc rễ với V38/V74, và là cái **khó thấy nhất**: nó chưa từng

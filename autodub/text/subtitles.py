@@ -34,6 +34,7 @@ def refresh_subtitles(
     merge_dir: str | None = None,
     settings=None,
     for_burn: bool = False,
+    cancel_event=None,
 ) -> tuple[str, str]:
     """Ghi lại phụ đề từ danh sách câu hiện tại.
 
@@ -44,6 +45,7 @@ def refresh_subtitles(
     Trả về ``(đường dẫn .srt, đường dẫn tệp sẽ ghi vào hình)``. Hai giá trị
     bằng nhau nghĩa là đang dùng phụ đề cả câu.
     """
+    from autodub.progress import PipelineCancelled
     from autodub.text.srt import generate_srt_styled
 
     srt_path = srt_path_of(work_dir, target)
@@ -69,8 +71,12 @@ def refresh_subtitles(
             segments, merge_dir, data_path(work_dir, KARAOKE_NAME),
             style, text_field=target.text_field, settings=settings,
             cache_path=data_path(work_dir, "align_cache.json"),
-            language=whisper_lang)
+            language=whisper_lang, cancel_event=cancel_event)
         return srt_path, burn_path
+    except PipelineCancelled:
+        # Tầng cuối cùng còn `except Exception` trên đường canh chữ — không
+        # cho nó biến cú bấm Dừng thành "phụ đề cả câu" rồi chạy tiếp (V76).
+        raise
     except Exception as e:
         logger.warning(f"Không tạo được phụ đề kiểu cụm chữ ({e}) — "
                        "dùng phụ đề hiện cả câu")
