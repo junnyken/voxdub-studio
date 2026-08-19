@@ -8021,6 +8021,57 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V86–V87 — Tách nhạc nền không có bộ cài, và tuỳ chọn vô hình (Phase H, 2026-08-19)
+
+### V86 — Vì sao "Không tách được nhạc nền" trên MỌI bản đóng gói
+
+Người dùng gửi ảnh: bước *Tách nhạc nền* báo lỗi, và (nhờ V78) thông báo nói
+rõ hậu quả — *"bản lồng tiếng sẽ CHỈ CÓ giọng đọc, không có nhạc/tiếng động
+nền"*. Câu hỏi tiếp theo của họ rất đúng: **tại sao?**
+
+`autodub.spec` cố ý loại `torch`/`demucs`/`soundfile` khỏi bundle (hàng GB) —
+Demucs chạy trong venv riêng `.venv-gpu` qua `demucs_worker.py`. Nhưng đếm lại
+`scripts/`: có 11 tệp `setup_*.py` (whisper, vieneu, paraformer, douyin,
+ffmpeg, diarization, translate_local, lipsync, ocr, voices…) — **không tệp nào
+tạo `.venv-gpu`**. Tài liệu nhắc tên venv đó như thể nó tự xuất hiện.
+
+Đây là cái thứ tư trong tuần cùng hình dạng: **đường dẫn thì có, thứ ở đầu
+kia thì không** (V80 tệp worker, V83 hàm `brand_logo`, V84 kho GitHub, giờ là
+cả một venv).
+
+Thêm `scripts/setup_demucs.py`: máy có card NVIDIA thì cài torch CUDA (~2,5 GB,
+nhanh), không có thì bản CPU (~200 MB, chậm hơn nhưng vẫn tách được) — không
+bắt người dùng chọn giữa hai thứ họ không có cách nào so sánh. Kèm
+`Cai dat tach nhac nen (Demucs).bat`, và thông báo lỗi giờ chỉ thẳng tên tệp
+cần bấm thay vì chỉ báo hậu quả.
+
+`.venv-gpu` cũng được mượn từ bản cài cũ nằm cạnh (V77/V81 mở rộng) — 2,5 GB
+mà bắt tải lại sau mỗi lần nâng cấp thì không ai chịu nổi.
+
+### V87 — Tuỳ chọn có trong cấu hình nhưng người dùng không chạm được
+
+Người dùng hỏi tiếp: *"tôi vào Cài đặt không thấy phần dịch tự động"*. Kiểm
+lại: `SETTINGS_TABS` chỉ hiện 3 thẻ trong 6 — nhưng đó là **cố ý**, ba thẻ
+Giọng đọc/Phụ đề/Dịch thuật đã tách thành trang riêng trên thanh bên (ghi rõ
+trong ghi chú ở `settings_fields.py`). Không phải lỗi; câu trả lời là chỉ
+đường.
+
+Nhưng lần dò đó lộ ra một lỗi thật: **hai ô cookie không nằm ở đâu cả**.
+`Settings.cookies_from_browser` / `cookies_file` có từ V67 và là cách chữa DUY
+NHẤT khi TikTok chặn (V85), nhưng không có trong `FIELDS` → cách sửa duy nhất
+là mở tệp `.env`. Chính tôi cũng đã chỉ người dùng *"mở Cài đặt → mục Cookie"*
+— một chỗ không tồn tại.
+
+Đã thêm hai ô vào thẻ Nâng cao, nhóm mới **"Tải video khó"**, danh sách trình
+duyệt đúng tên yt-dlp hiểu, và sửa lời khuyên trỏ đúng đường. Test khoá cả
+việc ô phải nằm ở thẻ THỰC SỰ HIỆN RA — đặt nhầm vào ba thẻ đã tách là lại vô
+hình y như cũ.
+
+**Bài học: có tuỳ chọn trong `Settings` không có nghĩa là người dùng chạm được
+vào nó.** Cùng họ với V83 (hàm được gọi nhưng không tồn tại) — chỉ khác chiều.
+
+**1567 passed, 7 skipped, 0 failed** (Python) + **334 pass** (Node).
+
 ## V84–V85 — Link chết và TikTok chặn (Phase H, 2026-08-19)
 
 ### V84 — Bộ giọng mẫu: gọi tới một kho không tồn tại

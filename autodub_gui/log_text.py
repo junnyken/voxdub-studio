@@ -275,8 +275,10 @@ _RAW_NOTICES: list[tuple[str, _Template, int]] = [
     # transcript không dấu câu, tốc độ giọng không áp được, lượt chạy lại
     # phải dịch (và trả tiền) lần nữa. Đây đúng là lớp lỗi của V75/V76.
     (r"Demucs separation failed|Post-processing Demucs output failed",
-     "Không tách được nhạc nền của video này — bản lồng tiếng sẽ CHỈ CÓ giọng "
-     "đọc, không có nhạc/tiếng động nền", logging.WARNING),
+     "Không tách được nhạc nền — bản lồng tiếng sẽ CHỈ CÓ giọng đọc, không "
+     'có nhạc/tiếng động nền. Đúp chuột "Cai dat tach nhac nen (Demucs).bat" '
+     "trong thư mục VoxDub Studio rồi chạy lại nếu muốn giữ nhạc nền.",
+     logging.WARNING),
     (r"no_vocals\.wav missing|ai_music\.wav missing",
      "Không tìm thấy tệp nhạc nền của dự án — bản dựng lại sẽ chỉ có giọng "
      "đọc, không có nhạc nền", logging.WARNING),

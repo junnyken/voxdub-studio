@@ -62,6 +62,8 @@ _INSTALLER_FILES = (
     "Cai dat Whisper ASR",
     "Cai dat ASR tieng",        # tên bị ngắt dòng ở vài chỗ nên khớp phần đầu
     "Cai dat tinh nang Douyin",
+    "Cai dat FFmpeg",              # V82
+    "Cai dat tach nhac nen",       # V86 — tên tệp .bat, cố ý không dấu
 )
 
 

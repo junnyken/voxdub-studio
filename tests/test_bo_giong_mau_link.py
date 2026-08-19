@@ -93,5 +93,9 @@ def test_loi_tiktok_chan_duoc_dich_thanh_cach_chua_co_that():
     soan = friendly_error(that)
     assert soan is not None
     _tieu_de, cach_chua = soan
-    assert "Cookie" in cach_chua or "cookie" in cach_chua
+    # V87 sửa lời khuyên: trỏ vào đúng nhóm "Tải video khó" ở thẻ Nâng cao
+    # (chỗ hai ô cookie thật sự nằm), thay vì "mục Cookie" không tồn tại.
+    # Chỉ đường bằng thứ người dùng NHÌN THẤY trên màn hình (tên thẻ, tên
+    # nhóm) chứ không bằng từ kỹ thuật "cookie".
+    assert "Nâng cao" in cach_chua and "Tải video khó" in cach_chua
     assert "Tải tệp lên" in cach_chua

@@ -55,12 +55,23 @@ GPU_VENVS = (".venv-gpu",)
 
 
 def gpu_venv_dir() -> str:
-    """Thư mục venv có torch bản CUDA, hoặc chuỗi rỗng nếu không có."""
+    """Thư mục venv có torch (tách nhạc nền), hoặc chuỗi rỗng nếu không có.
+
+    V86: dò thêm bản cài cũ nằm cạnh — venv này nặng tới ~2,5 GB (torch
+    CUDA), bắt tải lại sau mỗi lần nâng cấp là quá đáng (cùng cách chữa với
+    `.venv-whisper` ở V77 và `bin/ffmpeg` ở V81).
+    """
     for venv in GPU_VENVS:
         path = os.path.join(app_root(), venv)
         if os.path.isdir(path):
             return path
-    return ""
+    # Không có ở thư mục hiện tại → thử bản cài cũ nằm cạnh. Import trong
+    # thân hàm: venv_discovery cần app_root() của chính tệp này.
+    try:
+        from autodub.venv_discovery import tim_venv_cu_bat_ky
+    except ImportError:
+        return ""
+    return tim_venv_cu_bat_ky(GPU_VENVS)
 
 
 def bundled_file(*relative: str) -> str:

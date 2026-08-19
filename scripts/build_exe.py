@@ -126,6 +126,7 @@ def step_assemble() -> None:
     os.makedirs(scripts_dst, exist_ok=True)
     for script in ("setup_vieneu.py", "setup_paraformer.py",
                    "setup_whisper.py", "setup_douyin.py", "setup_ffmpeg.py",
+                   "setup_demucs.py",
                    # Module dùng chung của 3 script trên — quên chép là bản
                    # đóng gói chết ngay dòng import (V80).
                    "_python_ho_tro.py"):
@@ -147,7 +148,11 @@ def step_assemble() -> None:
             # V82 — FFmpeg là thành phần BẮT BUỘC nhưng lại là thứ duy nhất
             # không có tệp .bat để đúp chuột. Người dùng mở thư mục ra, thấy
             # 4 tệp .bat không tệp nào nói về FFmpeg, rồi phải tự đi tìm.
-            ("Cai dat FFmpeg (bat buoc).bat", SETUP_FFMPEG_BAT)):
+            ("Cai dat FFmpeg (bat buoc).bat", SETUP_FFMPEG_BAT),
+            # V86 — không có tệp này thì bước "Tách nhạc nền" KHÔNG BAO GIỜ
+            # chạy được trên bản đóng gói: torch/demucs cố ý không đóng gói,
+            # mà chưa từng có script nào tạo .venv-gpu.
+            ("Cai dat tach nhac nen (Demucs).bat", SETUP_DEMUCS_BAT)):
         with open(os.path.join(DIST_DIR, name), "w", encoding="utf-8") as f:
             f.write(content)
 
@@ -287,6 +292,26 @@ echo  Yeu cau: da cai Python 3.10-3.12 (xem HUONG_DAN_CAI_DAT.md, Buoc 2).
 echo.
 cd /d "%~dp0"
 py -3.12 scripts\setup_paraformer.py 2>nul || py -3.11 scripts\setup_paraformer.py 2>nul || py -3.10 scripts\setup_paraformer.py 2>nul || py scripts\setup_paraformer.py || python scripts\setup_paraformer.py
+if errorlevel 1 (
+    echo.
+    echo  !! Cai dat that bai. Kiem tra da cai Python chua: py --version
+    echo     Xem muc "Xu ly loi" trong HUONG_DAN_CAI_DAT.md
+)
+echo.
+pause
+"""
+
+SETUP_DEMUCS_BAT = r"""@echo off
+chcp 65001 >nul
+title Cai dat bo tach nhac nen (Demucs) cho VoxDub Studio
+echo.
+echo  Script nay cai bo tach nhac nen — de ban long tieng GIU LAI nhac va
+echo  tieng dong nen cua video goc. Khong cai thi video chi con giong doc.
+echo  May co card NVIDIA: tai ~2,5 GB (nhanh). Khong co: ~200 MB (cham hon).
+echo  Yeu cau: da cai Python 3.10-3.12 (xem HUONG_DAN_CAI_DAT.md, Buoc 2).
+echo.
+cd /d "%~dp0"
+py -3.12 scripts\setup_demucs.py 2>nul || py -3.11 scripts\setup_demucs.py 2>nul || py -3.10 scripts\setup_demucs.py 2>nul || py scripts\setup_demucs.py || python scripts\setup_demucs.py
 if errorlevel 1 (
     echo.
     echo  !! Cai dat that bai. Kiem tra da cai Python chua: py --version

@@ -251,6 +251,23 @@ FIELDS: tuple[Field, ...] = (
           "Chất lượng dịch", "12.5",
           "Giới hạn độ dài câu dịch để đọc kịp. Càng nhỏ thì câu càng ngắn "
           "gọn.", minimum=8.0, maximum=20.0, step=0.5, decimals=1),
+    # V87 — hai ô này ĐÃ CÓ trong `Settings` từ V67 nhưng chưa bao giờ hiện
+    # ra giao diện: người dùng chỉ có thể sửa bằng cách mở tệp .env. Đúng lúc
+    # cần nhất (TikTok chặn lượt tải ẩn danh, xem V85) thì lời khuyên "mở Cài
+    # đặt, chọn trình duyệt" lại trỏ vào chỗ không tồn tại.
+    Field("COOKIES_FROM_BROWSER", COMBO, "Mượn cookie từ trình duyệt",
+          TAB_ADVANCED, "Tải video khó", "",
+          "Trang như TikTok chặn lượt tải ẩn danh. Chọn trình duyệt bạn hay "
+          "dùng để ứng dụng mượn phiên đăng nhập sẵn có — không cần nhập mật "
+          "khẩu. Để trống nếu tải bình thường vẫn được.",
+          options=[("Không dùng", ""), ("Chrome", "chrome"),
+                   ("Edge", "edge"), ("Firefox", "firefox"),
+                   ("Brave", "brave"), ("Chromium", "chromium"),
+                   ("Opera", "opera"), ("Vivaldi", "vivaldi")]),
+    Field("COOKIES_FILE", FILE, "Hoặc dùng tệp cookies.txt",
+          TAB_ADVANCED, "Tải video khó", "",
+          "Tệp cookies.txt xuất từ tiện ích trình duyệt — dùng khi cách mượn "
+          "trực tiếp ở trên không chạy được."),
     Field("VOICE_POSTPROCESS", CHECK, "Làm đều độ lớn giọng đọc",
           TAB_ADVANCED, "Xử lý âm thanh", "true",
           "Cân bằng để câu nào cũng nghe rõ như nhau, không câu to câu nhỏ."),

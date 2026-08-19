@@ -147,8 +147,9 @@ FRIENDLY_ERRORS: list[tuple[str, str, str]] = [
     # cho yt-dlp như thông báo gốc bảo.
     ("unexpected response from webpage request", "Trang video chặn lượt tải",
      "Trang này (thường là TikTok) đòi trình duyệt đã đăng nhập. Mở Cài đặt "
-     "→ mục Cookie, chọn trình duyệt bạn hay dùng (chrome hoặc edge) rồi thử "
-     "lại. Hoặc tải video về máy bằng trình duyệt rồi dùng nút Tải tệp lên."),
+     "→ thẻ Nâng cao → mục \"Tải video khó\", chọn trình duyệt bạn hay dùng "
+     "rồi thử lại. Hoặc tải video về máy bằng trình duyệt rồi dùng nút Tải "
+     "tệp lên."),
     ("ffmpeg", "Máy chưa có FFmpeg",
      "Mở lại ứng dụng rồi bấm \"Tải giúp tôi\" ở hộp thoại hiện ra — ứng "
      "dụng tự tải giúp (~80 MB). Hoặc chép ffmpeg.exe và ffprobe.exe vào "

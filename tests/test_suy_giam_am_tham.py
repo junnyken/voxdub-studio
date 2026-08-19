@@ -13,6 +13,7 @@ NOTICES là dòng đó lại chìm — test này bắt đúng ca đó.
 from __future__ import annotations
 
 import logging
+import re
 
 import pytest
 
@@ -61,9 +62,13 @@ def test_nguoi_dung_duoc_bao(msg, phai_co):
 def test_khong_lot_chu_ky_thuat_ra_giao_dien(msg, _p):
     """Lời mới phải là tiếng người: không tên tệp, không tên thư viện."""
     line = notice_for(msg, logging.WARNING)[0]
+    # TÊN TỆP người dùng phải bấm thì được phép giữ nguyên — đó là thứ họ đi
+    # tìm trong thư mục, dịch ra tiếng Việt lại thành vô dụng. Cắt phần tên
+    # tệp .bat trong ngoặc kép rồi mới soi từ kỹ thuật.
+    con_lai = re.sub(r'"[^"]*\.bat"', "", line)
     for cam in ("demucs", "atempo", "voice_speed", ".wav", "vram", "cuda",
                 "ct-transformer"):
-        assert cam not in line.lower(), f"{cam!r} lọt ra Nhật ký: {line}"
+        assert cam not in con_lai.lower(), f"{cam!r} lọt ra Nhật ký: {line}"
 
 
 def test_ra_soat_ban_dich_van_co_y_de_an():
