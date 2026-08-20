@@ -8021,6 +8021,60 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V90 — Khi tài liệu không đủ (Phase H, 2026-08-20)
+
+Chủ dự án chỉ thẳng vào chỗ đáng chỉ: mục 6b của runbook cảnh báo đúng cái bẫy
+"nhánh deploy không theo `main`" từ 18-08, mà 19-08 vẫn sập lại. **Tài liệu có
+mà không đọc thì bằng không** — nên đợt này không viết thêm chữ, mà chuyển
+việc nhắc từ người sang máy.
+
+### Ba công cụ, ba thời điểm khác nhau
+
+| dùng khi | công cụ | trả lời câu gì |
+|---|---|---|
+| bất cứ lúc nào | `kiem_nhanh_deploy.py` | nhánh deploy có tụt lại so với `main` không |
+| trước khi redeploy | `deploy_vays.sh` | (tự sinh lại nhánh rồi tự kiểm — không còn bước phải nhớ) |
+| sau khi deploy | `kiem_deploy_song.py` | máy chủ có THẬT SỰ chạy mã mới không |
+
+`deploy_vays.sh` chặn hai ca dễ đẩy nhầm mã: đang đứng ở nhánh khác `main`, và
+còn thay đổi chưa commit (nhánh deploy sinh từ commit đã có trên `main`, phần
+chưa commit sẽ không lên máy chủ — im lặng bỏ qua là đúng kiểu hỏng âm thầm).
+
+`kiem_deploy_song.py` luôn gọi **một cửa cũ làm mốc đối chứng** bên cạnh cửa
+mới. Chỉ thử cửa mới thì `404` dễ bị hiểu nhầm là "route đăng ký sai"; có đối
+chứng mới phân biệt được "máy chủ chạy mã cũ" với "mã mới có lỗi".
+
+CI thêm job `deploy-branch-drift` chạy bộ dò trên mỗi push `main` — tình trạng
+tụt lại hiện ra ngay, không đợi tới lúc deploy.
+
+### Canh chính bộ canh
+
+Bộ dò chỉ có ích khi ánh xạ đường dẫn khớp đúng thứ script sinh nhánh chép
+sang. **Bản đầu đã kêu nhầm 99 tệp cho worker** vì tôi đoán nhánh worker chép
+nguyên `dub-worker/` từ `main`, trong khi thực tế nó gom từ `autodub/` + ba
+script cài đặt + `control_server/worker-dub/dub_worker.py`.
+
+Một bộ kiểm hay kêu nhầm thì người ta tắt nó đi — còn tệ hơn không có. Nên có
+test đọc thẳng `cp -r` trong hai script sinh nhánh rồi bắt ánh xạ phải phủ
+hết: thêm thư mục vào script sinh nhánh mà quên khai ở bộ dò là đỏ ngay.
+
+### Chạy lần đầu đã bắt được cái đang hỏng
+
+```
+[!!] deploy/vays-dub-worker ĐANG TỤT LẠI so với main:
+     scripts/setup_whisper.py đã đổi nhưng nhánh deploy còn bản cũ
+     autodub/ ⇄ dub-worker/autodub/: 9 tệp CHƯA có (vd cancel_guard.py);
+                                      20 tệp khác nội dung (vd cli.py)
+```
+
+Worker cloud đang chạy mã từ **trước V79** — thiếu cả nút Dừng cho các bước
+dài. Không ai biết, vì worker vẫn nhận việc và vẫn xong việc bình thường.
+
+Đã sinh lại cả hai nhánh bằng `deploy_vays.sh`; bộ dò giờ báo `[ok]` cả hai.
+Redeploy worker là việc chạm production, chờ chủ dự án quyết.
+
+**1629 passed, 7 skipped, 0 failed.**
+
 ## V89 lên production (Phase H, 2026-08-19)
 
 Triển khai `voxdub-app` (control_server + website) lên Vibe Host và phát hành
