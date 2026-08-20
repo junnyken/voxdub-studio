@@ -8021,6 +8021,46 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V94 — Việc "2 phút" tôi giao cho chủ dự án là BẤT KHẢ THI (Phase H, 2026-08-20)
+
+Suốt nhiều lượt tôi lặp lại một câu: *"vào khu quản trị, thêm một dòng nhà cung
+cấp vai `assist`, 2 phút thôi"*. Lượt này định làm hộ thì phát hiện **không ai
+làm được việc đó**:
+
+```js
+// control_server/src/models/AiProvider.js
+role: { type: String, enum: ['translate', 'content'], default: 'translate' }
+```
+
+`ai-gateway.service.js` hỏi `providersFor('assist')`, nhưng model **không nhận
+giá trị `assist`** — Mongoose chặn ngay lúc lưu. Schema của route cũng chặn, và
+form trên web thậm chí không có lựa chọn đó.
+
+Hệ thống vẫn chạy, vì đã có sẵn đường lui `role = assist_có_provider ?
+'assist' : 'translate'`. Nên triệu chứng bằng 0 — chỉ có hoá đơn đắt gấp hàng
+chục lần. **Chính đường lui tôi viết ra để cho êm đã che mất việc cấu hình bất
+khả thi.**
+
+### Sửa bốn nơi cùng một danh sách
+
+Vai trò được liệt kê tay ở bốn chỗ độc lập: model, schema route, `<option>`
+trong form, và nhãn hiển thị trong bảng. Đúng hình dạng đã cắn hai lượt deploy
+worker hôm nay (danh sách tệp chép tay ở hai nơi).
+
+### Test nối bốn nơi lại
+
+`ai-provider-roles.test.js` quét mã tìm mọi vai đang được hỏi
+(`providersFor('x')`, `callWithFallback('x')`) rồi bắt:
+
+1. model phải nhận đủ chừng đó vai;
+2. schema route không được chặt hơn model;
+3. form trên web phải có `<option>` cho mọi vai model nhận — *cấu hình được
+   bằng API nhưng không bấm được trên giao diện* cũng là hỏng.
+
+Đã thử gỡ `assist` khỏi enum model: đỏ đúng dòng `AiProvider.role thiếu: assist`.
+
+**370 pass (Node), 1634 passed (Python), website build sạch.**
+
 ## V93 — Trả hết nợ 48 chỗ nuốt lỗi (Phase H, 2026-08-20)
 
 Chủ dự án không chấp nhận để lại "nợ đã đóng băng". Đúng — nợ đóng băng vẫn là

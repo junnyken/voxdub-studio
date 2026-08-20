@@ -9,7 +9,15 @@ const mongoose = require('mongoose')
 const aiProviderSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true, maxlength: 60 },
   label: { type: String, default: '' },
-  role: { type: String, enum: ['translate', 'content'], default: 'translate' },
+  // 'assist' thêm ở mini-spec V89 — cổng trợ lý đa tác vụ. THIẾU giá trị này
+  // thì không ai tạo nổi nhà cung cấp cho vai đó: Mongoose chặn ngay lúc lưu,
+  // mà `ai-gateway.service.js` lại đang hỏi `providersFor('assist')` —
+  // hệ thống âm thầm dùng chung vai 'translate', đắt hơn hàng chục lần (V94).
+  role: {
+    type: String,
+    enum: ['translate', 'content', 'assist'],
+    default: 'translate',
+  },
   type: { type: String, enum: ['openai_compat', 'google'], default: 'openai_compat' },
   baseUrl: { type: String, default: '' },
   apiKeyEnc: { type: String, default: '' },

@@ -5,6 +5,14 @@ import { formatRelative } from '../../api/format'
 import { useFetch } from '../../api/useFetch'
 import { Badge, Empty, ErrorBox, Loading, Modal, Spinner } from '../../components/ui'
 
+//: Nhãn tiếng Việt cho từng vai trò — thiếu vai nào thì bảng hiện sai tên,
+//: mà tên sai thì người dùng tưởng mình cấu hình nhầm chỗ.
+const NHAN_VAI = {
+  translate: 'Dịch',
+  content: 'Nội dung',
+  assist: 'Trợ lý',
+}
+
 const EMPTY_FORM = {
   name: '', label: '', role: 'translate', type: 'openai_compat',
   baseUrl: 'https://openrouter.ai/api/v1', apiKey: '',
@@ -111,6 +119,10 @@ function ProviderModal({ open, onClose, editing, onDone }) {
           <select className="input" value={form.role} onChange={(e) => set('role', e.target.value)}>
             <option value="translate">Dịch (translate)</option>
             <option value="content">Nội dung đăng bài (content)</option>
+            {/* V89 — cổng trợ lý. Các tác vụ này NGẮN (vài trăm token) nên
+                nên trỏ vào mô hình rẻ; chưa cấu hình thì hệ thống dùng chung
+                vai «dịch», đắt hơn hàng chục lần. */}
+            <option value="assist">Trợ lý (assist)</option>
           </select>
         </div>
         <div>
@@ -261,7 +273,7 @@ export default function Providers() {
                         {p.enabled ? 'Đang bật' : 'Đang tắt'}
                       </Badge>
                       <Badge tone="info">
-                        {p.role === 'translate' ? 'Dịch' : 'Nội dung'}
+                        {NHAN_VAI[p.role] || p.role}
                       </Badge>
                       <Badge tone="muted">ưu tiên {p.priority}</Badge>
                     </div>
