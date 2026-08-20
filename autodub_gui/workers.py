@@ -16,6 +16,10 @@ from autodub.config import Settings
 from autodub.pipeline import DubPipeline, DubRequest, DubResult
 from autodub.progress import PipelineCancelled
 
+from autodub.utils import setup_logging
+
+logger = setup_logging("autodub_gui.workers")
+
 
 # --- Lọc log cho người dùng --------------------------------------------------
 # GuiLogHandler chỉ chuyển những gì người dùng cần thấy lên khung Nhật ký.
@@ -457,7 +461,8 @@ class ThumbnailWorker(QRunnable):
 
         try:
             path = ensure_thumbnail(self._project)
-        except Exception:  # noqa: BLE001 — thiếu ảnh thì dùng ô giữ chỗ
+        except Exception as e:  # noqa: BLE001 — thiếu ảnh thì dùng ô giữ chỗ
+            logger.debug(f"Không tạo được ảnh đại diện dự án ({e})")
             path = ""
         if path:
             self.signals.ready.emit(self._project.key, path)
@@ -504,6 +509,10 @@ class PreflightWorker(QThread):
         try:
             results = run_preflight(Settings.load(override=True))
         except Exception:  # noqa: BLE001 — không được làm sập giao diện
+            # Nuốt im lặng ở đây là app KHÔNG hiện cảnh báo nào về máy thiếu
+            # thành phần — người dùng tưởng mọi thứ ổn cho tới lúc chạy hỏng.
+            # Đúng lớp lỗi V83, nên phải để lại dấu vết (V92).
+            logger.exception("Kiểm tra điều kiện máy thất bại")
             results = []
         self.ready.emit(results)
 

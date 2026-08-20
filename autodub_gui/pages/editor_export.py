@@ -14,6 +14,10 @@ from autodub_gui.system_open import open_file
 from autodub_gui.ui.modal import ConfirmDialog
 from autodub_gui.ui.toast import TOASTS
 
+from autodub.utils import setup_logging
+
+logger = setup_logging("autodub_gui.editor_export")
+
 
 class VoiceAndExportMixin:
     """Các thao tác nghe thử, đọc lại giọng và xuất video."""
@@ -221,8 +225,8 @@ class VoiceAndExportMixin:
                 from autodub.text.srt import subtitle_text
                 preview_text = subtitle_text(
                     seg, self._state.target.text_field) or ""
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as e:  # noqa: BLE001 — hộp thoại vẫn mở được
+            logger.debug(f"Không lấy được câu mẫu để xem trước ({e})")
 
         dialog = StyleDialog(video, style,
                              list(getattr(self, "_blur_regions", [])), self,
@@ -431,8 +435,10 @@ class VoiceAndExportMixin:
         try:
             from autodub.editor import record_export_snapshot
             record_export_snapshot(self._work_dir)
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 — video đã xuất xong rồi
+            # Mất một dòng trong Lịch sử xuất: người dùng thấy video ra bình
+            # thường nhưng lịch sử thiếu, không hiểu vì sao (V92).
+            logger.warning(f"Không ghi được lịch sử lần xuất này ({e})")
         self.export_panel.refresh_history(self._work_dir)
 
     def _reload_player(self, path: str) -> None:

@@ -523,7 +523,8 @@ class MainWindow(QMainWindow):
 
         try:
             repo = Settings.load(override=True).update_repo
-        except Exception:  # noqa: BLE001 — cấu hình hỏng thì bỏ qua lượt này
+        except Exception as e:  # noqa: BLE001 — cấu hình hỏng thì bỏ qua lượt này
+            logger.debug(f"Bỏ qua lượt kiểm bản mới ({e})")
             return
         if not repo:
             return

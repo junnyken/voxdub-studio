@@ -8021,6 +8021,58 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V92 — Biến "36 chỗ chấp nhận được" thành luật chạy được (Phase H, 2026-08-20)
+
+Chủ dự án không chịu để lại thứ gì ở trạng thái "tôi đã xem và thấy ổn". Đúng:
+đánh giá trong đầu một người thì lần sau không ai kiểm lại được, và chính cơ
+chế `except Exception` im lặng đã giấu năm lỗi trong tuần (V75, V78, V83, V86,
+V91).
+
+### Chấm lại chặt tay — một ca thật sự nguy hiểm
+
+Quét lại kèm TÊN HÀM chứa (lần trước chỉ có số dòng nên không đánh giá nổi).
+Trong 39 chỗ, đáng sửa nhất:
+
+```python
+# autodub_gui/workers.py — PreflightWorker.run()
+except Exception:      # noqa: BLE001 — không được làm sập giao diện
+    results = []
+self.ready.emit(results)
+```
+
+Preflight sập thì `results = []` → app **không hiện cảnh báo nào** về máy
+thiếu thành phần. Người dùng tưởng mọi thứ ổn cho tới lúc chạy hỏng — đúng
+kiểu V83, và đúng cái đã làm họ mất mấy hôm vì FFmpeg. Nay có
+`logger.exception`.
+
+Thêm ba chỗ nữa được thêm dấu vết: mất dòng Lịch sử xuất video, không tạo được
+ảnh đại diện dự án, và lượt kiểm bản mới bị bỏ qua.
+
+### Luật thay cho lời hứa
+
+`tests/test_nuot_loi_co_dau_vet.py` quét toàn bộ `autodub/` + `autodub_gui/`
+và bắt mỗi chỗ nuốt lỗi phải thuộc một trong ba nhóm:
+
+| nhóm | nghĩa là gì |
+|---|---|
+| có dấu vết | log / raise / báo cho người dùng — không cần khai |
+| `DUOC_IM_LANG` | đã đọc, im lặng là ĐÚNG, **kèm lý do viết ra** (dọn dẹp, probe, đường lui có tín hiệu khác) |
+| `CHUA_RA` | mã cũ **chưa ai đọc** — đóng băng, chỉ được ngắn đi |
+
+Nhóm thứ ba là chỗ tôi phải thành thật: quét toàn repo ra thêm **48 chỗ trong
+mã cũ mà tôi chưa từng đọc**. Khai lý do cho chúng là nói dối, nên chúng vào
+danh sách "chưa rà" — nói đúng một điều: *đã có sẵn từ trước, và không được
+phép nhiều thêm*.
+
+Ba luật đi kèm, mỗi luật một test:
+- chỗ nuốt lỗi MỚI không thuộc nhóm nào → đỏ (đã thử: thêm một hàm giả có
+  `except: return 0` là đỏ ngay);
+- `DUOC_IM_LANG` không được chứa dòng thừa (sửa xong mà quên xoá thì danh sách
+  phình lên, mất ý nghĩa);
+- `CHUA_RA` chỉ được ngắn đi — nợ phải giảm, không được giấu nợ mới vào đó.
+
+**1637 passed, 7 skipped, 0 failed** (Python) + **366 pass** (Node).
+
 ## V91 — Rà cuối: phân tích tĩnh tìm ra gốc rễ thật của V83 (Phase H, 2026-08-20)
 
 Chủ dự án yêu cầu rà một lượt cuối. Ba phép quét trước (import gói bị loại,
