@@ -68,3 +68,32 @@ jobs:
       - name: Chạy test
         working-directory: control_server
         run: npm test
+
+  # Mini-spec V90 — chốt chặn cho bẫy đã sập HAI lần: `voxdub-app` và
+  # `voxdub-dub-worker` deploy từ nhánh sinh tự động, không phải `main`.
+  # Quên chạy script sinh nhánh thì VAYS build lại mã cũ mà mọi chặng vẫn
+  # xanh. Tài liệu đã cảnh báo từ 18-08 và vẫn sập lần hai — nên việc nhắc
+  # chuyển từ người sang máy.
+  #
+  # Job này KHÔNG chặn merge (không bật branch protection) — nó chỉ làm cho
+  # tình trạng "nhánh deploy tụt lại" trở nên NHÌN THẤY ĐƯỢC ngay trên mỗi
+  # lần push, thay vì chỉ lộ ra lúc deploy xong mà không ai hay.
+  deploy-branch-drift:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Cần lịch sử đầy đủ + các nhánh deploy để so cây thư mục.
+          fetch-depth: 0
+
+      - name: Nạp các nhánh deploy
+        run: |
+          git fetch origin 'refs/heads/deploy/*:refs/remotes/github/deploy/*' || true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Nhánh deploy có khớp main không
+        run: python3 scripts/kiem_nhanh_deploy.py

@@ -228,6 +228,17 @@ field `executions`), rồi đặt lại lịch thật.
 >
 > Nhật ký build cũng nói thẳng commit đã nạp: `[Source] nạp source (git_url)
 > @ 10ce832c` — đối chiếu với `git rev-parse deploy/vays-control-server`.
+>
+> **Từ V90 không phải nhớ nữa** (2026-08-20). Ba thứ thay cho trí nhớ:
+>
+> | dùng khi | lệnh |
+> |---|---|
+> | trước khi redeploy | `scripts/deploy_vays.sh` — tự sinh lại nhánh rồi tự kiểm; chặn nếu đang ở nhánh khác hoặc còn thay đổi chưa commit |
+> | bất cứ lúc nào | `python3 scripts/kiem_nhanh_deploy.py` — nhánh deploy có tụt lại so với `main` không |
+> | sau khi deploy | `python3 scripts/kiem_deploy_song.py <url>` — so cửa MỚI với cửa CŨ, kết luận thẳng "đang chạy mã mới" hay không |
+>
+> CI cũng chạy bộ dò trên mỗi lần push `main` (job `deploy-branch-drift`), nên
+> nhánh deploy tụt lại sẽ hiện ra ngay chứ không đợi tới lúc deploy.
 
 Vibe Host build từ nhánh `deploy/vays-control-server`, là nhánh **SINH RA** từ
 `main` bằng `scripts/gen_vays_control_server_branch.sh`. Push lên `main` KHÔNG
