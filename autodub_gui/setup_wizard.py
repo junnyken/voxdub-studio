@@ -21,6 +21,10 @@ from autodub_gui.status_text import STATUS_ERROR, STATUS_OK
 from autodub_gui.ui.buttons import GhostButton, PrimaryButton, SecondaryButton
 from autodub_gui.ui.stepper import Stepper
 
+from autodub.utils import setup_logging
+
+logger = setup_logging("autodub_gui.setup_wizard")
+
 # --------------------------------------------------------------------------- #
 # Hằng
 # --------------------------------------------------------------------------- #
@@ -48,6 +52,7 @@ _AUTO_NEXT_MS = 900   # tự chuyển trang sau khi hoàn thành (ms)
 
 def _ffmpeg_ready() -> bool:
     from autodub.utils import app_root
+
     local_bin = os.path.join(app_root(), "bin", "ffmpeg.exe")
     return bool(shutil.which("ffmpeg")) or os.path.isfile(local_bin)
 
@@ -689,8 +694,12 @@ class SetupWizard(QDialog):
         """Kích hoạt mã người dùng vừa nhập (nếu có).
 
         Gọi đồng bộ trên luồng giao diện: đây là bước cuối của trình cài đặt,
-        người dùng đang chờ sẵn và một lượt gọi mất vài giây. Hỏng thì bỏ
-        qua — họ nhập lại được ở trang Tài khoản bất cứ lúc nào.
+        người dùng đang chờ sẵn và một lượt gọi mất vài giây.
+
+        Hỏng thì PHẢI nói ra. Trước V91 nhánh lỗi ngoài dự tính chỉ `return`:
+        người dùng dán mã kích hoạt, bấm xong, không thấy gì xảy ra và cũng
+        không biết mã đã dùng được hay chưa — đúng lớp lỗi đã làm trình cài
+        đặt chết âm thầm suốt nhiều bản (V83).
         """
         code = self._page_apikey.get_key()
         if not code:
@@ -702,7 +711,11 @@ class SetupWizard(QDialog):
         except SaasError as e:
             self._page_apikey.set_status(str(e))
             return
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 — không chặn wizard, nhưng phải báo
+            logger.exception("Kích hoạt mã thất bại: %s", e)
+            self._page_apikey.set_status(
+                "Chưa kích hoạt được mã. Kiểm tra mạng rồi thử lại, hoặc nhập "
+                "ở trang Tài khoản sau khi mở ứng dụng.")
             return
         self._api_saved = True
         vox = int(result.get("vox", 0))

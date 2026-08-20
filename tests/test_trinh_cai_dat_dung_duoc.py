@@ -98,3 +98,19 @@ def test_khong_nuot_im_lang_loi_cua_trinh_cai_dat():
     assert i > 0
     khuc = src[i:i + 700]
     assert "logger.exception" in khuc, "wizard hỏng phải để lại dấu vết"
+
+
+def test_kich_hoat_ma_hong_thi_bao_cho_nguoi_dung(qapp):
+    """V91 — dán mã kích hoạt, bấm xong, không thấy gì xảy ra.
+
+    Nhánh lỗi ngoài dự tính trước đây chỉ `return`: người dùng không biết mã
+    đã dùng được hay chưa. Cùng lớp với V83 (trình cài đặt chết âm thầm).
+    """
+    import inspect
+
+    from autodub_gui.setup_wizard import SetupWizard
+
+    src = inspect.getsource(SetupWizard._save_api_key)
+    sau_except = src.split("except Exception")[1]
+    assert "set_status" in sau_except, "lỗi lạ mà không báo gì cho người dùng"
+    assert "logger" in sau_except, "cũng phải để lại dấu vết trong nhật ký"
