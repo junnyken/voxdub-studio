@@ -41,7 +41,13 @@ TARGET="dub-worker"
 rm -rf "$TARGET"
 mkdir -p "$TARGET/scripts"
 cp -r autodub "$TARGET/autodub"
-cp scripts/setup_whisper.py scripts/setup_vieneu.py scripts/setup_translate_local.py "$TARGET/scripts/"
+# `_python_ho_tro.py` là module DÙNG CHUNG của ba script trên (V80) —
+# thiếu nó thì Docker build chết ngay ở dòng import, đã sập thật
+# 20-08. Chép script mà quên phụ thuộc của nó là lỗ hổng riêng, khác
+# với "quên sinh lại nhánh" (V90).
+cp scripts/setup_whisper.py scripts/setup_vieneu.py \
+   scripts/setup_translate_local.py scripts/_python_ho_tro.py \
+   "$TARGET/scripts/"
 cp "$SRC/dub_worker.py" "$TARGET/dub_worker.py"
 
 # dub_worker.py giờ nằm ngay trong build context (không còn prefix control_server/worker-dub/)

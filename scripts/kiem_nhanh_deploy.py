@@ -49,6 +49,7 @@ TEP_LE = {
         ("scripts/setup_vieneu.py", "dub-worker/scripts/setup_vieneu.py"),
         ("scripts/setup_translate_local.py",
          "dub-worker/scripts/setup_translate_local.py"),
+        ("scripts/_python_ho_tro.py", "dub-worker/scripts/_python_ho_tro.py"),
     ],
 }
 

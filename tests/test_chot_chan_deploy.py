@@ -111,3 +111,31 @@ def test_runbook_van_giu_canh_bao():
               encoding="utf-8").read()
     assert "deploy/vays-control-server" in rb
     assert "deploy_vays.sh" in rb, "runbook phải chỉ sang lệnh làm đúng"
+
+
+def test_script_chep_sang_nhanh_deploy_khong_thieu_phu_thuoc():
+    """Chép một script mà quên module nó import là Docker build chết.
+
+    Đã sập thật 20-08: `setup_whisper.py` import `_python_ho_tro` (thêm ở
+    V80) nhưng script sinh nhánh worker chỉ chép ba tệp setup_*, nên build
+    dừng ngay dòng import. Bộ dò V90 không bắt được vì nó so thứ ĐÃ khai,
+    còn đây là phụ thuộc MỚI chưa ai khai.
+
+    Test này đọc từng script được chép, tìm import module cục bộ, rồi bắt
+    module đó cũng phải nằm trong danh sách chép.
+    """
+    noi_dung = _doc("gen_vays_dub_worker_branch.sh")
+    # Gom mọi tệp scripts/*.py xuất hiện trong các lệnh cp của script sinh nhánh
+    duoc_chep = set(re.findall(r'scripts/([\w.]+\.py)', noi_dung))
+    assert duoc_chep, "không đọc được danh sách tệp được chép"
+
+    thieu = []
+    for ten in sorted(duoc_chep):
+        duong = os.path.join(REPO, "scripts", ten)
+        if not os.path.isfile(duong):
+            continue
+        src = open(duong, encoding="utf-8").read()
+        for mod in re.findall(r'^\s*(?:from|import)\s+(_\w+)', src, re.M):
+            if f"{mod}.py" not in duoc_chep:
+                thieu.append(f"{ten} import {mod} nhưng {mod}.py không được chép")
+    assert not thieu, "; ".join(thieu)
