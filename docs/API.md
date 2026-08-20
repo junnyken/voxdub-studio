@@ -125,6 +125,50 @@ Billing: mỗi dòng tính giá `credit.cost.segment.autotranslate` — KHÔNG c
 Lỗi: `400 BATCH_TOO_LARGE`, `400 SEGMENT_TOO_LONG`, `402 INSUFFICIENT_CREDIT`,
 `503 AI_UNAVAILABLE`/khác (kèm `retryAfter`).
 
+### `POST /assist` (mini-spec V89, thêm 2026-08-19)
+Cổng trợ lý đa tác vụ — MỘT cửa cho mọi việc cần mô hình ngôn ngữ. App gửi
+**tên tác vụ**, KHÔNG gửi prompt: toàn bộ câu chữ hướng dẫn mô hình nằm ở
+`control_server/src/prompts/assist.js`, nên sửa chúng hay đổi mô hình không
+cần phát hành lại bản `.exe`.
+
+Body: `{ jobId, task, holdId?, input: object }`
+`task` ∈ `music_suggest` | `explain_error` | `video_summary` |
+`character_name` | `series_glossary` | `tighten_line` — sai tên bị chặn ngay ở
+tầng schema (`400 FST_ERR_VALIDATION`), trước cả xác thực và ví tiền.
+
+`input` theo từng tác vụ:
+| task | input | trần ký tự |
+|---|---|---|
+| `music_suggest` | `{transcript, videoTitle?}` | 4000 |
+| `explain_error` | `{message, step?}` | 2000 |
+| `video_summary` | `{transcript, videoTitle?}` | 8000 |
+| `character_name` | `{lines, lineCount}` | 3000 |
+| `series_glossary` | `{transcript, seriesName?}` | 8000 |
+| `tighten_line` | `{line, needSeconds, roomSeconds, trimPercent}` | 1200 |
+
+Response: `{ jobId, task, results: [{value, reason}], creditCharged, balanceAfter, fromCache? }`
+**`reason` là bắt buộc trong khuôn JSON** — giao diện hiện lý do cho người
+dùng; kết quả thiếu `reason` bị loại và tính là `502 BAD_AI_RESPONSE`.
+
+Billing: `credit.cost.assist.<task>` (mặc định: 2 Vox tác vụ ngắn, 5 Vox tác
+vụ đọc cả transcript, `explain_error` = 0 và chạy cả khi hết Vox).
+Chặn chi phí: danh sách tác vụ đóng → trần ký tự cắt trước khi gọi → hạn mức
+NGÀY mỗi máy (`assist.daily.limit`, riêng từng tác vụ qua
+`assist.daily.limit.<task>`) → giá theo tác vụ. Thêm nhớ đệm theo NỘI DUNG
+(băm tác vụ + phiên bản prompt + input): bấm lại cùng câu hỏi trả
+`fromCache: true`, `creditCharged: 0`.
+Vai trò mô hình: `assist`; chưa cấu hình thì tự dùng chung vai `translate`
+(vẫn chạy nhưng đắt hơn nhiều lần — xem trang quản trị "Cổng trợ lý").
+Lỗi: `400` tên tác vụ sai, `402 INSUFFICIENT_CREDIT`, `429 DAILY_LIMIT`,
+`502 BAD_AI_RESPONSE`, `503 AI_UNAVAILABLE`. Mọi nơi gọi phía app đều có
+đường lui chạy trên máy — hỏng ở đây không chặn người dùng làm việc.
+
+### `GET /v1/admin/analytics/assist?days=7` (admin)
+Bảng theo dõi cổng trợ lý: `{ days, tomTat, tacVu[], moHinh[], vaiTro[],
+dungChungVaiDich, maLoi[], hanMucNgay }`. Gộp theo `assistTask` (không phải
+`action` — mọi lượt trợ lý đều mang `action: "assist"`), theo mô hình và theo
+mã lỗi. `dungChungVaiDich: true` nghĩa là còn lượt chạy bằng vai `translate`.
+
 ## `/v1/jobs` (mọi route cần token) — mini-spec V9 → V12, CHỈ stage Demucs
 
 Không thay thế luồng local — TUỲ CHỌN thêm (`autodub.cloud_render`, GUI: ô

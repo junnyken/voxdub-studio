@@ -153,6 +153,36 @@ dụ Python gọi trực tiếp `translate_segments()`.
 dựng lại database từ đầu (kể cả cùng app Coolify) sẽ mất, phải làm lại
 đúng bước này.
 
+## 6c. Seed nhà cung cấp cho vai `assist` (mini-spec V89, thêm 2026-08-19)
+
+Cổng trợ lý (`POST /v1/ai/assist`) dùng vai trò **`assist`**. Chưa seed thì nó
+**vẫn chạy** — tự dùng chung vai `translate`. Đó là kiểu hỏng nguy hiểm nhất:
+không có triệu chứng, chỉ có hoá đơn. Các tác vụ này ngắn (vài trăm token) nên
+chênh lệch giữa mô hình hạng "flash/mini" và mô hình dùng để dịch là **hàng
+chục lần**.
+
+```bash
+curl -X POST ".../v1/admin/providers" -H "x-admin-token: $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" -d '{
+  "name": "assist-flash", "label": "Trợ lý (mô hình rẻ)",
+  "role": "assist", "type": "google",
+  "apiKey": "<AIzaSy...>", "model": "gemini-2.5-flash",
+  "priority": 100, "enabled": true
+}'
+```
+
+Xác nhận thật, KHÔNG chỉ tin config đã lưu:
+
+```bash
+npm run eval:assist:live      # 9 mẫu, ngưỡng đạt 85%
+# rồi mở trang quản trị → Cổng trợ lý: cảnh báo đỏ "đang chạy nhờ vai
+# «dịch thuật»" phải BIẾN MẤT, và bảng phải có dòng với token thật
+```
+
+Giá và hạn mức chỉnh được lúc chạy, không cần triển khai lại:
+`credit.cost.assist.<task>`, `assist.daily.limit`,
+`assist.daily.limit.<task>` — sửa ở trang **Cấu hình**.
+
 ## 7. Backup MongoDB
 
 > **[HẾT HIỆU LỰC TỪ 2026-08-17 — đọc trước khi tin mục này]** Toàn bộ mục 7
@@ -182,7 +212,22 @@ Không có endpoint API "chạy backup ngay" — muốn kiểm tra thật, đổ
 `frequency` thành `*/2 * * * *`, đợi 1 lượt chạy (`GET .../backups` xem
 field `executions`), rồi đặt lại lịch thật.
 
-## 6b. **Nhánh deploy KHÔNG tự theo `main`** — bẫy đã sập thật 18-08
+## 6b. **Nhánh deploy KHÔNG tự theo `main`** — bẫy đã sập thật 18-08, và LẶP LẠI 19-08
+
+> **Sập lần hai (19-08).** Mục này đã tồn tại từ 18-08 mà lượt deploy V89 vẫn
+> quên chạy script sinh nhánh: deploy báo `succeeded`, 11/11 chặng xanh,
+> container chạy, MongoDB nối — nhưng build đúng mã CŨ.
+>
+> **Cách phát hiện trong 10 giây** (đừng tin trạng thái deploy): gọi thử một
+> cửa MỚI và một cửa CŨ rồi so mã lỗi.
+>
+> ```
+> POST /v1/ai/translate  -> 400   (tồn tại, chỉ sai dữ liệu)
+> POST /v1/ai/assist     -> 404   ← chưa có mã mới
+> ```
+>
+> Nhật ký build cũng nói thẳng commit đã nạp: `[Source] nạp source (git_url)
+> @ 10ce832c` — đối chiếu với `git rev-parse deploy/vays-control-server`.
 
 Vibe Host build từ nhánh `deploy/vays-control-server`, là nhánh **SINH RA** từ
 `main` bằng `scripts/gen_vays_control_server_branch.sh`. Push lên `main` KHÔNG
