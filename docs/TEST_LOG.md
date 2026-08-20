@@ -8075,6 +8075,43 @@ Redeploy worker là việc chạm production, chờ chủ dự án quyết.
 
 **1629 passed, 7 skipped, 0 failed.**
 
+### Redeploy worker: hai lượt hỏng liên tiếp, cùng một tệp
+
+Chủ dự án duyệt redeploy worker. Lượt đầu **chết ở chặng build**:
+
+```
+ModuleNotFoundError: No module named '_python_ho_tro'
+ERROR: process "/bin/sh -c python3 scripts/setup_whisper.py" did not complete
+```
+
+`setup_whisper.py` bắt đầu import `_python_ho_tro` từ V80 (bộ kiểm phiên bản
+Python), nhưng **hai nơi khác nhau cùng liệt kê TAY** danh sách tệp cần chép:
+
+1. `gen_vays_dub_worker_branch.sh` — `cp scripts/setup_*.py "$TARGET/scripts/"`
+2. `control_server/worker-dub/Dockerfile` — `COPY scripts/setup_*.py /app/scripts/`
+
+Sửa nơi thứ nhất rồi deploy lại: **chết y hệt**, vì nơi thứ hai vẫn thiếu.
+Danh sách liệt kê tay ở hai chỗ là hai cơ hội quên độc lập.
+
+Bộ dò V90 không bắt được ca này: nó so thứ ĐÃ khai giữa `main` và nhánh
+deploy, còn đây là **phụ thuộc mới chưa ai khai**. Nên thêm một test khác
+loại: đọc từng script được chép, tìm `import _<module>` cục bộ, rồi bắt module
+đó phải có mặt ở **cả hai** danh sách. Gỡ bản sửa ra ở nơi nào cũng đỏ đúng
+hai dòng.
+
+Lượt thứ ba xanh. Kiểm bằng chứng cứ thay vì tin trạng thái:
+
+| bằng chứng | kết quả |
+|---|---|
+| commit máy chủ build | `aae8c77d` |
+| commit đầu nhánh deploy | `aae8c77d` — khớp |
+| tệp V79 trong nhánh đã build | `cancel_guard.py`, `ffmpeg_deps.py` có mặt |
+| nhật ký chạy | `worker_id=… bắt đầu poll … mỗi 3.0s` |
+
+Worker cloud giờ chạy cùng mã với `main`, sau khi tụt lại từ 18-08.
+
+**1630 passed.**
+
 ## V89 lên production (Phase H, 2026-08-19)
 
 Triển khai `voxdub-app` (control_server + website) lên Vibe Host và phát hành
