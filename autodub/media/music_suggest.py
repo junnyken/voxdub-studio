@@ -206,7 +206,7 @@ def goi_y_nhac_thong_minh(segments: list[dict], text_field: str = "",
         from autodub.saas_client import is_configured
         if not is_configured():
             return theo_luat, "luat"
-    except Exception:
+    except Exception:  # rơi về tầng luật, giao diện nói rõ nguồn gợi ý
         return theo_luat, "luat"
 
     noi_dung = _loi_thoai(segments, text_field)

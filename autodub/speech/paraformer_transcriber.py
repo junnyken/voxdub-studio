@@ -121,7 +121,7 @@ def transcribe_paraformer(audio_path: str, settings: Settings) -> list[dict]:
             if s is not None:
                 try:
                     s.close()
-                except Exception:
+                except Exception:  # đóng phiên lúc dọn dẹp, hỏng cũng không còn gì để cứu
                     pass
 
     tail = "\n".join(stderr_tail)

@@ -8021,6 +8021,52 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V93 — Trả hết nợ 48 chỗ nuốt lỗi (Phase H, 2026-08-20)
+
+Chủ dự án không chấp nhận để lại "nợ đã đóng băng". Đúng — nợ đóng băng vẫn là
+nợ, và cái danh sách đó chính là chỗ để người sau đẩy thêm vào.
+
+### Đọc hết 48 chỗ, và bộ dò của tôi đã kể oan một phần
+
+Dump ngữ cảnh từng chỗ (thử gì, bắt xong làm gì) rồi đọc. Hai phát hiện làm
+đổi hẳn cách làm:
+
+**1. Bắt được lỗi rồi GIỮ LẠI nội dung thì không phải im lặng.** Nhiều chỗ làm
+`self.error = f"{type(e).__name__}: {e}"` hoặc `self.text = f"Không kiểm tra
+được: {e}"` — nơi gọi hiện thẳng ra giao diện. Bộ dò bản đầu không tính, nên
+kể oan 5 chỗ. Bộ kiểm kể oan thì bị tắt (bài học V90) → sửa bộ dò: có dùng lại
+tên lỗi = có dấu vết.
+
+**2. Hầu hết đã có sẵn lời giải thích cạnh dòng `except`.** Dạng
+`# noqa: BLE001 — chưa có sẵn thì không cần xóa`. Lý do nằm cạnh mã **tốt hơn
+hẳn** danh sách trong tệp test: người sửa mã nhìn thấy ngay, không phải nhớ đi
+cập nhật ở nơi khác.
+
+Sau khi bộ dò công nhận hai dạng đó: 48 → **2 chỗ** thật sự không giải thích.
+
+### Hai chỗ đó đều làm người dùng mất thứ gì đó
+
+- `quality_page._scan_projects` — quét dự án hỏng thì danh sách rỗng, mà
+  **trang Báo cáo trống trơn trông y hệt "chưa có dự án nào"**. Người dùng
+  không cách nào phân biệt. → `logger.warning`.
+- `voice_setup_dialog.run` — đọc danh sách giọng đã nạp hỏng thì báo 0 giọng.
+  → `logger.debug`.
+
+Và 28 chỗ còn lại được viết lý do **ngay cạnh dòng `except`**, lấy từ chính
+phần rà soát — không còn nằm trong một tệp test ở nơi khác.
+
+### Luật gọn lại còn một câu
+
+Bỏ hẳn hai danh sách tập trung (`DUOC_IM_LANG`, `CHUA_RA`). Nay chỉ còn:
+
+> Mỗi chỗ nuốt lỗi phải có **dấu vết** (log / raise / giữ nội dung lỗi để hiện
+> ra), **hoặc lý do viết ngay tại dòng `except`**.
+
+Đã thử: thêm một hàm có `except Exception: return 0` không lời giải thích →
+test đỏ ngay.
+
+**1634 passed, 7 skipped, 0 failed** (Python) + **366 pass** (Node).
+
 ## V92 — Biến "36 chỗ chấp nhận được" thành luật chạy được (Phase H, 2026-08-20)
 
 Chủ dự án không chịu để lại thứ gì ở trạng thái "tôi đã xem và thấy ổn". Đúng:

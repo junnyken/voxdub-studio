@@ -121,7 +121,7 @@ def _gpu_total_vram_gb() -> float:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if out.returncode == 0 and out.stdout.strip():
             return max(float(x) for x in out.stdout.split()) / 1024.0
-    except Exception:
+    except Exception:  # không đọc được VRAM thì coi như không có, dùng ngưỡng an toàn
         pass
     return 0.0
 
@@ -445,7 +445,7 @@ def _transcribe_whisper_subprocess(
             if s:
                 try:
                     s.close()
-                except Exception:
+                except Exception:  # đóng ống dữ liệu ở finally, tiến trình con đã kết thúc
                     pass
 
     tail = "\n".join(stderr_tail)

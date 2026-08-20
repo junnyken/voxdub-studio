@@ -39,7 +39,7 @@ def _canh_mot_tien_trinh(proc, cancel_event, xong) -> None:
         if cancel_event.wait(0.3):
             try:
                 proc.kill()
-            except Exception:
+            except Exception:  # giết tiến trình đã chết rồi thì thôi
                 pass
             return
 

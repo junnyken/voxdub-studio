@@ -61,7 +61,7 @@ def _vieneu_ready() -> bool:
     try:
         from autodub.config import Settings
         return Settings.load(override=True).vieneu_configured()
-    except Exception:
+    except Exception:  # hỏng = coi như chưa cài, wizard hiện ra là đúng
         return False
 
 
@@ -70,7 +70,7 @@ def _whisper_ready() -> bool:
         from autodub.utils import app_root
         marker = os.path.join(app_root(), "models", "whisper", "installed_ok.json")
         return os.path.isfile(marker)
-    except Exception:
+    except Exception:  # hỏng = coi như chưa cài
         return False
 
 

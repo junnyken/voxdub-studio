@@ -181,7 +181,7 @@ class DubPipeline:
             if _orig is not None:
                 try:
                     _orig(event)
-                except Exception:
+                except Exception:  # callback giao diện hỏng không được chặn telemetry
                     # Lỗi ở callback GUI không được chặn telemetry chạy
                     # tiếp — ProgressReporter.emit() cũng nuốt lỗi tương tự
                     # cho callback gốc, đây chỉ đảm bảo _tel() luôn tới lượt.

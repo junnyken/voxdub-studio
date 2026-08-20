@@ -512,7 +512,7 @@ class MainWindow(QMainWindow):
             try:
                 from autodub_gui.first_run import maybe_show_first_run
                 maybe_show_first_run(self)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 — nhánh dự phòng, nhánh chính đã có log
                 pass
 
     def _check_updates(self) -> None:
@@ -755,7 +755,7 @@ def _probe_optional_imports(checks: dict) -> None:
             checks[key] = False
     try:
         from playwright.sync_api import sync_playwright  # noqa: F401
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 — hỏng import chính là kết quả cần ghi vào báo cáo
         checks["playwright_importable"] = False
     try:
         from PySide6.QtMultimedia import QMediaPlayer  # noqa: F401
@@ -778,7 +778,7 @@ def _probe_optional_imports(checks: dict) -> None:
     try:
         from autodub_gui.fonts import load_app_fonts
         checks["app_fonts_loaded"] = len(load_app_fonts())
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 — hỏng import chính là kết quả cần ghi vào báo cáo
         pass
 
 

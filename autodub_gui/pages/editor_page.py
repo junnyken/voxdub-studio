@@ -430,7 +430,7 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
 
             can = wav_duration_s(
                 seg_wav_path(data_path(self._work_dir, "segments"), seg_id)) or 0.0
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 — không đo được thời lượng thật thì ước theo tốc độ đọc
             can = 0.0
         if not can:
             cai_dat = self._settings_provider()

@@ -222,7 +222,7 @@ class SegmentRow(QWidget):
 
         try:
             voices = catalog.catalog(Settings.load())
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 — danh sách giọng rỗng thì popup vẫn mở
             voices = []
         popup = _VoicePopup(self)
         popup.picked.connect(self._emit_voice)

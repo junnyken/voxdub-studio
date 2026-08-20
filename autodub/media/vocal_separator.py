@@ -161,14 +161,14 @@ class DemucsCache:
             if p.poll() is None:
                 p.stdin.close()
                 p.wait(timeout=10)
-        except Exception:
+        except Exception:  # đóng worker lúc dọn dẹp
             p.kill()
         finally:
             for s in (p.stdin, p.stdout):
                 if s is not None:
                     try:
                         s.close()
-                    except Exception:
+                    except Exception:  # đóng worker lúc dọn dẹp
                         pass
 
     def close(self) -> None:

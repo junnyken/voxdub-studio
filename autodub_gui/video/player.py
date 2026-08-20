@@ -215,7 +215,7 @@ class VideoPlayer(QWidget):
         # ngay (không cần người dùng bấm Phát trước).
         try:
             self.player.mediaStatusChanged.connect(self._on_media_loaded_once)
-        except Exception:
+        except Exception:  # trình phát cũ đã ngắt tín hiệu rồi thì thôi
             pass
         return True
 
@@ -227,7 +227,7 @@ class VideoPlayer(QWidget):
             return
         try:
             self.player.mediaStatusChanged.disconnect(self._on_media_loaded_once)
-        except Exception:
+        except Exception:  # ngắt tín hiệu đã ngắt, gọi hai lần là bình thường
             pass
         self._layout_scene()
         # play → pause ngay sau 80 ms để bộ giải mã decode frame đầu tiên.

@@ -51,7 +51,7 @@ def app_logo(size: int = 32) -> QPixmap:
             px = QIcon(str(path)).pixmap(size, size)
             if not px.isNull():
                 return px
-    except Exception:
+    except Exception:  # thiếu logo.ico thì vẽ tay
         pass
     return brand_logo(size)
 

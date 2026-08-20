@@ -1106,7 +1106,7 @@ class NewProjectPage(BasePage):
             balance = int(get_client().device.get("balance") or 0)
             if balance:
                 self.balance_changed.emit(balance)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 — chỉ để hiện số dư còn lại, không có cũng không ảnh hưởng video
             pass
         self._show_completed(result)
 

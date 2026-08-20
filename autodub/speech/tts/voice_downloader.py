@@ -53,7 +53,7 @@ def voices_release_url(settings=None) -> str:
             from autodub.config import Settings
             settings = Settings.load()
         repo = (getattr(settings, "update_repo", "") or "").strip().strip("/")
-    except Exception:
+    except Exception:  # cấu hình hỏng thì về kho mặc định
         repo = ""
     if "/" not in repo:
         repo = _REPO_MAC_DINH
@@ -107,7 +107,7 @@ def voices_installed(settings: Settings) -> bool:
         presets = data.get("presets", {})
         # Coi như đã cài nếu có ít nhất 50 giọng (thư viện có 120)
         return len(presets) >= 50
-    except Exception:
+    except Exception:  # hỏng = coi như chưa cài
         return False
 
 
@@ -264,7 +264,7 @@ def _run_enroll_worker(settings: Settings, batch_file: str,
                         total = int(parts[1])
                         name = line.split("«")[1].split("»")[0] if "«" in line else ""
                         progress_callback(current, total, name)
-                    except Exception:
+                    except Exception:  # luồng đọc stderr, ống đóng đột ngột là bình thường
                         pass
         except (ValueError, OSError):
             pass  # pipe bị đóng khi process kết thúc

@@ -251,8 +251,9 @@ class HoldBillingAdapter:
         try:
             from autodub.saas_client import get_client
             hold_detail = (get_client().get_hold(hold_id) or {}).get("hold")
-        except Exception:  # noqa: BLE001 — mạng chập chờn thì bỏ qua
-            pass
+        except Exception as e:  # noqa: BLE001 — không chặn việc xuất video
+            logger.debug(f"Không lấy được chi tiết hold ({e}) — thẻ tổng kết "
+                         "dùng số liệu cục bộ")
         total = int((hold_detail or {}).get("estimatedVox") or usage["vox"] or 0)
         mins, secs = divmod(int(duration_s), 60)
         dur_txt = f"{mins} phút {secs} giây" if mins else f"{secs} giây"

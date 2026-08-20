@@ -13,6 +13,10 @@ from PySide6.QtWidgets import (
 
 from autodub_gui import tokens
 
+from autodub.utils import setup_logging
+
+logger = setup_logging("autodub_gui.voice_setup_dialog")
+
 
 class _VoiceSetupWorker(QThread):
     """Luồng nền thực hiện: tải → giải nén → enroll."""
@@ -58,7 +62,8 @@ class _VoiceSetupWorker(QThread):
                           encoding="utf-8") as f:
                     data = json.load(f)
                 self._total_enrolled = len(data.get("presets", {}))
-            except Exception:
+            except Exception as e:  # noqa: BLE001 — coi như chưa nạp giọng nào
+                logger.debug(f"Không đọc được danh sách giọng đã nạp ({e})")
                 self._total_enrolled = 0
             self.finished_ok.emit(self._total_enrolled)
         else:

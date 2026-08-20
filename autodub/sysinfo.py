@@ -55,7 +55,7 @@ def _memory_status():
         if sys.platform == "win32":
             return _windows_memory_status()
         return _posix_memory_status()
-    except Exception:
+    except Exception:  # không đọc được RAM thì trả None, nơi gọi tự chọn mặc định an toàn
         return None
 
 

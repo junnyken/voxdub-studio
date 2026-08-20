@@ -77,7 +77,7 @@ class ProgressReporter:
                 self._last_progress[step] = now
         try:
             self._callback(ProgressEvent(step, status, detail, current, total))
-        except Exception:
+        except Exception:  # tiến độ là quan sát, handler GUI hỏng không được giết pipeline
             # Progress là quan sát, không phải điều khiển — một handler GUI
             # lỗi không được phép giết cả pipeline đang chạy.
             pass

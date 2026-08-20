@@ -323,7 +323,7 @@ def enroll_batch(tts, args, proto_out) -> None:
         try:
             with open(args.custom_voices, encoding="utf-8") as f:
                 existing = set(json.load(f).get("presets", {}))
-        except Exception:
+        except Exception:  # tệp giọng cũ hỏng thì coi như chưa có giọng nào, ghi đè lại
             existing = set()
 
     added: dict = {}

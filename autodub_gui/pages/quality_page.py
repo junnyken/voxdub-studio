@@ -25,6 +25,10 @@ from autodub_gui.ui.empty import EmptyState, LoadingState
 from autodub_gui.ui.style import clear_background
 from autodub_gui.ui.toast import TOASTS
 
+from autodub.utils import setup_logging
+
+logger = setup_logging("autodub_gui.quality_page")
+
 _TABLE_MIN_H = 300   # chiều cao tối thiểu bảng chi tiết segment
 
 
@@ -106,7 +110,10 @@ class QualityPage(BasePage):
 
         try:
             all_projects = scan(output_dir, use_cache=True)
-        except Exception:
+        except Exception as e:  # noqa: BLE001 — trang vẫn mở được
+            # Trang Báo cáo trống trơn trông y hệt "chưa có dự án nào" —
+            # người dùng không thể phân biệt, nên phải có dấu vết (V93).
+            logger.warning(f"Không quét được danh sách dự án ({e})")
             all_projects = []
 
         # Lọc chỉ những dự án có quality_report.json

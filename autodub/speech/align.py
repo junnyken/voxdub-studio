@@ -354,7 +354,7 @@ def _asr_words_subprocess(
             if stream:
                 try:
                     stream.close()
-                except Exception:
+                except Exception:  # đóng ống dữ liệu ở finally
                     pass
 
     if not done:

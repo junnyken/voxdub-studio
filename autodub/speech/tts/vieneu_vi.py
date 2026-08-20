@@ -138,14 +138,14 @@ class _VieNeuWorker:
             if p.poll() is None:
                 p.stdin.close()
                 p.wait(timeout=10)
-        except Exception:
+        except Exception:  # đóng worker lúc dọn dẹp, đằng nào cũng kill ngay sau đó
             p.kill()
         finally:
             for s in (p.stdin, p.stdout, p.stderr):
                 if s is not None:
                     try:
                         s.close()
-                    except Exception:
+                    except Exception:  # đóng worker lúc dọn dẹp, đằng nào cũng kill ngay sau đó
                         pass
 
     def _read_response(self, timeout: float) -> dict:
