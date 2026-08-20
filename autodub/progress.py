@@ -82,6 +82,16 @@ class ProgressReporter:
             # lỗi không được phép giết cả pipeline đang chạy.
             pass
 
+    @property
+    def cancel_event(self):
+        """Cờ Dừng đang mang theo (có thể None).
+
+        Mở ra để nơi gọi CHUYỂN TIẾP xuống các bước chạy lâu — `check_cancelled()`
+        chỉ kiểm được giữa hai bước, không cắt ngang được ffmpeg hay Demucs
+        đang chạy (mini-spec V79, V95).
+        """
+        return self._cancel_event
+
     def check_cancelled(self) -> None:
         if self._cancel_event is not None and self._cancel_event.is_set():
             raise PipelineCancelled("Pipeline cancelled by user")

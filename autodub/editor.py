@@ -787,16 +787,22 @@ def rebuild_output(
     dubbed = os.path.join(work_dir, "dubbed_video.mp4")
     # Phụ đề luôn được sinh lại từ danh sách câu hiện tại, trên đúng timeline
     # vừa đặt — chữ trong video là chữ bạn vừa sửa, không phải bản cũ.
+    # V95 — chuyển tiếp cờ Dừng: hai bước dưới đây (ghi phụ đề, ghép video)
+    # là phần LÂU NHẤT của việc dựng lại, mà trước đây bấm Dừng chỉ có tác
+    # dụng sau khi chúng chạy xong.
+    huy = reporter.cancel_event if reporter is not None else None
     _srt_path, burn_path = refresh_subtitles(
         segments, work_dir, target, style, merge_dir=merge_dir,
-        settings=settings, for_burn=subtitle_mode == "burn")
+        settings=settings, for_burn=subtitle_mode == "burn",
+        cancel_event=huy)
     merge_video(
         video_path, merged_audio_path, dubbed,
         srt_path=burn_path, subtitle_mode=subtitle_mode,
         blur_regions=blur_regions, subtitle_lang=target.iso639_2,
         subtitle_style=style,
         speed=deferred_speed[0] if deferred_speed else None,
-        fps=deferred_speed[1] if deferred_speed else None)
+        fps=deferred_speed[1] if deferred_speed else None,
+        cancel_event=huy)
     emit("merge_video", "done", detail=dubbed)
     emit("done", "done", detail=work_dir)
     logger.info(f"Đã xuất xong video: {dubbed}")
@@ -840,10 +846,14 @@ def rebuild_subtitles(
         reporter.check_cancelled()
         reporter.emit("merge_video", "start")
 
+    # V95 — chuyển tiếp cờ Dừng: hai bước dưới đây (ghi phụ đề, ghép video)
+    # là phần LÂU NHẤT của việc dựng lại, mà trước đây bấm Dừng chỉ có tác
+    # dụng sau khi chúng chạy xong.
+    huy = reporter.cancel_event if reporter is not None else None
     _srt_path, burn_path = refresh_subtitles(
         segments, work_dir, target, style,
         merge_dir=final_segments_dir(work_dir), settings=settings,
-        for_burn=subtitle_mode == "burn")
+        for_burn=subtitle_mode == "burn", cancel_event=huy)
 
     dubbed = os.path.join(work_dir, "dubbed_video.mp4")
     merge_video(
@@ -852,7 +862,8 @@ def rebuild_subtitles(
         blur_regions=blur_regions, subtitle_lang=target.iso639_2,
         subtitle_style=style,
         speed=deferred_speed[0] if deferred_speed else None,
-        fps=deferred_speed[1] if deferred_speed else None)
+        fps=deferred_speed[1] if deferred_speed else None,
+        cancel_event=huy)
     if reporter is not None:
         reporter.emit("merge_video", "done", detail=dubbed)
         reporter.emit("done", "done", detail=work_dir)

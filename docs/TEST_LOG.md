@@ -8021,6 +8021,53 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V95 — Đóng nốt hai mục "còn tồn" tự ghi (Phase H, 2026-08-20)
+
+Chủ dự án hỏi còn gì chưa làm. Thay vì trả lời theo trí nhớ, quét lại mọi mục
+"Còn tồn" tôi tự ghi trong phiên (V75 → V94). Bảy mục, chia làm ba nhóm:
+
+| mục | trạng thái |
+|---|---|
+| `editor.py` không chuyển tiếp cờ Dừng (ghi ở CẢ V76 lẫn V79) | **sửa xong** |
+| OCR vùng chữ dùng `subprocess.run` trần | **không phải việc bỏ sót** — xem dưới |
+| Demucs CPU in-process không giết ngang được | giới hạn thật của thư viện |
+| Canh chữ in-process chỉ kiểm cờ giữa các clip | độ trễ tối đa = 1 clip (1–3 giây) |
+| Bản `.exe` chưa chạy thử trên Windows | không có máy Windows |
+| Từ khoá chủ đề là danh sách tay; chưa nhìn hình ảnh | mở rộng tính năng, không phải lỗi |
+| Sinh nhạc cần chế độ có máy chủ | thiết kế từ V37 |
+
+### Cờ Dừng lúc dựng lại video
+
+`RebuildWorker` và `SubtitleWorker` **đã có** nút Dừng và đã dựng
+`ProgressReporter` mang theo cờ — cờ chỉ dừng lại ở đó, vì `editor.py` gọi
+`refresh_subtitles()`/`merge_video()` không truyền tiếp. Bấm Dừng lúc đang ghép
+video vẫn phải đợi ffmpeg xong, đúng thứ V79 đã sửa cho luồng chính.
+
+Thêm `ProgressReporter.cancel_event` (đường lấy cờ ra công khai — nếu không thì
+nơi gọi phải chọc vào thuộc tính riêng, thứ sẽ hỏng lặng lẽ khi lớp đó đổi) rồi
+chuyển tiếp ở cả bốn lời gọi. Test đọc AST, bắt mọi lời gọi
+`refresh_subtitles`/`merge_video` trong hai hàm dựng lại đều phải có tham số đó.
+
+### OCR: ghi lại một QUYẾT ĐỊNH, không phải một việc bỏ sót
+
+`detect_text_regions()` dùng `subprocess.run(..., timeout=60)`. **Không** nối cờ
+Dừng vào đó, vì hộp thoại gọi nó (`_OcrWorker`) không có nút Dừng nào — thêm
+tham số chỉ tạo mã chết. Trần 60 giây là giới hạn thật.
+
+Có test khoá lại quyết định này theo hai chiều: trần thời gian còn đó, và
+`_OcrWorker` vẫn chưa có `cancel()`. Ngày nào hộp thoại có nút Dừng thì test đỏ
+— đúng lúc đó mới đáng nối cờ xuống.
+
+### Một lần sập test chưa tái hiện được
+
+Một lượt chạy đầy đủ kết thúc bằng core dump lúc dọn dẹp (danh sách extension
+module của faulthandler, không có test nào FAILED). Chạy lại **bốn lượt nữa với
+thứ tự ngẫu nhiên: đều xanh**. Nghi là Qt dọn dẹp `QThread` lúc thoát trình
+thông dịch. Ghi lại đây thay vì im lặng cho qua — nếu nó tái diễn thì đây là
+manh mối đầu tiên.
+
+**1638 passed, 7 skipped, 0 failed** (Python) + **370 pass** (Node).
+
 ## V94 — Việc "2 phút" tôi giao cho chủ dự án là BẤT KHẢ THI (Phase H, 2026-08-20)
 
 Suốt nhiều lượt tôi lặp lại một câu: *"vào khu quản trị, thêm một dòng nhà cung
