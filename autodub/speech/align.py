@@ -408,7 +408,9 @@ def _asr_words_in_process(
             done = [_one(item) for item in todo]
     finally:
         # Model base nhỏ; thả tham chiếu là đủ (ctranslate2 tự nhả khi GC).
-        del model
+        # Gán None thay vì `del`: `del` làm công cụ phân tích tĩnh báo closure
+        # `_one` đang dùng tên đã bị xoá, che mất cảnh báo THẬT cùng loại.
+        model = None  # noqa: F841 — thả tham chiếu cho GC
 
     return {sid: words for sid, words in done if words is not None}
 

@@ -144,7 +144,8 @@ def step_enable_env(hf_token: str) -> None:
             lines = f.read().splitlines()
 
     def _set(key: str, value: str) -> None:
-        nonlocal lines
+        # Không cần `nonlocal`: hàm chỉ SỬA phần tử trong danh sách, không
+        # gán lại tên. Khai thừa làm công cụ phân tích tĩnh kêu vô ích.
         for i, line in enumerate(lines):
             if line.strip().startswith(f"{key}="):
                 lines[i] = f"{key}={value}"

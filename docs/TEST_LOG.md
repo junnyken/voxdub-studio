@@ -8021,6 +8021,73 @@ hành vi cũ — ở đó cache là tối ưu thật.
 
 **1440 passed, 7 skipped, 0 failed.**
 
+## V91 — Rà cuối: phân tích tĩnh tìm ra gốc rễ thật của V83 (Phase H, 2026-08-20)
+
+Chủ dự án yêu cầu rà một lượt cuối. Ba phép quét trước (import gói bị loại,
+cảnh báo bị lọc, nuốt lỗi không dấu vết) đều sạch hoặc chỉ ra một chỗ nhỏ. Phép
+quét thứ tư — `pyflakes` toàn repo — mới là cái đáng giá.
+
+### `brand_logo` chưa bao giờ bị xoá, nó chỉ mất dòng `def`
+
+```
+autodub_gui/icons.py:918:18: undefined name 'size'
+autodub_gui/icons.py:922:14: undefined name 'size'
+...
+```
+
+Mở ra xem thì:
+
+```python
+def eye_off(color=None) -> QIcon:
+    return _make_icon(_draw_eye_off, ...)
+    """Biểu trưng VoxDub: ô vuông bo góc và bốn vạch sóng âm."""
+    px = QPixmap(size, size)          # ← mã chết, `size` không tồn tại
+```
+
+**Thân hàm `brand_logo` gốc vẫn nằm nguyên trong tệp** — chỉ thiếu dòng `def`,
+nên nó trở thành mã chết ngay sau `return` của hàm khác, và cái tên
+`icons.brand_logo` thì biến mất.
+
+Đó mới là gốc rễ thật của V83: dựng `SetupWizard` ném `AttributeError`, trình
+cài đặt tự động chưa từng chạy được lần nào. Hôm 19-08 tôi vá bằng cách **viết
+một hàm mới ở chỗ khác** — chữa được triệu chứng, nhưng để lại repo có hai bản
+vẽ thương hiệu, một bản chết, và không ai biết vì sao bản gốc biến mất.
+
+Nay trả dòng `def` về cho bản gốc (bản vẽ đúng: ô vuông bo góc + bốn vạch sóng
+âm, dùng `tokens.BRAND_LOGO_BG`) và bỏ bản vá tạm.
+
+### Vì sao mắt không thấy mà máy thấy trong một giây
+
+Python không kêu gì cho tới đúng lúc dòng đó chạy — mà những dòng đó nằm ở
+nhánh ít đi qua nhất (đường lui khi thiếu `logo.ico`). Cùng lớp với V80 (tệp
+worker không có trong gói), V84 (kho GitHub không tồn tại): **thứ được gọi tới
+thì có, thứ ở đầu kia thì không.**
+
+Hai chốt chặn thường trực, cả hai đều đã thử gỡ bản sửa ra để chứng minh có
+kêu:
+
+1. Test chạy `pyflakes` chặn `undefined name` + hai loại chắc chắn là lỗi.
+   Danh sách loại cố ý HẸP: bắt bẻ phong cách thì test đỏ triền miên rồi bị bỏ
+   qua — đúng bài học V90 (bộ kiểm hay kêu nhầm thì người ta tắt đi).
+2. Test quét AST tìm **chuỗi kiểu docstring nằm ngay sau `return`** — dấu hiệu
+   riêng của hàm mất dòng `def`, thứ pyflakes chỉ thấy gián tiếp.
+
+### Dọn nhiễu để tín hiệu thật hiện ra
+
+`del model` trong `align.py` làm pyflakes báo closure dùng tên đã xoá; hai
+f-string không có placeholder; một `nonlocal` thừa. Không cái nào là lỗi chạy,
+nhưng bốn dòng nhiễu đủ để người đọc bỏ qua cả danh sách — mà trong danh sách
+đó có ca V91 thật.
+
+### Kèm theo: một chỗ nuốt lỗi im lặng
+
+Quét AST 32 tệp đã sửa trong phiên: 37 chỗ nuốt lỗi, 36 là đường lui hợp lệ.
+Đúng một chỗ giấu mất chức năng người dùng đang dùng — dán mã kích hoạt trong
+trình cài đặt, gặp lỗi ngoài dự tính thì chỉ `return`: không thấy gì xảy ra,
+không biết mã đã dùng được hay chưa. Nay báo tại chỗ + ghi nhật ký.
+
+**1633 passed, 7 skipped, 0 failed.**
+
 ## V90 — Khi tài liệu không đủ (Phase H, 2026-08-20)
 
 Chủ dự án chỉ thẳng vào chỗ đáng chỉ: mục 6b của runbook cảnh báo đúng cái bẫy

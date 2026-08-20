@@ -42,37 +42,6 @@ def nav_icon(icon_fn, normal: str | None = None,
     return icon
 
 
-def brand_logo(size: int = 32) -> QPixmap:
-    """Biểu trưng vẽ tay — đường lui khi không có tệp ``logo.ico``.
-
-    V83: hàm này bị GỌI ở ba nơi (`app_logo` ngay dưới, `setup_wizard.py`,
-    `app.py`) nhưng **chưa bao giờ tồn tại**. Hậu quả nặng nhất: dựng
-    `SetupWizard` là ném `AttributeError` ngay ở dòng logo, mà nơi gọi lại
-    bọc `except Exception` rồi bỏ qua — nên trình cài đặt tự động **chưa từng
-    chạy được lần nào**, và không ai biết. Người dùng vì thế phải tự đi cài
-    FFmpeg/Whisper bằng tay suốt nhiều bản.
-    """
-    px = QPixmap(size, size)
-    px.fill(QColor(0, 0, 0, 0))
-    p = QPainter(px)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    m = size * 0.12
-    # Nền bo tròn màu thương hiệu + hình sóng âm đơn giản: đủ nhận ra là
-    # VoxDub, không phụ thuộc tệp ngoài.
-    p.setBrush(QColor(tokens.PRIMARY))
-    p.setPen(Qt.PenStyle.NoPen)
-    p.drawRoundedRect(QRectF(m, m, size - 2 * m, size - 2 * m),
-                      size * 0.22, size * 0.22)
-    p.setPen(QPen(QColor(tokens.TEXT_PRIMARY), max(1.0, size * 0.07),
-                  Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-    giua = size / 2
-    for i, cao in enumerate((0.18, 0.30, 0.22)):
-        x = size * (0.34 + i * 0.16)
-        p.drawLine(QPointF(x, giua - size * cao), QPointF(x, giua + size * cao))
-    p.end()
-    return px
-
-
 def app_logo(size: int = 32) -> QPixmap:
     """Biểu trưng ứng dụng lấy từ logo.ico; thiếu tệp thì vẽ tay."""
     try:
@@ -914,7 +883,19 @@ def eye(color: str | None = None) -> QIcon:
 
 def eye_off(color: str | None = None) -> QIcon:
     return _make_icon(_draw_eye_off, color or tokens.TEXT_SECONDARY)
-    """Biểu trưng VoxDub: ô vuông bo góc và bốn vạch sóng âm."""
+
+
+def brand_logo(size: int = 32) -> QPixmap:
+    """Biểu trưng VoxDub: ô vuông bo góc và bốn vạch sóng âm.
+
+    V91 — hàm này từng MẤT DÒNG `def`: thân hàm nằm lại ngay sau `return` của
+    `eye_off()` nên thành mã chết, còn `icons.brand_logo` thì không tồn tại.
+    Đó mới là gốc rễ thật của V83 (dựng `SetupWizard` ném `AttributeError`,
+    trình cài đặt tự động chưa từng chạy được). Hôm qua tôi vá bằng cách viết
+    một hàm MỚI ở chỗ khác mà không thấy thân hàm gốc vẫn nằm đây — nay trả
+    nó về đúng chỗ và bỏ bản vá kia, để chỉ còn MỘT bản vẽ thương hiệu.
+    Phát hiện bằng `pyflakes` (undefined name 'size'), không phải bằng mắt.
+    """
     px = QPixmap(size, size)
     px.fill(Qt.GlobalColor.transparent)
     p = QPainter(px)

@@ -146,7 +146,7 @@ def extract_voices(zip_path: str) -> str:
     """
     target = os.path.join(app_root(), VOICES_TARGET_DIR)
 
-    logger.info(f"Đang giải nén voices.zip...")
+    logger.info("Đang giải nén voices.zip...")
 
     with tempfile.TemporaryDirectory() as tmp:
         # Extract toàn bộ vào temp trước

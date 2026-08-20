@@ -535,7 +535,7 @@ class VoiceAndExportMixin:
     def _on_export_subs_file_done(self, path: str) -> None:
         self.export_panel.set_status(f"Đã xuất: {path}")
         TOASTS.success(
-            f"Đã lưu phụ đề.", action_label="Mở tệp",
+            "Đã lưu phụ đề.", action_label="Mở tệp",
             on_action=lambda: open_file(path))
 
     def _export_audio_mp3(self) -> None:
