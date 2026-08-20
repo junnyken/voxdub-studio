@@ -124,10 +124,23 @@ def test_script_chep_sang_nhanh_deploy_khong_thieu_phu_thuoc():
     Test này đọc từng script được chép, tìm import module cục bộ, rồi bắt
     module đó cũng phải nằm trong danh sách chép.
     """
-    noi_dung = _doc("gen_vays_dub_worker_branch.sh")
-    # Gom mọi tệp scripts/*.py xuất hiện trong các lệnh cp của script sinh nhánh
-    duoc_chep = set(re.findall(r'scripts/([\w.]+\.py)', noi_dung))
-    assert duoc_chep, "không đọc được danh sách tệp được chép"
+    # Hai nơi cùng liệt kê TAY danh sách tệp, thiếu ở nơi nào cũng chết:
+    #   - script sinh nhánh (`cp ... "$TARGET/scripts/"`)
+    #   - Dockerfile của worker (`COPY scripts/... /app/scripts/`)
+    # Lượt deploy 20-08 sửa được nơi thứ nhất mà vẫn chết vì nơi thứ hai.
+    nguon = {
+        "gen_vays_dub_worker_branch.sh": _doc("gen_vays_dub_worker_branch.sh"),
+        "control_server/worker-dub/Dockerfile": open(
+            os.path.join(REPO, "control_server", "worker-dub", "Dockerfile"),
+            encoding="utf-8").read(),
+    }
+    for ten_nguon, noi_dung in nguon.items():
+        duoc_chep = set(re.findall(r'scripts/([\w.]+\.py)', noi_dung))
+        assert duoc_chep, f"không đọc được danh sách tệp trong {ten_nguon}"
+        _kiem_phu_thuoc(duoc_chep, ten_nguon)
+
+
+def _kiem_phu_thuoc(duoc_chep: set[str], ten_nguon: str) -> None:
 
     thieu = []
     for ten in sorted(duoc_chep):
@@ -137,5 +150,6 @@ def test_script_chep_sang_nhanh_deploy_khong_thieu_phu_thuoc():
         src = open(duong, encoding="utf-8").read()
         for mod in re.findall(r'^\s*(?:from|import)\s+(_\w+)', src, re.M):
             if f"{mod}.py" not in duoc_chep:
-                thieu.append(f"{ten} import {mod} nhưng {mod}.py không được chép")
+                thieu.append(f"{ten} import {mod} nhưng {mod}.py không có "
+                             f"trong {ten_nguon}")
     assert not thieu, "; ".join(thieu)

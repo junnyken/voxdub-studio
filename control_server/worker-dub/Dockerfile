@@ -58,7 +58,12 @@ RUN pip install --no-cache-dir --retries 5 --timeout 180 \
     "demucs>=4.0.0,<5.0" "soundfile>=0.13.0,<0.14"
 
 COPY autodub/ /app/autodub/
-COPY scripts/setup_whisper.py scripts/setup_vieneu.py scripts/setup_translate_local.py /app/scripts/
+# `_python_ho_tro.py` là module dùng chung của ba script trên (V80) —
+# liệt kê tay mà quên nó thì build chết ngay dòng import, đã sập thật
+# hai lượt deploy liên tiếp 20-08.
+COPY scripts/setup_whisper.py scripts/setup_vieneu.py \
+     scripts/setup_translate_local.py scripts/_python_ho_tro.py \
+     /app/scripts/
 
 # Cài 3 engine nặng vào venv riêng NGAY lúc build (không phải lúc container
 # khởi động) — image tự chứa, container chạy được không cần mạng lúc
