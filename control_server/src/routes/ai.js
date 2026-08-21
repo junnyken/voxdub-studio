@@ -30,6 +30,7 @@ const gateway = require('../services/ai-gateway.service')
 const prompts = require('../prompts/translate')
 const assistPrompts = require('../prompts/assist')
 const scenePrompts = require('../prompts/product_scene')
+const imageStage = require('../services/image-stage.service')
 const { containsCjk } = require('../utils/json-repair')
 
 /** Kết quả đã lưu của jobId này, hoặc null. */
@@ -897,6 +898,18 @@ module.exports = async function aiRoutes(fastify) {
     },
   }, async (request, reply) => {
     const { device } = request
+    // Nấc hiện tại chỉ dùng để GHI SỔ ở đây, không dùng để chặn: chặn bước
+    // kiểm an toàn là làm ngược — cửa sinh ảnh đã đóng thì không có ảnh nào
+    // để kiểm, còn ai đã có ảnh thì càng nên cho họ kiểm.
+    //
+    // Chỉ hỏi khi thật sự cần: sáu tác vụ chữ còn lại không dính gì tới nấc
+    // ảnh, bắt chúng đọc thêm cấu hình mỗi lượt là phí công vô ích.
+    const runModeCuaLuot = request.body.task !== 'packaging_check' ? '' :
+      (imageStage.quyetDinh({
+        stage: await config.get('image.scene.stage'),
+        devices: await config.get('image.scene.calibration.devices'),
+        fingerprint: device.fingerprint,
+      }).runMode || '')
     const { jobId, task, input = {}, holdId, images = [] } = request.body
     const spec = assistPrompts.getTask(task)
 
@@ -914,6 +927,12 @@ module.exports = async function aiRoutes(fastify) {
         jobId,
         action: 'assist',
         assistTask: task,
+        // C2 — ghi PHÁN QUYẾT của bước kiểm bao bì. C1 ghi đủ tác vụ, mô
+        // hình, token, mã lỗi, nhưng không ghi kết quả, nên không có gì để
+        // đếm khi cần biết mô hình đang gắt hay đang dễ dãi.
+        verdict: task === 'packaging_check'
+          ? String(result.results[0]?.value || '') : '',
+        runMode: runModeCuaLuot,
         assistPromptVersion: assistPrompts.PROMPT_VERSION,
         fromCache: true,
         creditCharged: 0,
@@ -1083,6 +1102,18 @@ module.exports = async function aiRoutes(fastify) {
     const { device } = request
     const { jobId, scene, image, mode = 'SAFE', note = '', holdId } = request.body
 
+    // Chốt chuyển pha (C2) đứng TRƯỚC cả `replay`: cửa đã đóng thì không
+    // được phục vụ nốt kết quả cũ — đóng cửa mà vẫn trả hàng qua khe thì
+    // không gọi là đóng.
+    const nac = imageStage.quyetDinh({
+      stage: await config.get('image.scene.stage'),
+      devices: await config.get('image.scene.calibration.devices'),
+      fingerprint: device.fingerprint,
+    })
+    if (!nac.choPhep) {
+      return reply.code(409).send({ code: nac.code, message: nac.message })
+    }
+
     const cached = await replay(jobId, device.fingerprint)
     if (cached) return cached
 
@@ -1146,6 +1177,7 @@ module.exports = async function aiRoutes(fastify) {
         jobId,
         action: 'product_scene',
         assistTask: mode,
+        runMode: nac.runMode,
         status: 'error',
         errorCode: err.code || 'AI_UNAVAILABLE',
         errorMessage: String(err.message).slice(0, 300),
@@ -1186,6 +1218,7 @@ module.exports = async function aiRoutes(fastify) {
         action: 'product_scene',
         // Ghi CHẾ ĐỘ vào đây để đếm hạn mức concept và để tra lại sau này.
         assistTask: mode,
+        runMode: nac.runMode,
         inputSize: 1,
         creditCharged: paid.charged,
         aiProvider: result.provider,

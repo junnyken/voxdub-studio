@@ -8474,6 +8474,108 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C2 (rút gọn) — Chốt chuyển pha và bảng hiệu chỉnh phán quyết (Phase H, 2026-08-21)
+
+Bản đề bài C2 xin nối nhà cung cấp thật + hiệu chỉnh ngưỡng + lưu ảnh làm
+bằng chứng. Đối chiếu với mã trước khi làm thì **ba tiền đề chính đều sai**:
+
+1. *"Vai `image`/`assist` chưa được đăng ký"* — đã có sẵn trong enum
+   `AiProvider` và trong ô chọn ở trang quản trị từ V94/C1. Việc còn thiếu
+   không phải mã: chưa ai tạo bản ghi nhà cung cấp kèm khoá API.
+2. *"Hiệu chỉnh ngưỡng"* (chiếm §4, §5A, §8 của đề bài) — **C1 không có
+   ngưỡng nào**. Phán quyết là nhãn văn bản, cố ý. Bảng
+   `judgment_calibration_notes` với cột *ngưỡng cũ/ngưỡng mới* sẽ là bảng
+   không bao giờ điền được. Thứ thật sự đổi khi hiệu chỉnh là câu lệnh, và
+   phiên bản của nó đã ghi sẵn từng lượt (`assistPromptVersion`).
+3. *"Không còn 401"* làm tiêu chí thành công — `401` là thiếu token thiết bị,
+   đúng và phải giữ mãi. Thiếu nhà cung cấp trả `503`. Đặt như đề bài là mời
+   người sau đi phá xác thực để đạt chỉ tiêu.
+
+Bỏ luôn hạng mục "lưu ảnh gốc + ảnh dựng trên máy chủ": hiện máy chủ không
+lưu ảnh nào, làm theo là đẩy ~5,6 MB/lượt vào cơ sở dữ liệu, chưa có chính
+sách xoá, và **trùng** với `nhat_ky_dung_anh.json` mà C1 đã ghi ngay cạnh
+ảnh trên máy người bán — nơi họ thật sự cần khi đi khiếu nại.
+
+Chủ dự án chọn bản rút gọn. Đã làm ba việc.
+
+### 1. Chốt chuyển pha — ba nấc, mặc định TẮT
+
+`image.scene.stage` ∈ `off` | `calibration` | `production`.
+
+Vì sao MỘT khoá ba nấc thay vì "bật/tắt" + "chế độ": hai khoá thì có trạng
+thái vô nghĩa (đã bật nhưng chưa chọn chế độ) và người bấm phải nhớ thứ tự
+bấm. Một khoá thì không có kẽ hở.
+
+Nấc `calibration` chỉ mở cho các máy trong `image.scene.calibration.devices`,
+**mặc định rỗng = không máy nào** — mặc định phải là đóng, không phải mở
+toang. Nấc lạ (gõ sai trong trang quản trị) rơi về ĐÓNG: một lỗi chính tả
+không được phép mở cửa.
+
+Cấp thiết hơn đề bài tưởng: cửa `/v1/ai/product-scene` **đã sống trên máy chủ
+từ hôm nay**. Chưa ai chạm được vì trang Ảnh sản phẩm chưa nằm trong bản
+`.exe` nào (`git tag --contains` rỗng), nhưng chốt phải có TRƯỚC bản phát
+hành mang trang đó, không phải sau.
+
+### 2. Ghi phán quyết vào sổ
+
+`UsageLog` của C1 ghi đủ tác vụ, mô hình, token, mã lỗi — nhưng **không ghi
+kết quả**, tức là không có gì để đếm khi cần biết mô hình đang gắt hay đang
+dễ dãi. Thêm `verdict` (SAFE/CONCEPT) và `runMode`.
+
+`runMode` LUÔN do máy chủ đặt. Hàm `quyetDinh()` cố ý nhận tham số rời chứ
+không nhận nguyên `request.body`, và có test cấm mọi chỗ đọc `body.runMode` —
+client tự khai "tôi đang chạy thật" thì báo cáo hiệu chỉnh thành vô nghĩa.
+
+### 3. Nới báo cáo sẵn có, không dựng cửa mới
+
+Đề bài xin `GET /product-scene/calibration-report` + panel riêng.
+`/v1/admin/analytics/assist` đã gộp theo tác vụ, mô hình, mã lỗi và đã có
+panel "Cổng trợ lý"; thiếu đúng phần phán quyết. Thêm vào đó thay vì dựng
+chỗ thứ hai phải nhớ mở.
+
+Bảng đếm **đủ BA kết cục**, không phải hai: đăng bán được · lệch bao bì ·
+**chưa kiểm được** (gom cả lượt hỏng lẫn lượt thành công nhưng nhãn lạ). Bỏ
+nhóm thứ ba đi thì tỷ lệ đạt trông đẹp hẳn trong khi thực tế người bán không
+dùng được ảnh nào.
+
+### Hai lỗi tự tìm ra khi làm
+
+**Test "chốt đứng trước replay" có lỗ.** Viết
+`indexOf(chốt) < indexOf(replay)` — `indexOf` trả `-1` khi không thấy, và
+`-1` nhỏ hơn mọi vị trí, nên test vẫn XANH ngay cả khi gỡ sạch chốt. Gỡ thật
+ra đo mới lộ (đỏ 1 test thay vì 2). Đã thêm hai dòng kiểm có-mặt trước khi so
+thứ tự.
+
+**App báo sai việc phải làm.** `dung_boi_canh` bắt mọi lỗi rồi thử bối cảnh
+tiếp theo — đúng cho trục trặc nhất thời, nhưng với `IMAGE_STAGE_OFF` thì
+thử thêm năm lần cũng ra đúng câu đó, mà người dùng nhận về "thử lại sau ít
+phút". Thêm `_KHONG_THU_LAI`: hai mã này dừng cả mẻ và ném nguyên lý do lên.
+Có test cho cả ranh giới ngược lại (lỗi mạng thì VẪN thử nốt bối cảnh sau).
+
+### Chứng minh từng luật
+
+Gỡ chốt khỏi route → 2 test đỏ. Đổi mặc định thành `production` → 1 test đỏ.
+Bỏ nhóm "chưa kiểm được" khỏi bảng → 1 test đỏ. Gỡ `_KHONG_THU_LAI` → 2 test
+Python đỏ.
+
+**1670 passed, 7 skipped (Python) · 407 pass, 1 skip (Node) · website build
+sạch.**
+
+### Còn lại — và đây là phần chính của C2
+
+Ba việc trên chỉ là khung. Phần có giá trị nhất của bản đề bài vẫn chưa làm
+được và **không tự làm thay được**:
+
+1. Chủ dự án tạo nhà cung cấp cho vai `image` và `assist` trong trang quản
+   trị (thao tác vài phút, không phải việc lập trình).
+2. Đặt `image.scene.stage` = `calibration`, dán vân tay máy vào danh sách.
+3. Chạy 20–30 ảnh sản phẩm thật, đa dạng ngành hàng, rồi **soi tay từng lý
+   do** mô hình trả về. Bảng số chỉ nói mô hình quyết ra sao, không nói nó
+   quyết ĐÚNG hay SAI.
+4. Đủ và đạt thì mới bấm `production`.
+
+Chi phí ước tính cho bước 3: ~990 Vox (≈ 9.900đ) cộng tiền gọi mô hình thật.
+
 ## C1 — Dựng bối cảnh ảnh sản phẩm, có cổng tuân thủ TikTok Shop (Phase H, 2026-08-21)
 
 Người dùng gửi ảnh chụp màn hình một án phạt THẬT trên tài khoản của họ:

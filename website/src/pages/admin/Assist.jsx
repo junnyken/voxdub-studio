@@ -40,6 +40,13 @@ function ToneHong({ luot, hong }) {
   return <Badge tone={ty >= 10 ? 'danger' : 'warning'}>{ty}%</Badge>
 }
 
+const NHAN_NAC = {
+  off: 'Đang tắt',
+  calibration: 'Đang hiệu chỉnh',
+  production: 'Chạy thật',
+  'khong-ro': 'Không rõ (lượt cũ)',
+}
+
 export default function Assist() {
   const [days, setDays] = useState(7)
   const { data, error, loading, reload } = useFetch(
@@ -117,6 +124,75 @@ export default function Assist() {
               khắp thì nhiều khả năng là prompt hoặc khuôn kết quả.
             </div>
           )}
+
+          {/* C2 — số liệu để quyết định có bấm nấc chạy thật hay không.
+              Đặt NGAY TRÊN các bảng chi phí: đây là quyết định có rủi ro
+              nhất trên trang này, không phải một dòng phụ ở cuối. */}
+          <section className="space-y-2">
+            <h2 className="text-sm font-semibold">
+              Hiệu chỉnh phán quyết kiểm bao bì
+            </h2>
+            <div className="rounded-xl border border-border-subtle p-3 text-sm space-y-2">
+              <div>
+                Nấc hiện tại:{' '}
+                <strong>{NHAN_NAC[data.nacHienTai] || data.nacHienTai || '(chưa đặt)'}</strong>
+              </div>
+              {!data.phanQuyet?.length ? (
+                <p className="text-ink-soft">
+                  Chưa có lượt kiểm nào. Đặt <code>image.scene.stage</code> =
+                  {' '}<code>calibration</code> và thêm vân tay máy của bạn vào
+                  {' '}<code>image.scene.calibration.devices</code>, rồi chạy
+                  thử 20–30 ảnh sản phẩm thật.
+                </p>
+              ) : (
+                <>
+                  <div className="overflow-x-auto rounded-lg border border-border-subtle">
+                    <table className="w-full text-sm">
+                      <thead className="text-[11px] uppercase tracking-wide text-ink-soft">
+                        <tr className="border-b border-border-subtle">
+                          <th className="text-left px-3 py-2">Chế độ</th>
+                          <th className="text-right px-3 py-2">Lượt</th>
+                          <th className="text-right px-3 py-2">Máy</th>
+                          <th className="text-right px-3 py-2">Đăng bán được</th>
+                          <th className="text-right px-3 py-2">Lệch bao bì</th>
+                          <th className="text-right px-3 py-2">Chưa kiểm được</th>
+                        </tr>
+                      </thead>
+                      <tbody className="tabular-nums">
+                        {data.phanQuyet.map((r) => (
+                          <tr key={r.runMode} className="border-b border-border-subtle last:border-0">
+                            <td className="px-3 py-2 font-medium">
+                              {NHAN_NAC[r.runMode] || r.runMode}
+                            </td>
+                            <td className="text-right px-3 py-2">{r.luot}</td>
+                            <td className="text-right px-3 py-2">{r.soMay}</td>
+                            <td className="text-right px-3 py-2">{r.safe}</td>
+                            <td className="text-right px-3 py-2">{r.concept}</td>
+                            <td className="text-right px-3 py-2">{r.chuaKiemDuoc}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {data.xetDuyet && !data.xetDuyet.du && (
+                    <div className="rounded-lg border border-warning/40 bg-warning/10 p-3">
+                      Mới {data.xetDuyet.luot}/{data.xetDuyet.toiThieu} lượt hiệu
+                      chỉnh. Chưa đủ để kết luận mô hình đang gắt hay đang dễ
+                      dãi — đừng bấm nấc chạy thật khi con số còn ở đây.
+                    </div>
+                  )}
+                  {data.xetDuyet?.du && data.nacHienTai !== 'production' && (
+                    <div className="rounded-lg border border-border-subtle p-3">
+                      Đã đủ {data.xetDuyet.luot} lượt. Trước khi bấm nấc chạy
+                      thật, soi tay từng lý do mô hình trả về — con số ở bảng
+                      này chỉ nói mô hình quyết ra sao, không nói nó quyết
+                      ĐÚNG hay SAI.
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
 
           <section className="space-y-2">
             <h2 className="text-sm font-semibold">Theo từng việc</h2>

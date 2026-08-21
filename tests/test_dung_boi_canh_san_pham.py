@@ -237,3 +237,43 @@ def test_khong_dong_duoc_nhan_thi_bao_that_bai(tmp_path, monkeypatch):
     anh.write_bytes(b"x")
     assert ps.dong_nhan_ai(str(anh), "SAFE") is False, (
         "trả True khi chưa đóng được nhãn là nói dối phía trên")
+
+
+# -- 6. Lý do không-thử-lại-được phải tới tận người dùng (C2) ----------------
+
+def test_tinh_nang_dang_tat_thi_dung_ngay_khong_thu_tiep(cam_may_chu, tmp_path):
+    """Thử tiếp năm bối cảnh nữa cũng ra đúng câu trả lời đó, mà người dùng
+    lại nhận về "thử lại sau ít phút" — sai hẳn việc phải làm."""
+    from autodub.saas_client import SaasError
+
+    loi = SaasError("Tính năng dựng ảnh sản phẩm đang tắt.",
+                    code="IMAGE_STAGE_OFF", status=409)
+    khach = _KhachGia(no_khi_dung=loi)
+
+    with pytest.raises(SaasError, match="đang tắt"):
+        ps.dung_boi_canh(str(cam_may_chu), ["ban_go", "gio_qua", "nen_studio"],
+                         str(tmp_path / "ra"), khach=khach)
+    assert len(khach.da_dung) == 1, "đã biết là tắt mà vẫn gọi tiếp"
+
+
+def test_may_chua_duoc_phep_chay_thu_cung_dung_ngay(cam_may_chu, tmp_path):
+    from autodub.saas_client import SaasError
+
+    khach = _KhachGia(no_khi_dung=SaasError(
+        "chưa mở cho máy này.", code="IMAGE_STAGE_CALIBRATION", status=409))
+    with pytest.raises(SaasError):
+        ps.dung_boi_canh(str(cam_may_chu), ["ban_go", "gio_qua"],
+                         str(tmp_path / "ra"), khach=khach)
+    assert len(khach.da_dung) == 1
+
+
+def test_truc_trac_nhat_thoi_thi_VAN_thu_boi_canh_con_lai(cam_may_chu, tmp_path):
+    """Ranh giới ngược lại: lỗi mạng thì đừng bỏ cả mẻ."""
+    from autodub.saas_client import SaasError
+
+    khach = _KhachGia(no_khi_dung=SaasError("máy chủ bận", code="AI_UNAVAILABLE",
+                                            status=503))
+    phien = ps.dung_boi_canh(str(cam_may_chu), ["ban_go", "gio_qua"],
+                             str(tmp_path / "ra"), khach=khach)
+    assert len(khach.da_dung) == 2, "lỗi nhất thời mà đã bỏ luôn bối cảnh sau"
+    assert phien.ket_qua == []

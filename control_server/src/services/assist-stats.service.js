@@ -151,6 +151,78 @@ function tomTat(dongTacVu, voxToVnd = 10) {
   }
 }
 
+
+/**
+ * Bảng hiệu chỉnh phán quyết kiểm bao bì (mini-spec C2).
+ *
+ * Đây là con số dùng để quyết định có bấm nấc `production` hay không, nên nó
+ * phải đếm ĐỦ BA kết cục, không phải hai:
+ *
+ *   - `SAFE`     — giữ nguyên bao bì, đăng bán được
+ *   - `CONCEPT`  — mô hình đã dựng lệch, không đăng bán được
+ *   - chưa kiểm được — lượt hỏng, hoặc mô hình trả nhãn lạ
+ *
+ * Bỏ nhóm thứ ba đi thì tỷ lệ đạt trông đẹp hẳn lên trong khi thực tế là
+ * người bán không dùng được ảnh nào. Nhóm này gom cả `status: 'error'` lẫn
+ * lượt thành công nhưng `verdict` rỗng — hai đường khác nhau dẫn tới cùng
+ * một hậu quả cho người dùng.
+ *
+ * Gộp theo `runMode` để lượt hiệu chỉnh không lẫn vào lượt chạy thật.
+ */
+function theoPhanQuyet(days, now = new Date()) {
+  return [
+    {
+      $match: {
+        action: 'assist',
+        assistTask: 'packaging_check',
+        createdAt: { $gte: since(days, now) },
+      },
+    },
+    {
+      $group: {
+        _id: { $ifNull: ['$runMode', ''] },
+        luot: { $sum: 1 },
+        safe: {
+          $sum: {
+            $cond: [{ $and: [{ $eq: ['$status', 'success'] },
+              { $eq: ['$verdict', 'SAFE'] }] }, 1, 0],
+          },
+        },
+        concept: {
+          $sum: {
+            $cond: [{ $and: [{ $eq: ['$status', 'success'] },
+              { $eq: ['$verdict', 'CONCEPT'] }] }, 1, 0],
+          },
+        },
+        chuaKiemDuoc: {
+          $sum: {
+            $cond: [{ $or: [{ $ne: ['$status', 'success'] },
+              { $not: [{ $in: ['$verdict', ['SAFE', 'CONCEPT']] }] }] }, 1, 0],
+          },
+        },
+        soMay: { $addToSet: '$fingerprint' },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        runMode: { $cond: [{ $eq: ['$_id', ''] }, 'khong-ro', '$_id'] },
+        luot: 1, safe: 1, concept: 1, chuaKiemDuoc: 1,
+        soMay: { $size: '$soMay' },
+      },
+    },
+    { $sort: { luot: -1 } },
+  ]
+}
+
+/** Đã đủ lượt hiệu chỉnh để đem ra xem chưa. */
+function sanSangXetDuyet(dongPhanQuyet, toiThieu = 20) {
+  const calib = (dongPhanQuyet || []).find((d) => d.runMode === 'calibration')
+  const luot = calib ? calib.luot : 0
+  return { luot, toiThieu, du: luot >= toiThieu }
+}
+
 module.exports = {
   since, theoTacVu, theoMoHinh, theoVaiTro, theoMaLoi, tomTat,
+  theoPhanQuyet, sanSangXetDuyet,
 }

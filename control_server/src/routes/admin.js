@@ -583,12 +583,14 @@ module.exports = async function adminRoutes(fastify) {
   fastify.get('/analytics/assist', async (request) => {
     const stats = require('../services/assist-stats.service')
     const days = Math.min(90, Math.max(1, Number(request.query.days) || 7))
-    const [theoTacVu, theoMoHinh, theoVaiTro, maLoi, cfg] = await Promise.all([
+    const [theoTacVu, theoMoHinh, theoVaiTro, maLoi, phanQuyet, cfg] = await Promise.all([
       UsageLog.aggregate(stats.theoTacVu(days)),
       UsageLog.aggregate(stats.theoMoHinh(days)),
       UsageLog.aggregate(stats.theoVaiTro(days)),
       UsageLog.aggregate(stats.theoMaLoi(days)),
-      config.getMany(['credit.vox.to.vnd', 'assist.daily.limit']),
+      UsageLog.aggregate(stats.theoPhanQuyet(days)),
+      config.getMany(['credit.vox.to.vnd', 'assist.daily.limit',
+        'image.scene.stage']),
     ])
     // Còn lượt nào chạy bằng vai "translate" nghĩa là chưa cấu hình vai
     // "assist" — đắt hơn nhiều lần mà không ai để ý.
@@ -602,6 +604,13 @@ module.exports = async function adminRoutes(fastify) {
       vaiTro: theoVaiTro,
       dungChungVaiDich,
       hanMucNgay: cfg['assist.daily.limit'],
+      // C2 — số liệu để quyết định có bấm nấc `production` hay không.
+      // Nằm chung một cửa với thống kê trợ lý thay vì dựng cửa riêng: cùng
+      // một bảng dữ liệu, cùng một người xem, tách ra chỉ tạo hai chỗ phải
+      // nhớ mở.
+      phanQuyet,
+      nacHienTai: cfg['image.scene.stage'],
+      xetDuyet: stats.sanSangXetDuyet(phanQuyet),
     }
   })
 

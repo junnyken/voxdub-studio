@@ -192,7 +192,15 @@ TRƯỚC** hạn mức chung, vì kiểm sau thì người dùng nhận thông b
 Vai trò mô hình: `image`, **không có vai dự phòng** — rơi về `translate` chỉ
 sinh ra chữ, và một cửa "sinh ảnh" trả về chữ là hỏng âm thầm.
 Lỗi: `400` bối cảnh lạ, `402 INSUFFICIENT_CREDIT`, `429 DAILY_LIMIT`,
-`502 KHONG_SINH_DUOC_ANH` (mô hình trả chữ thay vì ảnh), `503 AI_UNAVAILABLE`.
+`502 KHONG_SINH_DUOC_ANH` (mô hình trả chữ thay vì ảnh), `503 AI_UNAVAILABLE`,
+`409 IMAGE_STAGE_OFF` / `409 IMAGE_STAGE_CALIBRATION` (mini-spec C2).
+
+**Chốt chuyển pha (C2):** `image.scene.stage` ∈ `off` (mặc định) |
+`calibration` (chỉ các máy trong `image.scene.calibration.devices`) |
+`production`. Chốt kiểm TRƯỚC cả `replay` — cửa đóng thì không phục vụ nốt
+kết quả cũ. Nấc lạ rơi về đóng. `runMode` ghi vào `UsageLog` do máy chủ đặt
+theo nấc này, client không đặt được; bảng phán quyết xem ở
+`GET /v1/admin/analytics/assist` (`phanQuyet`, `nacHienTai`, `xetDuyet`).
 
 **Cửa này KHÔNG tự kiểm tuân thủ.** Bên gọi phải gọi tiếp `POST /assist` với
 `packaging_check` kèm cả ảnh gốc lẫn ảnh mới, và phán quyết đó đè lên `mode`

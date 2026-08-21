@@ -68,6 +68,23 @@ const DEFAULTS = {
   // người bán bị TikTok cưỡng chế, nên trần thấp hẳn và tách khỏi trần chung.
   'image.daily.limit': 60,
   'image.daily.limit.concept': 10,
+  // --- Chốt chuyển pha (mini-spec C2) ------------------------------------
+  // Ba nấc, mặc định TẮT. Vì sao một khoá ba nấc thay vì "bật/tắt" + "chế
+  // độ": hai khoá thì có trạng thái vô nghĩa (đã bật nhưng chưa chọn chế
+  // độ) và người bấm phải nhớ thứ tự bấm. Một khoá thì không có kẽ hở nào.
+  //
+  //   off         — cửa đóng, không ai gọi được (mặc định)
+  //   calibration — CHỈ các máy trong `image.scene.calibration.devices`
+  //   production  — mở cho mọi máy
+  //
+  // Nấc `production` phải do người có trách nhiệm bấm sau khi xem báo cáo
+  // hiệu chỉnh: phán quyết sai ở đây dẫn thẳng tới án phạt CHR của người
+  // bán, nên không có đường tự động chuyển sau N lượt.
+  'image.scene.stage': 'off',
+  // Danh sách vân tay máy được phép chạy lúc hiệu chỉnh, cách nhau bởi dấu
+  // phẩy. Để trống ở nấc `calibration` nghĩa là KHÔNG máy nào chạy được —
+  // mặc định phải là đóng, không phải mở toang.
+  'image.scene.calibration.devices': '',
   'assist.daily.limit': 150,
   'assist.daily.limit.explain_error': 30,
   // GIÁ NỘI BỘ — để ghi `CreditHold.usage` (đối soát biên lợi nhuận) và làm

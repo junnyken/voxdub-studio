@@ -34,6 +34,14 @@ const usageLogSchema = new mongoose.Schema({
   assistRole: { type: String, default: '' },
   assistPromptVersion: { type: Number, default: 0 },
   fromCache: { type: Boolean, default: false },
+  // --- mini-spec C2 -------------------------------------------------------
+  // Lượt này là hiệu chỉnh hay chạy thật. LUÔN do máy chủ đặt theo
+  // `image.scene.stage`; không bao giờ đọc từ thân yêu cầu.
+  runMode: { type: String, default: '' },
+  // Phán quyết của bước kiểm bao bì: SAFE | CONCEPT (rỗng = tác vụ khác).
+  // Không ghi thứ này thì báo cáo hiệu chỉnh không có gì để đếm — C1 ghi đủ
+  // tác vụ, mô hình, token, mã lỗi, nhưng KHÔNG ghi kết quả.
+  verdict: { type: String, default: '' },
   inputSize: { type: Number, default: 0 },
   status: { type: String, enum: ['pending', 'success', 'error'], default: 'pending' },
   errorCode: { type: String, default: '' },

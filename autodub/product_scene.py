@@ -43,6 +43,9 @@ _CANH_DAI_TOI_DA = 1280
 #: không đẩy vài MB qua mạng chỉ để bên kia từ chối.
 _TRAN_BASE64 = 2_800_000
 
+#: Những mã lỗi mà thử lại là vô ích — dừng cả mẻ và nói thẳng lý do.
+_KHONG_THU_LAI = frozenset({"IMAGE_STAGE_OFF", "IMAGE_STAGE_CALIBRATION"})
+
 #: Tên tệp nhật ký tra soát, nằm cạnh ảnh kết quả.
 NHAT_KY = "nhat_ky_dung_anh.json"
 
@@ -204,6 +207,12 @@ def dung_boi_canh(anh_goc_path: str, boi_canh: list[str], thu_muc_ra: str, *,
             tra_ve = khach.product_scene(goc, ten_bc, job_id=new_job_id(),
                                          mode=che_do, note=ghi_chu)
         except Exception as e:  # noqa: BLE001 — một bối cảnh hỏng không giết cả mẻ
+            # Trừ những lý do KHÔNG phải trục trặc nhất thời: tính năng đang
+            # tắt, hoặc máy này chưa nằm trong danh sách chạy thử (C2). Thử
+            # tiếp năm bối cảnh nữa cũng ra đúng câu trả lời đó, mà người
+            # dùng lại nhận về "thử lại sau ít phút" — sai hẳn việc phải làm.
+            if getattr(e, "code", "") in _KHONG_THU_LAI:
+                raise
             logger.warning(f"Không dựng được bối cảnh «{ten_bc}» ({str(e)[:120]})")
             continue
 
