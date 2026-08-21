@@ -8474,6 +8474,87 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C9 — Bộ test hết phụ thuộc máy đang rảnh hay bận (Phase H, 2026-08-21)
+
+Rà lại chính những gì C8 vừa báo "xanh": chạy lại từ đầu trên máy này thì
+**Node đỏ 28 test**, còn `pytest` gõ trần thì **đổ core dump**. Cả hai đều
+không phải lỗi trong mã sản phẩm — nhưng cả hai đều làm cho câu "bộ test xanh"
+mất giá trị làm bằng chứng, nên phải sửa trước khi làm tiếp bất cứ thứ gì.
+
+### 1. Mỗi tệp test một `mongod` — 12 tệp song song là 12 `mongod`
+
+Lượt chạy đầu: 28 đỏ, toàn ở những tệp đụng cơ sở dữ liệu (kích hoạt key, quản
+trị API key, ví, giữ tiền). Ba lượt sau: 0 đỏ. Thứ khác nhau giữa các lượt là
+**máy đang bận tới đâu**, không phải mã.
+
+Ép tái hiện cho chắc, không đoán: chạy hai lượt `npm test` song song →
+**55 đỏ và 81 đỏ**, và số test tự phình từ 472 lên 479/482 (hook teardown chết
+thì `node --test` đẻ thêm mục). Nguyên nhân ở `tests/helpers/db.js`: mỗi tệp
+dựng một `MongoMemoryServer` riêng, `node --test` chạy song song theo số CPU
+(ở đây 12), mỗi `mongod` vài trăm MB, máy còn 7GB trống.
+
+Không chọn cách hạ `--test-concurrency`: nó chỉ làm bộ test chậm đi và **vẫn
+để kết quả phụ thuộc máy**, chỉ là cần bận hơn mới đỏ. `tests/chay.js` dựng
+đúng MỘT `mongod` cho cả suite, truyền địa chỉ qua `TEST_MONGO_URI`, mỗi tiến
+trình lấy một **database riêng** — cách ly giữ nguyên, bộ nhớ giảm 12 lần,
+tốc độ không đổi (18,7s so với 20s).
+
+Tên database không dùng pid trần: hệ điều hành cấp lại pid sau khi tiến trình
+chết, nên một tệp chết giữa chừng có thể để rác cho tệp sau trùng pid. Thêm
+phần ngẫu nhiên là hết cửa đó.
+
+Chạy lẻ một tệp (`node --test tests/foo.test.js`) không có biến đó thì hàm tự
+dựng instance riêng như cũ — không ai phải nhớ thêm bước nào.
+
+### Chính tệp test mới rò rỉ đúng thứ nó đi sửa
+
+Bản đầu của `tests/db-dung-chung.test.js` gọi hàm lấy địa chỉ máy chủ hai lần;
+lần hai dựng thêm một `mongod` và **ghi đè biến đang giữ cái thứ nhất**. Cái
+thứ nhất thành mồ côi, tiến trình không bao giờ thoát, bộ test treo cứng 5
+phút rồi bị giết. Sáu test đều `ok` mà lượt chạy vẫn hỏng — nhớ lại lời hứa
+(`hua`) thay vì gọi lại là xong.
+
+### 2. `pytest` gõ trần thì đổ core dump
+
+Qt không nạp nổi plugin `xcb` khi máy thiếu `DISPLAY`. CI không bao giờ lộ ra
+vì workflow tự đặt `QT_QPA_PLATFORM=offscreen` — biến đó **chỉ nằm ở CI**, nên
+mọi máy chạy tay đều dính, và không có gì nói cho người gõ biết vì sao. Người
+đọc kết quả sẽ hiểu thành "bộ test vỡ rồi".
+
+`tests/conftest.py` nay tự đặt biến đó khi máy không có màn hình, đặt ở tầng
+module (conftest được import trước mọi test module). Có `DISPLAY` thật thì
+**không đụng vào** — ở đó dựng cửa sổ thật mới là đúng.
+
+### Đo lại sau khi sửa, bằng đúng phép đo đã làm nó đỏ
+
+- Hai lượt `npm test` song song — ca từng ra 55 đỏ và 81 đỏ: **0 đỏ cả hai**.
+- `pytest` gõ trần, xoá sạch `QT_QPA_PLATFORM` và `DISPLAY`: **1716 passed**.
+- Gỡ chốt Qt khỏi `conftest.py` rồi chạy lại: **core dump (mã 134)** — bộ canh
+  cắn đúng, không mất răng.
+
+### Tests (+8)
+
+Node (6, `tests/db-dung-chung.test.js`): `npm test` phải đi qua `chay.js` chứ
+không gọi `node --test` trần; `chay.js` dựng đúng một `mongod`; `startDb` nối
+vào máy chủ chung khi có `TEST_MONGO_URI` và lấy database riêng; **`stopDb`
+không được tắt máy chủ chung** (chứng minh bằng cách ping lại được sau đó, chứ
+không phải bằng đọc mã); chạy lẻ không có biến vẫn tự dựng được; hai lần lấy
+tên database ra hai tên khác nhau.
+
+Python (2, `tests/test_qt_khong_man_hinh.py`): máy không màn hình thì biến phải
+là `offscreen`; và **dựng được `QApplication` thật** — đây mới là thứ đã sập,
+biến đặt đúng mà plugin vẫn không nạp được thì test này đỏ còn test kia vẫn
+xanh.
+
+**1716 passed, 7 skipped (Python) · 477 pass, 1 skip, 0 fail (Node).**
+
+### Còn tồn
+
+- Hai tệp test JS còn đọc chuỗi thay vì cây cú pháp (`ai-provider-roles.test.js`,
+  `test-now-va-soi-tay.test.js`) — mang từ C8, vẫn là việc dọn dẹp.
+- Số test phình lên khi hook teardown chết là hành vi của `node --test`, không
+  sửa được từ phía dự án; nay chỉ còn là dấu hiệu để nhận ra sự cố hạ tầng.
+
 ## C8 — Sửa cái gốc: test đọc mã bằng tìm chuỗi (Phase H, 2026-08-21)
 
 Chủ dự án: *"bạn bắt đầu hay sai rồi đó, hãy xem cẩn thận, đã test kỹ hơn,

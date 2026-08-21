@@ -14,7 +14,7 @@
     "seed": "node scripts/seed-config.js",
     "billing:update": "node scripts/update-billing-config.js",
     "payos:confirm-webhook": "node scripts/payos-confirm-webhook.js",
-    "test": "node --test tests/*.test.js",
+    "test": "node tests/chay.js",
     "eval:assist": "node evals/run.js",
     "eval:assist:live": "node evals/run.js --live"
   },

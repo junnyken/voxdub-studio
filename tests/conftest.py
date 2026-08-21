@@ -23,6 +23,25 @@ import os
 
 import pytest
 
+# ---------------------------------------------------------------------------
+# Qt phải chạy không màn hình khi máy KHÔNG có màn hình (21-08).
+#
+# Bug thật: gõ `pytest` trong workspace là tiến trình **đổ core dump** — Qt
+# không nạp nổi plugin `xcb` vì không có `DISPLAY`. Người gõ đọc thành "bộ
+# test vỡ rồi", trong khi mã hoàn toàn lành: CI xanh vì workflow tự đặt
+# ``QT_QPA_PLATFORM=offscreen`` (.github/workflows/test.yml). Biến đó chỉ nằm
+# ở CI nên máy nào chạy tay cũng dính, và không có gì nói cho họ biết vì sao.
+#
+# Đặt ở tầng module chứ không trong `pytest_configure`: conftest được import
+# trước mọi test module, nên chốt sớm nhất có thể.
+#
+# Có `DISPLAY` (máy để bàn thật) thì KHÔNG đụng vào — ở đó test dựng cửa sổ
+# thật là đúng, và người dùng vẫn ghi đè được bằng chính biến này.
+if not os.environ.get("QT_QPA_PLATFORM") and not (
+    os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+):
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+
 # Biến khiến mã nguồn tự tìm đường ra một máy chủ thật.
 NETWORK_ENV_VARS = ("VOXDUB_API_URL", "VOXDUB_API_KEY")
 

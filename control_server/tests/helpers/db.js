@@ -1,13 +1,27 @@
 'use strict'
 
 /**
- * Mongo trong bộ nhớ cho integration test — mỗi file `node --test` chạy
- * trong tiến trình riêng nên mỗi file tự có instance riêng, không đụng nhau.
+ * Mongo trong bộ nhớ cho integration test.
+ *
+ * **Vì sao có `TEST_MONGO_URI` (21-08).** Bản đầu dựng MỘT `MongoMemoryServer`
+ * cho MỖI tệp test. `node --test` chạy song song theo số CPU (ở đây 12), mà
+ * mỗi `mongod` chiếm vài trăm MB — nên trên máy đang bận, bộ test đỏ hàng
+ * loạt ở đúng những tệp đụng cơ sở dữ liệu. Đo thật: chạy một lượt trên máy
+ * rảnh = 0 đỏ; chạy hai lượt song song = **55 đỏ và 81 đỏ**, và số test tự
+ * phình từ 472 lên 479/482 (hook teardown chết đẻ thêm mục). Một bộ test mà
+ * xanh hay đỏ tuỳ máy đang rảnh hay bận thì lượt xanh là MAY, không phải bằng
+ * chứng.
+ *
+ * Nay `tests/chay.js` dựng đúng một `mongod` cho cả suite và truyền địa chỉ
+ * qua `TEST_MONGO_URI`. Mỗi tiến trình vẫn lấy **database riêng** nên cách ly
+ * không đổi. Chạy lẻ một tệp (`node --test tests/foo.test.js`) thì không có
+ * biến đó, hàm tự dựng instance riêng như cũ — không ai phải nhớ thêm bước.
  *
  * Set biến env BẮT BUỘC trước khi bất kỳ service nào được require (jwtSecret()
  * và utils/crypto đều throw ngay lúc gọi nếu thiếu) — gọi `setTestEnv()` ở
  * dòng đầu file test, trước mọi `require('../src/...')`.
  */
+const { randomUUID } = require('node:crypto')
 const { MongoMemoryServer } = require('mongodb-memory-server')
 const mongoose = require('mongoose')
 
@@ -24,17 +38,38 @@ function setTestEnv() {
   process.env.PUBLIC_URL ||= 'http://localhost:3001'
 }
 
+/**
+ * Tên database riêng cho tiến trình này.
+ *
+ * Không dùng pid trần: hệ điều hành CẤP LẠI pid sau khi tiến trình chết, nên
+ * một tệp chết giữa chừng (không kịp `stopDb`) có thể để lại rác cho tệp sau
+ * trùng pid. Thêm phần ngẫu nhiên là hết cửa đó.
+ */
+function tenDbTest() {
+  return `voxdub_test_${process.pid}_${randomUUID().replace(/-/g, '').slice(0, 8)}`
+}
+
 async function startDb() {
-  mongod = await MongoMemoryServer.create()
   mongoose.set('bufferCommands', true)
   mongoose.set('strictQuery', true)
-  await mongoose.connect(mongod.getUri(), { dbName: 'voxdub_test' })
+  const uriChung = process.env.TEST_MONGO_URI
+  if (uriChung) {
+    await mongoose.connect(uriChung, { dbName: tenDbTest() })
+    return
+  }
+  mongod = await MongoMemoryServer.create()
+  await mongoose.connect(mongod.getUri(), { dbName: tenDbTest() })
 }
 
 async function stopDb() {
   await mongoose.connection.dropDatabase()
   await mongoose.connection.close()
-  if (mongod) await mongod.stop()
+  // Chỉ tắt thứ CHÍNH MÌNH dựng. `mongod` dùng chung là của `tests/chay.js`;
+  // tệp test tắt nó thì các tệp đang chạy song song mất cơ sở dữ liệu.
+  if (mongod) {
+    await mongod.stop()
+    mongod = null
+  }
 }
 
 async function clearDb() {
@@ -50,4 +85,4 @@ async function clearDb() {
   await Promise.all(names.map((n) => db.collection(n).deleteMany({})))
 }
 
-module.exports = { setTestEnv, startDb, stopDb, clearDb }
+module.exports = { setTestEnv, startDb, stopDb, clearDb, tenDbTest }
