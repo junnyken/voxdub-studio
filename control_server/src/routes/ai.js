@@ -29,6 +29,7 @@ const config = require('../services/config.service')
 const gateway = require('../services/ai-gateway.service')
 const prompts = require('../prompts/translate')
 const assistPrompts = require('../prompts/assist')
+const scenePrompts = require('../prompts/product_scene')
 const { containsCjk } = require('../utils/json-repair')
 
 /** Kết quả đã lưu của jobId này, hoặc null. */
@@ -876,12 +877,27 @@ module.exports = async function aiRoutes(fastify) {
           task: { type: 'string', enum: assistPrompts.TASK_NAMES },
           holdId: { type: 'string', minLength: 8, maxLength: 100 },
           input: { type: 'object', additionalProperties: true },
+          // Ảnh gửi kèm (mini-spec C1). Trần đặt ở ĐÂY, trước khi chạm tới
+          // mô hình: một ảnh 10 MB base64 vừa tốn tiền vừa làm nghẽn hàng
+          // đợi, mà chặn sau khi đã gọi thì tiền đã mất.
+          images: {
+            type: 'array',
+            maxItems: 2,
+            items: {
+              type: 'object',
+              required: ['mimeType', 'data'],
+              properties: {
+                mimeType: { type: 'string', enum: ['image/png', 'image/jpeg', 'image/webp'] },
+                data: { type: 'string', maxLength: 2_800_000 },
+              },
+            },
+          },
         },
       },
     },
   }, async (request, reply) => {
     const { device } = request
-    const { jobId, task, input = {}, holdId } = request.body
+    const { jobId, task, input = {}, holdId, images = [] } = request.body
     const spec = assistPrompts.getTask(task)
 
     const cached = await replay(jobId, device.fingerprint)
@@ -890,7 +906,7 @@ module.exports = async function aiRoutes(fastify) {
     // Nhớ đệm theo NỘI DUNG: `jobId` chỉ chống gọi trùng do mạng chập chờn,
     // còn người dùng bấm lại nút thì jobId mới → trả tiền lần nữa cho câu hỏi
     // y hệt. Khoá băm gồm cả phiên bản prompt nên sửa prompt là tự hết hiệu lực.
-    const khoaNoiDung = assistPrompts.cacheKey(task, input)
+    const khoaNoiDung = assistPrompts.cacheKey(task, input, images)
     const cuNoiDung = await replay(khoaNoiDung, device.fingerprint)
     if (cuNoiDung) {
       UsageLog.create({
@@ -951,8 +967,17 @@ module.exports = async function aiRoutes(fastify) {
     const started = Date.now()
     let result
     try {
-      result = await gateway.assist({ task, input })
+      result = await gateway.assist({ task, input, images })
     } catch (err) {
+      // Lỗi do NGƯỜI GỌI sai (gửi ảnh cho tác vụ không nhận ảnh, quá số ảnh)
+      // phải trả đúng 400 kèm lý do — gộp hết vào 503 "trợ lý chưa trả lời
+      // được" thì phía app không phân biệt nổi lỗi của mình với lỗi máy chủ.
+      if (err.statusCode === 400) {
+        return reply.code(400).send({
+          code: err.code || 'BAD_REQUEST',
+          message: err.message,
+        })
+      }
       request.log.warn({ err, jobId, task }, 'assist failed')
       UsageLog.create({
         fingerprint: device.fingerprint,
@@ -1010,6 +1035,161 @@ module.exports = async function aiRoutes(fastify) {
         aiModel: result.model,
         promptTokens: result.usage.promptTokens,
         completionTokens: result.usage.completionTokens,
+        durationMs: Date.now() - started,
+        status: 'success',
+        ip: request.ip,
+        appVersion: device.appVersion,
+      }),
+    ])
+    return response
+  })
+
+  // -------------------------- dựng bối cảnh ảnh sản phẩm (mini-spec C1) --
+  //
+  // Người bán đưa MỘT ảnh sản phẩm thật, chọn bối cảnh, nhận về ảnh mới.
+  //
+  // Bối cảnh đổi, SẢN PHẨM THÌ KHÔNG — câu lệnh gửi mô hình cấm sửa bao bì
+  // (xem `prompts/product_scene.js`). Đây là ranh giới giữa "chụp ảnh sản
+  // phẩm bình thường" và thứ khiến người bán bị TikTok Shop cưỡng chế theo
+  // chính sách "quảng bá sản phẩm không nhất quán".
+  //
+  // Chế độ CONCEPT (cho phép dựng lại bao bì) có hạn mức NGÀY RIÊNG, thấp hẳn
+  // so với SAFE: rủi ro thật không nằm ở một tấm ảnh, mà ở việc đăng hàng loạt
+  // rồi bị máy quét gắn cờ đồng loạt.
+  fastify.post('/product-scene', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['jobId', 'scene', 'image'],
+        properties: {
+          jobId: { type: 'string', minLength: 8, maxLength: 100 },
+          scene: { type: 'string', enum: scenePrompts.TEN_BOI_CANH },
+          mode: { type: 'string', enum: ['SAFE', 'CONCEPT'], default: 'SAFE' },
+          note: { type: 'string', maxLength: 300 },
+          holdId: { type: 'string', minLength: 8, maxLength: 100 },
+          image: {
+            type: 'object',
+            required: ['mimeType', 'data'],
+            properties: {
+              mimeType: { type: 'string', enum: ['image/png', 'image/jpeg', 'image/webp'] },
+              data: { type: 'string', maxLength: 2_800_000 },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { device } = request
+    const { jobId, scene, image, mode = 'SAFE', note = '', holdId } = request.body
+
+    const cached = await replay(jobId, device.fingerprint)
+    if (cached) return cached
+
+    const cfg = await config.getMany([
+      'credit.enabled', 'credit.cost.image.scene',
+      'image.daily.limit', 'image.daily.limit.concept',
+    ])
+    const cost = cfg['credit.enabled'] ? (cfg['credit.cost.image.scene'] || 0) : 0
+
+    // Hạn mức riêng của CONCEPT đi TRƯỚC hạn mức chung: hết trần concept thì
+    // vẫn còn dùng SAFE được, đó mới là điều người bán cần trong ngày.
+    if (mode === 'CONCEPT' && cfg['image.daily.limit.concept'] > 0) {
+      const daDung = await UsageLog.countDocuments({
+        fingerprint: device.fingerprint,
+        action: 'product_scene',
+        assistTask: 'CONCEPT',
+        createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+      })
+      if (daDung >= cfg['image.daily.limit.concept']) {
+        return reply.code(429).send({
+          code: 'DAILY_LIMIT_CONCEPT',
+          message: `Hôm nay đã dựng ${cfg['image.daily.limit.concept']} ảnh đổi `
+            + 'bao bì. Chế độ giữ nguyên bao bì vẫn dùng bình thường.',
+        })
+      }
+    }
+    if (cfg['image.daily.limit'] > 0) {
+      const daDung = await UsageLog.countDocuments({
+        fingerprint: device.fingerprint,
+        action: 'product_scene',
+        createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+      })
+      if (daDung >= cfg['image.daily.limit']) {
+        return reply.code(429).send({
+          code: 'DAILY_LIMIT',
+          message: `Hôm nay đã dựng hết ${cfg['image.daily.limit']} ảnh. `
+            + 'Thử lại vào ngày mai.',
+        })
+      }
+    }
+
+    const lacking = await precheck(device.fingerprint, holdId, cost,
+      { action: 'product_scene', jobId })
+    if (lacking) {
+      return reply.code(402).send({
+        code: 'INSUFFICIENT_CREDIT',
+        message: `Không đủ Vox. Cần ${lacking.required}, bạn có ${lacking.balance}.`,
+        balance: lacking.balance,
+        required: lacking.required,
+      })
+    }
+
+    const started = Date.now()
+    let result
+    try {
+      result = await gateway.generateScene({ image, scene, mode, note })
+    } catch (err) {
+      request.log.warn({ err, jobId, scene, mode }, 'product-scene failed')
+      UsageLog.create({
+        fingerprint: device.fingerprint,
+        jobId,
+        action: 'product_scene',
+        assistTask: mode,
+        status: 'error',
+        errorCode: err.code || 'AI_UNAVAILABLE',
+        errorMessage: String(err.message).slice(0, 300),
+        durationMs: Date.now() - started,
+        ip: request.ip,
+        appVersion: device.appVersion,
+      }).catch(() => {})
+      return reply.code(err.statusCode || 503).send({
+        code: err.code || 'AI_UNAVAILABLE',
+        message: err.message || 'Chưa dựng được ảnh. Thử lại sau ít phút.',
+        retryAfter: 30,
+      })
+    }
+
+    const paid = await charge(device, {
+      holdId,
+      jobId,
+      action: 'product_scene',
+      walletCost: cost,
+      internalVox: 0,
+      description: `Dựng bối cảnh ảnh (${mode})`,
+      ip: request.ip,
+    })
+
+    const response = {
+      jobId,
+      scene,
+      mode,
+      image: result.image,
+      creditCharged: paid.charged,
+      balanceAfter: paid.balanceAfter,
+    }
+    await Promise.all([
+      remember(jobId, device.fingerprint, 'product_scene', response, paid.charged),
+      UsageLog.create({
+        fingerprint: device.fingerprint,
+        jobId,
+        action: 'product_scene',
+        // Ghi CHẾ ĐỘ vào đây để đếm hạn mức concept và để tra lại sau này.
+        assistTask: mode,
+        inputSize: 1,
+        creditCharged: paid.charged,
+        aiProvider: result.provider,
+        aiModel: result.model,
         durationMs: Date.now() - started,
         status: 'success',
         ip: request.ip,

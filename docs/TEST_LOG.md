@@ -8474,6 +8474,108 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C1 — Dựng bối cảnh ảnh sản phẩm, có cổng tuân thủ TikTok Shop (Phase H, 2026-08-21)
+
+Người dùng gửi ảnh chụp màn hình một án phạt THẬT trên tài khoản của họ:
+**cưỡng chế hủy quyền thương mại điện tử + trừ 1000 điểm CHR**, ngày
+19/8/2026, lý do "quảng bá sản phẩm không nhất quán". Kèm dòng đáng sợ nhất:
+6 lần cùng loại trong 90 ngày là mất quyền bán, bất kể điểm còn bao nhiêu.
+
+Đề bài xin một "AI dựng ảnh bao bì đẹp". Nhưng thứ vừa phạt họ CHÍNH LÀ hình
+trong video không khớp sản phẩm đang bán. Nên tính năng này được xây quanh
+đúng một câu hỏi: *ảnh vừa dựng có còn là sản phẩm đang bán không?*
+
+### Audit trước khi làm
+
+Bản đề bài nói "tái sử dụng embedding ảnh sẵn có". **Không có** — cả voidmix
+lẫn SocialHub đều chưa từng có embedding ảnh nào. Nếu tin câu đó mà làm thì
+đã đi dựng CLIP + ngưỡng cosine.
+
+Chọn đường khác: dùng chính mô hình thị giác làm **giám khảo giải thích
+được**. Ngưỡng cosine 0,82 không nói cho người bán biết phải sửa gì; câu
+"nhãn khác chữ so với bản gốc" thì có. Với một án phạt phải đi khiếu nại, lời
+văn là thứ dùng được, con số thì không.
+
+### Ba luật được ép bằng mã, không bằng lời khuyên
+
+1. **Mặc định giữ nguyên sản phẩm.** `buildPrompt` mặc định `mode='SAFE'`,
+   `GIU_NGUYEN_SAN_PHAM` cấm đổi chữ trên nhãn, màu, kiểu dáng, chất liệu,
+   khối lượng, và cấm thêm huy hiệu/giải thưởng không có trong ảnh gốc.
+2. **Kết quả kiểm ĐÈ LÊN chế độ người dùng xin.** Mô hình hứa giữ nguyên là
+   một chuyện, nó có giữ hay không là chuyện khác. Mọi ảnh đều đi qua tác vụ
+   `packaging_check` (gửi 2 ảnh: gốc + mới), và phán quyết đó mới là thứ
+   quyết định ảnh có `dung_duoc_de_ban` hay không.
+3. **Không kiểm được thì coi như CONCEPT.** Mất mạng, mô hình trả nhãn lạ,
+   máy chủ lỗi — tất cả rơi về "chưa kiểm được", và ảnh chưa kiểm không bao
+   giờ được đánh dấu đăng bán được. Đoán sai hướng này mất một tấm ảnh; đoán
+   sai hướng kia mất kênh bán hàng.
+
+### Vì sao phán quyết là LỜI, không phải điểm
+
+`packaging_check` trả `value` (SAFE/CONCEPT) + `reason` bằng câu tiếng Việt,
+và prompt ghi thẳng "Không chắc thì chọn CONCEPT". Người bán đọc được lý do
+thì tự quyết được có dùng ảnh hay không; đọc "0,79" thì không.
+
+### Bộ nhớ đệm suýt thành lỗ hổng
+
+`cacheKey(task, input, images)` ban đầu chỉ băm phần chữ. Nghĩa là dựng ảnh
+lần hai — ảnh khác hẳn — vẫn nhận lại phán quyết SAFE của lần trước. Đã băm
+cả dữ liệu ảnh vào khoá.
+
+### Những chỗ test khoá lại
+
+Server (`tests/product-scene.test.js`, 15 test) — gỡ `GIU_NGUYEN_SAN_PHAM`
+ra thì **3 test đỏ ngay**, tức là luật không chỉ nằm trong câu chữ tài liệu.
+Cũng khoá: bối cảnh lạ thì ném lỗi (không âm thầm dựng bừa), CONCEPT phải
+kèm câu "không dùng để đăng kèm sản phẩm đang bán", vai `image` **không có
+vai dự phòng** (rơi về `translate` là sinh ra chữ chứ không ra ảnh).
+
+Client (`tests/test_dung_boi_canh_san_pham.py`, 14 test) — gỡ luật "phán
+quyết đè lên chế độ xin" thì **3 test đỏ**. Cũng khoá: mỗi ảnh phải đi qua
+đúng 2 ảnh gửi kiểm; một bối cảnh hỏng không giết cả mẻ; nhật ký ghi nối
+tiếp chứ không đè; chưa có tài khoản thì không gọi ra ngoài; ảnh CONCEPT
+đóng nhãn cảnh báo dài hơn ảnh SAFE; `dong_nhan_ai` trả `False` khi ffmpeg
+hỏng (trả `True` là nói dối lớp trên).
+
+Giao diện (`tests/test_product_scene_page.py`, 15 test) — danh sách bối cảnh
+trong app **đối chiếu trực tiếp với `product_scene.js`**: đổi một bên quên
+bên kia thì test đỏ (đã thử đổi `tay_cam` → `tren_tay` để xác nhận). Cũng
+khoá: "chưa kiểm được" hiện huy hiệu RIÊNG (gộp với "chỉ để tham khảo" khiến
+người dùng tưởng ảnh có lỗi, trong khi thật ra chưa ai kiểm), câu tổng kết
+không được nói "xong hết" khi có ảnh lệch, và chạy lượt mới phải xoá ảnh
+lượt cũ khỏi màn hình.
+
+### Hạn mức và giá
+
+`credit.cost.assist.packaging_check: 3`, `credit.cost.image.scene: 30`,
+`image.daily.limit: 60`, `image.daily.limit.concept: 10`. Hạn mức CONCEPT
+kiểm TRƯỚC hạn mức chung — kiểm sau thì người dùng nhận thông báo sai lý do.
+Giao diện chặn tối đa 4 bối cảnh mỗi lượt để không ai lỡ tay chọn cả sáu rồi
+mới nhìn hoá đơn.
+
+### Bộ canh KHÔNG dựng, và lý do
+
+Định thêm một bộ canh "module import lười phải khai trong `autodub.spec`".
+Đo trước khi dựng: **33 module** hiện chưa khai mà app vẫn chạy — PyInstaller
+đọc được cả import trong thân hàm. Một bộ canh kêu nhầm 33 lần sẽ bị tắt
+trong tuần đầu, nên bỏ; chỉ khai thêm `autodub.product_scene` cho nhất quán
+với các dòng lười khác.
+
+**1667 passed, 7 skipped (Python) · 385 pass, 1 skip (Node) · smoke test dựng
+đủ 18 trang, exit 0.**
+
+### Remaining Limits
+
+- **Chưa chạy thật lượt nào** — vẫn thiếu nhà cung cấp cho vai `image` (và
+  vai `assist`) trong trang quản trị. Đây là cùng một việc đang chặn V89:
+  toàn bộ đường ống đã dựng và test, nhưng chưa ảnh nào đi qua mô hình thật.
+- Chưa ghép ảnh thành video ngắn. Đề bài có nhắc; để sau vì phần quyết định
+  rủi ro nằm ở ảnh, không ở khâu ghép.
+- Nhật ký `nhat_ky_dung_anh.json` nằm cạnh ảnh, chưa gom về một chỗ. Đổi thư
+  mục lưu là nhật ký tách làm hai tệp.
+- Không kiểm được trên Windows (không có máy Windows trong môi trường này) —
+  riêng khâu đóng nhãn bằng ffmpeg `drawtext` là chỗ dễ khác nhau nhất.
+
 ## V89 giai đoạn 3 — bảng theo dõi chi phí (Phase H, 2026-08-19)
 
 Giai đoạn cuối của bản kế hoạch: nhìn MỘT trang là biết tuần rồi tốn bao nhiêu

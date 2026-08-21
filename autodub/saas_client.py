@@ -598,7 +598,32 @@ class SaasClient:
         self._note_usage(data)
         return data
 
+    def product_scene(self, image: dict, scene: str, *, job_id: str,
+                      mode: str = "SAFE", note: str = "",
+                      hold_id: str | None = None,
+                      timeout: float = 120.0) -> dict:
+        """Dựng lại ảnh sản phẩm trong một bối cảnh khác — mini-spec C1.
+
+        ``image`` là ``{"mimeType": ..., "data": <base64>}``. Trả về dict có
+        ``image`` (cùng dạng) kèm ``mode`` và số Vox đã trừ.
+
+        ``mode="SAFE"`` giữ nguyên bao bì, chỉ đổi bối cảnh — đây là mặc định
+        và là thứ dùng được cho video bán hàng. ``"CONCEPT"`` cho phép mô hình
+        vẽ lại bao bì; ảnh đó CHỈ để tham khảo ý tưởng.
+        """
+        payload = {"jobId": job_id, "scene": scene, "mode": mode,
+                   "image": image}
+        if note:
+            payload["note"] = note[:300]
+        if hold_id:
+            payload["holdId"] = hold_id
+        data = self._request("POST", "/v1/ai/product-scene", timeout=timeout,
+                             json_body=payload)
+        self._note_usage(data)
+        return data
+
     def assist(self, task: str, input_data: dict, *, job_id: str,
+               images: list[dict] | None = None,
                hold_id: str | None = None, timeout: float = 45.0) -> list[dict]:
         """Chạy một tác vụ trợ lý — mini-spec V89.
 
@@ -613,6 +638,8 @@ class SaasClient:
         đường lui chạy trên máy (xem `music_suggest.goi_y_nhac`).
         """
         payload = {"jobId": job_id, "task": task, "input": input_data or {}}
+        if images:
+            payload["images"] = images
         if hold_id:
             payload["holdId"] = hold_id
         data = self._request("POST", "/v1/ai/assist", timeout=timeout,

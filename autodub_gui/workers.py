@@ -1176,3 +1176,44 @@ class CloudBatchWorker(QThread):
             self.failed.emit(f"Lỗi không lường trước: {err}")
             return
         self.finished_ok.emit(report)
+
+
+class ProductSceneWorker(QThread):
+    """Dựng ảnh sản phẩm theo bối cảnh — mini-spec C1.
+
+    Mỗi bối cảnh là một lượt gọi máy chủ mất vài giây, nên chạy nền và bắn
+    tín hiệu từng ảnh một: người dùng thấy ảnh đầu tiên trong lúc ảnh thứ tư
+    còn đang dựng.
+
+    Không có nút Dừng: mỗi ảnh đã tính tiền ngay khi máy chủ dựng xong, dừng
+    giữa chừng cũng không hoàn lại được lượt đang chạy. Thay vào đó giới hạn
+    số bối cảnh chọn được mỗi lượt ở phía giao diện.
+    """
+
+    tien_trinh = Signal(str)        # dòng trạng thái
+    xong = Signal(object)           # product_scene.Phien
+    hong = Signal(str)
+
+    def __init__(self, anh_goc: str, boi_canh: list[str], thu_muc: str,
+                 che_do: str = "SAFE", ghi_chu: str = "", parent=None):
+        super().__init__(parent)
+        self._anh_goc = anh_goc
+        self._boi_canh = list(boi_canh)
+        self._thu_muc = thu_muc
+        self._che_do = che_do
+        self._ghi_chu = ghi_chu
+
+    def run(self) -> None:
+        try:
+            from autodub import product_scene
+
+            self.tien_trinh.emit(
+                f"Đang dựng {len(self._boi_canh)} bối cảnh…")
+            phien = product_scene.dung_boi_canh(
+                self._anh_goc, self._boi_canh, self._thu_muc,
+                che_do=self._che_do, ghi_chu=self._ghi_chu)
+        except Exception as e:  # noqa: BLE001 — lỗi phải lên tới người dùng
+            logger.warning(f"Dựng bối cảnh hỏng: {e}")
+            self.hong.emit(str(e))
+            return
+        self.xong.emit(phien)

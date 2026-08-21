@@ -53,8 +53,9 @@ ROW_EDITOR_LAUNCHER = 13
 ROW_ACCOUNT = 14    # Tài khoản: ví Vox, kích hoạt mã, lịch sử
 ROW_CHARACTERS = 15  # Hồ sơ nhân vật xuyên tập (mini-spec V62)
 ROW_TRANSCRIBE = 16  # Chép lời: giọng nói -> văn bản (mini-spec V71)
+ROW_PRODUCT_SCENE = 17  # Ảnh sản phẩm: dựng bối cảnh + cổng tuân thủ (C1)
 
-PAGE_COUNT = 17
+PAGE_COUNT = 18
 
 # (số thứ tự, nhãn ở thanh bên, tiêu đề trang, mô tả trang, biểu tượng, nhóm)
 PAGES: list[tuple[int, str, str, str, object, str]] = [
@@ -99,6 +100,10 @@ PAGES: list[tuple[int, str, str, str, object, str]] = [
     (ROW_TRANSCRIBE, "Chép lời", "Chép lời",
      "Chuyển giọng nói thành văn bản từ liên kết, video hoặc file mp3",
      icons.captions, "tools"),
+    (ROW_PRODUCT_SCENE, "Ảnh sản phẩm", "Ảnh sản phẩm",
+     "Dựng bối cảnh mới cho ảnh sản phẩm, giữ nguyên bao bì để không "
+     "vi phạm chính sách sàn",
+     icons.image, "tools"),
     # Nhóm "second" — HỆ THỐNG
     (ROW_ACCOUNT,   "Tài khoản",         "Tài khoản",
      "Số Vox còn lại, kích hoạt mã và lịch sử sử dụng",
@@ -363,6 +368,9 @@ class MainWindow(QMainWindow):
         elif row == ROW_TRANSCRIBE:
             from autodub_gui.pages.transcribe_page import TranscribePage
             page = TranscribePage(self._fresh_settings, self.pages)
+        elif row == ROW_PRODUCT_SCENE:
+            from autodub_gui.pages.product_scene_page import ProductScenePage
+            page = ProductScenePage(self._fresh_settings, self.pages)
         elif row == ROW_ACCOUNT:
             from autodub_gui.pages.account_page import AccountPage
             page = AccountPage(self._fresh_settings, self.pages)

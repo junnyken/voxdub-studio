@@ -96,6 +96,9 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     'credit.cost.assist.character_name',
     'credit.cost.assist.explain_error',
     'credit.cost.assist.music_suggest',
+    // credit.cost.assist.packaging_check: cổng kiểm tuân thủ TikTok Shop
+    // (mini-spec C1) — thêm có chủ đích.
+    'credit.cost.assist.packaging_check',
     'credit.cost.assist.series_glossary',
     'credit.cost.assist.tighten_line',
     'credit.cost.assist.video_summary',
@@ -110,6 +113,9 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     // có chủ đích, không phải rò rỉ giá nội bộ.
     'credit.cost.cloud.music',
     'credit.cost.cloud.sound_effect',
+    // credit.cost.image.scene: dựng bối cảnh ảnh sản phẩm (mini-spec C1) —
+    // thêm có chủ đích, không phải rò rỉ giá nội bộ.
+    'credit.cost.image.scene',
     'credit.cost.metadata',
     'credit.cost.segment.autotranslate',
     'credit.cost.segment.base',

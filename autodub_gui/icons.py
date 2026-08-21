@@ -851,6 +851,30 @@ def chart_bar(color: str | None = None) -> QIcon:
     return _make_icon(_draw_chart_bar, color or theme.TEXT_MUTED)
 
 
+
+def _draw_image(p: QPainter, r: QRectF, c: QColor) -> None:
+    """Khung ảnh — viền chữ nhật, mặt trời nhỏ và một ngọn núi."""
+    _outline(p, c)
+    p.drawRoundedRect(r, r.width() * 0.12, r.width() * 0.12)
+    # Mặt trời
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(c)
+    d = r.width() * 0.16
+    p.drawEllipse(QRectF(r.left() + r.width() * 0.22,
+                         r.top() + r.height() * 0.20, d, d))
+    # Ngọn núi chạm đáy khung
+    path = QPainterPath()
+    path.moveTo(r.left() + r.width() * 0.10, r.bottom() - r.height() * 0.08)
+    path.lineTo(r.left() + r.width() * 0.45, r.top() + r.height() * 0.45)
+    path.lineTo(r.left() + r.width() * 0.90, r.bottom() - r.height() * 0.08)
+    path.closeSubpath()
+    p.drawPath(path)
+
+
+def image(color: str | None = None) -> QIcon:
+    return _make_icon(_draw_image, color or theme.TEXT_MUTED)
+
+
 def _draw_eye(p: QPainter, r: QRectF, c: QColor) -> None:
     """Icon mắt (eye) — hiện track."""
     p.setPen(Qt.PenStyle.NoPen)

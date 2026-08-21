@@ -88,8 +88,10 @@ test('khoá mang theo phiên bản prompt', () => {
   // thầm: đo thấy tệ hơn cũng không hiểu vì sao.
   const crypto = require('node:crypto')
   const chuan = JSON.stringify({ transcript: 'abc' }, ['transcript'])
+  // Định dạng khoá có thêm phần băm ẢNH ở cuối (mini-spec C1) — rỗng khi
+  // tác vụ không gửi ảnh.
   const mong_doi = `assist-cache-${crypto.createHash('sha1')
-    .update(`music_suggest|${assist.PROMPT_VERSION}|${chuan}`)
+    .update(`music_suggest|${assist.PROMPT_VERSION}|${chuan}|`)
     .digest('hex').slice(0, 32)}`
   assert.strictEqual(assist.cacheKey('music_suggest', { transcript: 'abc' }),
     mong_doi)
@@ -99,6 +101,14 @@ test('khoá đủ ngắn để làm _id và không lẫn với jobId của app',
   const k = assist.cacheKey('music_suggest', { transcript: 'abc' })
   assert.ok(k.startsWith('assist-cache-'))
   assert.ok(k.length <= 100)
+})
+
+test('đổi ẢNH thì khoá phải đổi — nếu không, kết luận cũ được dùng lại', () => {
+  const a = assist.cacheKey('packaging_check', {}, [{ data: 'AAAA' }])
+  const b = assist.cacheKey('packaging_check', {}, [{ data: 'BBBB' }])
+  const khong_anh = assist.cacheKey('packaging_check', {})
+  assert.notStrictEqual(a, b, 'hai ảnh khác nhau mà cùng khoá')
+  assert.notStrictEqual(a, khong_anh)
 })
 
 test('dữ liệu rỗng vẫn ra khoá hợp lệ, không nổ', () => {

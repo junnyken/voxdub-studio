@@ -56,6 +56,18 @@ const DEFAULTS = {
   'credit.cost.assist.series_glossary': 5,
   'credit.cost.assist.character_name': 2,
   'credit.cost.assist.tighten_line': 2,
+  // Kiểm bao bì phải gửi kèm 2 ảnh nên tốn token gấp nhiều lần tác vụ chữ.
+  // Vẫn để rẻ: đây là bước AN TOÀN, thu đắt thì người dùng bỏ qua nó
+  // (mini-spec C1).
+  'credit.cost.assist.packaging_check': 3,
+  // --- Dựng bối cảnh ảnh sản phẩm (mini-spec C1) --------------------------
+  // Sinh ảnh đắt hơn hẳn tác vụ chữ (một ảnh ~ vài trăm lần token một câu
+  // hỏi ngắn), nên giá cao hơn nhưng vẫn dưới giá một lần sinh nhạc.
+  'credit.cost.image.scene': 30,
+  // Hạn mức RIÊNG cho chế độ CONCEPT (dựng lại bao bì) — đây là chế độ khiến
+  // người bán bị TikTok cưỡng chế, nên trần thấp hẳn và tách khỏi trần chung.
+  'image.daily.limit': 60,
+  'image.daily.limit.concept': 10,
   'assist.daily.limit': 150,
   'assist.daily.limit.explain_error': 30,
   // GIÁ NỘI BỘ — để ghi `CreditHold.usage` (đối soát biên lợi nhuận) và làm

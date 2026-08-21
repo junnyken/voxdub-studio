@@ -95,6 +95,11 @@ async function doThat() {
   let tong = 0
   const hong = []
   for (const c of CASES) {
+    if (c.canAnh) {
+      // Không im lặng bỏ qua: in ra để người chạy biết phần nào CHƯA được đo.
+      inBang([c.task, c.ten.slice(0, 32), '-', 'bỏ qua (cần ảnh thật)'])
+      continue
+    }
     let ket = []
     try {
       ket = await goiThat(c.task, c.input)

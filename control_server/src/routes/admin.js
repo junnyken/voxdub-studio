@@ -418,7 +418,7 @@ module.exports = async function adminRoutes(fastify) {
         properties: {
           name: { type: 'string', minLength: 1, maxLength: 60 },
           label: { type: 'string', maxLength: 120 },
-          role: { type: 'string', enum: ['translate', 'content', 'assist'], default: 'translate' },
+          role: { type: 'string', enum: ['translate', 'content', 'assist', 'image'], default: 'translate' },
           type: { type: 'string', enum: ['openai_compat', 'google'], default: 'openai_compat' },
           baseUrl: { type: 'string', maxLength: 300 },
           apiKey: { type: 'string', maxLength: 400 },

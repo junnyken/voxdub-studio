@@ -133,8 +133,9 @@ cần phát hành lại bản `.exe`.
 
 Body: `{ jobId, task, holdId?, input: object }`
 `task` ∈ `music_suggest` | `explain_error` | `video_summary` |
-`character_name` | `series_glossary` | `tighten_line` — sai tên bị chặn ngay ở
-tầng schema (`400 FST_ERR_VALIDATION`), trước cả xác thực và ví tiền.
+`character_name` | `series_glossary` | `tighten_line` | `packaging_check` —
+sai tên bị chặn ngay ở tầng schema (`400 FST_ERR_VALIDATION`), trước cả xác
+thực và ví tiền.
 
 `input` theo từng tác vụ:
 | task | input | trần ký tự |
@@ -145,6 +146,13 @@ tầng schema (`400 FST_ERR_VALIDATION`), trước cả xác thực và ví ti�
 | `character_name` | `{lines, lineCount}` | 3000 |
 | `series_glossary` | `{transcript, seriesName?}` | 8000 |
 | `tighten_line` | `{line, needSeconds, roomSeconds, trimPercent}` | 1200 |
+| `packaging_check` | `{note?}` + **2 ảnh** (gốc, mới) | 300 |
+
+`images: [{mimeType, data}]` (base64, tối đa 2 ảnh, mỗi ảnh ≤ 2,8 MB) chỉ
+nhận ở tác vụ khai `nhanAnh`. Gửi ảnh vào tác vụ chỉ-chữ trả `400
+TASK_KHONG_NHAN_ANH` — im lặng bỏ ảnh đi thì người gọi tưởng mô hình đã nhìn.
+Khoá nhớ đệm băm CẢ dữ liệu ảnh: đổi ảnh mà dùng lại phán quyết cũ là lỗ
+hổng, không phải tối ưu.
 
 Response: `{ jobId, task, results: [{value, reason}], creditCharged, balanceAfter, fromCache? }`
 **`reason` là bắt buộc trong khuôn JSON** — giao diện hiện lý do cho người
@@ -162,6 +170,34 @@ Vai trò mô hình: `assist`; chưa cấu hình thì tự dùng chung vai `trans
 Lỗi: `400` tên tác vụ sai, `402 INSUFFICIENT_CREDIT`, `429 DAILY_LIMIT`,
 `502 BAD_AI_RESPONSE`, `503 AI_UNAVAILABLE`. Mọi nơi gọi phía app đều có
 đường lui chạy trên máy — hỏng ở đây không chặn người dùng làm việc.
+
+### `POST /product-scene` (mini-spec C1, thêm 2026-08-21)
+Dựng lại ảnh sản phẩm trong một bối cảnh khác. Sinh ra để chống đúng án phạt
+"quảng bá sản phẩm không nhất quán" của TikTok Shop, nên **chế độ mặc định là
+giữ nguyên sản phẩm**, không phải chế độ sáng tạo.
+
+Body: `{ jobId, image: {mimeType, data}, scene, mode?, note?, holdId? }`
+`scene` ∈ `ban_go` | `bep_gia_dinh` | `nen_studio` | `gio_qua` | `ngoai_troi`
+| `tay_cam` (xem `control_server/src/prompts/product_scene.js`; app có test
+đối chiếu hai danh sách).
+`mode` ∈ `SAFE` (mặc định) | `CONCEPT`. `SAFE` cấm mô hình đổi chữ trên nhãn,
+màu, kiểu dáng, chất liệu, khối lượng, và cấm thêm huy hiệu/giải thưởng.
+`CONCEPT` cho vẽ lại bao bì — ảnh ý tưởng, KHÔNG dùng đăng kèm hàng đang bán.
+
+Response: `{ jobId, scene, mode, image: {mimeType, data}, creditCharged, balanceAfter }`
+
+Billing: `credit.cost.image.scene` (30 Vox). Hạn mức: `image.daily.limit`
+(60/máy/ngày) và `image.daily.limit.concept` (10) — **hạn mức CONCEPT kiểm
+TRƯỚC** hạn mức chung, vì kiểm sau thì người dùng nhận thông báo sai lý do.
+Vai trò mô hình: `image`, **không có vai dự phòng** — rơi về `translate` chỉ
+sinh ra chữ, và một cửa "sinh ảnh" trả về chữ là hỏng âm thầm.
+Lỗi: `400` bối cảnh lạ, `402 INSUFFICIENT_CREDIT`, `429 DAILY_LIMIT`,
+`502 KHONG_SINH_DUOC_ANH` (mô hình trả chữ thay vì ảnh), `503 AI_UNAVAILABLE`.
+
+**Cửa này KHÔNG tự kiểm tuân thủ.** Bên gọi phải gọi tiếp `POST /assist` với
+`packaging_check` kèm cả ảnh gốc lẫn ảnh mới, và phán quyết đó đè lên `mode`
+đã xin. `autodub/product_scene.py` làm đúng chuỗi này; ai gọi thẳng API mà bỏ
+bước kiểm thì tự chịu rủi ro sàn.
 
 ### `GET /v1/admin/analytics/assist?days=7` (admin)
 Bảng theo dõi cổng trợ lý: `{ days, tomTat, tacVu[], moHinh[], vaiTro[],

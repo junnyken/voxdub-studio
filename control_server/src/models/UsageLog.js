@@ -20,7 +20,11 @@ const usageLogSchema = new mongoose.Schema({
     // thể nằm ở `assistTask` để thống kê tách được từng loại mà không phải
     // nới enum mỗi lần thêm việc mới.
     enum: ['translate', 'analyze', 'review', 'generate_post', 'translate_subtitle',
-          'sound_effect', 'music', 'assist'],
+          'sound_effect', 'music', 'assist',
+          // 'product_scene' thêm ở mini-spec C1 — dựng bối cảnh cho ảnh sản
+          // phẩm. Ghi riêng để tra được ai đã sinh ảnh nào, phục vụ đúng lúc
+          // người bán bị TikTok gắn cờ và cần bằng chứng.
+          'product_scene'],
     required: true,
   },
   assistTask: { type: String, default: '' },

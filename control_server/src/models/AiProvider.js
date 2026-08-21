@@ -15,7 +15,7 @@ const aiProviderSchema = new mongoose.Schema({
   // hệ thống âm thầm dùng chung vai 'translate', đắt hơn hàng chục lần (V94).
   role: {
     type: String,
-    enum: ['translate', 'content', 'assist'],
+    enum: ['translate', 'content', 'assist', 'image'],
     default: 'translate',
   },
   type: { type: String, enum: ['openai_compat', 'google'], default: 'openai_compat' },

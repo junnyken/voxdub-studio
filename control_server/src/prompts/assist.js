@@ -226,6 +226,51 @@ const TASKS = {
       `Cần ngắn hơn khoảng ${Number(input.trimPercent) || 20}%.`,
     ].join('\n'),
   },
+
+  /**
+   * So ảnh sản phẩm THẬT với ảnh do AI dựng lại — mini-spec C1.
+   *
+   * Vì sao cần: TikTok Shop cưỡng chế theo chính sách "quảng bá sản phẩm không
+   * nhất quán" — video phải khớp sản phẩm đang bán về màu, kích thước, chất
+   * liệu, thiết kế. Máy của họ quét bằng thị giác máy tính rồi so với ảnh
+   * listing; sai khác nhỏ cũng tính vi phạm, và 6 lần cùng loại trong 90 ngày
+   * là mất quyền bán bất kể điểm CHR.
+   *
+   * Nên tác vụ này KHÔNG chấm điểm giống nhau bằng một con số. Nó trả về:
+   *   value  = "SAFE" hoặc "CONCEPT"
+   *   reason = ĐÃ ĐỔI CÁI GÌ, bằng lời người đọc hiểu
+   * Con số 0,58 thì seller không cãi được với TikTok; câu "chữ trên nhãn khác
+   * bản gốc" thì đọc là biết ngay phải sửa gì.
+   *
+   * Ảnh gửi lên theo thứ tự CỐ ĐỊNH: [0] ảnh gốc, [1] ảnh AI dựng.
+   */
+  packaging_check: {
+    costKey: 'credit.cost.assist.packaging_check',
+    maxInput: 500,
+    maxResults: 1,
+    nhanAnh: true,
+    soAnhToiDa: 2,
+    system: [
+      'Bạn kiểm tra xem một ảnh sản phẩm do AI dựng lại có còn khớp với sản',
+      'phẩm THẬT hay không. Ảnh thứ nhất là sản phẩm thật; ảnh thứ hai là ảnh',
+      'AI dựng.',
+      'Trả về đúng một mục.',
+      'value = "SAFE" khi sản phẩm trong hai ảnh là MỘT: cùng bao bì, cùng',
+      'chữ và hình trên nhãn, cùng màu, cùng kiểu dáng, cùng loại đóng gói —',
+      'chỉ khác bối cảnh, ánh sáng, góc chụp hoặc nền.',
+      'value = "CONCEPT" khi có BẤT KỲ khác biệt nào về chính sản phẩm: nhãn',
+      'khác chữ, khác bố cục, khác màu bao bì, khác kiểu bao bì, thêm hoặc bớt',
+      'chi tiết, đổi khối lượng ghi trên bao bì.',
+      'Không chắc thì chọn CONCEPT — đoán sai theo hướng an toàn.',
+      'reason: nói NGẮN GỌN đã khác chỗ nào (tối đa 20 chữ), tiếng Việt.',
+      'Nếu là SAFE thì reason nói rõ chỉ đổi gì (ví dụ "chỉ đổi nền và ánh sáng").',
+    ].join(' '),
+    buildUser: (input) => [
+      'Ảnh 1: sản phẩm thật đang bán. Ảnh 2: ảnh do AI dựng.',
+      cat(input.note, 500) ? `Ghi chú của người bán: ${cat(input.note, 500)}` : '',
+      'Hai ảnh này có phải cùng MỘT sản phẩm để đăng bán không?',
+    ].filter(Boolean).join('\n'),
+  },
 }
 
 /** Tên tác vụ hợp lệ — dùng cho schema của route và cho test. */
@@ -243,12 +288,18 @@ function getTask(name) {
  * phiên bản prompt + dữ liệu vào) nên bấm lại là dùng lại, còn sửa prompt thì
  * nhớ đệm tự hết hiệu lực.
  */
-function cacheKey(task, input) {
+function cacheKey(task, input, images) {
   const crypto = require('node:crypto')
   // Sắp khoá trước khi băm: {a,b} và {b,a} là cùng một câu hỏi.
   const chuan = JSON.stringify(input || {}, Object.keys(input || {}).sort())
+  // Ảnh PHẢI nằm trong khoá: đổi ảnh mà khoá không đổi thì lần kiểm sau trả
+  // lại kết luận của ảnh cũ — đúng thứ nguy hiểm nhất với một cổng kiểm tra
+  // tuân thủ (mini-spec C1).
+  const bamAnh = (images || [])
+    .map((a) => crypto.createHash('sha1').update(a.data || '').digest('hex').slice(0, 16))
+    .join(',')
   const bam = crypto.createHash('sha1')
-    .update(`${task}|${PROMPT_VERSION}|${chuan}`).digest('hex').slice(0, 32)
+    .update(`${task}|${PROMPT_VERSION}|${chuan}|${bamAnh}`).digest('hex').slice(0, 32)
   return `assist-cache-${bam}`
 }
 

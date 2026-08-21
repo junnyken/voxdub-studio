@@ -73,6 +73,7 @@ hiddenimports = [
     "autodub.speech.align",            # ass_karaoke: khớp mốc chữ
     "autodub.media.timing",            # pipeline/editor: timeline mềm
     "autodub.securestore",             # mã hóa file trung gian (hold Vox)
+    "autodub.product_scene",           # trang Ảnh sản phẩm: dựng bối cảnh (C1)
     "cryptography.hazmat.primitives.ciphers.aead",  # AESGCM của securestore
     "_cffi_backend",                   # cryptography cần lúc chạy
     "autodub_gui.fonts",               # style_dialog: font kèm app

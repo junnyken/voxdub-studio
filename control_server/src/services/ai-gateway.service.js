@@ -19,6 +19,7 @@ const {
 } = require('../utils/json-repair')
 const prompts = require('../prompts/translate')
 const assistPrompts = require('../prompts/assist')
+const scenePrompts = require('../prompts/product_scene')
 const subtitlePrompts = require('../prompts/subtitle-translate')
 
 class AiError extends Error {
@@ -69,7 +70,7 @@ function openAiHeaders(provider, apiKey) {
  * 429 → chờ tăng dần rồi thử lại; 5xx → chờ ngắn hơn; 401/403/404 → hỏng cấu
  * hình, báo ngay để rơi xuống provider dự phòng thay vì thử lại vô ích.
  */
-async function callOpenAiCompat(provider, { system, user, schema, maxRetries = 2 }) {
+async function callOpenAiCompat(provider, { system, user, schema, images, maxRetries = 2 }) {
   const apiKey = decrypt(provider.apiKeyEnc)
   if (!apiKey) throw new AiError('PROVIDER_MISCONFIGURED', `Provider ${provider.name} chưa có API key`)
   if (!provider.baseUrl || !provider.model) {
@@ -89,7 +90,20 @@ async function callOpenAiCompat(provider, { system, user, schema, maxRetries = 2
       : { type: 'json_object' },
     messages: [
       { role: 'system', content: system },
-      { role: 'user', content: user },
+      // Có ảnh thì phần nội dung là MẢNG (chuẩn vision của OpenAI); không có
+      // thì giữ nguyên chuỗi như cũ để mọi lời gọi sẵn có không đổi hành vi.
+      {
+        role: 'user',
+        content: (images || []).length
+          ? [
+            { type: 'text', text: user },
+            ...images.map((a) => ({
+              type: 'image_url',
+              image_url: { url: `data:${a.mimeType};base64,${a.data}` },
+            })),
+          ]
+          : user,
+      },
     ],
   }
   if (provider.disableReasoning && url.includes('openrouter.ai')) {
@@ -162,7 +176,7 @@ function readOpenAiReply(data, provider) {
 }
 
 /** Google Gemini — API riêng, không tương thích OpenAI. */
-async function callGemini(provider, { system, user, schema, maxRetries = 2 }) {
+async function callGemini(provider, { system, user, schema, images, maxRetries = 2 }) {
   const apiKey = decrypt(provider.apiKeyEnc)
   if (!apiKey) throw new AiError('PROVIDER_MISCONFIGURED', `Provider ${provider.name} chưa có API key`)
 
@@ -175,9 +189,17 @@ async function callGemini(provider, { system, user, schema, maxRetries = 2 }) {
   }
   if (schema) generationConfig.responseSchema = toGeminiSchema(schema)
 
+  // Ảnh (nếu có) đi cùng phần chữ trong CÙNG một lượt hỏi — mini-spec C1.
+  // Thứ tự cố ý: chữ trước, ảnh sau, vì lời hướng dẫn phải được đọc trước khi
+  // mô hình nhìn ảnh (Gemini đọc parts theo thứ tự).
+  const parts = [{ text: user }]
+  for (const anh of images || []) {
+    parts.push({ inlineData: { mimeType: anh.mimeType, data: anh.data } })
+  }
+
   const payload = {
     systemInstruction: { parts: [{ text: system }] },
-    contents: [{ role: 'user', parts: [{ text: user }] }],
+    contents: [{ role: 'user', parts }],
     generationConfig,
   }
 
@@ -540,6 +562,79 @@ async function generatePost({ scriptOriginal, scriptVi, videoTitle }) {
 }
 
 /**
+ * Sinh ảnh sản phẩm trong bối cảnh mới — mini-spec C1.
+ *
+ * KHÔNG đi qua `callWithFallback`: đường đó ép `responseMimeType:
+ * 'application/json'` và đọc phần chữ, còn ở đây thứ cần lấy là phần ẢNH.
+ * Cùng lý do `generate_music` tự gọi HTTP riêng thay vì dùng `_request()`.
+ *
+ * Vai `image` phải được cấu hình riêng (mô hình sinh ảnh khác hẳn mô hình
+ * chữ) — KHÔNG có đường lui sang vai khác, vì mô hình chữ không sinh được ảnh
+ * và rơi sang đó chỉ đổi một lỗi nói được thành một lỗi khó hiểu.
+ */
+async function generateScene({ image, scene, mode = 'SAFE', note = '' }) {
+  const list = await providersFor('image')
+  if (!list.length) {
+    throw new AiError('NO_PROVIDER',
+      'Chưa cấu hình nơi gọi mô hình cho vai "image". Thêm ở trang Nơi gọi '
+      + 'mô hình, vai trò "Sinh ảnh".', 503)
+  }
+  const prompt = scenePrompts.buildPrompt({ scene, mode, note })
+
+  let lastError = null
+  for (const provider of list) {
+    try {
+      const apiKey = decrypt(provider.apiKeyEnc)
+      if (!apiKey) throw new AiError('PROVIDER_MISCONFIGURED', 'thiếu API key')
+      const base = provider.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'
+      const url = `${base.replace(/\/+$/, '')}/models/${provider.model}:generateContent`
+      const resp = await axios.post(url, {
+        contents: [{
+          role: 'user',
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType: image.mimeType, data: image.data } },
+          ],
+        }],
+      }, {
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        timeout: provider.timeoutMs || 120_000,
+        validateStatus: () => true,
+      })
+      if (resp.status !== 200) {
+        throw new AiError('AI_UNAVAILABLE',
+          `Mô hình sinh ảnh trả ${resp.status}`, 503)
+      }
+      const parts = resp.data?.candidates?.[0]?.content?.parts || []
+      const anh = parts.find((x) => x.inlineData)
+      if (!anh) {
+        // Mô hình từ chối vẽ (chính sách nội dung) hay trả về chữ: nói thẳng,
+        // đừng để phía app hiểu nhầm là lỗi mạng.
+        const loi = parts.find((x) => x.text)?.text || ''
+        throw new AiError('KHONG_SINH_DUOC_ANH',
+          `Mô hình không trả về ảnh${loi ? `: ${String(loi).slice(0, 200)}` : ''}`,
+          502)
+      }
+      AiProvider.updateOne({ _id: provider._id },
+        { $set: { lastOkAt: new Date(), lastError: '' } }).catch(() => {})
+      return {
+        image: { mimeType: anh.inlineData.mimeType, data: anh.inlineData.data },
+        provider: provider.name,
+        model: provider.model,
+        mode,
+        prompt,
+      }
+    } catch (err) {
+      lastError = err
+      AiProvider.updateOne({ _id: provider._id }, {
+        $set: { lastErrorAt: new Date(), lastError: String(err.message).slice(0, 300) },
+      }).catch(() => {})
+    }
+  }
+  throw lastError || new AiError('AI_UNAVAILABLE', 'Không nơi nào sinh được ảnh')
+}
+
+/**
  * Chạy một tác vụ trợ lý (mini-spec V89).
  *
  * Vai "assist" nên trỏ vào mô hình RẺ: các tác vụ này ngắn (vài trăm token)
@@ -547,9 +642,20 @@ async function generatePost({ scriptOriginal, scriptVi, videoTitle }) {
  * hình tới hàng chục lần. Chưa cấu hình vai riêng thì dùng chung với dịch để
  * tính năng vẫn chạy, đúng cách `generatePost` đã làm.
  */
-async function assist({ task, input }) {
+async function assist({ task, input, images }) {
   const spec = assistPrompts.getTask(task)
   if (!spec) throw new AiError('UNKNOWN_TASK', `Không có tác vụ "${task}"`, 400)
+  // Tác vụ không khai `nhanAnh` mà lại được gửi ảnh: chặn thẳng thay vì âm
+  // thầm bỏ ảnh đi — bỏ im lặng thì mô hình trả lời dựa trên mỗi phần chữ,
+  // nghe vẫn hợp lý nhưng sai hoàn toàn mục đích (mini-spec C1).
+  if ((images || []).length && !spec.nhanAnh) {
+    throw new AiError('TASK_KHONG_NHAN_ANH',
+      `Tác vụ "${task}" không nhận ảnh`, 400)
+  }
+  if (spec.nhanAnh && (images || []).length > spec.soAnhToiDa) {
+    throw new AiError('QUA_NHIEU_ANH',
+      `Tác vụ "${task}" nhận tối đa ${spec.soAnhToiDa} ảnh`, 400)
+  }
 
   const assistProviders = await providersFor('assist')
   const role = assistProviders.length ? 'assist' : 'translate'
@@ -557,6 +663,7 @@ async function assist({ task, input }) {
     system: spec.system,
     user: spec.buildUser(input || {}),
     schema: assistPrompts.resultsSchema(spec.maxResults),
+    images: images || [],
     maxRetries: 2,
   })
 
@@ -581,6 +688,7 @@ async function assist({ task, input }) {
 module.exports = {
   AiError,
   assist,
+  generateScene,
   translateBatch,
   translateSubtitleBatch,
   fixCjkLeftovers,

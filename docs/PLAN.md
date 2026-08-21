@@ -4412,6 +4412,29 @@ tập → (4) extension làm mặt tiền. Hai hướng bị GẠT có lý do r�
 từ kịch bản (sản phẩm khác, cần GPU farm, không có lợi thế cạnh tranh) và dub
 thời gian thực trên trình duyệt (kiến trúc streaming, gần như sản phẩm thứ 2).
 
+### C1 — Ảnh sản phẩm: dựng bối cảnh có cổng tuân thủ (2026-08-21, ĐÃ XONG)
+
+**Vì sao có mục này:** chủ dự án gửi ảnh chụp án phạt thật trên TikTok Shop
+(19/8/2026): hủy quyền thương mại điện tử + trừ 1000 điểm CHR vì "quảng bá
+sản phẩm không nhất quán". Tính năng sinh ra để giải quyết đúng rủi ro đó,
+không phải để "làm ảnh đẹp".
+
+**Quyết định thiết kế cốt lõi:** không dùng embedding/ngưỡng cosine (bản đề
+bài nói tái sử dụng embedding sẵn có — kiểm tra thì KHÔNG hề có). Dùng mô
+hình thị giác làm giám khảo trả **lời văn**, vì người bán đi khiếu nại cần
+lý do đọc được, không cần điểm số.
+
+**Ba luật ép bằng mã:** mặc định giữ nguyên sản phẩm · phán quyết kiểm đè lên
+chế độ người dùng xin · không kiểm được thì coi như ảnh ý tưởng.
+
+**Đã dựng:** vai `image` trong cổng AI + `generateScene()` · tác vụ
+`packaging_check` (nhận 2 ảnh) · `POST /v1/ai/product-scene` với hạn mức
+CONCEPT riêng · `autodub/product_scene.py` · trang **Ảnh sản phẩm** trong
+app · 44 test mới (15 server + 14 lõi + 15 giao diện).
+
+**Chặn:** chưa cấu hình nhà cung cấp cho vai `image` nên chưa lượt nào chạy
+thật — cùng một việc đang chặn V89. Chi tiết ở `docs/TEST_LOG.md` mục C1.
+
 ### V55 — Huỷ job thật cho chế độ máy chủ
 
 *(Mục này ghi bổ sung ngày 2026-08-18 — mini-spec V55 ship ngày 17-08 mà chỉ

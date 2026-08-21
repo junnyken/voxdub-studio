@@ -47,6 +47,21 @@ const LOI_THOAI_GAME = [
 
 const CASES = [
   {
+    task: 'packaging_check',
+    ten: 'cổng kiểm tuân thủ — cần ẢNH THẬT nên không chấm khô được',
+    input: { note: 'túi zip 1kg, nhãn giấy dán mặt trước' },
+    // Tác vụ này so HAI ẢNH, không so chữ. Chạy thật cần ảnh sản phẩm thật,
+    // nên phần chấm tự động chỉ kiểm được khuôn câu hỏi. Đánh dấu rõ để bộ
+    // đo BÁO BỎ QUA thay vì âm thầm cho điểm 100% — một mẫu luôn đạt vì
+    // không kiểm gì cả còn tệ hơn không có mẫu (bài học V93).
+    canAnh: true,
+    kiem: [
+      ['chỉ trả SAFE hoặc CONCEPT',
+        (r) => ['SAFE', 'CONCEPT'].includes(r.value.trim().toUpperCase())],
+      ['nói rõ đã khác chỗ nào', (r) => r.reason.length >= 8],
+    ],
+  },
+  {
     task: 'music_suggest',
     ten: 'video nấu ăn — nhạc phải mộc, không dồn dập',
     input: { transcript: LOI_THOAI_NAU_AN, videoTitle: 'Nấu phở bò tại nhà' },

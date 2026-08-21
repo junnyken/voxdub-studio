@@ -11,6 +11,7 @@ const NHAN_VAI = {
   translate: 'Dịch',
   content: 'Nội dung',
   assist: 'Trợ lý',
+  image: 'Sinh ảnh',
 }
 
 const EMPTY_FORM = {
@@ -123,6 +124,9 @@ function ProviderModal({ open, onClose, editing, onDone }) {
                 nên trỏ vào mô hình rẻ; chưa cấu hình thì hệ thống dùng chung
                 vai «dịch», đắt hơn hàng chục lần. */}
             <option value="assist">Trợ lý (assist)</option>
+            {/* C1 — mô hình SINH ẢNH, khác hẳn mô hình chữ; không có đường
+                lui sang vai khác vì mô hình chữ không vẽ được. */}
+            <option value="image">Sinh ảnh (image)</option>
           </select>
         </div>
         <div>
