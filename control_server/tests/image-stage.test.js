@@ -121,11 +121,13 @@ test('bảng phán quyết tách theo chế độ chạy', () => {
   assert.deepEqual(group._id, { $ifNull: ['$runMode', ''] })
 })
 
-test('chưa đủ lượt hiệu chỉnh thì chưa được coi là sẵn sàng', () => {
-  assert.equal(stats.sanSangXetDuyet([{ runMode: 'calibration', luot: 19 }]).du,
-    false)
-  assert.equal(stats.sanSangXetDuyet([{ runMode: 'calibration', luot: 20 }]).du,
-    true)
+test('chưa đủ lượt hiệu chỉnh ĐÃ SOI TAY thì chưa được coi là sẵn sàng', () => {
+  // C5 siết lại: đếm lượt đã SOI, không phải lượt đã CHẠY. Chạy 100 ảnh mà
+  // không ai nhìn thì con số 100 chỉ nói đã tiêu bao nhiêu tiền.
+  assert.equal(stats.sanSangXetDuyet(
+    [{ runMode: 'calibration', luot: 99, daSoi: 19 }]).du, false)
+  assert.equal(stats.sanSangXetDuyet(
+    [{ runMode: 'calibration', luot: 20, daSoi: 20 }]).du, true)
 })
 
 test('lượt chạy thật KHÔNG tính vào số lượt hiệu chỉnh', () => {
@@ -184,7 +186,10 @@ test('mọi lượt dựng ảnh đều ghi chế độ chạy vào sổ', () =>
   // đếm hụt đúng nhóm đáng lo nhất.
   const than = thanRoute('/product-scene')
   const soLogCreate = (than.match(/UsageLog\.create\(/g) || []).length
-  const soGhiRunMode = (than.match(/runMode:/g) || []).length
+  // Đếm ĐÚNG dạng ghi sổ. Đếm mọi `runMode:` là đếm lây cả điều kiện lọc
+  // `runMode: { $ne: 'test_now' }` của phép đếm hạn mức — con số phồng lên
+  // và test xanh nhầm. Đã mắc đúng lỗi đó khi thêm nút Thử ngay.
+  const soGhiRunMode = (than.match(/runMode: nac\.runMode/g) || []).length
   assert.equal(soGhiRunMode, soLogCreate,
     `${soLogCreate} chỗ ghi sổ nhưng chỉ ${soGhiRunMode} chỗ ghi chế độ chạy`)
 })

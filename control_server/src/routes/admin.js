@@ -388,9 +388,31 @@ module.exports = async function adminRoutes(fastify) {
         properties: { value: {} },
       },
     },
-  }, async (request) => {
+  }, async (request, reply) => {
     const key = request.params.key
     const before = await config.get(key)
+
+    // Bấm nấc chạy thật là mở tính năng cho MỌI người bán, trong khi phán
+    // quyết kiểm bao bì có thể chưa được ai soi. Hỏi lại trên giao diện
+    // không phải là chặn — giao diện nào cũng đi vòng được bằng một lượt
+    // gọi API. Chặn phải nằm ở đây (mini-spec C5).
+    if (key === 'image.scene.stage' && request.body.value === 'production') {
+      const stats = require('../services/assist-stats.service')
+      const phanQuyet = await UsageLog.aggregate(stats.theoPhanQuyet(90))
+      const xet = stats.sanSangXetDuyet(phanQuyet)
+      if (!xet.du) {
+        return reply.code(409).send({
+          code: 'CHUA_DU_LUOT_SOI_TAY',
+          message: `Mới soi tay ${xet.daSoi}/${xet.toiThieu} lượt hiệu chỉnh. `
+            + 'Số lượt ĐÃ CHẠY không thay được số lượt đã soi: chạy 100 ảnh mà '
+            + 'không ai nhìn thì vẫn chưa biết mô hình quyết đúng hay sai. '
+            + 'Vào bảng hiệu chỉnh, soi từng lý do rồi đánh dấu đồng ý/không.',
+          daSoi: xet.daSoi,
+          toiThieu: xet.toiThieu,
+        })
+      }
+    }
+
     await config.set(key, request.body.value)
     await audit.log({
       action: 'admin.config.update',
@@ -471,6 +493,35 @@ module.exports = async function adminRoutes(fastify) {
       }
       throw err
     }
+  })
+
+  /**
+   * Thử ngay một nơi gọi mô hình (mini-spec C5).
+   *
+   * Gọi THẬT, nhưng ở quy mô nhỏ nhất và bằng ảnh do máy chủ tự vẽ. Không ghi
+   * vào sổ chính thức của `packaging_check`, không tính hạn mức ngày, không
+   * tính vào lượt hiệu chỉnh — nó là phép kiểm cấu hình của người quản trị,
+   * không phải một lượt dùng.
+   */
+  fastify.post('/providers/:id/test-now', async (request, reply) => {
+    const provider = await AiProvider.findById(request.params.id)
+    if (!provider) {
+      return reply.code(404).send({
+        code: 'KHONG_THAY_NOI_GOI', message: 'Không thấy nơi gọi mô hình này.' })
+    }
+    const ket = await gateway.thuNgay(provider)
+    await audit.log({
+      action: 'admin.provider.test',
+      target: provider.name,
+      after: {
+        goiDuoc: ket.goiDuoc,
+        nhinDuocAnh: ket.nhinDuocAnh,
+        coAnh: ket.coAnh,
+        maLoi: ket.maLoi || '',
+      },
+      ip: request.ip,
+    })
+    return ket
   })
 
   fastify.patch('/providers/:id', async (request, reply) => {
@@ -651,6 +702,77 @@ module.exports = async function adminRoutes(fastify) {
       nacHienTai: cfg['image.scene.stage'],
       xetDuyet: stats.sanSangXetDuyet(phanQuyet),
     }
+  })
+
+  /**
+   * Danh sách lượt hiệu chỉnh để soi tay (mini-spec C5).
+   *
+   * Trả về phán quyết và LÝ DO bằng lời của mô hình — đó là thứ người soi
+   * đọc để quyết đồng ý hay không. Mặc định chỉ lấy lượt CHƯA soi: soi lại
+   * cái đã soi là việc thừa.
+   */
+  fastify.get('/calibration/runs', async (request) => {
+    const chuaSoi = request.query.chuaSoi !== 'false'
+    const dieuKien = {
+      action: 'assist',
+      assistTask: 'packaging_check',
+      runMode: 'calibration',
+    }
+    if (chuaSoi) dieuKien.reviewedAt = null
+    const items = await UsageLog.find(dieuKien)
+      .sort({ createdAt: -1 })
+      .limit(Math.min(200, Math.max(1, Number(request.query.limit) || 50)))
+      .lean()
+    return {
+      items: items.map((r) => ({
+        id: r._id,
+        createdAt: r.createdAt,
+        verdict: r.verdict,
+        reason: r.reason || '',
+        status: r.status,
+        errorCode: r.errorCode || '',
+        fingerprint: r.fingerprint,
+        reviewedAt: r.reviewedAt,
+        reviewAgree: r.reviewAgree,
+        reviewNote: r.reviewNote || '',
+      })),
+    }
+  })
+
+  /** Đánh dấu một lượt hiệu chỉnh là đã soi tay, kèm có đồng ý hay không. */
+  fastify.post('/calibration/runs/:id/review', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['agree'],
+        properties: {
+          agree: { type: 'boolean' },
+          note: { type: 'string', maxLength: 500 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const doc = await UsageLog.findOneAndUpdate(
+      { _id: request.params.id, runMode: 'calibration', assistTask: 'packaging_check' },
+      {
+        $set: {
+          reviewedAt: new Date(),
+          reviewAgree: request.body.agree,
+          reviewNote: String(request.body.note || '').slice(0, 500),
+        },
+      },
+      { new: true })
+    if (!doc) {
+      return reply.code(404).send({
+        code: 'KHONG_THAY_LUOT', message: 'Không thấy lượt hiệu chỉnh này.' })
+    }
+    await audit.log({
+      action: 'admin.calibration.review',
+      target: String(doc._id),
+      after: { agree: request.body.agree, verdict: doc.verdict },
+      ip: request.ip,
+    })
+    return { ok: true }
   })
 
   fastify.get('/analytics/retention', async (request) => {

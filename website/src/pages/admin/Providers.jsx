@@ -285,6 +285,58 @@ function ProviderModal({ open, onClose, editing, onDone }) {
 }
 
 /** Giao thức sinh được ảnh — phải khớp GIAO_THUC ở image-transport.service.js. */
+/**
+ * Nút "Thử ngay" — gọi thật một lượt nhỏ để biết cấu hình có chạy không.
+ *
+ * Không có nút này thì lỗi cấu hình (sai khoá, sai tên mô hình, mô hình
+ * không nhìn được ảnh) chỉ lộ ra giữa một mẻ hiệu chỉnh đang tốn tiền.
+ */
+function TestNowButton({ id }) {
+  const [dangChay, setDangChay] = useState(false)
+  const [ket, setKet] = useState(null)
+
+  async function chay() {
+    setDangChay(true)
+    setKet(null)
+    try {
+      setKet(await adminApi.testProvider(id))
+    } catch (e) {
+      setKet({ goiDuoc: false, loi: e.message })
+    } finally {
+      setDangChay(false)
+    }
+  }
+
+  // Nói ra ĐIỀU NGƯỜI BẤM CẦN BIẾT, không phải trạng thái kỹ thuật.
+  let chu = null
+  let mau = 'text-ink-soft'
+  if (ket && !ket.goiDuoc) {
+    chu = `Không gọi được — ${ket.loi || ket.maLoi}`
+    mau = 'text-danger'
+  } else if (ket && ket.role === 'image') {
+    chu = ket.coAnh
+      ? `Gọi được, trả về ảnh ${ket.kieuAnh} (${Math.round(ket.kichThuocAnh / 1024)} KB)`
+      : 'Gọi được nhưng KHÔNG trả về ảnh — kiểm lại tên mô hình.'
+    mau = ket.coAnh ? 'text-success' : 'text-danger'
+  } else if (ket) {
+    chu = ket.nhinDuocAnh
+      ? 'Gọi được và đọc đúng số trong ảnh — nhìn được ảnh.'
+      : `Gọi được nhưng đọc "${ket.docDuoc}" thay vì ${ket.soThat} — mô hình `
+        + 'này KHÔNG nhìn được ảnh, không dùng cho kiểm bao bì được.'
+    mau = ket.nhinDuocAnh ? 'text-success' : 'text-danger'
+  }
+
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      <button type="button" className="btn-ghost text-xs w-fit"
+        disabled={dangChay} onClick={chay}>
+        {dangChay ? 'Đang thử…' : 'Thử ngay'}
+      </button>
+      {chu && <span className={`text-[11px] ${mau}`}>{chu}</span>}
+    </span>
+  )
+}
+
 const GIAO_THUC_ANH = new Set(['google', 'openrouter_images', 'openai_images',
   'custom_images'])
 
@@ -352,6 +404,7 @@ export default function Providers() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2.5 flex-wrap">
                       <h2 className="font-semibold">{p.label || p.name}</h2>
+                      <TestNowButton id={p._id} />
                       {p.role === 'assist' && (
                         <span className={`text-[11px] ${p.visionOkAt ? 'text-success' : 'text-warning'}`}>
                           {p.visionOkAt

@@ -42,6 +42,17 @@ const usageLogSchema = new mongoose.Schema({
   // Không ghi thứ này thì báo cáo hiệu chỉnh không có gì để đếm — C1 ghi đủ
   // tác vụ, mô hình, token, mã lỗi, nhưng KHÔNG ghi kết quả.
   verdict: { type: String, default: '' },
+  // Lý do BẰNG LỜI của mô hình. Đây là thứ người soi tay đọc để quyết đồng ý
+  // hay không — thiếu nó thì bảng hiệu chỉnh chỉ còn hai con số SAFE/CONCEPT
+  // và không ai soi được gì.
+  reason: { type: String, default: '' },
+  // --- Soi tay lượt hiệu chỉnh (mini-spec C5) ----------------------------
+  // Đếm số LƯỢT không nói lên điều gì: mô hình quyết ra sao là một chuyện,
+  // nó quyết ĐÚNG hay SAI là chuyện khác, và chỉ người mới trả lời được.
+  // `reviewAgree` = người soi có đồng ý với phán quyết của mô hình không.
+  reviewedAt: { type: Date, default: null },
+  reviewAgree: { type: Boolean, default: null },
+  reviewNote: { type: String, default: '' },
   inputSize: { type: Number, default: 0 },
   status: { type: String, enum: ['pending', 'success', 'error'], default: 'pending' },
   errorCode: { type: String, default: '' },

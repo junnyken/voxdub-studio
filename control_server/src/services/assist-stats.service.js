@@ -200,6 +200,8 @@ function theoPhanQuyet(days, now = new Date()) {
               { $not: [{ $in: ['$verdict', ['SAFE', 'CONCEPT']] }] }] }, 1, 0],
           },
         },
+        daSoi: { $sum: { $cond: [{ $ifNull: ['$reviewedAt', false] }, 1, 0] } },
+        dongY: { $sum: { $cond: [{ $eq: ['$reviewAgree', true] }, 1, 0] } },
         soMay: { $addToSet: '$fingerprint' },
       },
     },
@@ -207,7 +209,7 @@ function theoPhanQuyet(days, now = new Date()) {
       $project: {
         _id: 0,
         runMode: { $cond: [{ $eq: ['$_id', ''] }, 'khong-ro', '$_id'] },
-        luot: 1, safe: 1, concept: 1, chuaKiemDuoc: 1,
+        luot: 1, safe: 1, concept: 1, chuaKiemDuoc: 1, daSoi: 1, dongY: 1,
         soMay: { $size: '$soMay' },
       },
     },
@@ -215,11 +217,30 @@ function theoPhanQuyet(days, now = new Date()) {
   ]
 }
 
-/** Đã đủ lượt hiệu chỉnh để đem ra xem chưa. */
+/**
+ * Đã đủ cơ sở để bấm nấc chạy thật chưa (mini-spec C5).
+ *
+ * Đếm số lượt **ĐÃ SOI TAY**, không phải tổng số lượt chạy. Chạy 100 ảnh mà
+ * không ai nhìn thì con số 100 chỉ nói mô hình đã tiêu bao nhiêu tiền, không
+ * nói nó quyết đúng hay sai — mà đúng/sai mới là thứ quyết định có mở cho
+ * người bán thật hay không.
+ *
+ * `tyLeDongY` là tỷ lệ người soi đồng ý với phán quyết của mô hình. Đây mới
+ * là số đáng nhìn trước khi bấm nấc.
+ */
 function sanSangXetDuyet(dongPhanQuyet, toiThieu = 20) {
   const calib = (dongPhanQuyet || []).find((d) => d.runMode === 'calibration')
   const luot = calib ? calib.luot : 0
-  return { luot, toiThieu, du: luot >= toiThieu }
+  const daSoi = calib ? (calib.daSoi || 0) : 0
+  const dongY = calib ? (calib.dongY || 0) : 0
+  return {
+    luot,
+    daSoi,
+    dongY,
+    tyLeDongY: daSoi ? Math.round((dongY / daSoi) * 1000) / 10 : 0,
+    toiThieu,
+    du: daSoi >= toiThieu,
+  }
 }
 
 module.exports = {

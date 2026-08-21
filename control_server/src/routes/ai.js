@@ -44,7 +44,14 @@ const { containsCjk } = require('../utils/json-repair')
 async function assistUsedToday(fingerprint, task) {
   const dau_ngay = new Date()
   dau_ngay.setHours(0, 0, 0, 0)
-  const dieu_kien = { fingerprint, action: 'assist', createdAt: { $gte: dau_ngay } }
+  // Lượt "Thử ngay" của trang quản trị KHÔNG tính: nó là phép kiểm cấu hình
+  // của người quản trị, không phải người dùng đang tiêu hạn mức của mình.
+  const dieu_kien = {
+    fingerprint,
+    action: 'assist',
+    runMode: { $ne: 'test_now' },
+    createdAt: { $gte: dau_ngay },
+  }
   if (task) dieu_kien.assistTask = task
   return UsageLog.countDocuments(dieu_kien)
 }
@@ -932,6 +939,8 @@ module.exports = async function aiRoutes(fastify) {
         // đếm khi cần biết mô hình đang gắt hay đang dễ dãi.
         verdict: task === 'packaging_check'
           ? String(result.results[0]?.value || '') : '',
+        reason: task === 'packaging_check'
+          ? String(result.results[0]?.reason || '').slice(0, 500) : '',
         runMode: runModeCuaLuot,
         assistPromptVersion: assistPrompts.PROMPT_VERSION,
         fromCache: true,
@@ -1130,6 +1139,7 @@ module.exports = async function aiRoutes(fastify) {
         fingerprint: device.fingerprint,
         action: 'product_scene',
         assistTask: 'CONCEPT',
+        runMode: { $ne: 'test_now' },
         createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
       })
       if (daDung >= cfg['image.daily.limit.concept']) {
@@ -1144,6 +1154,7 @@ module.exports = async function aiRoutes(fastify) {
       const daDung = await UsageLog.countDocuments({
         fingerprint: device.fingerprint,
         action: 'product_scene',
+        runMode: { $ne: 'test_now' },
         createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
       })
       if (daDung >= cfg['image.daily.limit']) {

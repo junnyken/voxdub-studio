@@ -8474,6 +8474,106 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C5 — Nút "Thử ngay", và bấm nấc phải dựa trên lượt ĐÃ SOI TAY (Phase H, 2026-08-21)
+
+Chủ dự án đưa một bản đề bài cho bước cắm nhà cung cấp thật. Đối chiếu với mã
+trước khi làm — **bốn chỗ phải chỉnh**:
+
+1. **"Tạo 2 bản ghi nhà cung cấp thật"** nằm trong phần Scope của bản đề bài,
+   nhưng đó **không phải việc lập trình**: cần khoá API Gemini và quyền quản
+   trị, cả hai đều không có ở đây (cổng triển khai chỉ trả TÊN biến môi
+   trường, không trả giá trị). Việc này thuộc về chủ dự án.
+2. **"Dòng assist phải ép `responseMimeType: application/json`"** — đây
+   **không phải trường cấu hình**. Nó nằm cứng trong `callGemini`, còn
+   `generateScene` cố ý không ép. Không có cách nào khai sai, nên cũng không
+   có gì để làm.
+3. **"Log đủ: ảnh gốc, ảnh dựng"** — lưu ảnh trên máy chủ đã được cân nhắc và
+   BỎ ở C2 (trùng với `nhat_ky_dung_anh.json` ghi cạnh ảnh trên máy người
+   bán, nơi họ thật sự cần khi khiếu nại; cộng ~5,6 MB mỗi lượt vào cơ sở dữ
+   liệu và một quyết định về dữ liệu khách hàng). Giữ nguyên quyết định cũ:
+   sổ lưu phán quyết + **lý do bằng lời** + mã lỗi, không lưu ảnh.
+4. **"Không bật production khi chưa đạt tối thiểu 20 ảnh ĐÃ REVIEW TAY"** —
+   ràng buộc đúng, nhưng **cơ chế đánh dấu đã soi chưa hề tồn tại**. Bộ đếm
+   cũ đếm số lượt đã CHẠY. Đây là phần đáng làm nhất của cả bản đề bài.
+
+### Đếm lượt đã chạy là đếm nhầm thứ
+
+Chạy 100 ảnh mà không ai nhìn thì con số 100 chỉ nói mô hình đã tiêu bao
+nhiêu tiền — không nói nó quyết đúng hay sai, mà đúng/sai mới là thứ quyết
+định có mở cho người bán thật hay không.
+
+Thêm `reviewedAt` / `reviewAgree` / `reviewNote` vào sổ, hai cửa quản trị để
+liệt kê và đánh dấu, và một panel soi tay: mỗi lượt hiện **lý do bằng lời**
+của mô hình cùng hai nút *Mô hình đúng* / *Mô hình sai*. Báo cáo nay có
+`tyLeDongY` — tỷ lệ người soi đồng ý với mô hình, con số đáng nhìn nhất
+trước khi bấm nấc.
+
+Kéo theo một chỗ thiếu lộ ra: **sổ chưa hề lưu `reason`**, tức là thứ người
+soi cần đọc thì không có. Đã thêm.
+
+### Hỏi lại trên giao diện KHÔNG phải là chặn
+
+Bản trước đánh dấu `image.scene.stage` là khoá nguy hiểm để giao diện hỏi lại.
+Nhưng giao diện nào cũng đi vòng được bằng một lượt gọi API. Nay `PUT
+/v1/admin/config/:key` từ chối đặt `production` khi số lượt **đã soi tay**
+chưa đủ (`409 CHUA_DU_LUOT_SOI_TAY`), và chặn **trước** khi ghi giá trị.
+
+### Nút "Thử ngay"
+
+Lỗi cấu hình — sai khoá, sai tên mô hình, sai giao thức, mô hình không nhìn
+được ảnh — hiện chỉ lộ ra ở lượt chạy thật đầu tiên, mà lượt đó tốn Vox và
+nằm giữa một mẻ hiệu chỉnh. `POST /v1/admin/providers/:id/test-now` gọi thật
+một lượt nhỏ nhất, bằng ảnh **máy chủ tự vẽ** (cùng bộ vẽ với phép thử nhìn,
+không dùng ảnh khách), và:
+
+- **ghim đúng nơi đang thử** — không ghim thì nơi thứ nhất hỏng sẽ được nơi
+  thứ hai đỡ, và người bấm tưởng cấu hình vừa sửa đã chạy;
+- **luôn chấm lại phép nhìn**, không xài dấu cũ — người bấm vừa đổi cấu hình;
+- **không tính hạn mức ngày** (ba chỗ đếm đều loại `test_now` ra), không lẫn
+  vào sổ hiệu chỉnh;
+- gọi hỏng thì **không đóng dấu mù** — lỗi mạng không phải mô hình mù.
+
+Nút nằm ngay trên thẻ nhà cung cấp sẵn có, cạnh dòng trạng thái "đã chứng
+minh nhìn được ảnh". Kết quả nói bằng lời người dùng cần: *"Gọi được nhưng
+đọc '4712' thay vì 8395 — mô hình này KHÔNG nhìn được ảnh"*.
+
+### Hai test cũ lỗi thời, và một cách đếm sai
+
+Luật mới chặt hơn nên hai test của C2 đỏ. Sửa cho khớp luật mới, **không nới
+luật**. Trong đó một test đếm mọi chuỗi `runMode:` trong route — nay đếm lây
+cả điều kiện lọc `runMode: { $ne: 'test_now' }` nên con số phồng lên và test
+xanh nhầm. Đổi sang đếm đúng dạng `runMode: nac.runMode`, rồi gỡ một chỗ ghi
+sổ ra đo lại để chắc nó vẫn cắn.
+
+Và lại một lần nữa **test của tôi khoanh vùng sai**: cắt thân hàm tới
+`module.exports` nên đọc lây sang các hàm phía sau, đỏ oan. Đã thêm hàm
+`thanHam()` cắt tới hàm kế tiếp. Đây là lần thứ ba trong ngày cùng một kiểu
+lỗi (so `indexOf` khi không tìm thấy; khoá sai chiều; nay khoanh vùng rộng) —
+cả ba lần đều chỉ lộ ra vì gỡ bảo vệ đi đo, không phải vì test xanh.
+
+### Chứng minh từng luật
+
+Bỏ lọc `test_now` khỏi một chỗ đếm hạn mức → 1 đỏ. Bỏ chặn bật nấc ở máy chủ
+→ 1 đỏ. Quay lại đếm lượt đã chạy thay vì đã soi → 1 đỏ. Bỏ một chỗ ghi chế
+độ chạy vào sổ → 1 đỏ.
+
+**464 pass (Node) · 1670 passed, 7 skipped (Python) · website build sạch.**
+
+### Remaining Limits
+
+- **Vẫn chưa gọi thật nhà cung cấp nào** — nút "Thử ngay" đã dựng nhưng chưa
+  ai bấm, vì chưa có khoá API. Phần "Integration: gọi thật Gemini" và
+  "Regression chạy trên provider thật" của bản đề bài **chỉ chạy được sau khi
+  chủ dự án cắm khoá**; ở đây không có cách nào thực hiện.
+- Nút "Thử ngay" cho vai `image` gọi sinh ảnh thật, tức là **tốn tiền thật**
+  của nhà cung cấp (một ảnh nhỏ mỗi lần bấm). Không tính Vox của người dùng,
+  nhưng không miễn phí.
+- Panel soi tay chưa hiện lại ẢNH của lượt đó — vì máy chủ cố ý không lưu
+  ảnh. Người soi phải mở ảnh trên máy mình (`nhat_ky_dung_anh.json` ghi kèm
+  đường dẫn). Đây là hệ quả có chủ đích của quyết định ở mục 3 phía trên.
+- Chưa có cửa quay ngược: đánh dấu nhầm "mô hình đúng" thì phải sửa thẳng
+  trong cơ sở dữ liệu.
+
 ## C4 — Nền tảng nào cũng cắm được, và chặn mô hình MÙ phán quyết (Phase H, 2026-08-21)
 
 Hai việc, một do chủ dự án yêu cầu, một do chính C3 lộ ra.

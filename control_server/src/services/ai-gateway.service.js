@@ -577,8 +577,9 @@ async function generatePost({ scriptOriginal, scriptVi, videoTitle }) {
  * chữ) — KHÔNG có đường lui sang vai khác, vì mô hình chữ không sinh được ảnh
  * và rơi sang đó chỉ đổi một lỗi nói được thành một lỗi khó hiểu.
  */
-async function generateScene({ image, scene, mode = 'SAFE', note = '' }) {
-  const list = await providersFor('image')
+async function generateScene({ image, scene, mode = 'SAFE', note = '', chiDinh }) {
+  // `chiDinh` = chỉ thử đúng một nơi gọi (nút "Thử ngay" của trang quản trị).
+  const list = chiDinh || await providersFor('image')
   if (!list.length) {
     throw new AiError('NO_PROVIDER',
       'Chưa cấu hình nơi gọi mô hình cho vai "image". Thêm ở trang Nơi gọi '
@@ -649,6 +650,72 @@ async function generateScene({ image, scene, mode = 'SAFE', note = '' }) {
     }
   }
   throw lastError || new AiError('AI_UNAVAILABLE', 'Không nơi nào sinh được ảnh')
+}
+
+
+/**
+ * Thử một nơi gọi mô hình NGAY, quy mô nhỏ nhất có thể (mini-spec C5).
+ *
+ * Vì sao cần: cấu hình sai — sai khoá, sai tên mô hình, sai giao thức, mô
+ * hình không nhìn được ảnh — hiện nay chỉ lộ ra ở lượt chạy thật đầu tiên,
+ * mà lượt đó tốn Vox và nằm giữa một mẻ hiệu chỉnh. Nút này kéo chi phí phát
+ * hiện lỗi cấu hình xuống gần bằng không.
+ *
+ * Ảnh mẫu do máy chủ tự vẽ (cùng bộ vẽ với phép thử nhìn) — KHÔNG dùng ảnh
+ * của khách. Không ghi vào sổ chính thức, không tính hạn mức, không tính vào
+ * lượt hiệu chỉnh.
+ *
+ * Luôn chấm lại phép thử nhìn cho lượt này, không dùng kết quả cũ: người bấm
+ * nút vừa đổi cấu hình, kết quả của bản cũ nói lên đúng con số không.
+ */
+async function thuNgay(provider) {
+  const batDau = Date.now()
+  const ket = { name: provider.name, role: provider.role, model: provider.model }
+
+  if (provider.role === 'image') {
+    try {
+      const bai = visionProbe.taoBaiThu()
+      const ra = await generateScene({
+        image: bai.image,
+        scene: scenePrompts.TEN_BOI_CANH[0],
+        mode: 'SAFE',
+        chiDinh: [provider],
+      })
+      ket.goiDuoc = true
+      ket.coAnh = Boolean(ra.image?.data)
+      ket.kichThuocAnh = ra.image?.data ? ra.image.data.length : 0
+      ket.kieuAnh = ra.image?.mimeType || ''
+    } catch (err) {
+      ket.goiDuoc = false
+      ket.maLoi = err.code || 'AI_UNAVAILABLE'
+      ket.loi = String(err.message).slice(0, 300)
+    }
+    ket.thoiGianMs = Date.now() - batDau
+    return ket
+  }
+
+  // Vai chữ: điều đáng lo nhất là mô hình KHÔNG nhìn được ảnh, vì nó vẫn trả
+  // lời và phán quyết vẫn trông như thật.
+  try {
+    const thu = await thuNhinMotNoi(provider)
+    ket.goiDuoc = true
+    ket.nhinDuocAnh = thu.dat
+    ket.docDuoc = thu.traLoi
+    ket.soThat = thu.so
+    await AiProvider.updateOne({ _id: provider._id }, {
+      $set: thu.dat
+        ? { visionOkAt: new Date(), visionNote: '' }
+        : { visionOkAt: null, visionNote: `đọc "${thu.traLoi}" thay vì ${thu.so}` },
+    }).catch(() => {})
+    invalidateProviders()
+  } catch (err) {
+    ket.goiDuoc = false
+    ket.maLoi = err.code || 'AI_UNAVAILABLE'
+    ket.loi = String(err.message).slice(0, 300)
+    // Gọi hỏng KHÔNG phải mù — không đóng dấu, xem `locNoiNhinDuocAnh`.
+  }
+  ket.thoiGianMs = Date.now() - batDau
+  return ket
 }
 
 /**
@@ -803,6 +870,7 @@ async function assist({ task, input, images }) {
 }
 
 module.exports = {
+  thuNgay,
   AiError,
   assist,
   generateScene,

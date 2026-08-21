@@ -243,6 +243,19 @@ theo nấc này, client không đặt được; bảng phán quyết xem ở
 đã xin. `autodub/product_scene.py` làm đúng chuỗi này; ai gọi thẳng API mà bỏ
 bước kiểm thì tự chịu rủi ro sàn.
 
+### `POST /v1/admin/providers/:id/test-now` (admin, mini-spec C5)
+Gọi THẬT một lượt nhỏ nhất tới đúng nơi gọi đó, bằng ảnh máy chủ tự vẽ.
+Vai `image` trả `{goiDuoc, coAnh, kieuAnh, kichThuocAnh}`; vai chữ trả
+`{goiDuoc, nhinDuocAnh, docDuoc, soThat}`. **Không** tính hạn mức ngày,
+**không** ghi vào sổ hiệu chỉnh, **không** dùng lại kết quả phép thử nhìn cũ,
+và ghim đúng nơi đang thử (không rơi sang nơi khác qua fallback).
+
+### `GET /v1/admin/calibration/runs` · `POST /v1/admin/calibration/runs/:id/review` (admin, C5)
+Liệt kê lượt hiệu chỉnh chờ soi (kèm `verdict` và `reason` bằng lời), và đánh
+dấu đã soi: `{agree: boolean, note?}`. Số lượt **đã soi** — không phải số lượt
+đã chạy — là điều kiện bật nấc `production`: `PUT /v1/admin/config/image.scene.stage`
+trả `409 CHUA_DU_LUOT_SOI_TAY` khi chưa đủ 20 lượt đã soi.
+
 ### `GET /v1/admin/analytics/assist?days=7` (admin)
 Bảng theo dõi cổng trợ lý: `{ days, tomTat, tacVu[], moHinh[], vaiTro[],
 dungChungVaiDich, maLoi[], hanMucNgay }`. Gộp theo `assistTask` (không phải

@@ -144,6 +144,12 @@ export const adminApi = {
     adminRequest(`/providers/${id}`, { method: 'PATCH', body: data }),
   deleteProvider: (id) =>
     adminRequest(`/providers/${id}`, { method: 'DELETE' }),
+  testProvider: (id) =>
+    adminRequest(`/providers/${id}/test-now`, { method: 'POST', body: {} }),
+  calibrationRuns: (params) => adminRequest(`/calibration/runs${qs(params || {})}`),
+  reviewCalibrationRun: (id, agree, note) =>
+    adminRequest(`/calibration/runs/${id}/review`,
+      { method: 'POST', body: { agree, note: note || '' } }),
 
   // -- Thống kê --
   overview: (days) => adminRequest(`/analytics/overview${qs({ days })}`),

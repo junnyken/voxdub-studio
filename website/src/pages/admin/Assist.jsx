@@ -40,6 +40,72 @@ function ToneHong({ luot, hong }) {
   return <Badge tone={ty >= 10 ? 'danger' : 'warning'}>{ty}%</Badge>
 }
 
+/**
+ * Soi tay từng lượt hiệu chỉnh.
+ *
+ * Thứ người soi đọc là LÝ DO bằng lời của mô hình, không phải nhãn
+ * SAFE/CONCEPT — nhãn thì chỉ có hai giá trị, còn lý do mới cho biết mô hình
+ * nhìn thấy gì và có nhìn đúng chỗ không.
+ */
+function SoiTayPanel() {
+  const { data, error, reload } = useFetch(() => adminApi.calibrationRuns({ limit: 50 }), [])
+  const [dangGhi, setDangGhi] = useState('')
+
+  async function danhDau(id, dongY) {
+    setDangGhi(id)
+    try {
+      await adminApi.reviewCalibrationRun(id, dongY)
+      reload()
+    } finally {
+      setDangGhi('')
+    }
+  }
+
+  if (error) return null
+  const items = data?.items || []
+
+  return (
+    <section className="space-y-2">
+      <h2 className="text-sm font-semibold">Soi tay lượt hiệu chỉnh</h2>
+      {!items.length ? (
+        <p className="text-sm text-ink-soft rounded-xl border border-border-subtle p-3">
+          Không còn lượt nào chờ soi.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {items.map((r) => (
+            <div key={r.id}
+              className="rounded-xl border border-border-subtle p-3 text-sm space-y-2">
+              <div className="flex items-center gap-2">
+                <span className={`font-semibold ${r.verdict === 'SAFE' ? 'text-success' : 'text-warning'}`}>
+                  {r.verdict === 'SAFE' ? 'Đăng bán được'
+                    : r.verdict === 'CONCEPT' ? 'Lệch bao bì' : 'Chưa kiểm được'}
+                </span>
+                <span className="text-[11px] text-ink-soft">
+                  {new Date(r.createdAt).toLocaleString('vi-VN')}
+                </span>
+              </div>
+              <p className="text-ink-soft">{r.reason || r.errorCode || '(không có lý do)'}</p>
+              <div className="flex gap-2">
+                <button type="button" className="btn-ghost text-xs"
+                  disabled={dangGhi === r.id}
+                  onClick={() => danhDau(r.id, true)}>
+                  Mô hình đúng
+                </button>
+                <button type="button" className="btn-ghost text-xs"
+                  disabled={dangGhi === r.id}
+                  onClick={() => danhDau(r.id, false)}>
+                  Mô hình sai
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 const NHAN_NAC = {
   off: 'Đang tắt',
   calibration: 'Đang hiệu chỉnh',
@@ -156,6 +222,7 @@ export default function Assist() {
                           <th className="text-right px-3 py-2">Đăng bán được</th>
                           <th className="text-right px-3 py-2">Lệch bao bì</th>
                           <th className="text-right px-3 py-2">Chưa kiểm được</th>
+                          <th className="text-right px-3 py-2">Đã soi tay</th>
                         </tr>
                       </thead>
                       <tbody className="tabular-nums">
@@ -169,6 +236,7 @@ export default function Assist() {
                             <td className="text-right px-3 py-2">{r.safe}</td>
                             <td className="text-right px-3 py-2">{r.concept}</td>
                             <td className="text-right px-3 py-2">{r.chuaKiemDuoc}</td>
+                            <td className="text-right px-3 py-2">{r.daSoi ?? 0}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -176,23 +244,25 @@ export default function Assist() {
                   </div>
                   {data.xetDuyet && !data.xetDuyet.du && (
                     <div className="rounded-lg border border-warning/40 bg-warning/10 p-3">
-                      Mới {data.xetDuyet.luot}/{data.xetDuyet.toiThieu} lượt hiệu
-                      chỉnh. Chưa đủ để kết luận mô hình đang gắt hay đang dễ
-                      dãi — đừng bấm nấc chạy thật khi con số còn ở đây.
+                      Mới soi tay {data.xetDuyet.daSoi}/{data.xetDuyet.toiThieu} lượt
+                      (đã chạy {data.xetDuyet.luot}). Số lượt ĐÃ CHẠY không thay
+                      được số lượt đã soi: chạy 100 ảnh mà không ai nhìn thì vẫn
+                      chưa biết mô hình quyết đúng hay sai.
                     </div>
                   )}
                   {data.xetDuyet?.du && data.nacHienTai !== 'production' && (
                     <div className="rounded-lg border border-border-subtle p-3">
-                      Đã đủ {data.xetDuyet.luot} lượt. Trước khi bấm nấc chạy
-                      thật, soi tay từng lý do mô hình trả về — con số ở bảng
-                      này chỉ nói mô hình quyết ra sao, không nói nó quyết
-                      ĐÚNG hay SAI.
+                      Đã soi {data.xetDuyet.daSoi} lượt, đồng ý với mô hình
+                      {' '}{data.xetDuyet.tyLeDongY}%. Tỷ lệ này mới là căn cứ
+                      bấm nấc chạy thật — không phải số lượt đã chạy.
                     </div>
                   )}
                 </>
               )}
             </div>
           </section>
+
+          <SoiTayPanel />
 
           <section className="space-y-2">
             <h2 className="text-sm font-semibold">Theo từng việc</h2>
