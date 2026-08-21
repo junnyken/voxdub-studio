@@ -22,6 +22,10 @@ const assistPrompts = require('../prompts/assist')
 const scenePrompts = require('../prompts/product_scene')
 const transport = require('./image-transport.service')
 const visionProbe = require('./vision-probe.service')
+
+//: Tổng base64 của mọi ảnh trong MỘT yêu cầu. Đặt dưới `bodyLimit` (4 MB
+//: trong `app.js`) để lỗi luôn rơi vào tầng của mình, nơi còn nói được lý do.
+const TRAN_TONG_ANH = 3_200_000
 const subtitlePrompts = require('../prompts/subtitle-translate')
 
 class AiError extends Error {
@@ -831,6 +835,17 @@ async function assist({ task, input, images }) {
   if (spec.nhanAnh && (images || []).length > spec.soAnhToiDa) {
     throw new AiError('QUA_NHIEU_ANH',
       `Tác vụ "${task}" nhận tối đa ${spec.soAnhToiDa} ảnh`, 400)
+  }
+  // Trần TỔNG, không chỉ trần từng ảnh. Fastify chặn thân yêu cầu quá 4 MB ở
+  // tầng vận chuyển — chặn ở đó thì người gọi nhận một lỗi trống không, không
+  // có mã lỗi nào của mình và không có câu nào giải thích. Chặn tại đây để
+  // nói được là gửi quá nặng (mini-spec C7).
+  const tongByte = (images || []).reduce(
+    (t, a) => t + String(a?.data || '').length, 0)
+  if (tongByte > TRAN_TONG_ANH) {
+    throw new AiError('ANH_QUA_NANG',
+      `Tổng dung lượng ảnh ${Math.round(tongByte / 1024)} KB, vượt trần `
+      + `${Math.round(TRAN_TONG_ANH / 1024)} KB. Thu nhỏ ảnh rồi gửi lại.`, 413)
   }
 
   const assistProviders = await providersFor('assist')

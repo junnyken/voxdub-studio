@@ -107,7 +107,7 @@ lại cả video.
 | **Báo cáo chất lượng** | Thống kê độ tin cậy ASR, cảnh báo câu chồng tiếng, câu đọc quá nhanh |
 | **Ảnh sản phẩm** | Dựng bối cảnh mới cho ảnh sản phẩm — xem §3.5 |
 
-### 3.4 Cổng trợ lý AI (7 tác vụ)
+### 3.4 Cổng trợ lý AI (9 tác vụ)
 
 Một cửa duy nhất cho mọi việc cần mô hình ngôn ngữ. **App gửi tên tác vụ,
 không gửi câu lệnh** — toàn bộ câu chữ hướng dẫn mô hình nằm trên máy chủ,
@@ -122,6 +122,8 @@ nên sửa chúng hoặc đổi mô hình không cần phát hành lại bản `
 | `series_glossary` | Rút thuật ngữ cố định cho cả bộ phim | 5 Vox |
 | `tighten_line` | Rút gọn câu dịch cho vừa thời lượng | 2 Vox |
 | `packaging_check` | Kiểm ảnh dựng có còn đúng sản phẩm không | 3 Vox |
+| `scene_continuity` | Các cảnh trong video có nhìn liền mạch không (cảnh báo, không chặn) | 4 Vox |
+| `scene_script` | Gợi ý câu dẫn và nhịp cho từng cảnh | 3 Vox |
 
 Có **bốn lớp chặn chi phí**: danh sách tác vụ đóng (tên lạ bị chặn ở tầng
 schema, trước cả xác thực) → trần ký tự → hạn mức ngày mỗi máy → nhớ đệm
@@ -330,6 +332,6 @@ Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 | `docs/ARCH.md` | Kiến trúc lõi |
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 
-**Quy mô test hiện tại:** 1693 test Python (7 bỏ qua) + 464 test Node
+**Quy mô test hiện tại:** 1706 test Python (7 bỏ qua) + 464 test Node
 (1 bỏ qua). Kỷ luật của dự án: mỗi luật quan trọng đều được **gỡ ra để chứng
 minh test đỏ**, chứ không chỉ chạy cho xanh.

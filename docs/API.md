@@ -147,8 +147,12 @@ thực và ví tiền.
 | `series_glossary` | `{transcript, seriesName?}` | 8000 |
 | `tighten_line` | `{line, needSeconds, roomSeconds, trimPercent}` | 1200 |
 | `packaging_check` | `{note?}` + **2 ảnh** (gốc, mới) | 300 |
+| `scene_continuity` | `{note?}` + **tối đa 6 ảnh** cảnh | 400 |
+| `scene_script` | `{product?, scenes[]}` | 600 |
 
-`images: [{mimeType, data}]` (base64, tối đa 2 ảnh, mỗi ảnh ≤ 2,8 MB) chỉ
+`images: [{mimeType, data}]` (base64, tối đa 6 ảnh ở tầng schema, trần riêng
+từng tác vụ do cổng trợ lý ép; **tổng mọi ảnh ≤ 3,2 MB** — vượt trả
+`413 ANH_QUA_NANG`, đặt dưới `bodyLimit` 4 MB để lỗi còn nói được lý do) chỉ
 nhận ở tác vụ khai `nhanAnh`. Gửi ảnh vào tác vụ chỉ-chữ trả `400
 TASK_KHONG_NHAN_ANH` — im lặng bỏ ảnh đi thì người gọi tưởng mô hình đã nhìn.
 Khoá nhớ đệm băm CẢ dữ liệu ảnh: đổi ảnh mà dùng lại phán quyết cũ là lỗ

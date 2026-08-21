@@ -38,6 +38,7 @@ from autodub_gui.ui.buttons import GhostButton, PrimaryButton, SecondaryButton
 from autodub_gui.ui.cards import Card
 from autodub_gui.ui.inputs import LabeledCombo, LabeledLineEdit
 from autodub_gui.ui.toast import TOASTS
+from autodub_gui.widgets import LogPanel
 from autodub_gui.workers import ProductSceneWorker, ProductVideoWorker
 
 _PAGE_MARGIN = 28
@@ -146,6 +147,12 @@ class ProductScenePage(BasePage):
             "hoặc chưa kiểm được sẽ không được đưa vào.")
         self.btn_video.clicked.connect(self._dung_video)
         hanh_dong.addWidget(self.btn_video)
+        self.btn_kich_ban = GhostButton("Gợi ý kịch bản")
+        self.btn_kich_ban.setToolTip(
+            "Nhờ trợ lý gợi ý câu dẫn và nhịp cho từng cảnh. Chỉ là gợi ý — "
+            "không có gì được tự dán vào video.")
+        self.btn_kich_ban.clicked.connect(self._goi_y_kich_ban)
+        hanh_dong.addWidget(self.btn_kich_ban)
         self.btn_open = GhostButton("Mở thư mục ảnh")
         self.btn_open.clicked.connect(self._mo_thu_muc)
         self.btn_open.setEnabled(False)
@@ -157,6 +164,12 @@ class ProductScenePage(BasePage):
         self.status.setWordWrap(True)
         self.status.setObjectName("hint")
         root.addWidget(self.status)
+
+        # Khung Nhật ký: chỗ duy nhất đủ dài để in gợi ý kịch bản từng cảnh
+        # và câu cảnh báo liên tục — dòng trạng thái một dòng không chứa nổi.
+        self.log = LogPanel()
+        self.log.setMaximumHeight(150)
+        root.addWidget(self.log)
 
         self.ket_qua = QGridLayout()
         self.ket_qua.setSpacing(tokens.SP_3)
@@ -243,6 +256,15 @@ class ProductScenePage(BasePage):
             TOASTS.warn("Chưa có ảnh nào đăng bán được để ghép. Dựng ảnh trước đã.")
             return
 
+        # Kiểm liên tục (C7) — CẢNH BÁO, không phải cổng chặn. Nói trước khi
+        # ghép để người dùng còn kịp dựng lại cảnh lạc; nhưng quyền quyết
+        # định giữ hay bỏ là của họ, không phải của máy.
+        lien_tuc = product_video.kiem_lien_tuc(anh)
+        if lien_tuc.da_kiem and not lien_tuc.muot:
+            self.log.append_log(f"Các cảnh chưa liền mạch — {lien_tuc.ly_do}. "
+                                "Video vẫn ghép được; muốn mượt hơn thì dựng "
+                                "lại cảnh đó rồi ghép lại.", 30)
+
         ra = os.path.join(thu_muc, "video_san_pham.mp4")
         self.btn_video.setEnabled(False)
         self.status.setText(f"Đang ghép {len(anh)} ảnh thành video…")
@@ -252,6 +274,30 @@ class ProductScenePage(BasePage):
         worker.hong.connect(self._video_hong)
         self._worker_video = worker
         worker.start()
+
+    def _goi_y_kich_ban(self) -> None:
+        """Xin gợi ý câu dẫn cho từng cảnh, in ra Nhật ký để người dùng chép.
+
+        Cố ý KHÔNG dán thẳng vào video: câu chữ bán hàng là thứ người bán
+        chịu trách nhiệm trước sàn, không phải mô hình.
+        """
+        from autodub import product_video
+
+        thu_muc = self._thu_muc_ket_qua or self._thu_muc_ra()
+        anh = [a for a in product_video.doc_nhat_ky(thu_muc) if a.dung_duoc]
+        if not anh:
+            TOASTS.warn("Chưa có ảnh nào đăng bán được. Dựng ảnh trước đã.")
+            return
+        goi_y = product_video.goi_y_kich_ban(
+            anh, san_pham=self.ghi_chu.text().strip())
+        if not goi_y:
+            TOASTS.warn("Chưa lấy được gợi ý — thử lại sau ít phút.")
+            return
+        self.log.append_log("Gợi ý kịch bản (chỉ để tham khảo):", 20)
+        for i, (cau, nhip) in enumerate(goi_y, 1):
+            ten = dict(BOI_CANH).get(anh[i - 1].boi_canh, anh[i - 1].boi_canh) \
+                if i <= len(anh) else ""
+            self.log.append_log(f"  Cảnh {i} ({ten}): «{cau}» — {nhip}", 20)
 
     def _video_xong(self, duong: str) -> None:
         self.btn_video.setEnabled(True)

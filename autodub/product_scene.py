@@ -41,7 +41,12 @@ _CANH_DAI_TOI_DA = 1280
 
 #: Trần dung lượng base64 mà máy chủ nhận (schema route). Cắt sớm ở đây để
 #: không đẩy vài MB qua mạng chỉ để bên kia từ chối.
-_TRAN_BASE64 = 2_800_000
+#: Trần base64 MỖI ảnh. Đặt 1,6 MB chứ không phải 2,8: tác vụ kiểm bao bì
+#: gửi HAI ảnh một lượt, mà trần thân yêu cầu của máy chủ là 4 MB — 2×2,8
+#: vượt trần và bị chặn ở tầng vận chuyển, tức là người dùng nhận lỗi trống
+#: không thay vì câu giải thích nào. Ảnh đã thu về 1024px thì 1,6 MB base64
+#: là thừa thãi (mini-spec C7).
+_TRAN_BASE64 = 1_600_000
 
 #: Những mã lỗi mà thử lại là vô ích — dừng cả mẻ và nói thẳng lý do.
 _KHONG_THU_LAI = frozenset({"IMAGE_STAGE_OFF", "IMAGE_STAGE_CALIBRATION"})

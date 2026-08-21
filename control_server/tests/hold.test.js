@@ -99,6 +99,11 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     // credit.cost.assist.packaging_check: cổng kiểm tuân thủ TikTok Shop
     // (mini-spec C1) — thêm có chủ đích.
     'credit.cost.assist.packaging_check',
+    // credit.cost.assist.scene_*: kiểm liên tục giữa các cảnh và gợi ý kịch
+    // bản cho video sản phẩm (mini-spec C7). Giá theo LƯỢT, không nhân theo
+    // số cảnh.
+    'credit.cost.assist.scene_continuity',
+    'credit.cost.assist.scene_script',
     'credit.cost.assist.series_glossary',
     'credit.cost.assist.tighten_line',
     'credit.cost.assist.video_summary',

@@ -60,6 +60,11 @@ const DEFAULTS = {
   // Vẫn để rẻ: đây là bước AN TOÀN, thu đắt thì người dùng bỏ qua nó
   // (mini-spec C1).
   'credit.cost.assist.packaging_check': 3,
+  // Kiểm liên tục: MỘT lượt cho cả mẻ, không nhân theo số cảnh — nhân theo
+  // cảnh thì người dùng bị phạt vì làm video dài hơn, trong khi câu trả lời
+  // vẫn chỉ là một câu (mini-spec C7).
+  'credit.cost.assist.scene_continuity': 4,
+  'credit.cost.assist.scene_script': 3,
   // --- Dựng bối cảnh ảnh sản phẩm (mini-spec C1) --------------------------
   // Sinh ảnh đắt hơn hẳn tác vụ chữ (một ảnh ~ vài trăm lần token một câu
   // hỏi ngắn), nên giá cao hơn nhưng vẫn dưới giá một lần sinh nhạc.

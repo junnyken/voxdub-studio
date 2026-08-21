@@ -251,3 +251,58 @@ def test_bi_chan_thi_in_NGUYEN_VAN_ly_do(page):
     page._video_hong(loi)
     assert "xau.jpg" in page.status.text()
     assert "nhãn khác chữ" in page.status.text()
+
+
+# -- Kiểm liên tục và gợi ý kịch bản (C7) ------------------------------------
+
+def test_lech_lien_tuc_CHI_canh_bao_van_ghep_video(page, monkeypatch, tmp_path):
+    """Ranh giới dễ nhầm nhất: cảnh báo, không phải chặn."""
+    from autodub import product_video
+    from autodub.product_video import AnhNguon, LienTuc
+
+    anh = [AnhNguon(str(tmp_path / f"a{i}.jpg"), "ban_go", "SAFE", "ổn",
+                    True, True, "x") for i in range(2)]
+    chay = {}
+
+    class _W:
+        class _S:
+            def connect(self, *_a):
+                pass
+
+        def __init__(self, *_a, **_k):
+            chay["dung"] = True
+            self.xong = self._S()
+            self.hong = self._S()
+
+        def start(self):
+            pass
+
+        def isRunning(self):  # noqa: N802 — theo quy ước của Qt
+            return False
+
+    monkeypatch.setattr(psp, "ProductVideoWorker", _W)
+    monkeypatch.setattr(product_video, "duoc_dung_video", lambda: (True, ""))
+    monkeypatch.setattr(product_video, "doc_nhat_ky", lambda *_a: anh)
+    monkeypatch.setattr(product_video, "kiem_lien_tuc",
+                        lambda *_a, **_k: LienTuc(True, False, "ảnh 2 ám vàng"))
+
+    page._dung_video()
+    assert chay.get("dung"), "lệch liên tục mà lại không ghép"
+    assert "ảnh 2 ám vàng" in page.log.toPlainText(), "không nói cảnh nào lạc"
+
+
+def test_goi_y_kich_ban_chi_IN_RA_khong_dan_vao_video(page, monkeypatch, tmp_path):
+    from autodub import product_video
+    from autodub.product_video import AnhNguon
+
+    anh = [AnhNguon(str(tmp_path / "a.jpg"), "ban_go", "SAFE", "ổn",
+                    True, True, "x")]
+    monkeypatch.setattr(product_video, "doc_nhat_ky", lambda *_a: anh)
+    monkeypatch.setattr(product_video, "goi_y_kich_ban",
+                        lambda *_a, **_k: [("Ấm bụng mỗi sáng", "giữ 3 giây")])
+    monkeypatch.setattr(psp, "ProductVideoWorker",
+                        lambda *a, **k: pytest.fail("gợi ý mà lại ghép video"))
+    page._goi_y_kich_ban()
+    chu = page.log.toPlainText()
+    assert "Ấm bụng mỗi sáng" in chu
+    assert "tham khảo" in chu, "phải nói rõ đây chỉ là gợi ý"

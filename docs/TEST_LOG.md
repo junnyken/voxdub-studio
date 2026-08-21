@@ -8474,6 +8474,101 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C7 — Kiểm liên tục giữa các cảnh + gợi ý kịch bản (Phase H, 2026-08-21)
+
+### Một tiền đề lặp lại đúng lỗi lần trước
+
+Bản đề bài nói "thêm field vào `ProductSceneVideoJob` (đã có ở C3)" và "gắn
+vào `POST /v1/product-scene/video-job/{id}/export`". **Cả hai đều không tồn
+tại** — C6 chạy hoàn toàn trên máy người dùng, đúng như đã ghi trong báo cáo
+C6. `grep VideoJob|video-job` trong `control_server/` và `autodub/`: rỗng.
+Đây là lần thứ ba một bản đề bài giả định có thực thể phía máy chủ mà kiến
+trúc đã cố ý không dựng.
+
+Phần còn lại thì khớp: cổng trợ lý đúng là danh sách đóng 7 tác vụ với 4 lớp
+chặn chi phí, và thêm tác vụ theo đúng khuôn đó là việc làm được ngay.
+
+### Lỗi tiềm ẩn từ C1 mà bản này sẽ đâm thẳng vào
+
+Trước khi thêm tác vụ gửi 6 ảnh, đo lại đường ống hiện có:
+
+> Schema cho phép **2 ảnh × 2,8 MB = 5,6 MB**, nhưng `bodyLimit` của máy chủ
+> là **4 MB**.
+
+Nghĩa là một cặp ảnh đủ lớn bị Fastify chặn ở tầng vận chuyển — người dùng
+nhận một lỗi trống không, không mã lỗi nào của mình, không câu nào giải
+thích, và toàn bộ lớp thông báo tử tế viết ở C1 không bao giờ chạy tới. Sửa
+hai đầu: trần mỗi ảnh phía app hạ về 1,6 MB (ảnh đã thu về 1024px thì thừa
+thãi), và máy chủ thêm trần TỔNG kèm câu nói rõ đã gửi bao nhiêu, trần bao
+nhiêu.
+
+### Hai tác vụ mới, và ranh giới quan trọng nhất
+
+`scene_continuity` — `packaging_check` so ảnh cảnh với ảnh GỐC, nên nó không
+thấy được chuyện các cảnh lệch NHAU: mỗi cảnh là một lượt gọi độc lập, mô
+hình không có trí nhớ giữa các lượt, nên góc máy và tỉ lệ sản phẩm trôi mỗi
+cảnh một kiểu dù cảnh nào cũng khớp ảnh gốc.
+
+**Đây là lớp CẢNH BÁO, không phải lớp chặn.** Lệch liên tục là chuyện video
+xem có mượt không; lệch bao bì mới là chuyện bị sàn phạt. Trộn hai mức đó làm
+một là dạy người dùng bỏ qua cả hai. Có test đọc thẳng mã nguồn của
+`dung_video`/`kiem_lai_truoc_khi_xuat` để chắc chữ `kiem_lien_tuc` **không
+xuất hiện** trong đường quyết định xuất — thêm nó vào là đỏ ngay.
+
+`scene_script` — gợi ý câu dẫn và nhịp cho từng cảnh. Chỉ in ra khung Nhật ký
+để người bán chép; không có đường nào từ đây dán chữ vào video, vì câu chữ
+bán hàng là thứ họ chịu trách nhiệm trước sàn.
+
+### Ba quyết định về chi phí
+
+- **Một lượt cho cả mẻ, không so từng cặp.** So cặp thì chi phí nhân theo
+  bình phương số cảnh để đổi lấy một câu trả lời không khác gì mấy.
+- **Không chạy khi chỉ có một ảnh** — không có gì để so, gọi là tiêu tiền lấy
+  câu trả lời hiển nhiên.
+- **Ảnh gửi đi kiểm thu về 512px.** Việc cần nhìn là cỡ sản phẩm trong khung,
+  góc máy, tông màu — không cần đọc chữ trên nhãn (bước khác đã lo). Sáu ảnh
+  cỡ lớn thì vượt trần thân yêu cầu.
+
+Hỏng thì **im lặng bỏ qua**: cảnh báo hỏng không được biến thành báo động.
+
+### Ba bộ canh cũ cắn đúng
+
+Thêm tác vụ mà quên mẫu đo → đỏ. Thêm khoá giá mà quên khai vào danh sách giá
+công khai → đỏ. Trần `maxResults` ≤ 5 → đỏ vì `scene_script` trả một câu cho
+mỗi cảnh mà video ghép được tới 6. Nới trần lên 6 **có ghi lý do**, không
+phải nới cho qua.
+
+Mẫu đo của `scene_script` chặn luôn hai thứ ở tầng câu chữ: không hứa công
+dụng chữa bệnh, không dùng từ tuyệt đối ("tốt nhất", "số một") — sai luật
+quảng cáo là rủi ro của người bán, đừng đợi ai đó phát hiện trên TikTok.
+
+### Cùng một cái bẫy Python, lần thứ hai trong ngày
+
+`goi.setdefault("chay", True) or <đối tượng>` — `setdefault` trả về giá trị
+truthy nên `or` không bao giờ chạy tới vế sau, và stub trả về `True` thay vì
+đối tượng giả. Mắc ở test giao diện C6 buổi sáng, mắc lại ở test C7 buổi
+chiều. Đã viết lại cả hai bằng lớp thật thay vì lambda lồng nhau.
+
+### Chứng minh từng luật
+
+Biến cảnh báo liên tục thành cổng chặn → 1 đỏ. So từng cặp thay vì một lượt →
+2 đỏ. Máy chủ hỏng mà coi như có lệch → 1 đỏ. Cho giao diện tự nạp ảnh lệch →
+1 đỏ (từ C6, vẫn cắn).
+
+**1706 passed, 7 skipped (Python) · 464 pass (Node) · smoke 18 trang.**
+
+### Remaining Limits
+
+- **Chưa chạy thật lượt nào** — cùng nút chặn từ C1: chưa có nhà cung cấp.
+  Riêng `scene_continuity` còn phụ thuộc mô hình NHÌN ĐƯỢC ẢNH, nên nó đi qua
+  đúng phép thử mù của C4.
+- Giám khảo chỉ ra "ảnh số mấy lạc" bằng thứ tự trong lượt gửi. Nếu người
+  dùng bỏ bớt ảnh rồi ghép lại, số thứ tự trong câu cảnh báo cũ không còn
+  khớp — hiện chỉ in ra Nhật ký nên không gây hiểu nhầm dai dẳng, nhưng nếu
+  sau này gắn badge cạnh từng ảnh thì phải đánh số lại.
+- Chưa có kéo-thả sắp thứ tự (giới hạn mang từ C6).
+- Gợi ý kịch bản chưa nối vào lồng tiếng — đúng phạm vi bản đề bài đặt ra.
+
 ## C6 — Ghép ảnh sản phẩm đã duyệt thành video ngắn (Phase H, 2026-08-21)
 
 Bản đề bài (chủ dự án gọi là "C3") có **mục tiêu và các lằn ranh đều đúng**,

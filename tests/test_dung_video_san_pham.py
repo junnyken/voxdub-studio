@@ -184,3 +184,136 @@ def test_hoi_khong_duoc_may_chu_thi_DONG(monkeypatch):
                             "app_config": lambda self: (_ for _ in ()).throw(
                                 RuntimeError("mất mạng"))})())
     assert pv.duoc_dung_video()[0] is False
+
+
+# -- Kiểm liên tục giữa các cảnh (C7) ---------------------------------------
+#
+# Ranh giới dễ nhầm nhất của cả tính năng: đây là lớp CẢNH BÁO, không phải
+# lớp chặn. Lệch liên tục là chuyện video xem có mượt hay không; lệch bao bì
+# mới là chuyện bị sàn phạt. Trộn hai mức đó làm một là dạy người dùng bỏ qua
+# cả hai.
+
+class _KhachLienTuc:
+    def __init__(self, gia_tri="MUOT", ly_do="các cảnh cùng cỡ, cùng tông",
+                 no=False):
+        self.gia_tri, self.ly_do, self.no = gia_tri, ly_do, no
+        self.da_goi = []
+
+    def assist(self, task, input_data, *, job_id, images=None, hold_id=None,
+               timeout=45.0):
+        self.da_goi.append((task, len(images or [])))
+        if self.no:
+            raise RuntimeError("máy chủ bận")
+        if task == "scene_script":
+            return [{"value": f"câu {i}", "reason": "giữ 2 giây"}
+                    for i in range(len(input_data.get("scenes", [])))]
+        return [{"value": self.gia_tri, "reason": self.ly_do}]
+
+
+@pytest.fixture()
+def co_tai_khoan(monkeypatch):
+    monkeypatch.setattr("autodub.saas_client.is_configured", lambda: True)
+    monkeypatch.setattr("autodub.saas_client.new_job_id", lambda: "job-1234567")
+    monkeypatch.setattr(pv, "_chay_ffmpeg", lambda *a, **k: False)
+
+
+def test_mot_anh_thi_KHONG_goi_may_chu(tmp_path, co_tai_khoan):
+    """Một ảnh không có gì để so — gọi là tiêu tiền lấy câu trả lời hiển nhiên."""
+    khach = _KhachLienTuc()
+    ket = pv.kiem_lien_tuc([_nguon(str(tmp_path), "a.jpg")], khach=khach)
+    assert khach.da_goi == []
+    assert not ket.da_kiem
+
+
+def test_hai_anh_tro_len_thi_goi_MOT_luot_cho_ca_me(tmp_path, co_tai_khoan):
+    """So từng cặp thì chi phí nhân theo bình phương số cảnh để đổi lấy một
+    câu trả lời không khác gì mấy."""
+    anh = [_nguon(str(tmp_path), f"a{i}.jpg") for i in range(4)]
+    khach = _KhachLienTuc()
+    pv.kiem_lien_tuc(anh, khach=khach)
+    assert len(khach.da_goi) == 1, "gọi nhiều lượt = tính tiền theo số cặp"
+    assert khach.da_goi[0] == ("scene_continuity", 4)
+
+
+def test_gui_toi_da_sau_anh(tmp_path, co_tai_khoan):
+    anh = [_nguon(str(tmp_path), f"a{i}.jpg") for i in range(8)]
+    khach = _KhachLienTuc()
+    pv.kiem_lien_tuc(anh, khach=khach)
+    assert khach.da_goi[0][1] == 6
+
+
+def test_bao_lech_kem_ly_do_bang_loi(tmp_path, co_tai_khoan):
+    anh = [_nguon(str(tmp_path), f"a{i}.jpg") for i in range(3)]
+    khach = _KhachLienTuc("LECH", "ảnh 3: sản phẩm nhỏ hơn hẳn và ám vàng")
+    ket = pv.kiem_lien_tuc(anh, khach=khach)
+    assert ket.da_kiem and not ket.muot
+    assert "ảnh 3" in ket.ly_do
+
+
+def test_LECH_KHONG_chan_xuat_video(tmp_path, monkeypatch, co_tai_khoan):
+    """Ranh giới cốt lõi: cảnh báo, không phải chặn."""
+    goi = {}
+
+    class _Chay:
+        returncode = 0
+        stderr = ""
+
+    def _ffmpeg_gia(*_a, **_k):
+        # `setdefault(...) or <đối tượng>` là bẫy: setdefault trả về giá trị
+        # truthy nên `or` không bao giờ chạy tới vế sau. Đã mắc hai lần.
+        goi["chay"] = True
+        open(ra, "wb").close()
+        return _Chay()
+
+    anh = [_nguon(str(tmp_path), f"a{i}.jpg") for i in range(2)]
+    ra = str(tmp_path / "ra.mp4")
+    monkeypatch.setattr(pv.subprocess, "run", _ffmpeg_gia)
+    pv.dung_video(anh, ra)
+    assert goi.get("chay"), "lệch liên tục mà lại chặn xuất video"
+
+
+def test_kiem_lien_tuc_KHONG_dung_trong_duong_xuat(tmp_path):
+    """Hai lớp kiểm phải độc lập: kiểm liên tục không được len vào đường
+    quyết định xuất hay không."""
+    import inspect
+
+    than = inspect.getsource(pv.dung_video) + inspect.getsource(
+        pv.kiem_lai_truoc_khi_xuat)
+    assert "kiem_lien_tuc" not in than
+    assert "LienTuc" not in than
+
+
+def test_anh_lech_BAO_BI_van_bi_chan_du_lien_tuc_bao_muot(tmp_path, co_tai_khoan):
+    """Kiểm liên tục nói 'mượt' không cứu nổi một ảnh lệch bao bì."""
+    lech = _nguon(str(tmp_path), "lech.jpg", ket_luan="CONCEPT",
+                  ly_do="nhãn khác chữ")
+    tot = _nguon(str(tmp_path), "tot.jpg")
+    assert pv.kiem_lien_tuc([lech, tot], khach=_KhachLienTuc("MUOT")).muot
+    with pytest.raises(PermissionError):
+        pv.dung_video([lech, tot], str(tmp_path / "ra.mp4"))
+
+
+def test_may_chu_hong_thi_im_lang_bo_qua(tmp_path, co_tai_khoan):
+    anh = [_nguon(str(tmp_path), f"a{i}.jpg") for i in range(2)]
+    ket = pv.kiem_lien_tuc(anh, khach=_KhachLienTuc(no=True))
+    assert not ket.da_kiem and ket.muot, "cảnh báo hỏng không được thành báo động"
+
+
+def test_nhan_la_thi_coi_nhu_chua_kiem(tmp_path, co_tai_khoan):
+    anh = [_nguon(str(tmp_path), f"a{i}.jpg") for i in range(2)]
+    ket = pv.kiem_lien_tuc(anh, khach=_KhachLienTuc("CHAC_ON"))
+    assert not ket.da_kiem
+
+
+# -- Gợi ý kịch bản ----------------------------------------------------------
+
+def test_goi_y_kich_ban_tra_dung_so_canh(tmp_path, co_tai_khoan):
+    anh = [_nguon(str(tmp_path), f"a{i}.jpg") for i in range(3)]
+    ra = pv.goi_y_kich_ban(anh, san_pham="trà gừng", khach=_KhachLienTuc())
+    assert len(ra) == 3
+    assert all(cau and nhip for cau, nhip in ra)
+
+
+def test_goi_y_hong_thi_tra_rong_khong_no(tmp_path, co_tai_khoan):
+    anh = [_nguon(str(tmp_path), "a.jpg")]
+    assert pv.goi_y_kich_ban(anh, khach=_KhachLienTuc(no=True)) == []

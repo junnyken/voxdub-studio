@@ -64,6 +64,21 @@ class AnhNguon:
 
 
 @dataclass
+class LienTuc:
+    """Nhận xét các cảnh có nhìn liền mạch không (mini-spec C7).
+
+    KHÔNG phải cổng chặn. Lệch liên tục là chuyện video xem có mượt hay
+    không; lệch bao bì mới là chuyện bị sàn phạt. Trộn hai mức đó làm một là
+    dạy người dùng bỏ qua cả hai.
+    """
+
+    da_kiem: bool
+    muot: bool
+    ly_do: str
+    vox: int = 0
+
+
+@dataclass
 class KetQuaKiem:
     """Phán quyết cho cả mẻ ngay trước lúc ghép."""
 
@@ -156,6 +171,106 @@ def kiem_lai_truoc_khi_xuat(anh: list[AnhNguon]) -> KetQuaKiem:
             bi_chan.append((ten, "tệp đã bị sửa sau khi kiểm — nội dung không "
                                  "còn khớp tấm ảnh đã được duyệt"))
     return KetQuaKiem(cho_phep=not bi_chan and bool(anh), bi_chan=bi_chan)
+
+
+#: Ảnh gửi đi kiểm liên tục thu nhỏ hẳn: việc cần nhìn là cỡ sản phẩm trong
+#: khung, góc máy và tông màu — không cần đọc chữ trên nhãn (đã có bước khác
+#: lo). Sáu ảnh cỡ lớn thì vượt trần thân yêu cầu của máy chủ.
+_CANH_NHO = 512
+
+
+def _thu_nho_de_kiem(duong_dan: str, thu_muc_tam: str) -> dict | None:
+    """Thu nhỏ một ảnh về cỡ đủ để nhìn bố cục, trả {mimeType, data}."""
+    import base64
+
+    ra = os.path.join(thu_muc_tam, f"nho_{os.path.basename(duong_dan)}.jpg")
+    ok = _chay_ffmpeg([
+        "ffmpeg", "-y", "-i", duong_dan,
+        "-vf", f"scale={_CANH_NHO}:{_CANH_NHO}:force_original_aspect_ratio=decrease",
+        "-q:v", "6", ra])
+    nguon = ra if ok and os.path.isfile(ra) else duong_dan
+    try:
+        with open(nguon, "rb") as f:
+            du_lieu = base64.b64encode(f.read()).decode("ascii")
+    except OSError as e:
+        logger.warning(f"Không đọc được ảnh để kiểm liên tục ({e})")
+        return None
+    return {"mimeType": "image/jpeg", "data": du_lieu}
+
+
+def _chay_ffmpeg(args: list[str], timeout: float = 60.0) -> bool:
+    try:
+        chay = subprocess.run(args, capture_output=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning(f"ffmpeg hỏng: {e}")
+        return False
+    return chay.returncode == 0
+
+
+def kiem_lien_tuc(anh: list[AnhNguon], *, ghi_chu: str = "",
+                  khach=None) -> LienTuc:
+    """Hỏi giám khảo xem các cảnh có nhìn liền mạch không.
+
+    Chỉ chạy khi có TỪ HAI ẢNH TRỞ LÊN — một ảnh thì không có gì để so, gọi
+    là tiêu tiền lấy một câu trả lời hiển nhiên.
+
+    Hỏng thì trả `da_kiem=False` và KHÔNG chặn gì cả: đây là lớp cảnh báo,
+    mất nó thì video xấu hơn chứ không nguy hiểm hơn.
+    """
+    import tempfile
+
+    from autodub.saas_client import get_client, is_configured, new_job_id
+
+    if len(anh) < 2:
+        return LienTuc(da_kiem=False, muot=True, ly_do="")
+    if not is_configured():
+        return LienTuc(da_kiem=False, muot=True, ly_do="")
+
+    khach = khach or get_client()
+    with tempfile.TemporaryDirectory(prefix="lien_tuc_") as tam:
+        anh_nho = [_thu_nho_de_kiem(a.duong_dan, tam) for a in anh[:6]]
+        anh_nho = [x for x in anh_nho if x]
+        if len(anh_nho) < 2:
+            return LienTuc(da_kiem=False, muot=True, ly_do="")
+        try:
+            ket = khach.assist("scene_continuity", {"note": ghi_chu[:400]},
+                               job_id=new_job_id(), images=anh_nho, timeout=60)
+        except Exception as e:  # noqa: BLE001 — cảnh báo hỏng thì thôi
+            logger.warning(f"Không kiểm được liên tục ({str(e)[:120]})")
+            return LienTuc(da_kiem=False, muot=True, ly_do="")
+
+    if not ket:
+        return LienTuc(da_kiem=False, muot=True, ly_do="")
+    dau = ket[0]
+    gia_tri = str(dau.get("value", "")).strip().upper()
+    if gia_tri not in ("MUOT", "LECH"):
+        return LienTuc(da_kiem=False, muot=True, ly_do="")
+    return LienTuc(da_kiem=True, muot=gia_tri == "MUOT",
+                   ly_do=str(dau.get("reason", "")).strip())
+
+
+def goi_y_kich_ban(anh: list[AnhNguon], *, san_pham: str = "",
+                   khach=None) -> list[tuple[str, str]]:
+    """Gợi ý câu dẫn và nhịp cho từng cảnh. Trả [(câu dẫn, gợi ý nhịp)].
+
+    CHỈ gợi ý: không có đường nào từ đây dán chữ vào video. Câu chữ bán hàng
+    là thứ người bán chịu trách nhiệm trước sàn, không phải mô hình.
+    """
+    from autodub.saas_client import get_client, is_configured, new_job_id
+
+    if not anh or not is_configured():
+        return []
+    khach = khach or get_client()
+    try:
+        ket = khach.assist("scene_script", {
+            "product": san_pham[:200],
+            "scenes": [a.boi_canh for a in anh[:6]],
+        }, job_id=new_job_id(), timeout=45)
+    except Exception as e:  # noqa: BLE001 — gợi ý hỏng thì thôi
+        logger.warning(f"Không lấy được gợi ý kịch bản ({str(e)[:120]})")
+        return []
+    return [(str(r.get("value", "")).strip(), str(r.get("reason", "")).strip())
+            for r in (ket or []) if str(r.get("value", "")).strip()]
 
 
 def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh: float,

@@ -271,6 +271,69 @@ const TASKS = {
       'Hai ảnh này có phải cùng MỘT sản phẩm để đăng bán không?',
     ].filter(Boolean).join('\n'),
   },
+
+  // --- mini-spec C7 -------------------------------------------------------
+  // `packaging_check` so ảnh cảnh với ảnh GỐC. Nó không thấy được chuyện các
+  // cảnh lệch NHAU: mỗi cảnh là một lượt gọi độc lập, mô hình không có trí
+  // nhớ giữa các lượt, nên góc máy và tỉ lệ sản phẩm có thể trôi mỗi cảnh một
+  // kiểu dù cảnh nào cũng khớp ảnh gốc.
+  //
+  // Đây là lớp CẢNH BÁO, không phải lớp chặn: lệch liên tục là chuyện xem có
+  // mượt hay không, còn lệch bao bì mới là chuyện bị sàn phạt. Trộn hai mức
+  // đó làm một là dạy người dùng bỏ qua cả hai.
+  scene_continuity: {
+    costKey: 'credit.cost.assist.scene_continuity',
+    maxInput: 400,
+    maxResults: 1,
+    nhanAnh: true,
+    // Một lượt cho CẢ mẻ, không so từng cặp: so cặp thì chi phí nhân theo
+    // bình phương số cảnh để đổi lấy một câu trả lời không khác gì mấy.
+    soAnhToiDa: 6,
+    system: [
+      'Bạn xem một loạt ảnh sẽ được ghép liên tiếp thành một video ngắn về',
+      'CÙNG MỘT sản phẩm. Việc của bạn là xét chúng có nhìn như một mạch hay',
+      'không: cỡ sản phẩm trong khung, góc máy, tông màu, hướng ánh sáng.',
+      'KHÔNG xét bối cảnh khác nhau — các cảnh CỐ Ý khác bối cảnh.',
+      'KHÔNG xét bao bì đúng hay sai — việc đó đã có bước khác lo.',
+      'Trả về đúng một mục.',
+      'value = "MUOT" khi các cảnh nhìn như một mạch.',
+      'value = "LECH" khi có cảnh trông lạc khỏi phần còn lại.',
+      'reason: nếu LECH thì nói rõ ẢNH SỐ MẤY lạc và lạc ở điểm nào',
+      '(ví dụ "ảnh 3: sản phẩm nhỏ hơn hẳn và ám vàng"). Tiếng Việt, tối đa',
+      '25 chữ. Nếu MUOT thì nói ngắn vì sao nhìn liền mạch.',
+    ].join(' '),
+    buildUser: (input) => [
+      'Các ảnh dưới đây sẽ được ghép liên tiếp theo đúng thứ tự này.',
+      cat(input.note, 400) ? `Ghi chú: ${cat(input.note, 400)}` : '',
+      'Chúng có nhìn như một mạch không?',
+    ].filter(Boolean).join('\n'),
+  },
+
+  // Gợi ý kịch bản — CHỈ gợi ý. Không có đường nào tự dán câu này vào video:
+  // câu chữ bán hàng là thứ người bán chịu trách nhiệm, không phải mô hình.
+  scene_script: {
+    costKey: 'credit.cost.assist.scene_script',
+    maxInput: 600,
+    maxResults: 6,
+    system: [
+      'Bạn viết gợi ý kịch bản cho một video ngắn ghép từ vài ảnh sản phẩm.',
+      'Mỗi mục ứng với MỘT cảnh, theo đúng thứ tự được đưa.',
+      'value = câu dẫn ngắn hiện trên cảnh đó (tối đa 12 chữ, tiếng Việt,',
+      'nói về lợi ích hoặc cảm giác, KHÔNG hứa hẹn công dụng chữa bệnh,',
+      'KHÔNG dùng từ tuyệt đối như "tốt nhất", "số một").',
+      'reason = gợi ý nhịp cho cảnh đó: giữ lâu hay lướt nhanh, và vì sao.',
+      'Trả về đúng số mục bằng số cảnh được đưa.',
+    ].join(' '),
+    buildUser: (input) => {
+      const canh = Array.isArray(input.scenes) ? input.scenes.slice(0, 8) : []
+      return [
+        cat(input.product, 200)
+          ? `Sản phẩm: ${cat(input.product, 200)}` : '',
+        `Có ${canh.length} cảnh, theo thứ tự:`,
+        ...canh.map((c, i) => `${i + 1}. ${cat(String(c), 60)}`),
+      ].filter(Boolean).join('\n')
+    },
+  },
 }
 
 /** Tên tác vụ hợp lệ — dùng cho schema của route và cho test. */

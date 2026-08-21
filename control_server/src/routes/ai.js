@@ -890,7 +890,11 @@ module.exports = async function aiRoutes(fastify) {
           // đợi, mà chặn sau khi đã gọi thì tiền đã mất.
           images: {
             type: 'array',
-            maxItems: 2,
+            // Trần CHUNG ở tầng schema = trần lớn nhất trong các tác vụ; trần
+            // riêng từng tác vụ (`soAnhToiDa`) do cổng trợ lý ép. Để 2 ở đây
+            // thì thêm tác vụ nhận nhiều ảnh là bị chặn oan ngay tầng schema,
+            // trước khi tới chỗ có thông báo tử tế.
+            maxItems: 6,
             items: {
               type: 'object',
               required: ['mimeType', 'data'],

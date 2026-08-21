@@ -47,6 +47,37 @@ const LOI_THOAI_GAME = [
 
 const CASES = [
   {
+    task: 'scene_continuity',
+    ten: 'kiểm liên tục giữa các cảnh — cần ẢNH THẬT nên không chấm khô được',
+    input: { note: 'video 4 cảnh cho một hộp trà' },
+    // Cùng lý do với `packaging_check`: tác vụ này nhìn ảnh, không đọc chữ.
+    canAnh: true,
+    kiem: [
+      ['chỉ trả MUOT hoặc LECH',
+        (r) => ['MUOT', 'LECH'].includes(r.value.trim().toUpperCase())],
+      ['nói rõ cảnh nào lạc', (r) => r.reason.length >= 8],
+    ],
+  },
+  {
+    task: 'scene_script',
+    ten: 'gợi ý kịch bản — mỗi cảnh một câu dẫn ngắn',
+    input: {
+      product: 'trà gừng mật ong, túi zip 1kg',
+      scenes: ['bàn gỗ mộc', 'giỏ quà', 'trên tay'],
+    },
+    kiem: [
+      ['câu dẫn đủ ngắn để hiện trên màn hình',
+        (r) => r.value.trim().split(/\s+/).length <= 12],
+      ['có gợi ý nhịp cho cảnh đó', (r) => r.reason.length >= 5],
+      // Câu chữ bán hàng sai luật là rủi ro của NGƯỜI BÁN, không phải của mô
+      // hình — nên chặn ngay ở mẫu đo, đừng đợi ai đó phát hiện trên TikTok.
+      ['không hứa công dụng chữa bệnh',
+        (r) => !/chữa|trị bệnh|khỏi bệnh|thuốc/i.test(r.value)],
+      ['không dùng từ tuyệt đối',
+        (r) => !/tốt nhất|số một|số 1|duy nhất|hàng đầu/i.test(r.value)],
+    ],
+  },
+  {
     task: 'packaging_check',
     ten: 'cổng kiểm tuân thủ — cần ẢNH THẬT nên không chấm khô được',
     input: { note: 'túi zip 1kg, nhãn giấy dán mặt trước' },
