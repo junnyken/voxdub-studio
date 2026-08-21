@@ -1228,6 +1228,7 @@ class ProductVideoWorker(QThread):
 
     xong = Signal(str)      # đường dẫn video
     hong = Signal(str)
+    canh_bao = Signal(str)  # các cảnh chưa liền mạch — KHÔNG chặn ghép
 
     def __init__(self, anh, duong_ra: str, giay_moi_anh: float = 2.5, parent=None):
         super().__init__(parent)
@@ -1236,9 +1237,20 @@ class ProductVideoWorker(QThread):
         self._giay = giay_moi_anh
 
     def run(self) -> None:
-        try:
-            from autodub import product_video
+        from autodub import product_video
 
+        # Kiểm liên tục nằm TRONG luồng nền cùng với việc ghép: nó gọi mạng
+        # (tới 60 giây) và thu nhỏ tới sáu ảnh bằng ffmpeg. Gọi thẳng từ chỗ
+        # bấm nút là treo cả cửa sổ — kể cả dòng "Đang ghép…" cũng không kịp
+        # hiện ra. Đây là lý do trang nào cũng có worker.
+        try:
+            lien_tuc = product_video.kiem_lien_tuc(self._anh)
+            if lien_tuc.da_kiem and not lien_tuc.muot:
+                self.canh_bao.emit(lien_tuc.ly_do)
+        except Exception as e:  # noqa: BLE001 — cảnh báo hỏng thì bỏ qua
+            logger.warning(f"Không kiểm được liên tục: {e}")
+
+        try:
             duong = product_video.dung_video(
                 self._anh, self._duong_ra, giay_moi_anh=self._giay)
         except Exception as e:  # noqa: BLE001 — lý do phải tới người dùng
@@ -1246,3 +1258,29 @@ class ProductVideoWorker(QThread):
             self.hong.emit(str(e))
             return
         self.xong.emit(duong)
+
+
+class SceneScriptWorker(QThread):
+    """Xin gợi ý câu dẫn cho từng cảnh — mini-spec C7.
+
+    Cũng gọi mạng (tới 45 giây) nên phải nằm ngoài luồng giao diện. Hỏng thì
+    trả danh sách rỗng: đây là tiện ích, mất nó không chặn ai làm gì.
+    """
+
+    xong = Signal(list)     # [(câu dẫn, gợi ý nhịp)]
+
+    def __init__(self, anh, san_pham: str = "", parent=None):
+        super().__init__(parent)
+        self._anh = list(anh)
+        self._san_pham = san_pham
+
+    def run(self) -> None:
+        try:
+            from autodub import product_video
+
+            goi_y = product_video.goi_y_kich_ban(
+                self._anh, san_pham=self._san_pham)
+        except Exception as e:  # noqa: BLE001 — tiện ích hỏng thì thôi
+            logger.warning(f"Không lấy được gợi ý kịch bản: {e}")
+            goi_y = []
+        self.xong.emit(goi_y)

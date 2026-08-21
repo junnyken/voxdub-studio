@@ -332,6 +332,6 @@ Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 | `docs/ARCH.md` | Kiến trúc lõi |
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 
-**Quy mô test hiện tại:** 1706 test Python (7 bỏ qua) + 464 test Node
+**Quy mô test hiện tại:** 1708 test Python (7 bỏ qua) + 464 test Node
 (1 bỏ qua). Kỷ luật của dự án: mỗi luật quan trọng đều được **gỡ ra để chứng
 minh test đỏ**, chứ không chỉ chạy cho xanh.

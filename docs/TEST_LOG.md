@@ -8549,13 +8549,40 @@ truthy nên `or` không bao giờ chạy tới vế sau, và stub trả về `Tr
 đối tượng giả. Mắc ở test giao diện C6 buổi sáng, mắc lại ở test C7 buổi
 chiều. Đã viết lại cả hai bằng lớp thật thay vì lambda lồng nhau.
 
+### Rà lại ngay sau khi phát hành — và tìm ra lỗi của chính bản vừa làm
+
+Chủ dự án bảo "xem qua lại". Đọc lại bằng mã, lộ ra một lỗi **tôi vừa tự tạo
+ra trong chính C7**:
+
+> `kiem_lien_tuc()` gọi mạng (chờ tới **60 giây**) và thu nhỏ tới sáu ảnh
+> bằng ffmpeg — nhưng tôi gọi nó **thẳng trong hàm xử lý nút bấm**, tức là
+> trên luồng giao diện. Bấm "Dựng video ngắn" là cả cửa sổ đứng hình, kể cả
+> dòng "Đang ghép…" cũng không kịp hiện ra. `goi_y_kich_ban()` y hệt, 45 giây.
+
+Đây đúng là lớp lỗi mà cả kiến trúc worker của dự án sinh ra để chặn, và tôi
+vẫn mắc vì mải nghĩ về ranh giới cảnh-báo-vs-chặn.
+
+Sửa: `kiem_lien_tuc` chuyển vào trong `ProductVideoWorker.run()` rồi bắn tín
+hiệu `canh_bao` ngược lên (thứ tự đúng: cảnh báo trước, ghép sau); thêm
+`SceneScriptWorker` cho phần gợi ý. Hai test mới đọc thẳng mã nguồn: hàm xử
+lý nút **không được** chứa lượt gọi `product_video.kiem_lien_tuc(` hay
+`product_video.goi_y_kich_ban(`, và hai worker **phải** chứa.
+
+Quét luôn cả gói giao diện tìm chỗ khác gọi máy chủ trong hàm xử lý sự kiện:
+chỉ còn `check_startup` — mà hàm đó đã nằm sẵn trong `QThread`, dương tính
+giả.
+
+**Bẫy test lần thứ tư trong ngày:** bản đầu của phép kiểm tìm chuỗi
+`goi_y_kich_ban(`, và nó khớp luôn dòng `def _goi_y_kich_ban(self)` của chính
+phương thức đang đọc → đỏ oan. Phải tìm lượt gọi CÓ TÊN MÔ-ĐUN.
+
 ### Chứng minh từng luật
 
 Biến cảnh báo liên tục thành cổng chặn → 1 đỏ. So từng cặp thay vì một lượt →
 2 đỏ. Máy chủ hỏng mà coi như có lệch → 1 đỏ. Cho giao diện tự nạp ảnh lệch →
-1 đỏ (từ C6, vẫn cắn).
+1 đỏ (từ C6, vẫn cắn). Trả lượt gọi mạng về luồng giao diện → 1 đỏ.
 
-**1706 passed, 7 skipped (Python) · 464 pass (Node) · smoke 18 trang.**
+**1708 passed, 7 skipped (Python) · 464 pass (Node) · smoke 18 trang.**
 
 ### Remaining Limits
 

@@ -39,7 +39,9 @@ from autodub_gui.ui.cards import Card
 from autodub_gui.ui.inputs import LabeledCombo, LabeledLineEdit
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.widgets import LogPanel
-from autodub_gui.workers import ProductSceneWorker, ProductVideoWorker
+from autodub_gui.workers import (
+    ProductSceneWorker, ProductVideoWorker, SceneScriptWorker,
+)
 
 _PAGE_MARGIN = 28
 _ANH_W = 190          # bề rộng ảnh xem trước trong lưới kết quả
@@ -78,6 +80,8 @@ class ProductScenePage(BasePage):
         self._settings_provider = settings_provider
         self._worker: ProductSceneWorker | None = None
         self._worker_video: ProductVideoWorker | None = None
+        self._worker_kich_ban: SceneScriptWorker | None = None
+        self._anh_kich_ban: list = []
         self._thu_muc_ket_qua = ""
         self._o_boi_canh: dict[str, QCheckBox] = {}
         self._build()
@@ -256,20 +260,15 @@ class ProductScenePage(BasePage):
             TOASTS.warn("Chưa có ảnh nào đăng bán được để ghép. Dựng ảnh trước đã.")
             return
 
-        # Kiểm liên tục (C7) — CẢNH BÁO, không phải cổng chặn. Nói trước khi
-        # ghép để người dùng còn kịp dựng lại cảnh lạc; nhưng quyền quyết
-        # định giữ hay bỏ là của họ, không phải của máy.
-        lien_tuc = product_video.kiem_lien_tuc(anh)
-        if lien_tuc.da_kiem and not lien_tuc.muot:
-            self.log.append_log(f"Các cảnh chưa liền mạch — {lien_tuc.ly_do}. "
-                                "Video vẫn ghép được; muốn mượt hơn thì dựng "
-                                "lại cảnh đó rồi ghép lại.", 30)
-
         ra = os.path.join(thu_muc, "video_san_pham.mp4")
         self.btn_video.setEnabled(False)
         self.status.setText(f"Đang ghép {len(anh)} ảnh thành video…")
 
         worker = ProductVideoWorker(anh, ra, parent=self)
+        # Kiểm liên tục (C7) chạy TRONG worker rồi bắn cảnh báo ngược lên —
+        # đây là CẢNH BÁO, không phải cổng chặn: video vẫn ghép, quyền quyết
+        # định giữ hay dựng lại cảnh lạc là của người bán.
+        worker.canh_bao.connect(self._canh_bao_lien_tuc)
         worker.xong.connect(self._video_xong)
         worker.hong.connect(self._video_hong)
         self._worker_video = worker
@@ -288,16 +287,34 @@ class ProductScenePage(BasePage):
         if not anh:
             TOASTS.warn("Chưa có ảnh nào đăng bán được. Dựng ảnh trước đã.")
             return
-        goi_y = product_video.goi_y_kich_ban(
-            anh, san_pham=self.ghi_chu.text().strip())
+        if self._worker_kich_ban is not None and self._worker_kich_ban.isRunning():
+            TOASTS.warn("Đang xin gợi ý — chờ chút.")
+            return
+
+        self._anh_kich_ban = anh
+        self.btn_kich_ban.setEnabled(False)
+        self.log.append_log("Đang xin gợi ý kịch bản…", 20)
+        worker = SceneScriptWorker(anh, self.ghi_chu.text().strip(), parent=self)
+        worker.xong.connect(self._kich_ban_xong)
+        self._worker_kich_ban = worker
+        worker.start()
+
+    def _kich_ban_xong(self, goi_y: list) -> None:
+        self.btn_kich_ban.setEnabled(True)
         if not goi_y:
             TOASTS.warn("Chưa lấy được gợi ý — thử lại sau ít phút.")
             return
+        anh = self._anh_kich_ban
         self.log.append_log("Gợi ý kịch bản (chỉ để tham khảo):", 20)
         for i, (cau, nhip) in enumerate(goi_y, 1):
             ten = dict(BOI_CANH).get(anh[i - 1].boi_canh, anh[i - 1].boi_canh) \
                 if i <= len(anh) else ""
             self.log.append_log(f"  Cảnh {i} ({ten}): «{cau}» — {nhip}", 20)
+
+    def _canh_bao_lien_tuc(self, ly_do: str) -> None:
+        self.log.append_log(f"Các cảnh chưa liền mạch — {ly_do}. Video vẫn "
+                            "ghép được; muốn mượt hơn thì dựng lại cảnh đó "
+                            "rồi ghép lại.", 30)
 
     def _video_xong(self, duong: str) -> None:
         self.btn_video.setEnabled(True)
