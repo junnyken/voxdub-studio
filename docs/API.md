@@ -158,7 +158,9 @@ hổng, không phải tối ưu.
 hình của vai `assist` chứng minh được là nhìn được ảnh: máy chủ tự vẽ một PNG
 chứa số bốn chữ số ngẫu nhiên và bảo mô hình đọc. Đọc sai trả
 `503 MO_HINH_KHONG_NHIN_DUOC_ANH`; thử không được (lỗi mạng) trả
-`503 KHONG_THU_DUOC_NHIN`. Kết quả ghi ở `AiProvider.visionOkAt`, hạn 7 ngày.
+`503 KHONG_THU_DUOC_NHIN`. Kết quả ghi ở `AiProvider.visionOkAt`, hạn 7 ngày. Chấm **từng nơi gọi một**
+(gọi thẳng, không qua fallback — fallback trả về nơi nào đáp được nên sẽ ghi
+nhầm bản ghi), và lượt gọi thật chỉ chọn trong danh sách đã sàng.
 Lý do: một phán quyết "đạt" từ mô hình chưa nhìn thấy ảnh là hỏng im lặng, và
 hậu quả rơi xuống tài khoản bán hàng của người dùng.
 

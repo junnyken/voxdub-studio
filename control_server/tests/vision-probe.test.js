@@ -14,6 +14,15 @@ const zlib = require('node:zlib')
 
 const v = require('../src/services/vision-probe.service')
 
+/** Mã nguồn cổng AI — `control_server` chỉ có test thuần nên đường duy nhất
+ *  kiểm "đã nối dây chưa" là đọc chính mã. */
+function nguon() {
+  const fs = require('node:fs')
+  const path = require('node:path')
+  return fs.readFileSync(
+    path.join(__dirname, '..', 'src', 'services', 'ai-gateway.service.js'), 'utf8')
+}
+
 // -- Ảnh tự vẽ ---------------------------------------------------------------
 
 test('vẽ ra PNG thật, đọc lại được bằng zlib', () => {
@@ -110,13 +119,43 @@ test('một mô hình mù đoán bừa gần như chắc chắn trượt', () =>
 
 // -- Đã nối vào đường kiểm bao bì chưa ---------------------------------------
 
-test('assist gửi ảnh thì PHẢI thử nhìn trước khi gọi thật', () => {
-  const fs = require('node:fs')
-  const path = require('node:path')
-  const src = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'services', 'ai-gateway.service.js'), 'utf8')
+test('chấm bài từng nơi một, KHÔNG qua fallback', () => {
+  // Fallback trả về nơi nào trả lời được. Nơi thứ nhất hỏng, nơi thứ hai đáp
+  // → ghi kết quả thử lên nhầm bản ghi: đánh dấu một mô hình mù là "nhìn
+  // được". Đây là lỗ có thật trong bản đầu, tìm ra khi rà lại.
+  const than = nguon().slice(nguon().indexOf('async function thuNhinMotNoi'))
+  const dau = than.slice(0, than.indexOf('async function locNoiNhinDuocAnh'))
+  assert.doesNotMatch(dau, /callWithFallback/,
+    'thử nhìn mà đi qua fallback thì không biết đang chấm ai')
+  assert.match(dau, /callGemini|callOpenAiCompat/)
+})
+
+test('lượt gọi thật CHỈ dùng nơi đã chứng minh nhìn được', () => {
+  // Sàng xong rồi vẫn để `callWithFallback` tự chọn từ danh sách đầy đủ thì
+  // phép sàng vô nghĩa — lượt gọi vẫn rơi được vào nơi chưa chứng minh.
+  const src = nguon()
   const than = src.slice(src.indexOf('async function assist({'))
-  const iThu = than.indexOf('baoDamNhinDuocAnh(')
+  const iLoc = than.indexOf('locNoiNhinDuocAnh(')
+  const iGiao = than.indexOf('chiDinh,')
+  assert.ok(iLoc > 0 && iGiao > 0, 'không giao danh sách đã sàng cho lượt gọi')
+  assert.ok(iLoc < iGiao)
+  assert.match(src.slice(src.indexOf('async function callWithFallback')),
+    /args\.chiDinh \|\| await providersFor/,
+    'callWithFallback không nhận danh sách chỉ định')
+})
+
+test('gọi hỏng thì KHÔNG bị ghi là mù', () => {
+  // Mất mạng một lượt mà bị đóng dấu "mô hình mù" là kết tội oan, và dấu đó
+  // ở lại 7 ngày.
+  const than = nguon().slice(nguon().indexOf('async function locNoiNhinDuocAnh'))
+  const bat = than.slice(than.indexOf('} catch (err) {'), than.indexOf('await AiProvider.updateOne'))
+  assert.match(bat, /continue/, 'lỗi gọi phải bỏ qua nơi đó, không chấm')
+})
+
+test('assist gửi ảnh thì PHẢI thử nhìn trước khi gọi thật', () => {
+  const src = nguon()
+  const than = src.slice(src.indexOf('async function assist({'))
+  const iThu = than.indexOf('locNoiNhinDuocAnh(')
   const iGoi = than.indexOf('callWithFallback(role, {')
   assert.ok(iThu > 0, 'assist không thử khả năng nhìn')
   assert.ok(iGoi > 0)
@@ -126,11 +165,8 @@ test('assist gửi ảnh thì PHẢI thử nhìn trước khi gọi thật', () 
 })
 
 test('mô hình không đọc được thì NÉM LỖI, không trả kết quả', () => {
-  const fs = require('node:fs')
-  const path = require('node:path')
-  const src = fs.readFileSync(
-    path.join(__dirname, '..', 'src', 'services', 'ai-gateway.service.js'), 'utf8')
-  const than = src.slice(src.indexOf('async function baoDamNhinDuocAnh'))
+  const src = nguon()
+  const than = src.slice(src.indexOf('async function locNoiNhinDuocAnh'))
   assert.match(than.slice(0, than.indexOf('async function assist')),
     /throw new AiError\('MO_HINH_KHONG_NHIN_DUOC_ANH'/)
 })

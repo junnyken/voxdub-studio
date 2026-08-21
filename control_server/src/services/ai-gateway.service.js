@@ -270,7 +270,10 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)) }
  * mới ném lỗi lên trên.
  */
 async function callWithFallback(role, args) {
-  const list = await providersFor(role)
+  // `args.chiDinh` = danh sách nơi gọi đã được sàng sẵn. Dùng cho tác vụ có
+  // ảnh: chỉ những nơi ĐÃ chứng minh nhìn được ảnh mới được nhận việc, chứ
+  // không phải "nơi đầu tiên còn sống".
+  const list = args.chiDinh || await providersFor(role)
   if (!list.length) {
     throw new AiError('NO_PROVIDER',
       `Chưa cấu hình nơi gọi mô hình cho "${role}". Thêm qua /v1/admin/providers.`, 503)
@@ -661,59 +664,91 @@ async function generateScene({ image, scene, mode = 'SAFE', note = '' }) {
 const HAN_THU_NHIN_MS = 7 * 24 * 3600_000
 
 /**
- * Bảo đảm vai `assist` đang dùng một mô hình NHÌN ĐƯỢC ẢNH (mini-spec C4).
+ * Thử MỘT nơi gọi cụ thể. Gọi thẳng, KHÔNG qua `callWithFallback`.
  *
- * Chỉ gọi cho những tác vụ có gửi ảnh. Cách kiểm: tự vẽ một tấm ảnh chứa số
- * ngẫu nhiên rồi bảo mô hình đọc — xem `vision-probe.service.js` để biết vì
- * sao đây là chỗ đáng bỏ công.
- *
- * Kết quả ghi lại trên chính bản ghi nhà cung cấp nên mỗi tuần chỉ tốn một
- * lượt gọi thừa. Không đọc được số thì NÉM LỖI thay vì chạy tiếp: phía app
- * coi mọi lỗi của bước kiểm là "chưa kiểm được", tức là ảnh không được dùng
- * để bán — đúng hướng an toàn.
+ * Vì sao không dùng fallback: fallback trả về nơi nào trả lời được, nên nếu
+ * nơi thứ nhất hỏng và nơi thứ hai đáp, ta sẽ ghi kết quả thử lên nhầm bản
+ * ghi — đánh dấu một mô hình mù là "nhìn được", hoặc ngược lại. Chấm bài thì
+ * phải biết chắc mình đang chấm ai.
  */
-async function baoDamNhinDuocAnh(role) {
-  const list = await providersFor(role)
-  if (!list.length) return
-  const provider = list[0]
-  const okLuc = provider.visionOkAt ? new Date(provider.visionOkAt).getTime() : 0
-  if (okLuc && Date.now() - okLuc < HAN_THU_NHIN_MS) return
-
+async function thuNhinMotNoi(provider) {
   const bai = visionProbe.taoBaiThu()
-  let traLoi = ''
-  try {
-    const { content } = await callWithFallback(role, {
-      system: 'Bạn đọc chữ số trong ảnh. Trả về JSON đúng khuôn được yêu cầu.',
-      user: 'Trong ảnh có một dãy chữ số. Đọc dãy số đó và ghi vào "value"; '
-        + 'ghi vào "reason" mô tả ngắn những gì bạn thấy trong ảnh.',
-      schema: assistPrompts.resultsSchema(1),
-      images: [bai.image],
-      maxRetries: 1,
-    })
-    const data = parseJsonObject(content)
-    traLoi = String(data?.results?.[0]?.value || '')
-  } catch (err) {
-    // Gọi hỏng ≠ mô hình mù. Không kết tội oan, nhưng cũng không cho qua:
-    // ném tiếp để lượt kiểm này tính là "chưa kiểm được".
+  const goi = provider.type === 'google' ? callGemini : callOpenAiCompat
+  const { content } = await goi(provider, {
+    system: 'Bạn đọc chữ số trong ảnh. Trả về JSON đúng khuôn được yêu cầu.',
+    user: 'Trong ảnh có một dãy chữ số. Đọc dãy số đó và ghi vào "value"; '
+      + 'ghi vào "reason" mô tả ngắn những gì bạn thấy trong ảnh.',
+    schema: assistPrompts.resultsSchema(1),
+    images: [bai.image],
+    maxRetries: 1,
+  })
+  const data = parseJsonObject(content)
+  const traLoi = String(data?.results?.[0]?.value || '')
+  return { dat: visionProbe.doDung(bai.so, traLoi), traLoi, so: bai.so }
+}
+
+/**
+ * Lọc ra những nơi gọi NHÌN ĐƯỢC ẢNH cho vai này (mini-spec C4).
+ *
+ * Chỉ chạy cho tác vụ có gửi ảnh. Cách kiểm: tự vẽ một tấm ảnh chứa số ngẫu
+ * nhiên rồi bảo mô hình đọc — xem `vision-probe.service.js` để biết vì sao
+ * đây là chỗ đáng bỏ công.
+ *
+ * Trả về danh sách đã sàng, để lượt gọi thật KHÔNG rơi được vào một nơi chưa
+ * chứng minh. Không nơi nào qua được thì ném lỗi: phía app coi mọi lỗi của
+ * bước kiểm là "chưa kiểm được", tức ảnh không được dùng để bán — đúng hướng
+ * an toàn.
+ */
+async function locNoiNhinDuocAnh(role) {
+  const list = await providersFor(role)
+  if (!list.length) {
+    throw new AiError('NO_PROVIDER',
+      `Chưa cấu hình nơi gọi mô hình cho "${role}".`, 503)
+  }
+
+  const dungDuoc = []
+  let loiCuoi = null
+  let coNoiMu = false
+  for (const provider of list) {
+    const okLuc = provider.visionOkAt ? new Date(provider.visionOkAt).getTime() : 0
+    if (okLuc && Date.now() - okLuc < HAN_THU_NHIN_MS) {
+      dungDuoc.push(provider)
+      continue
+    }
+    let ket
+    try {
+      ket = await thuNhinMotNoi(provider)
+    } catch (err) {
+      // Gọi hỏng ≠ mô hình mù. Không kết tội oan: bỏ qua nơi này lượt nay,
+      // KHÔNG ghi là mù, và giữ lỗi lại phòng khi chẳng nơi nào qua được.
+      loiCuoi = err
+      continue
+    }
+    await AiProvider.updateOne({ _id: provider._id }, {
+      $set: ket.dat
+        ? { visionOkAt: new Date(), visionNote: '' }
+        : { visionOkAt: null, visionNote: `đọc "${ket.traLoi}" thay vì ${ket.so}` },
+    }).catch(() => {})
+    if (ket.dat) dungDuoc.push({ ...provider, visionOkAt: new Date() })
+    else coNoiMu = true
+  }
+  // Bộ nhớ đệm đang giữ bản cũ (visionOkAt rỗng); không dọn thì lượt sau lại
+  // thử lại từ đầu, tốn thêm một lượt gọi mỗi lần cho tới khi hết hạn đệm.
+  invalidateProviders()
+
+  if (!dungDuoc.length) {
+    if (coNoiMu) {
+      throw new AiError('MO_HINH_KHONG_NHIN_DUOC_ANH',
+        `Mô hình đang gán cho vai "${role}" không đọc được nội dung ảnh `
+        + '(bài thử: đọc một dãy số in rõ trong ảnh). Bước kiểm bao bì bắt buộc '
+        + 'phải nhìn được ảnh — đổi sang mô hình có thị giác ở trang Nơi gọi '
+        + 'mô hình.', 503)
+    }
     throw new AiError('KHONG_THU_DUOC_NHIN',
-      `Chưa thử được khả năng nhìn ảnh của mô hình (${String(err.message).slice(0, 120)})`,
-      503)
+      'Chưa thử được khả năng nhìn ảnh của mô hình '
+      + `(${String(loiCuoi?.message || '').slice(0, 120)})`, 503)
   }
-
-  const dat = visionProbe.doDung(bai.so, traLoi)
-  AiProvider.updateOne({ _id: provider._id }, {
-    $set: dat
-      ? { visionOkAt: new Date(), visionNote: '' }
-      : { visionOkAt: null, visionNote: `đọc "${traLoi}" thay vì ${bai.so}` },
-  }).catch(() => {})
-
-  if (!dat) {
-    throw new AiError('MO_HINH_KHONG_NHIN_DUOC_ANH',
-      `Mô hình đang gán cho vai "${role}" không đọc được nội dung ảnh `
-      + '(bài thử: đọc một dãy số in rõ trong ảnh). Bước kiểm bao bì bắt buộc '
-      + 'phải nhìn được ảnh — đổi sang mô hình có thị giác ở trang Nơi gọi '
-      + 'mô hình.', 503)
-  }
+  return dungDuoc
 }
 
 async function assist({ task, input, images }) {
@@ -734,12 +769,14 @@ async function assist({ task, input, images }) {
   const assistProviders = await providersFor('assist')
   const role = assistProviders.length ? 'assist' : 'translate'
 
-  // Có gửi ảnh thì mô hình PHẢI nhìn được ảnh. Kiểm trước khi gọi thật: một
-  // phán quyết "đạt" từ mô hình mù là ca hỏng tệ nhất hệ thống này tạo ra
-  // được — im lặng, trông như đang chạy, hậu quả rơi xuống người bán.
-  if ((images || []).length) await baoDamNhinDuocAnh(role)
+  // Có gửi ảnh thì mô hình PHẢI nhìn được ảnh. Sàng TRƯỚC khi gọi thật, và
+  // giao đúng danh sách đã sàng cho lượt gọi: một phán quyết "đạt" từ mô hình
+  // mù là ca hỏng tệ nhất hệ thống này tạo ra được — im lặng, trông như đang
+  // chạy, hậu quả rơi xuống người bán vài tuần sau dưới dạng án phạt.
+  const chiDinh = (images || []).length ? await locNoiNhinDuocAnh(role) : null
 
   const { content, usage, provider } = await callWithFallback(role, {
+    chiDinh,
     system: spec.system,
     user: spec.buildUser(input || {}),
     schema: assistPrompts.resultsSchema(spec.maxResults),

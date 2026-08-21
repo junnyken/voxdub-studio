@@ -8541,6 +8541,46 @@ Bỏ phép thử nhìn khỏi `assist` → 1 đỏ. Vẽ trượt toạ độ (�
 
 **449 pass (Node) · 1670 passed, 7 skipped (Python) · website build sạch.**
 
+### Rà lại lời khuyên của chính mình — và tìm ra một lỗ trong bộ canh vừa dựng
+
+Chủ dự án bảo "coi lại giúp tôi" phần khuyến nghị cắm Gemini trước. Đi kiểm
+bằng mã thay vì đọc lại, và lộ ra một lỗ **trong chính phép thử nhìn vừa
+làm xong**:
+
+`baoDamNhinDuocAnh` chấm bài bằng `callWithFallback`, mà hàm đó trả về *nơi
+nào trả lời được*. Nơi thứ nhất hỏng, nơi thứ hai đáp → **ghi kết quả thử lên
+nhầm bản ghi**: một mô hình mù có thể bị đóng dấu "nhìn được", hoặc ngược
+lại. Tệ hơn: sàng xong rồi lượt gọi thật vẫn dùng danh sách đầy đủ, nên nó
+vẫn rơi được vào một nơi chưa chứng minh — tức là phép sàng gần như vô nghĩa
+khi có từ hai nơi gọi trở lên.
+
+Sửa ba chỗ:
+- `thuNhinMotNoi()` gọi **thẳng** `callGemini`/`callOpenAiCompat` cho đúng nơi
+  đang chấm, không qua fallback. Chấm bài thì phải biết chắc mình chấm ai.
+- `locNoiNhinDuocAnh()` trả về **danh sách đã sàng**, và `callWithFallback`
+  nhận `chiDinh` để lượt gọi thật chỉ chọn trong danh sách đó.
+- Gọi hỏng thì **bỏ qua nơi đó, không ghi là mù** — mất mạng một lượt mà bị
+  đóng dấu "mô hình mù" là kết tội oan, và dấu đó ở lại 7 ngày.
+
+Kèm dọn bộ nhớ đệm nơi gọi sau khi chấm: không dọn thì bản cũ (`visionOkAt`
+rỗng) còn nằm trong đệm, mỗi lượt lại thử lại từ đầu cho tới khi hết hạn.
+
+Chứng minh: quay lại chấm qua fallback → 1 đỏ; sàng xong không giao danh sách
+→ 1 đỏ; kết tội mù khi chỉ lỗi mạng → 1 đỏ. **452 pass (Node).**
+
+### Ba đính chính cho chính lời khuyên đó
+
+1. **"Một khoá" đúng, nhưng phải tạo HAI DÒNG.** `AiProvider.name` là duy
+   nhất, và hai vai cần hai mô hình khác nhau: vai `assist` dùng mô hình chữ
+   có thị giác, vai `image` dùng mô hình sinh ảnh. Cùng một khoá API, hai
+   dòng khác tên.
+2. **Đừng dùng tên mô hình Imagen** — dòng đó đã ngừng phục vụ ngày
+   17/08/2026, bốn ngày trước. Mô hình sinh ảnh của Gemini nay theo dạng
+   `gemini-<phiên bản>-flash-image`.
+3. Hai đường gọi Gemini cố tình khác nhau và đã kiểm: `callGemini` (vai chữ)
+   ép `responseMimeType: application/json`, còn `generateScene` (vai ảnh)
+   **không** ép — ép JSON lên mô hình sinh ảnh là tự bịt đường trả ảnh.
+
 ### Remaining Limits
 
 - Phép thử nhìn chỉ chứng minh mô hình **đọc được chữ trong ảnh**. Nó không
