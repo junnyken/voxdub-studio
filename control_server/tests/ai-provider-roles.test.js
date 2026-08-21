@@ -78,3 +78,39 @@ test('giao diện quản trị có lựa chọn cho mọi vai', () => {
       + 'bằng API nhưng không bấm được trên giao diện')
   }
 })
+
+/**
+ * Vai "image" chỉ chạy được với giao thức Google — phải NÓI RA (C2).
+ *
+ * `generateScene()` dựng yêu cầu theo đúng khuôn Gemini bất kể `provider.type`.
+ * Ai khai giao thức "Chuẩn OpenAI" cho vai này sẽ nhận "Mô hình sinh ảnh trả
+ * 404" và không có cách nào đoán ra là mình chọn sai ô. Cùng lớp lỗi với V94:
+ * cấu hình sai mà hệ thống không nói được sai ở đâu.
+ */
+test('vai image từ chối giao thức không phải Google, kèm lý do đọc được', () => {
+  const src = doc('src/services/ai-gateway.service.js')
+  const than = src.slice(src.indexOf('async function generateScene'))
+  assert.match(than, /provider\.type\s*!==\s*'google'/,
+    'generateScene không kiểm giao thức')
+  // Mốc so sánh là chỗ THẬT SỰ gọi mạng, không phải chữ "generateContent"
+  // trong lời chú thích — chú thích nằm trước phép kiểm nên so nhầm là đỏ oan.
+  const i = than.indexOf('provider.type')
+  const j = than.indexOf('axios.post(')
+  assert.ok(i > 0, 'không thấy phép kiểm giao thức')
+  assert.ok(j > 0, 'không thấy lượt gọi mạng')
+  assert.ok(i < j, 'phải kiểm giao thức TRƯỚC khi gọi mạng')
+  assert.match(than.slice(i, i + 700), /Google Gemini/,
+    'thông báo phải nói rõ giao thức nào mới dùng được')
+})
+
+/** Khoá bật/tắt tính năng ảnh phải TÌM THẤY được trong trang quản trị. */
+test('chốt chuyển pha có mặt trong một nhóm của trang Cấu hình', () => {
+  // Rơi xuống nhóm "Khác" nghĩa là người bấm phải lục giữa hàng chục khoá
+  // lặt vặt để tìm đúng công tắc quyết định mở tính năng cho người bán thật.
+  const cfg = fs.readFileSync(
+    path.join(GOC, '..', 'website', 'src', 'pages', 'admin', 'Config.jsx'), 'utf8')
+  const nhom = cfg.slice(0, cfg.indexOf('function EditModal'))
+  for (const khoa of ['image.scene.stage', 'image.scene.calibration.devices']) {
+    assert.ok(nhom.includes(`'${khoa}'`), `khoá «${khoa}» không nằm trong nhóm nào`)
+  }
+})

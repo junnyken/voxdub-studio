@@ -584,6 +584,18 @@ async function generateScene({ image, scene, mode = 'SAFE', note = '' }) {
   let lastError = null
   for (const provider of list) {
     try {
+      // Hàm này dựng yêu cầu theo ĐÚNG khuôn Gemini (`:generateContent` +
+      // `x-goog-api-key`). Nhà cung cấp khai giao thức khác mà vẫn đi vào
+      // đây thì sẽ nhận 404 kèm câu "Mô hình sinh ảnh trả 404" — người cấu
+      // hình không có cách nào đoán ra là mình chọn sai giao thức. Nói thẳng
+      // ngay tại đây rẻ hơn nhiều so với để họ dò.
+      if (provider.type && provider.type !== 'google') {
+        throw new AiError('PROVIDER_MISCONFIGURED',
+          `Nơi gọi mô hình "${provider.label || provider.name}" đang khai giao `
+          + 'thức "Chuẩn OpenAI", nhưng vai "Sinh ảnh" hiện chỉ chạy được với '
+          + 'giao thức "Google Gemini". Sửa lại giao thức ở trang Nơi gọi mô '
+          + 'hình.', 503)
+      }
       const apiKey = decrypt(provider.apiKeyEnc)
       if (!apiKey) throw new AiError('PROVIDER_MISCONFIGURED', 'thiếu API key')
       const base = provider.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'

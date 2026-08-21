@@ -47,13 +47,27 @@ const GROUPS = [
     keys: ['maintenance.mode', 'maintenance.message', 'min.app.version', 'force.update.version'],
   },
   {
+    // Đặt thành nhóm riêng thay vì để rơi xuống "Khác": đây là công tắc quyết
+    // định tính năng có mở cho người bán thật hay không, người bấm phải tìm
+    // thấy nó chứ không phải lục trong bãi khoá lặt vặt.
+    title: 'Ảnh sản phẩm — chốt chuyển pha',
+    keys: [
+      'image.scene.stage', 'image.scene.calibration.devices',
+      'credit.cost.image.scene', 'image.daily.limit', 'image.daily.limit.concept',
+      'credit.cost.assist.packaging_check',
+    ],
+  },
+  {
     title: 'Trần chống lạm dụng',
     keys: ['ai.max.segments.per.request', 'ai.max.chars.per.segment', 'ai.max.retries'],
   },
 ]
 
 /** Các khóa nguy hiểm — sửa sai là toàn bộ người dùng bị ảnh hưởng ngay. */
-const DANGEROUS = new Set(['credit.enabled', 'maintenance.mode', 'min.app.version'])
+const DANGEROUS = new Set(['credit.enabled', 'maintenance.mode', 'min.app.version',
+  // Chuyển sang `production` là mở tính năng cho mọi người bán thật, trong
+  // khi phán quyết kiểm bao bì chưa chắc đã hiệu chỉnh xong.
+  'image.scene.stage'])
 
 function EditModal({ open, item, onClose, onDone }) {
   const [raw, setRaw] = useState('')
