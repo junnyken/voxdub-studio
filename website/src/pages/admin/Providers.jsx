@@ -132,8 +132,10 @@ function ProviderModal({ open, onClose, editing, onDone }) {
         <div>
           <label className="label">Giao thức</label>
           <select className="input" value={form.type} onChange={(e) => set('type', e.target.value)}>
-            <option value="openai_compat">Chuẩn OpenAI (OpenRouter, DeepSeek…)</option>
-            <option value="google">Google Gemini</option>
+            <option value="openai_compat">Chuẩn OpenAI — chữ (OpenRouter, DeepSeek…)</option>
+            <option value="google">Google Gemini (chữ và ảnh)</option>
+            <option value="openrouter_images">OpenRouter — Images API (ảnh)</option>
+            <option value="openai_images">OpenAI — Images API (ảnh)</option>
           </select>
         </div>
         <div className="sm:col-span-2">
@@ -159,6 +161,20 @@ function ProviderModal({ open, onClose, editing, onDone }) {
           />
         </div>
         <div>
+          {form.role === 'image' && !GIAO_THUC_ANH.has(form.type) && (
+            <p className="sm:col-span-2 text-xs text-warning">
+              Vai «Sinh ảnh» cần một giao thức sinh được ảnh. «Chuẩn OpenAI»
+              chỉ gọi được phần chữ — chọn nhầm thì mọi lượt dựng ảnh trả về
+              lỗi 404 mà không nói vì sao.
+            </p>
+          )}
+          {form.role !== 'image' && GIAO_THUC_ANH.has(form.type)
+            && form.type !== 'google' && (
+            <p className="sm:col-span-2 text-xs text-warning">
+              Giao thức này chỉ sinh ảnh, không dùng được cho vai chữ.
+            </p>
+          )}
+
           <label className="label">Mô hình</label>
           <input
             className="input font-mono text-xs"
@@ -208,6 +224,9 @@ function ProviderModal({ open, onClose, editing, onDone }) {
     </Modal>
   )
 }
+
+/** Giao thức sinh được ảnh — phải khớp GIAO_THUC ở image-transport.service.js. */
+const GIAO_THUC_ANH = new Set(['google', 'openrouter_images', 'openai_images'])
 
 export default function Providers() {
   const { data, error, loading, reload } = useFetch(() => adminApi.providers())

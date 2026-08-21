@@ -80,27 +80,36 @@ test('giao diện quản trị có lựa chọn cho mọi vai', () => {
 })
 
 /**
- * Vai "image" chỉ chạy được với giao thức Google — phải NÓI RA (C2).
+ * Vai "image" phải TỪ CHỐI trước khi gọi mạng nếu giao thức không sinh được
+ * ảnh (C2 → mở rộng ở C3).
  *
- * `generateScene()` dựng yêu cầu theo đúng khuôn Gemini bất kể `provider.type`.
- * Ai khai giao thức "Chuẩn OpenAI" cho vai này sẽ nhận "Mô hình sinh ảnh trả
- * 404" và không có cách nào đoán ra là mình chọn sai ô. Cùng lớp lỗi với V94:
- * cấu hình sai mà hệ thống không nói được sai ở đâu.
+ * Lịch sử: bản đầu chỉ hỗ trợ Gemini và dựng URL kiểu Gemini cho MỌI nhà
+ * cung cấp, nên khai "Chuẩn OpenAI" là nhận 404 không hiểu vì sao. Nay có ba
+ * giao thức sinh ảnh; luật còn lại vẫn thế — giao thức không nằm trong bảng
+ * thì nói thẳng, đừng gọi mạng rồi đoán.
  */
-test('vai image từ chối giao thức không phải Google, kèm lý do đọc được', () => {
+test('vai image từ chối giao thức không sinh được ảnh, TRƯỚC khi gọi mạng', () => {
   const src = doc('src/services/ai-gateway.service.js')
   const than = src.slice(src.indexOf('async function generateScene'))
-  assert.match(than, /provider\.type\s*!==\s*'google'/,
-    'generateScene không kiểm giao thức')
-  // Mốc so sánh là chỗ THẬT SỰ gọi mạng, không phải chữ "generateContent"
-  // trong lời chú thích — chú thích nằm trước phép kiểm nên so nhầm là đỏ oan.
-  const i = than.indexOf('provider.type')
-  const j = than.indexOf('axios.post(')
-  assert.ok(i > 0, 'không thấy phép kiểm giao thức')
-  assert.ok(j > 0, 'không thấy lượt gọi mạng')
-  assert.ok(i < j, 'phải kiểm giao thức TRƯỚC khi gọi mạng')
-  assert.match(than.slice(i, i + 700), /Google Gemini/,
-    'thông báo phải nói rõ giao thức nào mới dùng được')
+  const iDung = than.indexOf('transport.dungYeuCau(')
+  const iChan = than.indexOf('if (!yeuCau)')
+  const iMang = than.indexOf('axios.post(')
+  assert.ok(iDung > 0, 'generateScene không dùng bảng giao thức')
+  assert.ok(iChan > 0, 'không có nhánh chặn khi không dựng được yêu cầu')
+  assert.ok(iChan < iMang, 'phải chặn TRƯỚC khi gọi mạng')
+  assert.match(than.slice(iChan, iChan + 500), /GIAO_THUC/,
+    'thông báo phải liệt kê các giao thức dùng được')
+})
+
+/** Lỗi của nhà cung cấp phải tới được người cấu hình, không bị nuốt còn mã số. */
+test('mã lỗi HTTP đi kèm nguyên văn lý do nhà cung cấp trả về', () => {
+  const src = doc('src/services/ai-gateway.service.js')
+  const than = src.slice(src.indexOf('async function generateScene'))
+  const i = than.indexOf('Mô hình sinh ảnh trả')
+  assert.ok(i > 0)
+  // "trả 401" một mình không cho biết là sai khoá, hết tiền, hay sai tên mô
+  // hình — ba việc phải xử khác hẳn nhau.
+  assert.match(than.slice(i - 300, i + 200), /error\?\.message/)
 })
 
 /** Khoá bật/tắt tính năng ảnh phải TÌM THẤY được trong trang quản trị. */

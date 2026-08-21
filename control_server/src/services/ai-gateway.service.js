@@ -20,6 +20,7 @@ const {
 const prompts = require('../prompts/translate')
 const assistPrompts = require('../prompts/assist')
 const scenePrompts = require('../prompts/product_scene')
+const transport = require('./image-transport.service')
 const subtitlePrompts = require('../prompts/subtitle-translate')
 
 class AiError extends Error {
@@ -584,53 +585,53 @@ async function generateScene({ image, scene, mode = 'SAFE', note = '' }) {
   let lastError = null
   for (const provider of list) {
     try {
-      // Hàm này dựng yêu cầu theo ĐÚNG khuôn Gemini (`:generateContent` +
-      // `x-goog-api-key`). Nhà cung cấp khai giao thức khác mà vẫn đi vào
-      // đây thì sẽ nhận 404 kèm câu "Mô hình sinh ảnh trả 404" — người cấu
-      // hình không có cách nào đoán ra là mình chọn sai giao thức. Nói thẳng
-      // ngay tại đây rẻ hơn nhiều so với để họ dò.
-      if (provider.type && provider.type !== 'google') {
-        throw new AiError('PROVIDER_MISCONFIGURED',
-          `Nơi gọi mô hình "${provider.label || provider.name}" đang khai giao `
-          + 'thức "Chuẩn OpenAI", nhưng vai "Sinh ảnh" hiện chỉ chạy được với '
-          + 'giao thức "Google Gemini". Sửa lại giao thức ở trang Nơi gọi mô '
-          + 'hình.', 503)
-      }
       const apiKey = decrypt(provider.apiKeyEnc)
       if (!apiKey) throw new AiError('PROVIDER_MISCONFIGURED', 'thiếu API key')
-      const base = provider.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'
-      const url = `${base.replace(/\/+$/, '')}/models/${provider.model}:generateContent`
-      const resp = await axios.post(url, {
-        contents: [{
-          role: 'user',
-          parts: [
-            { text: prompt },
-            { inlineData: { mimeType: image.mimeType, data: image.data } },
-          ],
-        }],
-      }, {
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+
+      // Mỗi nhà cung cấp có một cách gọi sinh ảnh riêng — xem
+      // `image-transport.service.js`. Giao thức không sinh được ảnh (vd
+      // "Chuẩn OpenAI" = /chat/completions) thì nói thẳng ngay tại đây: để
+      // nó đi tiếp chỉ nhận về 404 mà người cấu hình không đoán ra vì sao.
+      const yeuCau = transport.dungYeuCau({
+        provider: { ...provider.toObject?.() ?? provider, apiKey },
+        prompt,
+        image,
+      })
+      if (!yeuCau) {
+        throw new AiError('PROVIDER_MISCONFIGURED',
+          `Nơi gọi mô hình "${provider.label || provider.name}" đang khai giao `
+          + 'thức không sinh được ảnh. Vai "Sinh ảnh" cần một trong: '
+          + `${Object.values(transport.GIAO_THUC).join(', ')}.`, 503)
+      }
+
+      const resp = await axios.post(yeuCau.url, yeuCau.body, {
+        headers: yeuCau.headers,
         timeout: provider.timeoutMs || 120_000,
         validateStatus: () => true,
       })
       if (resp.status !== 200) {
+        // Kèm nguyên văn lỗi của nhà cung cấp: "trả 401" một mình không cho
+        // biết là sai khoá, hết tiền, hay mô hình không tồn tại.
+        const noiDung = resp.data?.error?.message || resp.data?.error?.type || ''
         throw new AiError('AI_UNAVAILABLE',
-          `Mô hình sinh ảnh trả ${resp.status}`, 503)
+          `Mô hình sinh ảnh trả ${resp.status}`
+          + `${noiDung ? `: ${String(noiDung).slice(0, 200)}` : ''}`, 503)
       }
-      const parts = resp.data?.candidates?.[0]?.content?.parts || []
-      const anh = parts.find((x) => x.inlineData)
+
+      const { image: anh, lyDo } = transport.docTraLoi({
+        type: provider.type, data: resp.data })
       if (!anh) {
         // Mô hình từ chối vẽ (chính sách nội dung) hay trả về chữ: nói thẳng,
         // đừng để phía app hiểu nhầm là lỗi mạng.
-        const loi = parts.find((x) => x.text)?.text || ''
         throw new AiError('KHONG_SINH_DUOC_ANH',
-          `Mô hình không trả về ảnh${loi ? `: ${String(loi).slice(0, 200)}` : ''}`,
+          `Mô hình không trả về ảnh${lyDo ? `: ${String(lyDo).slice(0, 200)}` : ''}`,
           502)
       }
+
       AiProvider.updateOne({ _id: provider._id },
         { $set: { lastOkAt: new Date(), lastError: '' } }).catch(() => {})
       return {
-        image: { mimeType: anh.inlineData.mimeType, data: anh.inlineData.data },
+        image: anh,
         provider: provider.name,
         model: provider.model,
         mode,

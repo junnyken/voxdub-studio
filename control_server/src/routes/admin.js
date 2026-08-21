@@ -26,6 +26,7 @@ const credit = require('../services/credit.service')
 const config = require('../services/config.service')
 const activation = require('../services/activation.service')
 const gateway = require('../services/ai-gateway.service')
+const imageTransport = require('../services/image-transport.service')
 const audit = require('../services/audit.service')
 const holdService = require('../services/hold.service')
 const backup = require('../services/backup.service')
@@ -419,7 +420,11 @@ module.exports = async function adminRoutes(fastify) {
           name: { type: 'string', minLength: 1, maxLength: 60 },
           label: { type: 'string', maxLength: 120 },
           role: { type: 'string', enum: ['translate', 'content', 'assist', 'image'], default: 'translate' },
-          type: { type: 'string', enum: ['openai_compat', 'google'], default: 'openai_compat' },
+          type: {
+            type: 'string',
+            enum: ['openai_compat', 'google', 'openrouter_images', 'openai_images'],
+            default: 'openai_compat',
+          },
           baseUrl: { type: 'string', maxLength: 300 },
           apiKey: { type: 'string', maxLength: 400 },
           model: { type: 'string', minLength: 1, maxLength: 120 },
@@ -433,6 +438,10 @@ module.exports = async function adminRoutes(fastify) {
     },
   }, async (request, reply) => {
     const { apiKey, ...rest } = request.body
+    const loiCap = imageTransport.loiCapVaiGiaoThuc(rest.role, rest.type)
+    if (loiCap) {
+      return reply.code(400).send({ code: 'VAI_KHONG_HOP_GIAO_THUC', message: loiCap })
+    }
     try {
       const doc = await AiProvider.create({ ...rest, apiKeyEnc: encrypt(apiKey || '') })
       gateway.invalidateProviders()
@@ -453,6 +462,16 @@ module.exports = async function adminRoutes(fastify) {
 
   fastify.patch('/providers/:id', async (request, reply) => {
     const { apiKey, ...rest } = request.body || {}
+    // Sửa cũng phải kiểm: đổi vai mà quên đổi giao thức là cùng một cái bẫy,
+    // chỉ khác đường vào.
+    if (rest.role || rest.type) {
+      const hienTai = await AiProvider.findById(request.params.id).lean()
+      const loiCap = imageTransport.loiCapVaiGiaoThuc(
+        rest.role || hienTai?.role, rest.type || hienTai?.type)
+      if (loiCap) {
+        return reply.code(400).send({ code: 'VAI_KHONG_HOP_GIAO_THUC', message: loiCap })
+      }
+    }
     const update = { ...rest }
     // apiKey rỗng = giữ nguyên key cũ. Không có quy ước này thì mỗi lần sửa
     // model là vô tình xóa mất API key.

@@ -175,7 +175,7 @@ hình thật.**
 | Thứ | Vì sao chưa chạy |
 |---|---|
 | **Toàn bộ cổng trợ lý (7 tác vụ)** | Chưa ai tạo bản ghi nhà cung cấp cho vai `assist` trong trang quản trị. Hiện tự dùng chung vai `translate` — **chạy được nhưng đắt hơn khoảng 25 lần** |
-| **Sinh ảnh sản phẩm** | Chưa có nhà cung cấp cho vai `image`. Không có vai dự phòng (cố ý — rơi về `translate` chỉ sinh ra chữ). Vai này **chỉ chạy với giao thức Google Gemini** |
+| **Sinh ảnh sản phẩm** | Chưa có nhà cung cấp cho vai `image`. Không có vai dự phòng (cố ý — rơi về `translate` chỉ sinh ra chữ). Ba giao thức dùng được: Google Gemini, OpenRouter Images, OpenAI Images — **DeepSeek không sinh được ảnh** |
 | **Cổng kiểm tuân thủ** | Cùng lý do trên |
 | **Trang Ảnh sản phẩm trong app** | Chưa nằm trong bản `.exe` nào đã phát hành |
 
@@ -331,6 +331,6 @@ Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 | `docs/ARCH.md` | Kiến trúc lõi |
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 
-**Quy mô test hiện tại:** 1670 test Python (7 bỏ qua) + 409 test Node
+**Quy mô test hiện tại:** 1670 test Python (7 bỏ qua) + 427 test Node
 (1 bỏ qua). Kỷ luật của dự án: mỗi luật quan trọng đều được **gỡ ra để chứng
 minh test đỏ**, chứ không chỉ chạy cho xanh.

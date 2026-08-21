@@ -18,7 +18,13 @@ const aiProviderSchema = new mongoose.Schema({
     enum: ['translate', 'content', 'assist', 'image'],
     default: 'translate',
   },
-  type: { type: String, enum: ['openai_compat', 'google'], default: 'openai_compat' },
+  // 'openai_compat' = /chat/completions (chữ). Ba giá trị còn lại là các API
+  // SINH ẢNH, mỗi nhà một kiểu — xem `services/image-transport.service.js`.
+  type: {
+    type: String,
+    enum: ['openai_compat', 'google', 'openrouter_images', 'openai_images'],
+    default: 'openai_compat',
+  },
   baseUrl: { type: String, default: '' },
   apiKeyEnc: { type: String, default: '' },
   model: { type: String, required: true },

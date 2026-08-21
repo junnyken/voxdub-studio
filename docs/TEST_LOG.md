@@ -8474,6 +8474,82 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C3 — Sinh ảnh không chỉ riêng Gemini (Phase H, 2026-08-21)
+
+Chủ dự án hỏi thẳng sau khi đọc báo cáo C2: *"có tích hợp được các API chuẩn
+OpenAI (OpenRouter, DeepSeek…) không chứ không riêng mỗi Gemini?"*
+
+### Tra hợp đồng thật trước khi viết
+
+Câu trả lời ngắn là có, nhưng **"Chuẩn OpenAI" là một cái tên gây hiểu nhầm**:
+với phần CHỮ các nhà thật sự nói chung một giọng (`/chat/completions`), còn
+với phần ẢNH thì mỗi nhà một kiểu — khác đường dẫn, khác tên trường mang ảnh
+vào, khác chỗ đặt ảnh ra. Đã tra tài liệu thật thay vì suy từ trí nhớ, vì chủ
+dự án sẽ cắm khoá trả tiền vào đó:
+
+| Nhà | Cửa | Ảnh vào | Ảnh ra |
+|---|---|---|---|
+| Google | `:generateContent` | `inlineData` | `parts[].inlineData` |
+| OpenRouter | `/images` | `input_references[]` | `data[0].b64_json` |
+| OpenAI | `/images/edits` | `image` (data URI) | `data[0].b64_json` |
+
+**DeepSeek thì không** — API hosted của họ là chữ và suy luận, không sinh ảnh
+(Janus-Pro là dòng mô hình riêng, không nằm trong API thương mại). Nên câu
+"OpenRouter, DeepSeek…" trong nhãn cũ của trang quản trị là sai với vai ảnh.
+
+### Hai quyết định
+
+**Chọn `/images/edits`, không phải `/images/generations`.** Cửa sau không
+nhận ảnh vào — dùng nhầm thì sản phẩm trong ảnh ra do mô hình bịa hoàn toàn,
+đúng thứ C1 sinh ra để chống. Có test khoá riêng chỗ này.
+
+**Không đoán giao thức từ địa chỉ máy chủ.** Ba giá trị `type` tường minh
+(`google`, `openrouter_images`, `openai_images`) thay vì dò chuỗi
+"openrouter.ai" trong URL — dò chuỗi thì đổi tên miền một cái là hỏng, mà
+hỏng theo kiểu 404 không ai hiểu.
+
+### Chặn sai cặp ngay lúc LƯU
+
+`loiCapVaiGiaoThuc(role, type)` chạy ở cả `POST` lẫn `PATCH` nhà cung cấp:
+vai `image` với giao thức chỉ-chữ, hoặc vai chữ với giao thức chỉ-ảnh, đều bị
+từ chối kèm câu nói rõ phải chọn gì. Đây là bài học V94 áp dụng trước khi
+mắc: cấu hình sai mà chỉ lộ ở lượt gọi đầu tiên thì lúc đó người cấu hình đã
+rời trang từ lâu. Trang quản trị cũng hiện cảnh báo ngay khi chọn lệch cặp.
+
+### Một test tự viết ra đã khoá SAI CHIỀU
+
+Định khoá "thêm giá trị vào enum mà quên dạy cách gọi". Thêm thử `stability`
+vào enum để đo: **test vẫn xanh**. Vì một giao thức chữ mới hoàn toàn hợp lệ
+khi không sinh được ảnh — chiều đó không kiểm được, viết vậy là bộ canh xanh
+vĩnh viễn.
+
+Chiều đúng là ngược lại: mọi giao thức trong bảng sinh ảnh phải **lưu được**
+vào model và qua được schema của route. Bỏ `openrouter_images` khỏi enum để
+đo lại → đỏ ngay. Đây là đúng lỗi V94: dạy hệ thống một cách gọi mới mà quên
+mở enum thì không ai tạo nổi nhà cung cấp cho nó.
+
+### Chứng minh từng luật
+
+Đổi `/images/edits` thành `/images/generations` → 1 đỏ. Đọc ảnh ở sai trường
+(`data[0].image` thay vì `b64_json`) → 3 đỏ. Bỏ một giao thức khỏi enum →
+1 đỏ. Test C2 cũ ép "chỉ Gemini" đã lỗi thời, viết lại theo luật mới: phải
+chặn TRƯỚC khi gọi mạng và thông báo phải liệt kê các giao thức dùng được.
+
+**427 pass (Node) · website build sạch.**
+
+### Remaining Limits
+
+- **Chưa gọi thật nhà cung cấp nào.** Toàn bộ hình dạng yêu cầu/trả lời lấy
+  từ tài liệu của nhà cung cấp, test khoá lại hình dạng đó — nhưng test không
+  chứng minh được tài liệu đúng. Lượt gọi thật đầu tiên vẫn là phép thử thật.
+- Chưa hỗ trợ `multipart/form-data` của OpenAI (chỉ dùng thân JSON). Đủ cho
+  `gpt-image-*`; mô hình nào chỉ nhận multipart thì chưa chạy được.
+- **Vai `assist` cần mô hình NHÌN ĐƯỢC ẢNH** cho tác vụ `packaging_check`.
+  Cắm một mô hình chỉ-chữ (vd DeepSeek) vào vai này thì nó vẫn trả lời — và
+  đó là ca nguy hiểm nhất của cả tính năng: một phán quyết "đạt" do mô hình
+  chưa từng nhìn thấy ảnh. Hiện chưa có cách chặn tự động; xem là việc kế
+  tiếp.
+
 ## C2 (rút gọn) — Chốt chuyển pha và bảng hiệu chỉnh phán quyết (Phase H, 2026-08-21)
 
 Bản đề bài C2 xin nối nhà cung cấp thật + hiệu chỉnh ngưỡng + lưu ảnh làm

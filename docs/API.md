@@ -191,6 +191,24 @@ Billing: `credit.cost.image.scene` (30 Vox). Hạn mức: `image.daily.limit`
 TRƯỚC** hạn mức chung, vì kiểm sau thì người dùng nhận thông báo sai lý do.
 Vai trò mô hình: `image`, **không có vai dự phòng** — rơi về `translate` chỉ
 sinh ra chữ, và một cửa "sinh ảnh" trả về chữ là hỏng âm thầm.
+
+**Ba giao thức sinh ảnh (mini-spec C3).** "Chuẩn OpenAI" thống nhất ở phần
+chữ nhưng KHÔNG thống nhất ở phần ảnh, nên `provider.type` chọn hẳn cách gọi:
+
+| `type` | Cửa gọi | Ảnh gốc đi vào | Ảnh ra |
+|---|---|---|---|
+| `google` | `POST {base}/models/{model}:generateContent` | `contents[].parts[].inlineData` | `candidates[0].content.parts[].inlineData` |
+| `openrouter_images` | `POST {base}/images` | `input_references[].image_url.url` (data URI) | `data[0].b64_json` |
+| `openai_images` | `POST {base}/images/edits` (thân JSON) | `image` (data URI) | `data[0].b64_json` |
+
+`openai_compat` (`/chat/completions`) **không** sinh được ảnh; khai cặp
+vai↔giao thức sai bị chặn ngay lúc LƯU nhà cung cấp
+(`400 VAI_KHONG_HOP_GIAO_THUC`), không đợi tới lượt gọi đầu tiên.
+
+Dùng `/images/edits` chứ không phải `/images/generations`: cửa sau không nhận
+ảnh vào, nên sản phẩm trong ảnh ra sẽ do mô hình bịa hoàn toàn — đúng thứ
+tính năng này sinh ra để chống. Mô hình trả về *đường dẫn* ảnh thay vì
+base64 cũng được nói rõ thành một lý do riêng.
 Lỗi: `400` bối cảnh lạ, `402 INSUFFICIENT_CREDIT`, `429 DAILY_LIMIT`,
 `502 KHONG_SINH_DUOC_ANH` (mô hình trả chữ thay vì ảnh), `503 AI_UNAVAILABLE`,
 `409 IMAGE_STAGE_OFF` / `409 IMAGE_STAGE_CALIBRATION` (mini-spec C2).
