@@ -22,9 +22,24 @@ const aiProviderSchema = new mongoose.Schema({
   // SINH ẢNH, mỗi nhà một kiểu — xem `services/image-transport.service.js`.
   type: {
     type: String,
-    enum: ['openai_compat', 'google', 'openrouter_images', 'openai_images'],
+    enum: ['openai_compat', 'google', 'openrouter_images', 'openai_images',
+      'custom_images'],
     default: 'openai_compat',
   },
+  // --- Giao thức tự khai (mini-spec C4) ---------------------------------
+  // Để cắm được nền tảng chưa ai lường tới mà không phải chờ bản phát hành
+  // mới. Chỉ dùng khi `type === 'custom_images'`.
+  imagePath: { type: String, default: '' },          // vd /images/edits
+  imageBodyTemplate: { type: String, default: '' },  // JSON có {{cho_dien}}
+  imageResponsePath: { type: String, default: '' },  // vd data.0.b64_json
+  imageMimePath: { type: String, default: '' },      // vd data.0.media_type
+  authHeaderName: { type: String, default: '' },     // mặc định Authorization
+  authHeaderValue: { type: String, default: '' },    // mặc định Bearer {{api_key}}
+  // --- Phép thử nhìn ảnh (mini-spec C4) ---------------------------------
+  // Lần gần nhất mô hình này đọc được nội dung một tấm ảnh do máy chủ vẽ.
+  // Rỗng = chưa chứng minh được; bước kiểm bao bì sẽ từ chối dùng.
+  visionOkAt: { type: Date, default: null },
+  visionNote: { type: String, default: '' },
   baseUrl: { type: String, default: '' },
   apiKeyEnc: { type: String, default: '' },
   model: { type: String, required: true },

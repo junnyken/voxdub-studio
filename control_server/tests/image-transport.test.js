@@ -171,3 +171,95 @@ test('giao thức lạ thì dựng yêu cầu trả null, không đoán bừa', 
       t.dungYeuCau({ provider: nha(ty), prompt: 'p', image: ANH }), null, String(ty))
   }
 })
+
+// -- Giao thức tự khai (C4) --------------------------------------------------
+
+const TU_KHAI = {
+  type: 'custom_images',
+  model: 'grok-imagine-image-2.0',
+  apiKey: 'k-1',
+  baseUrl: 'https://api.x.ai/v1',
+  imagePath: '/images/edits',
+  imageBodyTemplate:
+    '{"model":"{{model}}","prompt":"{{prompt}}","image":"{{image_data_uri}}"}',
+  imageResponsePath: 'data.0.b64_json',
+}
+
+test('tự khai: dựng đúng cửa gọi và mang ảnh gốc đi theo', () => {
+  const r = t.dungYeuCau({ provider: TU_KHAI, prompt: 'p', image: ANH })
+  assert.equal(r.url, 'https://api.x.ai/v1/images/edits')
+  assert.equal(r.body.image, 'data:image/jpeg;base64,QUJD')
+  assert.equal(r.headers.Authorization, 'Bearer k-1')
+})
+
+test('tự khai: câu lệnh có dấu nháy và xuống dòng không làm vỡ JSON', () => {
+  // Nhét thẳng chuỗi vào mẫu JSON là hỏng cả thân yêu cầu, và hỏng theo kiểu
+  // "nhà cung cấp trả 400" chứ không nói vì sao.
+  const r = t.dungYeuCau({
+    provider: TU_KHAI, prompt: 'ảnh "đẹp"\nhai dòng \\ ngược', image: ANH })
+  assert.equal(r.body.prompt, 'ảnh "đẹp"\nhai dòng \\ ngược')
+})
+
+test('tự khai: header xác thực đổi được cho nhà dùng kiểu khác', () => {
+  const r = t.dungYeuCau({
+    provider: { ...TU_KHAI, authHeaderName: 'x-api-key', authHeaderValue: '{{api_key}}' },
+    prompt: 'p', image: ANH })
+  assert.equal(r.headers['x-api-key'], 'k-1')
+  assert.equal(r.headers.Authorization, undefined)
+})
+
+test('tự khai: đọc ảnh theo đúng đường dẫn người dùng khai', () => {
+  const r = t.docTraLoi({
+    type: 'custom_images',
+    provider: { imageResponsePath: 'ket_qua.anh.0.du_lieu', imageMimePath: 'ket_qua.kieu' },
+    data: { ket_qua: { anh: [{ du_lieu: 'WA==' }], kieu: 'image/webp' } },
+  })
+  assert.deepEqual(r.image, { mimeType: 'image/webp', data: 'WA==' })
+})
+
+test('MẪU THIẾU ẢNH GỐC bị từ chối — luật quan trọng nhất của đường tự khai', () => {
+  // Thiếu ảnh gốc thì nhà cung cấp vẫn trả về một tấm ảnh đẹp, nhưng là sản
+  // phẩm do mô hình tưởng tượng. Hỏng mà không có triệu chứng nào.
+  const loi = t.loiMauTuKhai({
+    ...TU_KHAI,
+    imageBodyTemplate: '{"model":"{{model}}","prompt":"{{prompt}}"}',
+  })
+  assert.ok(loi)
+  assert.match(loi, /image_data_uri|image_base64/)
+  assert.equal(
+    t.dungYeuCau({ provider: {
+      ...TU_KHAI,
+      imageBodyTemplate: '{"model":"{{model}}","prompt":"{{prompt}}"}',
+    }, prompt: 'p', image: ANH }),
+    null, 'mẫu thiếu ảnh mà vẫn dựng được yêu cầu')
+})
+
+test('tự khai: thiếu ô bắt buộc nào cũng nói rõ ô đó', () => {
+  for (const [o, chu] of [['imagePath', /Đường dẫn cửa gọi/],
+    ['imageResponsePath', /trong trả lời/], ['imageBodyTemplate', /Mẫu thân yêu cầu/]]) {
+    const loi = t.loiMauTuKhai({ ...TU_KHAI, [o]: '' })
+    assert.match(loi || '', chu, o)
+  }
+})
+
+test('tự khai: mẫu không phải JSON hợp lệ bị chặn lúc LƯU', () => {
+  const loi = t.loiMauTuKhai({
+    ...TU_KHAI, imageBodyTemplate: '{"model":"{{model}}", "image":"{{image_base64}}"' })
+  assert.match(loi || '', /JSON/)
+})
+
+test('tự khai vẫn là giao thức sinh ảnh hợp lệ cho vai image', () => {
+  assert.equal(t.loiCapVaiGiaoThuc('image', 'custom_images'), null)
+  assert.ok(t.loiCapVaiGiaoThuc('translate', 'custom_images'))
+})
+
+test('MỌI giao thức chỉ-sinh-ảnh đều bị vai chữ từ chối', () => {
+  // Viết theo bảng, không liệt kê tay: thêm giao thức ảnh mới mà quên cập
+  // nhật nhánh vai chữ là lỗi đã xảy ra thật khi thêm `custom_images`.
+  for (const type of Object.keys(t.GIAO_THUC)) {
+    if (type === 'google') continue   // Gemini làm được cả chữ lẫn ảnh
+    for (const vai of ['translate', 'assist', 'content']) {
+      assert.ok(t.loiCapVaiGiaoThuc(vai, type), `${vai} + ${type} phải bị chặn`)
+    }
+  }
+})

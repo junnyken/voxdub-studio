@@ -154,6 +154,14 @@ TASK_KHONG_NHAN_ANH` — im lặng bỏ ảnh đi thì người gọi tưởng m
 Khoá nhớ đệm băm CẢ dữ liệu ảnh: đổi ảnh mà dùng lại phán quyết cũ là lỗ
 hổng, không phải tối ưu.
 
+**Phép thử nhìn ảnh (mini-spec C4).** Tác vụ có gửi ảnh chỉ chạy sau khi mô
+hình của vai `assist` chứng minh được là nhìn được ảnh: máy chủ tự vẽ một PNG
+chứa số bốn chữ số ngẫu nhiên và bảo mô hình đọc. Đọc sai trả
+`503 MO_HINH_KHONG_NHIN_DUOC_ANH`; thử không được (lỗi mạng) trả
+`503 KHONG_THU_DUOC_NHIN`. Kết quả ghi ở `AiProvider.visionOkAt`, hạn 7 ngày.
+Lý do: một phán quyết "đạt" từ mô hình chưa nhìn thấy ảnh là hỏng im lặng, và
+hậu quả rơi xuống tài khoản bán hàng của người dùng.
+
 Response: `{ jobId, task, results: [{value, reason}], creditCharged, balanceAfter, fromCache? }`
 **`reason` là bắt buộc trong khuôn JSON** — giao diện hiện lý do cho người
 dùng; kết quả thiếu `reason` bị loại và tính là `502 BAD_AI_RESPONSE`.
@@ -200,6 +208,14 @@ chữ nhưng KHÔNG thống nhất ở phần ảnh, nên `provider.type` chọn
 | `google` | `POST {base}/models/{model}:generateContent` | `contents[].parts[].inlineData` | `candidates[0].content.parts[].inlineData` |
 | `openrouter_images` | `POST {base}/images` | `input_references[].image_url.url` (data URI) | `data[0].b64_json` |
 | `openai_images` | `POST {base}/images/edits` (thân JSON) | `image` (data URI) | `data[0].b64_json` |
+| `custom_images` | tự khai `imagePath` | tự khai trong `imageBodyTemplate` | tự khai `imageResponsePath` |
+
+`custom_images` (mini-spec C4) để cắm nền tảng chưa có sẵn — Grok dùng được
+ngay bằng `openai_images` với `baseUrl = https://api.x.ai/v1`. Chỗ điền trong
+mẫu: `{{model}}`, `{{prompt}}`, `{{image_data_uri}}`, `{{image_base64}}`,
+`{{image_mime}}`, `{{api_key}}`. **Mẫu bắt buộc chứa một trong hai chỗ điền
+ảnh** — thiếu thì bị từ chối lúc lưu (`400 MAU_TU_KHAI_SAI`), vì mô hình sẽ
+vẽ sản phẩm từ đầu thay vì dựng lại ảnh có sẵn.
 
 `openai_compat` (`/chat/completions`) **không** sinh được ảnh; khai cặp
 vai↔giao thức sai bị chặn ngay lúc LƯU nhà cung cấp

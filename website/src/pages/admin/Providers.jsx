@@ -16,6 +16,8 @@ const NHAN_VAI = {
 
 const EMPTY_FORM = {
   name: '', label: '', role: 'translate', type: 'openai_compat',
+  imagePath: '', imageBodyTemplate: '', imageResponsePath: '',
+  imageMimePath: '', authHeaderName: '', authHeaderValue: '',
   baseUrl: 'https://openrouter.ai/api/v1', apiKey: '',
   model: '', temperature: 0.3, maxTokens: 16384, priority: 100,
   enabled: true, timeoutMs: 180000,
@@ -135,7 +137,8 @@ function ProviderModal({ open, onClose, editing, onDone }) {
             <option value="openai_compat">Chuẩn OpenAI — chữ (OpenRouter, DeepSeek…)</option>
             <option value="google">Google Gemini (chữ và ảnh)</option>
             <option value="openrouter_images">OpenRouter — Images API (ảnh)</option>
-            <option value="openai_images">OpenAI — Images API (ảnh)</option>
+            <option value="openai_images">OpenAI / Grok / tương thích — Images API (ảnh)</option>
+            <option value="custom_images">Tự khai — nền tảng khác (ảnh)</option>
           </select>
         </div>
         <div className="sm:col-span-2">
@@ -184,6 +187,62 @@ function ProviderModal({ open, onClose, editing, onDone }) {
           />
         </div>
         <div>
+          {form.type === 'custom_images' && (
+            <div className="sm:col-span-2 space-y-3 rounded-xl border border-border-subtle p-3">
+              <p className="text-xs text-ink-soft">
+                Dành cho nền tảng chưa có sẵn trong danh sách. Điền theo tài
+                liệu của họ. Mẫu <strong>bắt buộc</strong> phải mang ảnh gốc đi
+                theo (<code>{'{{image_data_uri}}'}</code> hoặc{' '}
+                <code>{'{{image_base64}}'}</code>) — thiếu nó thì mô hình vẽ
+                sản phẩm từ đầu chứ không dựng lại ảnh của bạn.
+              </p>
+              <div>
+                <label className="label">Đường dẫn cửa gọi</label>
+                <input className="input" placeholder="/images/edits"
+                  value={form.imagePath}
+                  onChange={(e) => set('imagePath', e.target.value)} />
+              </div>
+              <div>
+                <label className="label">
+                  Mẫu thân yêu cầu (JSON, dùng {'{{model}} {{prompt}} {{image_data_uri}}'})
+                </label>
+                <textarea className="input font-mono text-xs" rows={5}
+                  placeholder={'{"model":"{{model}}","prompt":"{{prompt}}","image":"{{image_data_uri}}","response_format":"b64_json"}'}
+                  value={form.imageBodyTemplate}
+                  onChange={(e) => set('imageBodyTemplate', e.target.value)} />
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Đường dẫn tới ảnh trong trả lời</label>
+                  <input className="input font-mono text-xs"
+                    placeholder="data.0.b64_json"
+                    value={form.imageResponsePath}
+                    onChange={(e) => set('imageResponsePath', e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Đường dẫn tới kiểu ảnh (không bắt buộc)</label>
+                  <input className="input font-mono text-xs"
+                    placeholder="data.0.media_type"
+                    value={form.imageMimePath}
+                    onChange={(e) => set('imageMimePath', e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Tên header xác thực</label>
+                  <input className="input" placeholder="Authorization"
+                    value={form.authHeaderName}
+                    onChange={(e) => set('authHeaderName', e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Giá trị header</label>
+                  <input className="input font-mono text-xs"
+                    placeholder={'Bearer {{api_key}}'}
+                    value={form.authHeaderValue}
+                    onChange={(e) => set('authHeaderValue', e.target.value)} />
+                </div>
+              </div>
+            </div>
+          )}
+
           <label className="label">Ưu tiên (nhỏ = trước)</label>
           <input
             className="input"
@@ -226,7 +285,8 @@ function ProviderModal({ open, onClose, editing, onDone }) {
 }
 
 /** Giao thức sinh được ảnh — phải khớp GIAO_THUC ở image-transport.service.js. */
-const GIAO_THUC_ANH = new Set(['google', 'openrouter_images', 'openai_images'])
+const GIAO_THUC_ANH = new Set(['google', 'openrouter_images', 'openai_images',
+  'custom_images'])
 
 export default function Providers() {
   const { data, error, loading, reload } = useFetch(() => adminApi.providers())
@@ -292,6 +352,13 @@ export default function Providers() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2.5 flex-wrap">
                       <h2 className="font-semibold">{p.label || p.name}</h2>
+                      {p.role === 'assist' && (
+                        <span className={`text-[11px] ${p.visionOkAt ? 'text-success' : 'text-warning'}`}>
+                          {p.visionOkAt
+                            ? 'đã chứng minh nhìn được ảnh'
+                            : `chưa chứng minh nhìn được ảnh${p.visionNote ? ` — ${p.visionNote}` : ''}`}
+                        </span>
+                      )}
                       <Badge tone={p.enabled ? 'ok' : 'muted'}>
                         {p.enabled ? 'Đang bật' : 'Đang tắt'}
                       </Badge>

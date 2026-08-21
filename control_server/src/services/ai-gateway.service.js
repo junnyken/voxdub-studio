@@ -21,6 +21,7 @@ const prompts = require('../prompts/translate')
 const assistPrompts = require('../prompts/assist')
 const scenePrompts = require('../prompts/product_scene')
 const transport = require('./image-transport.service')
+const visionProbe = require('./vision-probe.service')
 const subtitlePrompts = require('../prompts/subtitle-translate')
 
 class AiError extends Error {
@@ -619,7 +620,7 @@ async function generateScene({ image, scene, mode = 'SAFE', note = '' }) {
       }
 
       const { image: anh, lyDo } = transport.docTraLoi({
-        type: provider.type, data: resp.data })
+        type: provider.type, data: resp.data, provider })
       if (!anh) {
         // Mô hình từ chối vẽ (chính sách nội dung) hay trả về chữ: nói thẳng,
         // đừng để phía app hiểu nhầm là lỗi mạng.
@@ -655,6 +656,66 @@ async function generateScene({ image, scene, mode = 'SAFE', note = '' }) {
  * hình tới hàng chục lần. Chưa cấu hình vai riêng thì dùng chung với dịch để
  * tính năng vẫn chạy, đúng cách `generatePost` đã làm.
  */
+
+/** Bao lâu thì thử lại phép nhìn — một mô hình đã nhìn được thì không tự mù. */
+const HAN_THU_NHIN_MS = 7 * 24 * 3600_000
+
+/**
+ * Bảo đảm vai `assist` đang dùng một mô hình NHÌN ĐƯỢC ẢNH (mini-spec C4).
+ *
+ * Chỉ gọi cho những tác vụ có gửi ảnh. Cách kiểm: tự vẽ một tấm ảnh chứa số
+ * ngẫu nhiên rồi bảo mô hình đọc — xem `vision-probe.service.js` để biết vì
+ * sao đây là chỗ đáng bỏ công.
+ *
+ * Kết quả ghi lại trên chính bản ghi nhà cung cấp nên mỗi tuần chỉ tốn một
+ * lượt gọi thừa. Không đọc được số thì NÉM LỖI thay vì chạy tiếp: phía app
+ * coi mọi lỗi của bước kiểm là "chưa kiểm được", tức là ảnh không được dùng
+ * để bán — đúng hướng an toàn.
+ */
+async function baoDamNhinDuocAnh(role) {
+  const list = await providersFor(role)
+  if (!list.length) return
+  const provider = list[0]
+  const okLuc = provider.visionOkAt ? new Date(provider.visionOkAt).getTime() : 0
+  if (okLuc && Date.now() - okLuc < HAN_THU_NHIN_MS) return
+
+  const bai = visionProbe.taoBaiThu()
+  let traLoi = ''
+  try {
+    const { content } = await callWithFallback(role, {
+      system: 'Bạn đọc chữ số trong ảnh. Trả về JSON đúng khuôn được yêu cầu.',
+      user: 'Trong ảnh có một dãy chữ số. Đọc dãy số đó và ghi vào "value"; '
+        + 'ghi vào "reason" mô tả ngắn những gì bạn thấy trong ảnh.',
+      schema: assistPrompts.resultsSchema(1),
+      images: [bai.image],
+      maxRetries: 1,
+    })
+    const data = parseJsonObject(content)
+    traLoi = String(data?.results?.[0]?.value || '')
+  } catch (err) {
+    // Gọi hỏng ≠ mô hình mù. Không kết tội oan, nhưng cũng không cho qua:
+    // ném tiếp để lượt kiểm này tính là "chưa kiểm được".
+    throw new AiError('KHONG_THU_DUOC_NHIN',
+      `Chưa thử được khả năng nhìn ảnh của mô hình (${String(err.message).slice(0, 120)})`,
+      503)
+  }
+
+  const dat = visionProbe.doDung(bai.so, traLoi)
+  AiProvider.updateOne({ _id: provider._id }, {
+    $set: dat
+      ? { visionOkAt: new Date(), visionNote: '' }
+      : { visionOkAt: null, visionNote: `đọc "${traLoi}" thay vì ${bai.so}` },
+  }).catch(() => {})
+
+  if (!dat) {
+    throw new AiError('MO_HINH_KHONG_NHIN_DUOC_ANH',
+      `Mô hình đang gán cho vai "${role}" không đọc được nội dung ảnh `
+      + '(bài thử: đọc một dãy số in rõ trong ảnh). Bước kiểm bao bì bắt buộc '
+      + 'phải nhìn được ảnh — đổi sang mô hình có thị giác ở trang Nơi gọi '
+      + 'mô hình.', 503)
+  }
+}
+
 async function assist({ task, input, images }) {
   const spec = assistPrompts.getTask(task)
   if (!spec) throw new AiError('UNKNOWN_TASK', `Không có tác vụ "${task}"`, 400)
@@ -672,6 +733,12 @@ async function assist({ task, input, images }) {
 
   const assistProviders = await providersFor('assist')
   const role = assistProviders.length ? 'assist' : 'translate'
+
+  // Có gửi ảnh thì mô hình PHẢI nhìn được ảnh. Kiểm trước khi gọi thật: một
+  // phán quyết "đạt" từ mô hình mù là ca hỏng tệ nhất hệ thống này tạo ra
+  // được — im lặng, trông như đang chạy, hậu quả rơi xuống người bán.
+  if ((images || []).length) await baoDamNhinDuocAnh(role)
+
   const { content, usage, provider } = await callWithFallback(role, {
     system: spec.system,
     user: spec.buildUser(input || {}),

@@ -31,7 +31,66 @@
 const GIAO_THUC = {
   google: 'Google Gemini',
   openrouter_images: 'OpenRouter (Images API)',
-  openai_images: 'OpenAI (Images API)',
+  openai_images: 'OpenAI / Grok / tương thích (Images API)',
+  custom_images: 'Tự khai (nền tảng khác)',
+}
+
+/**
+ * Chỗ điền được trong mẫu tự khai. `image_data_uri` và `image_base64` là hai
+ * cách khác nhau để đưa ẢNH GỐC vào — mẫu thiếu cả hai nghĩa là nhà cung cấp
+ * sẽ vẽ sản phẩm từ đầu thay vì dựng lại ảnh có sẵn, nên `loiMauTuKhai()`
+ * chặn thẳng trường hợp đó.
+ */
+const CHO_DIEN = ['model', 'prompt', 'image_data_uri', 'image_base64',
+  'image_mime', 'api_key']
+const CHO_DIEN_ANH = ['image_data_uri', 'image_base64']
+
+/** Thay {{cho_dien}} trong một chuỗi, có thoát ký tự cho đúng JSON. */
+function dienMau(mau, gia_tri) {
+  return String(mau).replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (nguyen, ten) => {
+    if (!Object.prototype.hasOwnProperty.call(gia_tri, ten)) return nguyen
+    // Câu lệnh có thể chứa dấu nháy và xuống dòng; nhét thẳng vào JSON là hỏng
+    // cả thân yêu cầu. `JSON.stringify` rồi bỏ hai dấu nháy ngoài = đúng phần
+    // thoát ký tự mà JSON cần.
+    return JSON.stringify(String(gia_tri[ten])).slice(1, -1)
+  })
+}
+
+/** Đọc theo đường dẫn kiểu "data.0.b64_json". */
+function theoDuong(goc, duong) {
+  if (!duong) return undefined
+  return String(duong).split('.').reduce(
+    (cho, khoa) => (cho == null ? undefined : cho[khoa]), goc)
+}
+
+/**
+ * Mẫu tự khai có dùng được không. Trả `null` nếu ổn, hoặc câu tiếng Việt.
+ *
+ * Phép kiểm quan trọng nhất là **mẫu phải mang ảnh gốc đi theo**. Không có nó
+ * thì nhà cung cấp vẫn trả về một tấm ảnh đẹp — nhưng là sản phẩm do mô hình
+ * tưởng tượng ra, đúng thứ tính năng này sinh ra để chống, và nó hỏng theo
+ * kiểu KHÔNG có triệu chứng nào.
+ */
+function loiMauTuKhai(p) {
+  const mau = String(p?.imageBodyTemplate || '').trim()
+  if (!mau) return 'Thiếu "Mẫu thân yêu cầu" cho giao thức tự khai.'
+  if (!String(p?.imagePath || '').trim()) {
+    return 'Thiếu "Đường dẫn cửa gọi" (ví dụ /images/edits).'
+  }
+  if (!String(p?.imageResponsePath || '').trim()) {
+    return 'Thiếu "Đường dẫn tới ảnh trong trả lời" (ví dụ data.0.b64_json).'
+  }
+  try {
+    JSON.parse(dienMau(mau, Object.fromEntries(CHO_DIEN.map((k) => [k, 'x']))))
+  } catch {
+    return 'Mẫu thân yêu cầu không phải JSON hợp lệ.'
+  }
+  if (!CHO_DIEN_ANH.some((k) => mau.includes(`{{${k}}}`))) {
+    return 'Mẫu không chứa ảnh gốc ({{image_data_uri}} hoặc {{image_base64}}). '
+      + 'Thiếu nó thì mô hình vẽ sản phẩm từ đầu chứ không dựng lại ảnh của '
+      + 'bạn — đúng thứ tính năng này sinh ra để chống.'
+  }
+  return null
 }
 
 /** Ảnh dạng {mimeType, data} → data URI mà hai API kiểu OpenAI đòi. */
@@ -89,6 +148,29 @@ function dungYeuCau({ provider, prompt, image }) {
     }
   }
 
+  if (provider.type === 'custom_images') {
+    if (loiMauTuKhai(provider)) return null
+    const base = _base(provider, '')
+    const duong = String(provider.imagePath).startsWith('/')
+      ? provider.imagePath : `/${provider.imagePath}`
+    const than = dienMau(provider.imageBodyTemplate, {
+      model: provider.model,
+      prompt,
+      image_data_uri: dataUri(image),
+      image_base64: image.data,
+      image_mime: image.mimeType,
+      api_key: key,
+    })
+    const tenHeader = provider.authHeaderName || 'Authorization'
+    const giaTriHeader = dienMau(provider.authHeaderValue || 'Bearer {{api_key}}',
+      { api_key: key })
+    return {
+      url: `${base}${duong}`,
+      headers: { 'Content-Type': 'application/json', [tenHeader]: giaTriHeader },
+      body: JSON.parse(than),
+    }
+  }
+
   if (provider.type === 'openai_images') {
     const base = _base(provider, 'https://api.openai.com/v1')
     return {
@@ -112,7 +194,20 @@ function dungYeuCau({ provider, prompt, image }) {
  * sách nội dung…), vì "không có ảnh" và "từ chối vì lý do X" là hai chuyện
  * người dùng phải phân biệt được.
  */
-function docTraLoi({ type, data }) {
+function docTraLoi({ type, data, provider }) {
+  if (type === 'custom_images') {
+    const b64 = theoDuong(data, provider?.imageResponsePath)
+    if (typeof b64 === 'string' && b64) {
+      return {
+        image: {
+          mimeType: theoDuong(data, provider?.imageMimePath) || 'image/png',
+          data: b64,
+        },
+      }
+    }
+    return { image: null, lyDo: data?.error?.message || '' }
+  }
+
   if (type === 'google') {
     const parts = data?.candidates?.[0]?.content?.parts || []
     const anh = parts.find((x) => x.inlineData)
@@ -168,8 +263,10 @@ function loiCapVaiGiaoThuc(role, type) {
     }
     return null
   }
-  // Vai chữ: hai API ảnh thuần tuý không có đường gọi /chat/completions.
-  if (type === 'openrouter_images' || type === 'openai_images') {
+  // Vai chữ: các API ảnh thuần tuý không có đường gọi /chat/completions.
+  // Suy ra từ chính bảng giao thức thay vì liệt kê tay — liệt kê tay thì thêm
+  // một giao thức ảnh mới là quên một chỗ, và test đã bắt được đúng lỗi đó.
+  if (type !== 'google' && Object.prototype.hasOwnProperty.call(GIAO_THUC, type)) {
     return `Giao thức "${GIAO_THUC[type]}" chỉ sinh ảnh, không dùng được cho `
       + `vai "${role}". Chọn "Chuẩn OpenAI" hoặc "Google Gemini".`
   }
@@ -177,5 +274,6 @@ function loiCapVaiGiaoThuc(role, type) {
 }
 
 module.exports = {
-  GIAO_THUC, dungYeuCau, docTraLoi, dataUri, loiCapVaiGiaoThuc,
+  GIAO_THUC, CHO_DIEN, dungYeuCau, docTraLoi, dataUri,
+  loiCapVaiGiaoThuc, loiMauTuKhai, dienMau, theoDuong,
 }

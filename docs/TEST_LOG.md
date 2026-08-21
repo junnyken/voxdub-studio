@@ -8474,6 +8474,88 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C4 — Nền tảng nào cũng cắm được, và chặn mô hình MÙ phán quyết (Phase H, 2026-08-21)
+
+Hai việc, một do chủ dự án yêu cầu, một do chính C3 lộ ra.
+
+### 1. Đường tự khai — không phải chờ bản mới mỗi lần có nền tảng mới
+
+Chủ dự án hỏi: còn Grok và các nền tảng khác thì sao?
+
+Riêng Grok thì **đã dùng được ngay** với giao thức OpenAI Images — xAI có
+`/images/edits` nhận ảnh base64, chỉ cần đổi địa chỉ máy chủ sang
+`https://api.x.ai/v1`. Nhưng câu hỏi thật sau lưng nó là "còn nền tảng thứ
+năm, thứ sáu thì sao", nên thêm giao thức `custom_images`: người cấu hình tự
+khai đường dẫn cửa gọi, mẫu thân yêu cầu (JSON có chỗ điền), đường dẫn tới
+ảnh trong trả lời, và kiểu header xác thực.
+
+**Luật quan trọng nhất của đường này: mẫu BẮT BUỘC phải mang ảnh gốc đi
+theo** (`{{image_data_uri}}` hoặc `{{image_base64}}`). Thiếu nó thì nhà cung
+cấp vẫn trả về một tấm ảnh đẹp — nhưng là sản phẩm do mô hình tưởng tượng,
+đúng thứ C1 sinh ra để chống, và hỏng theo kiểu **không có triệu chứng nào**.
+Chặn ngay lúc lưu, không đợi lượt gọi đầu tiên.
+
+Phần thoát ký tự cũng là một cái bẫy có thật: câu lệnh chứa dấu nháy hay
+xuống dòng mà nhét thẳng vào mẫu JSON thì vỡ cả thân yêu cầu, và vỡ theo kiểu
+"nhà cung cấp trả 400" chứ không nói vì sao. Điền qua `JSON.stringify` rồi bỏ
+hai dấu nháy ngoài; có test bằng câu lệnh chứa cả nháy, xuống dòng lẫn dấu
+chéo ngược.
+
+### 2. Mô hình MÙ vẫn phán quyết "đạt" — ca hỏng tệ nhất hệ thống tạo ra được
+
+C3 lộ ra: vai `assist` cần mô hình **nhìn được ảnh** cho tác vụ
+`packaging_check`. Cắm một mô hình chỉ đọc chữ vào vai đó thì nó **vẫn trả
+lời** — và người bán nhận một phán quyết "đạt" từ mô hình chưa từng nhìn thấy
+tấm ảnh nào. Im lặng, trông như đang chạy, hậu quả rơi xuống họ vài tuần sau
+dưới dạng án phạt.
+
+Cách chặn: **máy chủ tự vẽ một tấm PNG chứa số bốn chữ số ngẫu nhiên rồi bảo
+mô hình đọc.** Không đọc đúng thì từ chối dùng cho việc kiểm bao bì.
+
+Vì sao tự vẽ chứ không kèm sẵn ảnh mẫu: ảnh cố định thì mô hình mù chỉ cần
+đoán trúng một lần là qua vĩnh viễn. Vì sao bốn chữ số: 9000 khả năng, đoán
+bừa gần như chắc chắn trượt (có test bắn 300 lượt đoán bừa, cho phép trúng
+tối đa 1). Vì sao tự vẽ bằng `zlib` có sẵn thay vì thêm thư viện: một bộ chữ
+số 5×7 chấm là đủ, thêm phụ thuộc chỉ để vẽ bốn chữ số là cái giá quá đắt.
+
+Kết quả ghi lên chính bản ghi nhà cung cấp (`visionOkAt`), hạn 7 ngày — mỗi
+tuần tốn đúng một lượt gọi thừa. Gọi hỏng thì **không kết tội mù** mà ném lỗi
+riêng: hỏng mạng khác hẳn mô hình mù, nhưng cả hai đều làm lượt kiểm thành
+"chưa kiểm được", tức là ảnh không dùng để bán — đúng hướng an toàn.
+
+**Đã xác minh ảnh vẽ ra đọc được thật**: dựng ảnh, mở ra nhìn bằng mắt, đúng
+con số đã sinh. Không suy từ việc "hàm chạy không lỗi".
+
+### Test bắt được một lỗi thật trong chính bản sửa
+
+`loiCapVaiGiaoThuc` liệt kê tay hai giao thức chỉ-sinh-ảnh, nên khi thêm
+`custom_images` thì vai `translate` vẫn nhận nó — cấu hình lưu được, hỏng ở
+lượt gọi đầu tiên. Sửa bằng cách suy ra từ chính bảng giao thức thay vì liệt
+kê tay, và thêm test chạy theo bảng.
+
+### Chứng minh từng luật
+
+Bỏ phép thử nhìn khỏi `assist` → 1 đỏ. Vẽ trượt toạ độ (ảnh trắng tinh) →
+2 đỏ. Dùng số cố định thay vì ngẫu nhiên → 1 đỏ. Bỏ ảnh gốc khỏi mẫu tự khai
+→ 1 đỏ. Đọc ảnh ở sai trường → 3 đỏ.
+
+**449 pass (Node) · 1670 passed, 7 skipped (Python) · website build sạch.**
+
+### Remaining Limits
+
+- Phép thử nhìn chỉ chứng minh mô hình **đọc được chữ trong ảnh**. Nó không
+  chứng minh mô hình so sánh được hai ảnh giỏi tới đâu — việc đó vẫn phải
+  soi tay ở bước hiệu chỉnh.
+- Mô hình có thị giác nhưng từ chối đọc số (chính sách nội dung) sẽ bị coi là
+  mù. Chưa gặp; nếu gặp thì dấu hiệu là `visionNote` ghi lại nguyên văn câu
+  trả lời.
+- Đường tự khai chưa hỗ trợ `multipart/form-data`, chưa hỗ trợ nhiều ảnh gốc,
+  và chưa có nút "thử ngay" trong trang quản trị — sai mẫu thì phải chạy một
+  lượt dựng ảnh thật mới biết.
+- **Chưa gọi thật nhà cung cấp nào**, kể cả phép thử nhìn: nó đã có test cho
+  phần vẽ ảnh và phần chấm bài, nhưng lượt gọi thật đầu tiên vẫn là phép thử
+  thật.
+
 ## C3 — Sinh ảnh không chỉ riêng Gemini (Phase H, 2026-08-21)
 
 Chủ dự án hỏi thẳng sau khi đọc báo cáo C2: *"có tích hợp được các API chuẩn

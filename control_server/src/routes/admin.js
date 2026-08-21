@@ -422,7 +422,8 @@ module.exports = async function adminRoutes(fastify) {
           role: { type: 'string', enum: ['translate', 'content', 'assist', 'image'], default: 'translate' },
           type: {
             type: 'string',
-            enum: ['openai_compat', 'google', 'openrouter_images', 'openai_images'],
+            enum: ['openai_compat', 'google', 'openrouter_images', 'openai_images',
+              'custom_images'],
             default: 'openai_compat',
           },
           baseUrl: { type: 'string', maxLength: 300 },
@@ -433,6 +434,12 @@ module.exports = async function adminRoutes(fastify) {
           priority: { type: 'integer', default: 100 },
           enabled: { type: 'boolean', default: true },
           timeoutMs: { type: 'integer', minimum: 5000, maximum: 600000, default: 180000 },
+          imagePath: { type: 'string', maxLength: 200 },
+          imageBodyTemplate: { type: 'string', maxLength: 4000 },
+          imageResponsePath: { type: 'string', maxLength: 200 },
+          imageMimePath: { type: 'string', maxLength: 200 },
+          authHeaderName: { type: 'string', maxLength: 100 },
+          authHeaderValue: { type: 'string', maxLength: 300 },
         },
       },
     },
@@ -441,6 +448,12 @@ module.exports = async function adminRoutes(fastify) {
     const loiCap = imageTransport.loiCapVaiGiaoThuc(rest.role, rest.type)
     if (loiCap) {
       return reply.code(400).send({ code: 'VAI_KHONG_HOP_GIAO_THUC', message: loiCap })
+    }
+    if (rest.type === 'custom_images') {
+      const loiMau = imageTransport.loiMauTuKhai(rest)
+      if (loiMau) {
+        return reply.code(400).send({ code: 'MAU_TU_KHAI_SAI', message: loiMau })
+      }
     }
     try {
       const doc = await AiProvider.create({ ...rest, apiKeyEnc: encrypt(apiKey || '') })
@@ -470,6 +483,13 @@ module.exports = async function adminRoutes(fastify) {
         rest.role || hienTai?.role, rest.type || hienTai?.type)
       if (loiCap) {
         return reply.code(400).send({ code: 'VAI_KHONG_HOP_GIAO_THUC', message: loiCap })
+      }
+      const kieu = rest.type || hienTai?.type
+      if (kieu === 'custom_images') {
+        const loiMau = imageTransport.loiMauTuKhai({ ...hienTai, ...rest })
+        if (loiMau) {
+          return reply.code(400).send({ code: 'MAU_TU_KHAI_SAI', message: loiMau })
+        }
       }
     }
     const update = { ...rest }
