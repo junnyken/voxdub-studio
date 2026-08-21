@@ -1,0 +1,231 @@
+"""Ghép ảnh sản phẩm ĐÃ ĐƯỢC DUYỆT thành video ngắn (mini-spec C6).
+
+Nối tiếp `product_scene.py`. Cả tính năng chỉ có một lý do tồn tại và một
+lý do để cẩn thận, và cả hai là cùng một chuyện: video là thứ TikTok Shop
+đem đi đối chiếu với sản phẩm đang bán. Một tấm ảnh lệch nhãn lọt vào video
+thì hậu quả không dừng ở tấm ảnh — nó là cái video bị gắn cờ.
+
+Nên ở đây **danh sách nguồn không phải do giao diện quyết định**. Giao diện
+chỉ đề nghị; hàm `kiem_lai_truoc_khi_xuat()` mới là chỗ nói được hay không,
+và nó chạy lại NGAY TRƯỚC lúc ghép chứ không tin danh sách đã dựng từ trước.
+
+Ba điều kiện để một ảnh được vào video, thiếu một là loại:
+
+1. Phán quyết kiểm bao bì là **đăng bán được** (SAFE và đã kiểm được thật).
+2. Đã đóng được nhãn "AI-generated" lên ảnh — luật bắt buộc của C1.
+3. **Nội dung tệp còn khớp dấu vân tay lúc kiểm.** Nhật ký chỉ ghi tên tệp
+   thì không có gì ngăn người ta thay ruột tệp sau khi kiểm xong: tên vẫn
+   thế, phán quyết vẫn "đạt", mà ảnh đã là ảnh khác. Đây là đường lách thật
+   duy nhất trong kiến trúc này, và là lý do `product_scene.py` phải băm
+   từng ảnh sau khi đóng nhãn.
+
+Việc ghép chạy bằng ffmpeg trong tiến trình con — đúng quy tắc kiến trúc: mã
+xử lý ảnh/video nặng không được nằm trong tiến trình chính của giao diện.
+"""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+from dataclasses import dataclass, field
+
+from autodub.media.video import video_codec_args
+from autodub.product_scene import NHAT_KY, bam_tep
+from autodub.utils import setup_logging
+
+logger = setup_logging("autodub.product_video")
+
+#: Mỗi ảnh đứng bao lâu, và bao lâu thì chuyển sang ảnh sau.
+GIAY_MOI_ANH = 2.5
+GIAY_CHUYEN_CANH = 0.5
+
+#: Khung hình đầu ra. Dọc 9:16 vì video sản phẩm gần như luôn xem trên điện
+#: thoại; ảnh ngang sẽ được đệm hai bên chứ không bị cắt mất bao bì.
+RONG, CAO = 1080, 1920
+
+_TOI_DA_ANH = 8
+
+
+@dataclass
+class AnhNguon:
+    """Một ảnh ứng viên, kèm lý do vì sao dùng được hoặc không."""
+
+    duong_dan: str
+    boi_canh: str
+    ket_luan: str
+    ly_do: str
+    da_kiem: bool
+    da_dong_nhan: bool
+    bam_luc_kiem: str
+
+    @property
+    def dung_duoc(self) -> bool:
+        return self.ket_luan == "SAFE" and self.da_kiem and self.da_dong_nhan
+
+
+@dataclass
+class KetQuaKiem:
+    """Phán quyết cho cả mẻ ngay trước lúc ghép."""
+
+    cho_phep: bool
+    bi_chan: list[tuple[str, str]] = field(default_factory=list)  # (tệp, lý do)
+
+
+def duoc_dung_video() -> tuple[bool, str]:
+    """Khâu ghép video có mở cho máy này không.
+
+    Chỉ mở ở nấc chạy thật — tức là chỉ sau khi phán quyết kiểm bao bì đã
+    được soi tay đủ và người quản trị đã duyệt. Ghép video ở nấc hiệu chỉnh
+    nghĩa là đem những tấm ảnh chưa ai soi đi làm nội dung bán hàng.
+
+    Hỏi máy chủ chứ không đoán: hỏng đường mạng thì trả FALSE. Mặc định phải
+    là đóng.
+    """
+    from autodub import saas_client
+
+    if not saas_client.is_configured():
+        return False, "Tính năng này cần tài khoản VoxDub."
+    try:
+        cfg = saas_client.get_client().app_config()
+    except Exception as e:  # noqa: BLE001 — không hỏi được thì coi như đóng
+        logger.warning(f"Không hỏi được nấc tính năng ({e})")
+        return False, "Chưa hỏi được máy chủ, thử lại sau ít phút."
+    nac = str(cfg.get("imageSceneStage") or "")
+    if nac == "production":
+        return True, ""
+    return False, ("Chức năng dựng video mở sau khi ảnh sản phẩm đã qua đợt "
+                   "hiệu chỉnh và được duyệt.")
+
+
+def doc_nhat_ky(thu_muc: str) -> list[AnhNguon]:
+    """Đọc nhật ký tra soát, trả về mọi ảnh đã dựng ở thư mục này.
+
+    Trả về CẢ ảnh không dùng được — giao diện cần biết vì sao một ảnh không
+    được chọn, chứ không phải thấy nó biến mất không lời giải thích.
+    """
+    duong = os.path.join(thu_muc, NHAT_KY)
+    try:
+        with open(duong, encoding="utf-8") as f:
+            nhat_ky = json.load(f)
+    except (OSError, ValueError) as e:
+        logger.warning(f"Không đọc được nhật ký «{duong}» ({e})")
+        return []
+
+    ra: list[AnhNguon] = []
+    for lan in nhat_ky.get("lich_su", []):
+        for muc in lan.get("anh_da_dung", []):
+            ra.append(AnhNguon(
+                duong_dan=os.path.join(thu_muc, muc.get("tep", "")),
+                boi_canh=muc.get("boi_canh", ""),
+                ket_luan=muc.get("ket_luan", ""),
+                ly_do=muc.get("ly_do", ""),
+                da_kiem=bool(muc.get("da_kiem")),
+                # Nhật ký của bản cũ không có hai trường này. Thiếu thì coi
+                # như CHƯA đạt: mặc định phải nghiêng về phía an toàn, không
+                # phải phía tiện.
+                da_dong_nhan=bool(muc.get("da_dong_nhan")),
+                bam_luc_kiem=str(muc.get("bam") or ""),
+            ))
+    return ra
+
+
+def kiem_lai_truoc_khi_xuat(anh: list[AnhNguon]) -> KetQuaKiem:
+    """Chạy lại toàn bộ phép kiểm ngay trước lúc ghép.
+
+    Vì sao không tin danh sách đã chọn: giữa lúc người dùng chọn ảnh và lúc
+    bấm xuất có thể là vài phút hoặc vài ngày. Tệp bị xoá, bị sửa, bị thay
+    bằng ảnh khác cùng tên — không cái nào trong đó làm nhật ký đổi một chữ.
+    """
+    bi_chan: list[tuple[str, str]] = []
+    for a in anh:
+        ten = os.path.basename(a.duong_dan)
+        if not a.da_kiem:
+            bi_chan.append((ten, "chưa kiểm được bao bì"))
+        elif a.ket_luan != "SAFE":
+            bi_chan.append((ten, a.ly_do or "lệch bao bì so với ảnh gốc"))
+        elif not a.da_dong_nhan:
+            bi_chan.append((ten, "chưa đóng được nhãn AI-generated"))
+        elif not os.path.isfile(a.duong_dan):
+            bi_chan.append((ten, "không còn tệp này trên máy"))
+        elif not a.bam_luc_kiem:
+            # Ảnh dựng bằng bản cũ (nhật ký chưa có dấu vân tay). Không có
+            # cách nào biết nó còn nguyên hay không → không cho vào video.
+            bi_chan.append((ten, "ảnh dựng bằng bản cũ, chưa có dấu kiểm — "
+                                 "dựng lại ảnh này rồi ghép"))
+        elif bam_tep(a.duong_dan) != a.bam_luc_kiem:
+            bi_chan.append((ten, "tệp đã bị sửa sau khi kiểm — nội dung không "
+                                 "còn khớp tấm ảnh đã được duyệt"))
+    return KetQuaKiem(cho_phep=not bi_chan and bool(anh), bi_chan=bi_chan)
+
+
+def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh: float,
+               giay_chuyen: float) -> list[str]:
+    """Dựng lệnh ffmpeg cho một video trình chiếu có mờ chồng.
+
+    Tách riêng để test đọc được lệnh mà không phải chạy ffmpeg thật.
+    """
+    lenh: list[str] = ["ffmpeg", "-y"]
+    for duong in anh:
+        # `-loop 1` biến ảnh tĩnh thành luồng hình; `-t` cắt đúng độ dài cần.
+        lenh += ["-loop", "1", "-t", f"{giay_moi_anh:.3f}", "-i", duong]
+
+    loc = []
+    for i in range(len(anh)):
+        # Đệm cho vừa khung dọc thay vì cắt: cắt là có ngày cắt mất chính
+        # cái nhãn mà cả tính năng này sinh ra để giữ.
+        loc.append(
+            f"[{i}:v]scale={RONG}:{CAO}:force_original_aspect_ratio=decrease,"
+            f"pad={RONG}:{CAO}:(ow-iw)/2:(oh-ih)/2:color=white,"
+            f"setsar=1,fps=30[v{i}]")
+
+    if len(anh) == 1:
+        loc.append("[v0]null[ra]")
+    else:
+        truoc = "v0"
+        for i in range(1, len(anh)):
+            sau = f"x{i}"
+            mocs = (giay_moi_anh - giay_chuyen) * i
+            loc.append(f"[{truoc}][v{i}]xfade=transition=fade:"
+                       f"duration={giay_chuyen:.3f}:offset={mocs:.3f}[{sau}]")
+            truoc = sau
+        loc.append(f"[{truoc}]null[ra]")
+
+    lenh += ["-filter_complex", ";".join(loc), "-map", "[ra]"]
+    lenh += video_codec_args()
+    lenh += ["-pix_fmt", "yuv420p", ra]
+    return lenh
+
+
+def dung_video(anh: list[AnhNguon], duong_ra: str, *,
+               giay_moi_anh: float = GIAY_MOI_ANH,
+               giay_chuyen: float = GIAY_CHUYEN_CANH,
+               timeout: float = 300.0) -> str:
+    """Ghép các ảnh đã duyệt thành một video ngắn.
+
+    Gọi lại `kiem_lai_truoc_khi_xuat()` bên trong, KHÔNG tin bên gọi đã
+    kiểm: đây là hàm duy nhất tạo ra tệp video, nên nó phải là chỗ cuối cùng
+    nói được "không".
+    """
+    if not anh:
+        raise ValueError("Chưa chọn ảnh nào.")
+    if len(anh) > _TOI_DA_ANH:
+        raise ValueError(f"Mỗi video tối đa {_TOI_DA_ANH} ảnh.")
+
+    kiem = kiem_lai_truoc_khi_xuat(anh)
+    if not kiem.cho_phep:
+        chi_tiet = "; ".join(f"{t}: {l}" for t, l in kiem.bi_chan)
+        raise PermissionError(
+            f"Không xuất được video vì có ảnh không dùng để bán được — {chi_tiet}")
+
+    os.makedirs(os.path.dirname(os.path.abspath(duong_ra)) or ".", exist_ok=True)
+    lenh = _lenh_ghep([a.duong_dan for a in anh], duong_ra,
+                      giay_moi_anh, giay_chuyen)
+    try:
+        chay = subprocess.run(lenh, capture_output=True, text=True,
+                              timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise RuntimeError(f"Không chạy được ffmpeg: {e}") from e
+    if chay.returncode != 0 or not os.path.isfile(duong_ra):
+        duoi = (chay.stderr or "").strip().splitlines()[-3:]
+        raise RuntimeError("Ghép video hỏng: " + " | ".join(duoi))
+    return duong_ra

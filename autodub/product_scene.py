@@ -61,6 +61,13 @@ class KetQua:
     ly_do: str               # vì sao — bằng lời, không phải điểm số
     da_kiem: bool            # False = chưa kiểm được, phải coi như CONCEPT
     vox: int = 0
+    # Dấu vân tay của CHÍNH TẤM ẢNH đã kiểm (mini-spec C6). Nhật ký chỉ ghi
+    # tên tệp thì không có gì ngăn người ta thay ruột tệp sau khi kiểm xong —
+    # tên vẫn thế, phán quyết vẫn "đạt", mà ảnh đã là ảnh khác.
+    bam: str = ""
+    # Đóng được nhãn "AI-generated" lên ảnh chưa. Đóng hụt mà vẫn cho ghép
+    # vào video là vi phạm đúng luật bắt buộc của C1.
+    da_dong_nhan: bool = False
 
     @property
     def dung_duoc_de_ban(self) -> bool:
@@ -121,6 +128,20 @@ def chuan_bi_anh(duong_dan: str, thu_muc_tam: str) -> dict:
             "định dạng JPG.")
     loai = "image/png" if nguon.lower().endswith(".png") else "image/jpeg"
     return {"mimeType": loai, "data": data}
+
+
+def bam_tep(duong_dan: str) -> str:
+    """Dấu vân tay nội dung một tệp trên đĩa.
+
+    Dùng để phát hiện tệp bị thay ruột giữa lúc kiểm và lúc ghép video —
+    tên tệp không đủ, vì thay ruột thì tên vẫn nguyên.
+    """
+    try:
+        with open(duong_dan, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:32]
+    except OSError as e:
+        logger.warning(f"Không băm được «{duong_dan}» ({e})")
+        return ""
 
 
 def _bam_anh(anh: dict) -> str:
@@ -229,12 +250,15 @@ def dung_boi_canh(anh_goc_path: str, boi_canh: list[str], thu_muc_ra: str, *,
             khach, goc, anh_moi, ghi_chu=ghi_chu)
         # Người dùng xin SAFE không có nghĩa ảnh ra là SAFE — phán quyết của
         # bước kiểm mới là thứ tính.
-        dong_nhan_ai(ra_path, che_do_that)
+        da_dong_nhan = dong_nhan_ai(ra_path, che_do_that)
 
         phien.ket_qua.append(KetQua(
             duong_dan=ra_path, boi_canh=ten_bc, che_do_xin=che_do,
             che_do_that=che_do_that, ly_do=ly_do, da_kiem=da_kiem,
-            vox=int(tra_ve.get("creditCharged") or 0)))
+            vox=int(tra_ve.get("creditCharged") or 0),
+            # Băm SAU khi đóng nhãn: tệp trên đĩa lúc này mới là tệp cuối
+            # cùng, và đó mới là thứ cần khớp lúc ghép video.
+            bam=bam_tep(ra_path), da_dong_nhan=da_dong_nhan))
 
     ghi_nhat_ky(phien, goc)
     return phien
@@ -262,7 +286,8 @@ def ghi_nhat_ky(phien: Phien, anh_goc: dict) -> str:
         "anh_da_dung": [
             {"tep": os.path.basename(k.duong_dan), "boi_canh": k.boi_canh,
              "xin": k.che_do_xin, "ket_luan": k.che_do_that,
-             "ly_do": k.ly_do, "da_kiem": k.da_kiem, "vox": k.vox}
+             "ly_do": k.ly_do, "da_kiem": k.da_kiem, "vox": k.vox,
+             "bam": k.bam, "da_dong_nhan": k.da_dong_nhan}
             for k in phien.ket_qua
         ],
     })

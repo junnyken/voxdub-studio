@@ -173,3 +173,81 @@ def test_chay_lai_thi_xoa_ket_qua_cu(page):
     assert page.ket_qua.count() == 0, (
         "ảnh lượt trước còn lại trên màn hình lượt sau = người dùng đọc "
         "phán quyết của ảnh khác")
+
+
+# -- Dựng video ngắn (C6) ----------------------------------------------------
+
+def test_nac_chua_mo_thi_khong_khoi_dong_worker_video(page, monkeypatch):
+    """Kiểm nấc TRƯỚC khi đọc nhật ký: hỏi máy chủ là việc rẻ, còn để người
+    dùng chọn xong ảnh rồi mới báo "chưa mở" là bắt họ làm không công."""
+    from autodub import product_video
+
+    goi = {}
+    monkeypatch.setattr(psp, "ProductVideoWorker",
+                        lambda *a, **k: goi.setdefault("dung", True))
+    monkeypatch.setattr(product_video, "duoc_dung_video",
+                        lambda: (False, "chưa mở"))
+    monkeypatch.setattr(product_video, "doc_nhat_ky",
+                        lambda *_a: pytest.fail("đọc nhật ký khi nấc chưa mở"))
+    page._dung_video()
+    assert not goi
+
+
+def test_khong_co_anh_dat_thi_khong_ghep(page, monkeypatch):
+    from autodub import product_video
+
+    goi = {}
+    monkeypatch.setattr(psp, "ProductVideoWorker",
+                        lambda *a, **k: goi.setdefault("dung", True))
+    monkeypatch.setattr(product_video, "duoc_dung_video", lambda: (True, ""))
+    monkeypatch.setattr(product_video, "doc_nhat_ky", lambda *_a: [])
+    page._dung_video()
+    assert not goi
+
+
+def test_chi_dua_anh_DAT_vao_video(page, monkeypatch, tmp_path):
+    """Giao diện không được tự quyết danh sách nguồn."""
+    from autodub import product_video
+    from autodub.product_video import AnhNguon
+
+    dat = AnhNguon(str(tmp_path / "tot.jpg"), "ban_go", "SAFE", "ổn",
+                   True, True, "abc")
+    lech = AnhNguon(str(tmp_path / "xau.jpg"), "gio_qua", "CONCEPT",
+                    "lệch nhãn", True, True, "def")
+    chua = AnhNguon(str(tmp_path / "chua.jpg"), "nen_studio", "SAFE",
+                    "không kiểm được", False, True, "ghi")
+
+    nhan = {}
+
+    class _WorkerGia:
+        """Worker giả: ghi lại danh sách nhận được rồi thôi."""
+
+        class _TinHieu:
+            def connect(self, *_a):
+                pass
+
+        def __init__(self, anh, ra, **_k):
+            nhan["anh"] = anh
+            self.xong = self._TinHieu()
+            self.hong = self._TinHieu()
+
+        def start(self):
+            pass
+
+        def isRunning(self):  # noqa: N802 — theo quy ước của Qt
+            return False
+
+    monkeypatch.setattr(psp, "ProductVideoWorker", _WorkerGia)
+    monkeypatch.setattr(product_video, "duoc_dung_video", lambda: (True, ""))
+    monkeypatch.setattr(product_video, "doc_nhat_ky", lambda *_a: [dat, lech, chua])
+    page._dung_video()
+
+    assert [a.boi_canh for a in nhan["anh"]] == ["ban_go"]
+
+
+def test_bi_chan_thi_in_NGUYEN_VAN_ly_do(page):
+    loi = ("Không xuất được video vì có ảnh không dùng để bán được — "
+           "xau.jpg: nhãn khác chữ so với bản gốc")
+    page._video_hong(loi)
+    assert "xau.jpg" in page.status.text()
+    assert "nhãn khác chữ" in page.status.text()

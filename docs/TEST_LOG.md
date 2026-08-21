@@ -8474,6 +8474,94 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C6 — Ghép ảnh sản phẩm đã duyệt thành video ngắn (Phase H, 2026-08-21)
+
+Bản đề bài (chủ dự án gọi là "C3") có **mục tiêu và các lằn ranh đều đúng**,
+nhưng **cơ chế thì dựa trên một hệ thống khác với hệ thống này**. Đối chiếu
+với mã trước khi làm, ba tiền đề lệch:
+
+1. **`image_id` không tồn tại.** Bản đề bài dựng cả một thực thể job trên máy
+   chủ, nhận danh sách `image_id`, và một bộ kiểm hỏi lại "trạng thái ảnh"
+   qua API. Nhưng **máy chủ không hề biết đến ảnh nào** — C2 đã cố ý quyết
+   định không lưu ảnh. `grep image_id` trong `control_server/`: rỗng.
+2. **"Dấu tin cậy hết hạn 7 ngày làm phán quyết bị lật"** — hiểu nhầm. Hạn 7
+   ngày của `visionOkAt` quyết định một NƠI GỌI có được chạy lượt kiểm mới
+   hay không; nó không lật ngược phán quyết đã cho trên một tấm ảnh. Và lượt
+   soi tay đánh dấu lên một dòng nhật ký sử dụng, không gắn với tệp ảnh nào.
+3. **"Tái dùng pipeline dựng video hiện có, không viết engine mới"** — đúng
+   một nửa. `autodub/media/video.py` có `merge_video`, `render_preview_clip`,
+   bộ chọn bộ mã hoá — nhưng **không có hàm nào ghép ảnh tĩnh thành video**
+   (`grep -loop|concat|framerate` trong `media/`: rỗng). Phải viết, bằng
+   ffmpeg — mà ffmpeg là tiến trình con, nên đằng nào cũng đúng quy tắc "engine
+   nặng không nằm trong tiến trình chính".
+
+### Nhưng bản năng của bản đề bài thì đúng, và có một phiên bản THẬT của nó
+
+Bản đề bài lo "trạng thái ảnh đổi giữa lúc chọn và lúc xuất". Trong kiến trúc
+này, phiên bản thật của rủi ro đó **nguy hiểm hơn** thứ nó mô tả:
+
+> Nhật ký chỉ ghi TÊN tệp. Không có gì ngăn người ta thay ruột tệp sau khi
+> kiểm xong — tên vẫn thế, nhật ký vẫn ghi "đạt", giao diện vẫn hiện xanh, mà
+> ảnh đã là ảnh khác.
+
+Đó là đường lách thật duy nhất, và nó không cần ác ý: sửa ảnh cho đẹp hơn rồi
+lưu đè là đủ. Nên `product_scene.py` nay **băm từng ảnh SAU khi đóng nhãn**,
+và `kiem_lai_truoc_khi_xuat()` đối chiếu lại dấu vân tay ngay trước lúc ghép.
+
+Ba điều kiện để một ảnh vào được video, thiếu một là loại: phán quyết là
+**đăng bán được** · **đã đóng được nhãn AI-generated** · **nội dung tệp còn
+khớp dấu lúc kiểm**. Điều kiện thứ hai cũng là chỗ trước đây bỏ ngỏ: `dong_nhan_ai`
+trả `False` khi ffmpeg hỏng, nhưng không ai ghi lại — nay ghi vào nhật ký.
+
+### Nhật ký bản cũ thiếu trường thì coi như CHƯA đạt
+
+Ảnh dựng bằng bản trước không có `bam` lẫn `da_dong_nhan`. Không có cách nào
+biết chúng còn nguyên hay không, nên chúng bị loại kèm câu chỉ việc phải làm
+("dựng lại ảnh này rồi ghép"). Mặc định nghiêng về phía an toàn, không phải
+phía tiện — có test khoá đúng chiều đó.
+
+### Hàm xuất là chỗ cuối cùng nói được "không"
+
+`dung_video()` gọi lại toàn bộ phép kiểm bên trong, **không tin bên gọi đã
+kiểm**. Đây là hàm duy nhất tạo ra tệp video, nên nó phải là nơi cuối cùng
+từ chối được — đúng gap mà bản đề bài gọi là nguy hiểm nhất, chỉ khác chỗ đặt.
+
+### Đã dựng một video thật và MỞ RA XEM
+
+Không dừng ở "hàm chạy không lỗi": dựng 3 ảnh, ghép, `ffprobe` ra
+1080×1920 / 3,73 giây, rồi trích 3 khung ghép lại thành một tấm và nhìn bằng
+mắt — đúng thứ tự 1111 → 2222 → 3333, ảnh được **đệm** hai bên chứ không bị
+cắt. Cắt cho vừa khung dọc là có ngày cắt mất chính cái nhãn mà cả tính năng
+này sinh ra để giữ, nên `crop` bị test cấm.
+
+### Chỉ mở ở nấc chạy thật
+
+Ghép video ở nấc hiệu chỉnh nghĩa là đem những tấm ảnh chưa ai soi đi làm nội
+dung bán hàng. App hỏi máy chủ nấc hiện tại qua `/v1/config/app`; hỏi không
+được thì **đóng** — mặc định phải là đóng.
+
+### Chứng minh từng luật
+
+Bỏ phép kiểm lần hai trong `dung_video` → 1 đỏ. Bỏ đối chiếu dấu vân tay →
+1 đỏ. Cho nhật ký bản cũ mặc định là "đạt" → 1 đỏ. Mở khâu video ở nấc hiệu
+chỉnh → 1 đỏ. Cho giao diện tự nạp cả ảnh lệch → 1 đỏ.
+
+**1693 passed, 7 skipped (Python) · 464 pass (Node) · website build sạch ·
+smoke dựng đủ 18 trang.**
+
+### Remaining Limits
+
+- **Chưa ghép được video từ ảnh THẬT** — vẫn chưa có nhà cung cấp nên chưa có
+  ảnh sản phẩm thật nào. Video đã dựng để kiểm là từ ảnh máy chủ tự vẽ.
+- Chưa có kéo-thả sắp thứ tự như bản đề bài nêu: thứ tự hiện theo nhật ký.
+  Thêm được, nhưng phần quyết định rủi ro nằm ở việc ảnh nào được vào, không
+  ở thứ tự.
+- Không có nhạc nền, không có chuyển cảnh ngoài mờ chồng — đúng phạm vi bản
+  đề bài đặt ra.
+- Nhãn "AI-generated" nằm trên chính từng tấm ảnh (từ C1), nên khung nào cũng
+  có. Chưa có lớp phủ riêng ở tầng video; nếu sau này ghép ảnh từ nguồn khác
+  thì phải thêm.
+
 ## C5 — Nút "Thử ngay", và bấm nấc phải dựa trên lượt ĐÃ SOI TAY (Phase H, 2026-08-21)
 
 Chủ dự án đưa một bản đề bài cho bước cắm nhà cung cấp thật. Đối chiếu với mã

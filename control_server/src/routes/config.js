@@ -39,9 +39,14 @@ module.exports = async function configRoutes(fastify) {
       'cloud.dub.enabled', 'cloud.dub.max.upload.mb',
       'credit.cost.cloud.dub.vox.per.minute',
       'credit.cost.cloud.dub.vox.per.minute.demucs',
+      // Mini-spec C6 — app cần biết nấc hiện tại TRƯỚC khi hiện chế độ dựng
+      // video: khâu ghép video chỉ mở ở nấc chạy thật, tức là chỉ sau khi
+      // phán quyết kiểm bao bì đã được soi tay và duyệt.
+      'image.scene.stage',
     ])
     return {
       creditEnabled: cfg['credit.enabled'],
+      imageSceneStage: cfg['image.scene.stage'],
       maintenanceMode: cfg['maintenance.mode'],
       maintenanceMessage: cfg['maintenance.message'],
       minAppVersion: cfg['min.app.version'],

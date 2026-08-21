@@ -238,6 +238,11 @@ kết quả cũ. Nấc lạ rơi về đóng. `runMode` ghi vào `UsageLog` do m
 theo nấc này, client không đặt được; bảng phán quyết xem ở
 `GET /v1/admin/analytics/assist` (`phanQuyet`, `nacHienTai`, `xetDuyet`).
 
+**Ghép video ngắn (mini-spec C6)** chạy HOÀN TOÀN trên máy người dùng
+(`autodub/product_video.py`, ffmpeg tiến trình con) — không có cửa API nào,
+vì máy chủ cố ý không giữ ảnh. Máy chủ chỉ trả nấc hiện tại qua
+`GET /v1/config/app` (`imageSceneStage`); khâu ghép chỉ mở ở `production`.
+
 **Cửa này KHÔNG tự kiểm tuân thủ.** Bên gọi phải gọi tiếp `POST /assist` với
 `packaging_check` kèm cả ảnh gốc lẫn ảnh mới, và phán quyết đó đè lên `mode`
 đã xin. `autodub/product_scene.py` làm đúng chuỗi này; ai gọi thẳng API mà bỏ

@@ -1217,3 +1217,32 @@ class ProductSceneWorker(QThread):
             self.hong.emit(str(e))
             return
         self.xong.emit(phien)
+
+
+class ProductVideoWorker(QThread):
+    """Ghép ảnh sản phẩm đã duyệt thành video ngắn — mini-spec C6.
+
+    Chạy nền vì ffmpeg mã hoá vài giây tới vài chục giây tuỳ số ảnh. Không có
+    nút Dừng: mẻ ngắn, và dừng giữa chừng chỉ để lại một tệp video hỏng.
+    """
+
+    xong = Signal(str)      # đường dẫn video
+    hong = Signal(str)
+
+    def __init__(self, anh, duong_ra: str, giay_moi_anh: float = 2.5, parent=None):
+        super().__init__(parent)
+        self._anh = list(anh)
+        self._duong_ra = duong_ra
+        self._giay = giay_moi_anh
+
+    def run(self) -> None:
+        try:
+            from autodub import product_video
+
+            duong = product_video.dung_video(
+                self._anh, self._duong_ra, giay_moi_anh=self._giay)
+        except Exception as e:  # noqa: BLE001 — lý do phải tới người dùng
+            logger.warning(f"Ghép video sản phẩm hỏng: {e}")
+            self.hong.emit(str(e))
+            return
+        self.xong.emit(duong)

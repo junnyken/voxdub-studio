@@ -305,7 +305,6 @@ Xếp theo mức sẵn sàng, không phải theo mức hấp dẫn:
 Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 
 **Việc kỹ thuật đã rõ hình:**
-- Ghép ảnh sản phẩm thành video ngắn (phần rủi ro nằm ở ảnh, đã xong).
 - Tách `.venv-*` và `models/` ra khỏi thư mục ứng dụng để nâng cấp không mất
   engine — sửa được lớp phiền toái lớn nhất của người dùng.
 - Nối `character_name` vào giao diện (cần đổi cấu trúc hồ sơ nhân vật để giữ
@@ -331,6 +330,6 @@ Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 | `docs/ARCH.md` | Kiến trúc lõi |
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 
-**Quy mô test hiện tại:** 1670 test Python (7 bỏ qua) + 464 test Node
+**Quy mô test hiện tại:** 1693 test Python (7 bỏ qua) + 464 test Node
 (1 bỏ qua). Kỷ luật của dự án: mỗi luật quan trọng đều được **gỡ ra để chứng
 minh test đỏ**, chứ không chỉ chạy cho xanh.

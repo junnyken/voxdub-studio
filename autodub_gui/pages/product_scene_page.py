@@ -38,7 +38,7 @@ from autodub_gui.ui.buttons import GhostButton, PrimaryButton, SecondaryButton
 from autodub_gui.ui.cards import Card
 from autodub_gui.ui.inputs import LabeledCombo, LabeledLineEdit
 from autodub_gui.ui.toast import TOASTS
-from autodub_gui.workers import ProductSceneWorker
+from autodub_gui.workers import ProductSceneWorker, ProductVideoWorker
 
 _PAGE_MARGIN = 28
 _ANH_W = 190          # bề rộng ảnh xem trước trong lưới kết quả
@@ -76,6 +76,7 @@ class ProductScenePage(BasePage):
         super().__init__(parent)
         self._settings_provider = settings_provider
         self._worker: ProductSceneWorker | None = None
+        self._worker_video: ProductVideoWorker | None = None
         self._thu_muc_ket_qua = ""
         self._o_boi_canh: dict[str, QCheckBox] = {}
         self._build()
@@ -139,6 +140,12 @@ class ProductScenePage(BasePage):
         self.btn_run = PrimaryButton("Dựng ảnh")
         self.btn_run.clicked.connect(self._chay)
         hanh_dong.addWidget(self.btn_run)
+        self.btn_video = GhostButton("Dựng video ngắn")
+        self.btn_video.setToolTip(
+            "Ghép các ảnh ĐÃ ĐƯỢC DUYỆT thành một video dọc. Ảnh lệch bao bì "
+            "hoặc chưa kiểm được sẽ không được đưa vào.")
+        self.btn_video.clicked.connect(self._dung_video)
+        hanh_dong.addWidget(self.btn_video)
         self.btn_open = GhostButton("Mở thư mục ảnh")
         self.btn_open.clicked.connect(self._mo_thu_muc)
         self.btn_open.setEnabled(False)
@@ -211,6 +218,52 @@ class ProductScenePage(BasePage):
         worker.hong.connect(self._hong)
         self._worker = worker
         worker.start()
+
+    def _dung_video(self) -> None:
+        """Ghép các ảnh đã duyệt của lượt gần nhất thành video ngắn.
+
+        Danh sách nguồn đọc từ NHẬT KÝ trên đĩa chứ không từ những gì đang
+        hiện trên màn hình: màn hình có thể là kết quả của lượt trước, còn
+        nhật ký là thứ khớp với tệp thật.
+        """
+        from autodub import product_video
+
+        if self._worker_video is not None and self._worker_video.isRunning():
+            TOASTS.warn("Đang ghép video — chờ lượt này xong đã.")
+            return
+
+        duoc, ly_do = product_video.duoc_dung_video()
+        if not duoc:
+            TOASTS.warn(ly_do)
+            return
+
+        thu_muc = self._thu_muc_ket_qua or self._thu_muc_ra()
+        anh = [a for a in product_video.doc_nhat_ky(thu_muc) if a.dung_duoc]
+        if not anh:
+            TOASTS.warn("Chưa có ảnh nào đăng bán được để ghép. Dựng ảnh trước đã.")
+            return
+
+        ra = os.path.join(thu_muc, "video_san_pham.mp4")
+        self.btn_video.setEnabled(False)
+        self.status.setText(f"Đang ghép {len(anh)} ảnh thành video…")
+
+        worker = ProductVideoWorker(anh, ra, parent=self)
+        worker.xong.connect(self._video_xong)
+        worker.hong.connect(self._video_hong)
+        self._worker_video = worker
+        worker.start()
+
+    def _video_xong(self, duong: str) -> None:
+        self.btn_video.setEnabled(True)
+        self.status.setText(f"Đã xuất video: {duong}")
+        TOASTS.success("Đã dựng xong video ngắn.")
+
+    def _video_hong(self, loi: str) -> None:
+        self.btn_video.setEnabled(True)
+        # In NGUYÊN VĂN lý do: khi bị chặn, câu này liệt kê đúng ảnh nào và vì
+        # sao — rút gọn đi thì người dùng không biết sửa cái gì.
+        self.status.setText(loi)
+        TOASTS.error(loi)
 
     def _mo_thu_muc(self) -> None:
         if self._thu_muc_ket_qua:
