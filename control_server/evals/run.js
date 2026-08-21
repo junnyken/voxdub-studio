@@ -45,8 +45,12 @@ function doKho() {
       }
       if (!c.kiem.length) van_de.push(`${c.ten}: mẫu không có phép kiểm nào`)
     }
+    // Mẫu cần ảnh thật thì lượt đo khô KHÔNG nói được gì về chất lượng —
+    // ghi rõ ngay trên dòng đó. Để trơ chữ "đạt" là mời người đọc hiểu nhầm
+    // thành "tác vụ này chạy tốt", đúng thứ cờ `canAnh` sinh ra để tránh.
+    const canAnh = mau.some((c) => c.canAnh)
     inBang([ten, van_de.length ? van_de[0] : 'ổn', mau.length,
-      van_de.length ? 'HỎNG' : 'đạt'])
+      van_de.length ? 'HỎNG' : (canAnh ? 'cấu hình ổn (cần ảnh thật)' : 'đạt')])
     loi += van_de.length ? 1 : 0
   }
   return loi

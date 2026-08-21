@@ -19,6 +19,8 @@ from autodub.config import Settings  # noqa: E402
 from autodub.product_scene import KetQua, Phien  # noqa: E402
 from autodub_gui.pages import product_scene_page as psp  # noqa: E402
 
+from tests.doc_ma import co_goi, goi_truoc  # noqa: E402
+
 
 @pytest.fixture(scope="module", autouse=True)
 def _qapp():
@@ -256,31 +258,36 @@ def test_bi_chan_thi_in_NGUYEN_VAN_ly_do(page):
 
 # -- Kiểm liên tục và gợi ý kịch bản (C7) ------------------------------------
 
-def test_KHONG_goi_mang_tren_luong_giao_dien(tmp_path):
+def test_KHONG_goi_mang_tren_luong_giao_dien():
     """Gọi mạng thẳng từ chỗ bấm nút là treo cả cửa sổ.
 
     `kiem_lien_tuc` chờ tới 60 giây và thu nhỏ tới sáu ảnh bằng ffmpeg;
     `goi_y_kich_ban` chờ 45 giây. Cả hai phải nằm trong luồng nền — đây là
     lỗi tôi tự tạo ra ở C7 và tìm thấy khi rà lại.
+
+    Hỏi CÂY CÚ PHÁP chứ không tìm chuỗi: bản đầu tìm `goi_y_kich_ban(` nên
+    khớp luôn dòng `def _goi_y_kich_ban(self)` của chính phương thức đang
+    đọc, và đỏ oan (mini-spec C8).
     """
-    import inspect
-
-    than = (inspect.getsource(psp.ProductScenePage._dung_video)
-            + inspect.getsource(psp.ProductScenePage._goi_y_kich_ban))
-    # Tìm LƯỢT GỌI có tên mô-đun, không tìm trần tên hàm: `goi_y_kich_ban(`
-    # khớp luôn dòng `def _goi_y_kich_ban(self)` của chính phương thức đang
-    # đọc, và test đỏ oan.
-    for ten in ("product_video.kiem_lien_tuc(", "product_video.goi_y_kich_ban("):
-        assert ten not in than, f"«{ten}» đang chạy trên luồng giao diện"
+    for ham in (psp.ProductScenePage._dung_video,
+                psp.ProductScenePage._goi_y_kich_ban):
+        for ten in ("kiem_lien_tuc", "goi_y_kich_ban"):
+            assert not co_goi(ham, ten), \
+                f"«{ten}» đang chạy trên luồng giao diện ({ham.__name__})"
 
 
-def test_worker_moi_la_cho_goi_mang(tmp_path):
-    import inspect
-
+def test_worker_moi_la_cho_goi_mang():
     from autodub_gui.workers import ProductVideoWorker, SceneScriptWorker
 
-    assert "kiem_lien_tuc(" in inspect.getsource(ProductVideoWorker.run)
-    assert "goi_y_kich_ban(" in inspect.getsource(SceneScriptWorker.run)
+    assert co_goi(ProductVideoWorker.run, "kiem_lien_tuc")
+    assert co_goi(SceneScriptWorker.run, "goi_y_kich_ban")
+
+
+def test_canh_bao_lien_tuc_bay_ra_TRUOC_khi_ghep():
+    """Cảnh báo sau khi video đã xong thì không giúp được ai."""
+    from autodub_gui.workers import ProductVideoWorker
+
+    assert goi_truoc(ProductVideoWorker.run, "kiem_lien_tuc", "dung_video")
 
 
 def test_canh_bao_lien_tuc_chi_IN_RA_khong_chan(page):

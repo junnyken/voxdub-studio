@@ -275,12 +275,11 @@ def test_LECH_KHONG_chan_xuat_video(tmp_path, monkeypatch, co_tai_khoan):
 def test_kiem_lien_tuc_KHONG_dung_trong_duong_xuat(tmp_path):
     """Hai lớp kiểm phải độc lập: kiểm liên tục không được len vào đường
     quyết định xuất hay không."""
-    import inspect
+    from tests.doc_ma import co_goi
 
-    than = inspect.getsource(pv.dung_video) + inspect.getsource(
-        pv.kiem_lai_truoc_khi_xuat)
-    assert "kiem_lien_tuc" not in than
-    assert "LienTuc" not in than
+    for ham in (pv.dung_video, pv.kiem_lai_truoc_khi_xuat):
+        assert not co_goi(ham, "kiem_lien_tuc"), \
+            f"{ham.__name__} đang để kiểm liên tục chen vào đường quyết định"
 
 
 def test_anh_lech_BAO_BI_van_bi_chan_du_lien_tuc_bao_muot(tmp_path, co_tai_khoan):

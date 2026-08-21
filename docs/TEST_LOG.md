@@ -8474,6 +8474,82 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C8 — Sửa cái gốc: test đọc mã bằng tìm chuỗi (Phase H, 2026-08-21)
+
+Chủ dự án: *"bạn bắt đầu hay sai rồi đó, hãy xem cẩn thận, đã test kỹ hơn,
+còn tiến trình nào bạn chưa làm"*. Nhận xét đúng. Trong một ngày tôi mắc
+**bốn lỗi cùng một loại**, và cả bốn đều nằm ở test đọc mã nguồn bằng cách
+tìm chuỗi:
+
+| # | Kiểu hỏng | Hậu quả |
+|---|---|---|
+| 1 | `indexOf(a) < indexOf(b)` khi `a` vắng mặt (−1 < mọi vị trí) | test XANH cả khi gỡ sạch thứ cần kiểm |
+| 2 | Khớp phải chữ trong **chú thích** (hoặc trong chuỗi thông báo) | đỏ oan / xanh giả |
+| 3 | Cắt thân hàm tới `module.exports` nên **đọc lây sang hàm sau** | đỏ oan |
+| 4 | Tìm tên hàm trần nên khớp luôn **dòng khai báo của chính nó** | đỏ oan |
+
+Ba lần đầu tôi vá từng chỗ. Lần thứ tư thì rõ đây là mẫu, không phải xui.
+
+### Sửa gốc, hai bên
+
+**Python có `ast` sẵn** — không có lý do gì đoán bằng chuỗi. `tests/doc_ma.py`
+hỏi thẳng cây cú pháp: `co_goi(ham, ten)`, `cac_luot_goi(ham)`,
+`goi_truoc(ham, a, b)`. Cả bốn kiểu hỏng biến mất cùng lúc: lượt gọi trong
+chú thích không tồn tại trong cây, dòng `def` không phải `ast.Call`,
+`inspect.getsource` cắt đúng một hàm, và `goi_truoc` trả `False` khi THIẾU
+một vế thay vì âm thầm coi là đúng.
+
+**JavaScript không có bộ phân tích cú pháp trong dự án** — thêm một phụ thuộc
+chỉ để chạy test là cái giá không đáng. `tests/helpers/doc-ma.js` là lớp mỏng
+làm đúng bốn việc: bỏ chú thích, moi ruột chuỗi khi soi, cắt thân hàm tới hàm
+kế tiếp, và `truoc()` bắt buộc cả hai vế phải CÓ MẶT rồi mới so thứ tự.
+
+**Hai tầng phải tách rời** — và chính test của helper bắt được điều đó: bản
+đầu gộp "bỏ chú thích" với "moi ruột chuỗi" làm một, nên không tìm nổi route
+nào (đường dẫn route nằm trong chuỗi). Tách thành `boChuThich` (để TÌM và
+CẮT) và `boChuoi` (để SOI).
+
+### Bộ canh cho chính bộ canh
+
+`tests/test_doc_ma.py` (5 test) và `tests/doc-ma-helper.test.js` (7 test)
+kiểm đúng bốn kiểu hỏng trên bằng mẫu mã cố tình dựng ra để bẫy. Nếu lớp đọc
+mã hỏng thì mọi test đứng trên nó xanh giả, nên nó phải có test riêng.
+
+Đã chuyển các phép kiểm cũ sang: `image-stage`, `vision-probe`,
+`test_product_scene_page`, `test_dung_video_san_pham`. Gỡ chốt khỏi route để
+đo lại sau khi chuyển: **vẫn đỏ 2 test** — bộ canh không mất răng.
+
+### Một bản sửa ÂM THẦM KHÔNG ÁP DỤNG
+
+Giữa lúc chuyển, một lượt thay thế trong script của tôi không khớp vì lệch
+đúng một chỗ xuống dòng — và script **không kiểm nên im lặng cho qua**. Chỉ
+lộ ra khi test báo `than is not defined`. Từ đó mọi lượt sửa hàng loạt đều có
+`assert` trước khi ghi tệp.
+
+### Rà "còn tiến trình nào chưa làm"
+
+- **Deploy worker: đã xong lúc 08:34** — tôi hứa báo lại rồi quên. Đây là
+  thiếu sót về quy trình, không phải về mã.
+- **Bộ đo:** chạy khô cả 9 tác vụ — sạch. Nhưng lượt khô in chữ "đạt" cho cả
+  mẫu cần ảnh, dễ đọc thành "tác vụ này chạy tốt". Đổi thành *"cấu hình ổn
+  (cần ảnh thật)"* — đúng thứ cờ `canAnh` sinh ra để tránh.
+- **Hai bộ canh sẵn có của repo** (pyflakes tên không tồn tại; nuốt lỗi phải
+  có dấu vết) đều phủ tệp mới và đều xanh.
+- **Quét cả gói giao diện** tìm chỗ khác gọi máy chủ trong hàm xử lý sự kiện:
+  chỉ còn `check_startup`, mà hàm đó đã nằm sẵn trong `QThread`.
+
+**1714 passed, 7 skipped (Python) · 471 pass (Node) · website build sạch.**
+
+### Remaining Limits
+
+- Lớp đọc mã JS là bộ cắt bằng tay, không phải bộ phân tích cú pháp thật. Nó
+  chặn được bốn kiểu hỏng đã biết; mã dùng cú pháp lạ (chuỗi lồng phức tạp,
+  biểu thức chính quy chứa dấu nháy) có thể làm nó cắt sai. Có test riêng cho
+  từng kiểu, nhưng không phủ được mọi cú pháp JS.
+- Chưa chuyển hết: `ai-provider-roles.test.js` và `test-now-va-soi-tay.test.js`
+  vẫn đọc chuỗi. Chúng đang xanh và cắn đúng, nên chuyển nốt là việc dọn dẹp,
+  không phải sửa lỗi.
+
 ## C7 — Kiểm liên tục giữa các cảnh + gợi ý kịch bản (Phase H, 2026-08-21)
 
 ### Một tiền đề lặp lại đúng lỗi lần trước

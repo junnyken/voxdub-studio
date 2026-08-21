@@ -148,19 +148,10 @@ test('chưa có lượt nào thì không nổ', () => {
 // nhưng bắt đúng lớp lỗi từng xảy ra thật: dịch vụ viết xong, test xanh, mà
 // route thì quên gọi.
 
-const fs = require('node:fs')
-const path = require('node:path')
+const h = require('./helpers/doc-ma')
 
-const NGUON = fs.readFileSync(
-  path.join(__dirname, '..', 'src', 'routes', 'ai.js'), 'utf8')
-
-/** Thân của một handler route, cắt từ `fastify.post('<duong>'` tới route kế. */
-function thanRoute(duong) {
-  const i = NGUON.indexOf(`fastify.post('${duong}'`)
-  assert.ok(i > 0, `không thấy route ${duong}`)
-  const j = NGUON.indexOf('fastify.post(', i + 10)
-  return NGUON.slice(i, j > 0 ? j : NGUON.length)
-}
+const NGUON = h.ma('src/routes/ai.js')
+const thanRoute = (duong) => h.thanHam('src/routes/ai.js', duong)
 
 test('cửa dựng ảnh có gọi chốt chuyển pha', () => {
   assert.match(thanRoute('/product-scene'), /imageStage\.quyetDinh\(/)
@@ -169,15 +160,10 @@ test('cửa dựng ảnh có gọi chốt chuyển pha', () => {
 test('chốt đứng TRƯỚC replay', () => {
   // Cửa đã đóng mà vẫn trả nốt kết quả cũ qua `replay` thì không gọi là
   // đóng — người dùng cứ gửi lại đúng jobId cũ là có ảnh.
-  const than = thanRoute('/product-scene')
-  const viTriChot = than.indexOf('imageStage.quyetDinh(')
-  const viTriReplay = than.indexOf('replay(')
-  // Phải kiểm CÓ MẶT trước khi so thứ tự: `indexOf` trả -1 khi không thấy,
-  // và -1 nhỏ hơn mọi vị trí — viết thiếu dòng này thì test vẫn xanh ngay
-  // cả khi chốt bị gỡ sạch. Đã mắc đúng lỗi đó lúc viết bài test này.
-  assert.ok(viTriChot > 0, 'không thấy chốt trong route')
-  assert.ok(viTriReplay > 0, 'không thấy replay trong route')
-  assert.ok(viTriChot < viTriReplay,
+  // `truoc()` tự bắt buộc cả hai phải CÓ MẶT rồi mới so thứ tự — `indexOf`
+  // trả -1 khi không thấy, và -1 nhỏ hơn mọi vị trí, nên viết tay thì test
+  // xanh cả khi chốt bị gỡ sạch (mini-spec C8).
+  h.truoc(thanRoute('/product-scene'), 'imageStage.quyetDinh(', 'replay(',
     'replay chạy trước chốt: cửa đóng vẫn phục vụ được kết quả cũ')
 })
 
@@ -185,7 +171,7 @@ test('mọi lượt dựng ảnh đều ghi chế độ chạy vào sổ', () =>
   // Hai đường: thành công và hỏng. Thiếu một đường thì báo cáo hiệu chỉnh
   // đếm hụt đúng nhóm đáng lo nhất.
   const than = thanRoute('/product-scene')
-  const soLogCreate = (than.match(/UsageLog\.create\(/g) || []).length
+  const soLogCreate = h.demGoi(than, 'UsageLog.create')
   // Đếm ĐÚNG dạng ghi sổ. Đếm mọi `runMode:` là đếm lây cả điều kiện lọc
   // `runMode: { $ne: 'test_now' }` của phép đếm hạn mức — con số phồng lên
   // và test xanh nhầm. Đã mắc đúng lỗi đó khi thêm nút Thử ngay.
