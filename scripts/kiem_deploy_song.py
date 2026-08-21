@@ -33,6 +33,14 @@ MOI = [
     ("cổng trợ lý (V89)", "POST", "/v1/ai/assist",
      {"jobId": "kiemtra12345", "task": "music_suggest", "input": {}}, {400, 401}),
     ("thống kê trợ lý (V89)", "GET", "/v1/admin/analytics/assist", None, {401}),
+    # C1 — cửa dựng ảnh sản phẩm. 404 ở đây nghĩa là máy chủ đang chạy mã CŨ.
+    ("dựng bối cảnh ảnh (C1)", "POST", "/v1/ai/product-scene",
+     {"jobId": "kiemtra12345", "scene": "ban_go",
+      "image": {"mimeType": "image/jpeg", "data": "eA=="}}, {400, 401}),
+    # Tác vụ kiểm tuân thủ phải nằm trong enum: qua được schema thì mới tới
+    # tầng xác thực (NO_TOKEN), còn chưa deploy thì schema đá ra 400.
+    ("tác vụ kiểm bao bì (C1)", "POST", "/v1/ai/assist",
+     {"jobId": "kiemtra12345", "task": "packaging_check", "input": {}}, {401}),
 ]
 #: Tác vụ bịa PHẢI bị chặn ngay ở tầng schema — đây là lớp chặn chi phí số 1.
 CHAN = ("danh sách tác vụ đóng", "POST", "/v1/ai/assist",
