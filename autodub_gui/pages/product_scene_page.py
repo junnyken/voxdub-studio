@@ -360,10 +360,16 @@ class ProductScenePage(BasePage):
             TOASTS.warn("Đang ghép video — chờ lượt này xong đã.")
             return
 
-        duoc, ly_do = product_video.duoc_dung_video()
+        duoc, loi_nhan = product_video.duoc_dung_video()
         if not duoc:
-            TOASTS.warn(ly_do)
+            TOASTS.warn(loi_nhan)
             return
+        if loi_nhan:
+            # Được dựng nhưng có điều kiện: in vào Nhật ký chứ không nhét vào
+            # một toast biến mất sau ba giây — người dùng cần đọc lại được câu
+            # này khi cầm cái video đi đăng.
+            self.log.append_log(loi_nhan, 30)
+            TOASTS.warn(loi_nhan)
 
         thu_muc = self._thu_muc_ket_qua or self._thu_muc_ra()
         anh = self._anh_nguon(thu_muc)

@@ -1117,6 +1117,38 @@ module.exports = async function aiRoutes(fastify) {
     items: await gateway.danhSachChon('image'),
   }))
 
+  /**
+   * Nấc tính năng ảnh CHO ĐÚNG MÁY NÀY (mini-spec C18).
+   *
+   * Vì sao không dùng `/config/app`: cửa đó không đăng nhập nên máy chủ không
+   * biết đang trả lời cho máy nào — mà nấc `calibration` mở theo TỪNG MÁY.
+   *
+   * Cửa ghép video trước đây chỉ mở ở nấc `production`. Đúng tinh thần (đừng
+   * đem ảnh chưa ai soi đi làm nội dung bán hàng) nhưng chặn nhầm đúng người
+   * đang chạy đợt hiệu chỉnh: chính chủ shop, trên chính máy đã được duyệt,
+   * muốn xem thử cả chuỗi chạy ra sao trước khi bỏ 660 Vox. Họ cũng là người
+   * gánh hậu quả nếu đăng nhầm — nên cho họ dựng, kèm câu cảnh báo, thay vì
+   * cấm.
+   */
+  fastify.get('/scene-stage', async (request) => {
+    const { device } = request
+    const nac = imageStage.quyetDinh({
+      stage: await config.get('image.scene.stage'),
+      devices: await config.get('image.scene.calibration.devices'),
+      fingerprint: device.fingerprint,
+    })
+    const thu = nac.runMode === 'calibration'
+    return {
+      runMode: nac.runMode || '',
+      videoDuoc: Boolean(nac.runMode),
+      canhBao: thu
+        ? 'Đây là bản dựng thử trong đợt hiệu chỉnh: ảnh trong video CHƯA ai '
+          + 'soi tay. Xem cho biết thì được, đừng đăng bán.'
+        : '',
+      message: nac.choPhep ? '' : (nac.message || ''),
+    }
+  })
+
   // -------------------------- dựng bối cảnh ảnh sản phẩm (mini-spec C1) --
   //
   // Người bán đưa MỘT ảnh sản phẩm thật, chọn bối cảnh, nhận về ảnh mới.

@@ -8474,6 +8474,57 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C18 — Cổng video chặn nhầm đúng người đang hiệu chỉnh (Phase H, 2026-08-22)
+
+Chủ dự án dựng xong 3 ảnh (2 lượt kiểm đều SAFE, lý do đọc được: *"Chỉ đổi bối
+cảnh, ánh sáng và góc chụp, sản phẩm vẫn y hệt"*), bấm **Dựng video ngắn** và
+nhận: *"Chức năng dựng video mở sau khi ảnh sản phẩm đã qua đợt hiệu chỉnh và
+được duyệt."*
+
+Cổng chặn chạy **đúng như thiết kế**. Nhưng thiết kế sai chỗ.
+
+Lý do gốc của cổng vẫn đúng: đừng đem ảnh chưa ai soi tay đi làm nội dung bán
+hàng. Chỉ có điều nó chặn nhầm đúng một người — **chính chủ shop, trên chính
+máy đã được duyệt vào danh sách hiệu chỉnh**, muốn xem thử cả chuỗi chạy ra
+sao trước khi bỏ 660 Vox chạy đủ 20 lượt. Người đó cũng là người gánh hậu quả
+nếu đăng nhầm. Cấm họ xem thử không bảo vệ ai cả — chỉ khiến họ phải trả tiền
+trước rồi mới biết mình mua gì.
+
+### Sửa: mở kèm cảnh báo, không mở suông
+
+Nấc `calibration` + máy **trong danh sách** → dựng được, kèm câu *"Đây là bản
+dựng thử trong đợt hiệu chỉnh: ảnh trong video CHƯA ai soi tay. Xem cho biết
+thì được, đừng đăng bán."* Máy ngoài danh sách vẫn bị chặn y như cũ.
+
+Câu cảnh báo in vào **Nhật ký**, không chỉ toast — toast biến mất sau ba giây,
+còn câu này người dùng cần đọc lại được đúng lúc cầm video đi đăng.
+
+### Một cửa mới, vì cửa cũ không biết đang nói với ai
+
+`app_config()` không đăng nhập nên máy chủ không biết trả lời cho máy nào — mà
+nấc `calibration` mở **theo từng máy**. Thêm `GET /v1/ai/scene-stage` (có đăng
+nhập), trả `runMode` + `videoDuoc` + `canhBao` tính theo đúng vân tay máy gọi.
+
+### Tests (+9)
+
+Máy chủ (5): nấc tắt thì không ai dựng được · máy trong danh sách dựng được
+kèm cảnh báo · **máy ngoài danh sách vẫn bị chặn** (mở cho máy ngoài là mở cho
+tất cả) · nấc chạy thật mở cho mọi máy và **không** cảnh báo (cảnh báo ở nấc
+chạy thật là dạy người dùng bỏ qua cảnh báo) · route hỏi theo vân tay máy đang
+gọi.
+
+App (4): nấc tắt in nguyên văn lý do máy chủ · nấc chạy thật mở và im lặng ·
+máy đang hiệu chỉnh dựng được **nhưng phải cảnh báo** · cảnh báo vào Nhật ký
+và **không** biến thành chặn.
+
+**1778 Python · 499 Node.**
+
+### Xác nhận được C16 bằng lượt chạy thật
+
+Cùng lúc này bộ đếm hiệu chỉnh chạy đúng lần đầu: 2 lượt `runMode=calibration`,
+verdict SAFE, đã vào danh sách chờ soi tay. Lượt cũ trước bản vá vẫn nằm trong
+nhóm `khong-ro` — không đếm được, và không sửa ngược lại.
+
 ## C17 — Chọn nơi gọi mô hình, và ô "Tên sản phẩm" (Phase H, 2026-08-22)
 
 Chủ dự án hỏi ba câu cùng lúc. Cả ba đều đúng chỗ.

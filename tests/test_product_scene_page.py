@@ -678,3 +678,20 @@ def test_chua_dien_ten_thi_lui_ve_ghi_chu(page, monkeypatch):
     page._goi_y_kich_ban()
 
     assert nhan["mo_ta"] == "đặt cạnh ly cà phê"
+
+
+def test_canh_bao_dung_thu_vao_NHAT_KY_chu_khong_chi_toast(page, monkeypatch):
+    """Toast biến mất sau ba giây; câu này người dùng cần đọc lại được lúc
+    cầm video đi đăng."""
+    from autodub import product_video
+
+    monkeypatch.setattr(psp, "ProductVideoWorker", _WorkerGhiLai)
+    monkeypatch.setattr(product_video, "duoc_dung_video",
+                        lambda: (True, "bản dựng thử, đừng đăng bán"))
+    monkeypatch.setattr(product_video, "doc_nhat_ky",
+                        lambda *_a: [_nguon("/1.jpg")])
+
+    page._dung_video()
+
+    assert "đừng đăng bán" in page.log.toPlainText()
+    assert _WorkerGhiLai.nhan, "cảnh báo không được biến thành chặn"

@@ -609,6 +609,14 @@ class SaasClient:
         self._note_usage(data)
         return data
 
+    def scene_stage(self, timeout: float = 20.0) -> dict:
+        """Nấc tính năng ảnh cho ĐÚNG MÁY NÀY — mini-spec C18.
+
+        Khác `app_config()`: cửa đó không đăng nhập nên máy chủ không biết
+        đang trả lời cho máy nào, mà nấc hiệu chỉnh mở theo từng máy.
+        """
+        return self._request("GET", "/v1/ai/scene-stage", timeout=timeout)
+
     def image_providers(self, timeout: float = 20.0) -> list[dict]:
         """Các nơi gọi mô hình ảnh người dùng được chọn — mini-spec C17.
 

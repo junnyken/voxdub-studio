@@ -100,11 +100,19 @@ class KetQuaKiem:
 
 
 def duoc_dung_video() -> tuple[bool, str]:
-    """Khâu ghép video có mở cho máy này không.
+    """Khâu ghép video có mở cho máy này không. Trả ``(được, lời nhắn)``.
 
-    Chỉ mở ở nấc chạy thật — tức là chỉ sau khi phán quyết kiểm bao bì đã
-    được soi tay đủ và người quản trị đã duyệt. Ghép video ở nấc hiệu chỉnh
-    nghĩa là đem những tấm ảnh chưa ai soi đi làm nội dung bán hàng.
+    Mở ở nấc chạy thật, và **mở cả ở nấc hiệu chỉnh cho những máy đã được
+    duyệt** — kèm câu cảnh báo (mini-spec C18).
+
+    Vì sao nới: bản đầu chỉ mở ở `production`. Đúng tinh thần (đừng đem ảnh
+    chưa ai soi đi làm nội dung bán hàng) nhưng chặn nhầm đúng người đang
+    chạy đợt hiệu chỉnh — chính chủ shop, trên chính máy đã được duyệt, muốn
+    xem thử cả chuỗi trước khi bỏ 660 Vox chạy 20 lượt. Họ cũng là người gánh
+    hậu quả nếu đăng nhầm, nên cho dựng kèm cảnh báo thì đúng hơn là cấm.
+
+    Ở nấc hiệu chỉnh, lời nhắn trả về là **cảnh báo** (được dựng); ở nấc tắt,
+    nó là **lý do bị chặn**. Nơi gọi phân biệt bằng giá trị thứ nhất.
 
     Hỏi máy chủ chứ không đoán: hỏng đường mạng thì trả FALSE. Mặc định phải
     là đóng.
@@ -114,15 +122,15 @@ def duoc_dung_video() -> tuple[bool, str]:
     if not saas_client.is_configured():
         return False, "Tính năng này cần tài khoản VoxDub."
     try:
-        cfg = saas_client.get_client().app_config()
+        cfg = saas_client.get_client().scene_stage()
     except Exception as e:  # noqa: BLE001 — không hỏi được thì coi như đóng
         logger.warning(f"Không hỏi được nấc tính năng ({e})")
         return False, "Chưa hỏi được máy chủ, thử lại sau ít phút."
-    nac = str(cfg.get("imageSceneStage") or "")
-    if nac == "production":
-        return True, ""
-    return False, ("Chức năng dựng video mở sau khi ảnh sản phẩm đã qua đợt "
-                   "hiệu chỉnh và được duyệt.")
+    if cfg.get("videoDuoc"):
+        return True, str(cfg.get("canhBao") or "")
+    return False, str(cfg.get("message") or
+                      "Chức năng dựng video mở sau khi ảnh sản phẩm đã qua "
+                      "đợt hiệu chỉnh và được duyệt.")
 
 
 def doc_nhat_ky(thu_muc: str) -> list[AnhNguon]:

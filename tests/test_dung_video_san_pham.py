@@ -167,13 +167,43 @@ def test_chua_co_tai_khoan_thi_khong_mo(monkeypatch):
     assert not duoc and "tài khoản" in ly_do
 
 
-def test_chi_mo_o_nac_chay_that(monkeypatch):
+def _khach_nac(tra_ve):
+    """Máy chủ giả trả lời cửa `/v1/ai/scene-stage`."""
+    return type("K", (), {"scene_stage": lambda self: tra_ve})()
+
+
+def test_nac_tat_thi_khong_mo(monkeypatch):
     monkeypatch.setattr("autodub.saas_client.is_configured", lambda: True)
-    for nac, mong in [("off", False), ("calibration", False), ("production", True)]:
-        monkeypatch.setattr("autodub.saas_client.get_client",
-                            lambda n=nac: type("K", (), {
-                                "app_config": lambda self: {"imageSceneStage": n}})())
-        assert pv.duoc_dung_video()[0] is mong, nac
+    monkeypatch.setattr("autodub.saas_client.get_client",
+                        lambda: _khach_nac({"runMode": "", "videoDuoc": False,
+                                            "message": "Tính năng đang tắt."}))
+    duoc, loi_nhan = pv.duoc_dung_video()
+    assert duoc is False
+    assert "đang tắt" in loi_nhan, "phải in nguyên văn lý do của máy chủ"
+
+
+def test_nac_chay_that_thi_mo_va_KHONG_canh_bao(monkeypatch):
+    monkeypatch.setattr("autodub.saas_client.is_configured", lambda: True)
+    monkeypatch.setattr("autodub.saas_client.get_client",
+                        lambda: _khach_nac({"runMode": "production",
+                                            "videoDuoc": True, "canhBao": ""}))
+    assert pv.duoc_dung_video() == (True, "")
+
+
+def test_may_DANG_HIEU_CHINH_thi_dung_duoc_nhung_phai_canh_bao(monkeypatch):
+    """C18: chặn nhầm đúng người đang chạy đợt hiệu chỉnh là chặn sai chỗ.
+
+    Nhưng mở mà không nói gì thì họ cầm cái video đi đăng — ảnh trong đó chưa
+    ai soi tay. Mở KÈM cảnh báo là chỗ đứng đúng.
+    """
+    monkeypatch.setattr("autodub.saas_client.is_configured", lambda: True)
+    monkeypatch.setattr("autodub.saas_client.get_client",
+                        lambda: _khach_nac({
+                            "runMode": "calibration", "videoDuoc": True,
+                            "canhBao": "bản dựng thử, đừng đăng bán"}))
+    duoc, loi_nhan = pv.duoc_dung_video()
+    assert duoc is True
+    assert "đừng đăng bán" in loi_nhan
 
 
 def test_hoi_khong_duoc_may_chu_thi_DONG(monkeypatch):
@@ -181,7 +211,7 @@ def test_hoi_khong_duoc_may_chu_thi_DONG(monkeypatch):
     monkeypatch.setattr("autodub.saas_client.is_configured", lambda: True)
     monkeypatch.setattr("autodub.saas_client.get_client",
                         lambda: type("K", (), {
-                            "app_config": lambda self: (_ for _ in ()).throw(
+                            "scene_stage": lambda self: (_ for _ in ()).throw(
                                 RuntimeError("mất mạng"))})())
     assert pv.duoc_dung_video()[0] is False
 
