@@ -8474,6 +8474,93 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C11 — Lượt gọi THẬT đầu tiên, và một máy hoá thành 25 máy (Phase H, 2026-08-22)
+
+Chủ dự án cắm khoá Gemini rồi bảo "làm hộ hết". Đây là lần đầu tiên toàn bộ
+chuỗi C1→C10 chạm vào mô hình thật.
+
+### Khoá cắm rồi, nhưng tên mô hình sai hai chỗ
+
+"Thử ngay" trên vai `image` trả **404** ngay lượt đầu. Cấu hình là
+`google/gemini-2.5-flash`:
+
+1. Tiền tố `google/` là cách gọi của OpenRouter. Giao thức Google dựng URL
+   `…/models/<mô hình>:generateContent`, nên tiền tố đó thành một phần đường
+   dẫn không tồn tại.
+2. `gemini-2.5-flash` là mô hình **chữ**, không vẽ được ảnh.
+
+Thử ba tên, giữ tên chạy được — và đây là chỗ suýt để lại rác: vòng thử để
+lại tên CUỐI CÙNG (hỏng) trong cấu hình. Phải đặt lại tên đúng rồi gọi thật
+một lượt nữa để xác nhận, chứ không tin vòng lặp đã dừng ở đâu.
+
+| Tên mô hình | Kết quả |
+|---|---|
+| `gemini-2.5-flash-image` | **gọi được, CÓ ảnh thật**, 11,5s |
+| `gemini-2.5-flash-image-preview` | 404 |
+| `gemini-2.0-flash-preview-image-generation` | 404 |
+
+### Vai `assist` hoá ra không cần tạo thêm
+
+Định xin thêm khoá để tạo dòng vai `assist`, nhưng đọc lại
+`ai-gateway.service.js`: không có nhà cung cấp `assist` thì cổng trợ lý **tự
+rơi về vai `translate`**, và phép sàng "nhìn được ảnh" chạy trên chính vai đó.
+Vai `translate` sẵn có đang là `gemini-2.5-flash` — mô hình nhìn được ảnh.
+
+Chạy phép thử nhìn trên nó: **đọc đúng số `9952`** trong ảnh máy chủ tự vẽ.
+Tức là cổng tuân thủ đã có mô hình đủ tư cách phán quyết, không cần thêm gì.
+Hỏi mã trước khi xin thêm khoá của người khác là việc đáng làm.
+
+### Một máy, 25 thiết bị, và những suất dùng thử miễn phí
+
+Định đặt vân tay máy vào danh sách hiệu chỉnh thì thấy máy chủ có **25 thiết
+bị, tất cả đều tên `trieunt-c (Linux …)`** — cùng một máy. Vài cái mang 500
+Vox dùng thử.
+
+Gọi `get_fingerprint()` ba lần trong ba tiến trình: **ba giá trị khác nhau**.
+
+Gốc rễ ở `autodub/device_id.py`: máy không phải Windows thì lấy `uuid.getnode()`
+làm mã máy. Trên container không có MAC nào để đọc, và khi đó Python **bịa một
+số ngẫu nhiên mới mỗi tiến trình** (RFC 4122, bật bit multicast để báo chính
+điều đó). Bản cũ dùng thẳng số ấy.
+
+Hai hậu quả, cái sau nặng hơn cái trước:
+
+- Danh sách máy hiệu chỉnh vô dụng: thêm vân tay hôm nay, lượt chạy sau đã là
+  máy khác.
+- **Mỗi lần mở ứng dụng là một ví mới kèm một suất dùng thử mới.** Không cần
+  ác ý, không cần biết gì về hệ thống — chỉ cần chạy trên máy Linux/container.
+
+Sửa: số ngẫu nhiên đó ghi xuống `~/.voxdub_device_id` một lần rồi dùng lại.
+Đường Windows (MachineGuid trong registry) **không đổi một dòng nào** — máy
+đang dùng thật không bị đổi danh tính. Ghi tệp hỏng thì kêu lên chứ không im,
+vì nhìn từ phía người dùng thì hậu quả là "tự dưng mất tiền".
+
+Đo lại: ba tiến trình → **một vân tay**. Gỡ chốt ra → 3 đỏ.
+
+### Tests (+6)
+
+Có MAC thật thì dùng MAC và **không đẻ ra tệp**; không có MAC thì không được
+dùng số Python bịa; hai lượt chạy ra cùng một mã; mã đã có trên đĩa thì dùng
+lại nguyên văn; không ghi được tệp thì vẫn chạy nhưng **phải kêu lên**; vân
+tay ổn định qua nhiều lượt.
+
+**1747 passed, 7 skipped (Python) · 477 pass (Node).**
+
+### Đã đặt trên máy chủ thật
+
+`image.scene.stage` = `calibration`, `image.scene.calibration.devices` = vân
+tay (nay đã ổn định) của workspace. Thứ tự cố ý: dán vân tay TRƯỚC, bật nấc
+SAU — ngược lại thì mọi máy đều bị từ chối và rất dễ tưởng tính năng hỏng.
+
+### Còn tồn
+
+- **Chưa có ảnh sản phẩm thật nào đi qua.** Bước tiếp theo cần người: dựng
+  20–30 ảnh hàng thật rồi soi tay từng phán quyết. Máy chủ chặn cứng ở 20 lượt
+  ĐÃ SOI (không phải đã chạy) trước khi cho bấm nấc `production`.
+- 25 thiết bị rác vẫn nằm trong cơ sở dữ liệu, vài cái còn Vox dùng thử. Chưa
+  dọn — dọn là xoá dữ liệu thật, cần chủ dự án quyết.
+- Ví của vân tay ổn định mới đang là 0 Vox; dựng ảnh thật sẽ cần nạp.
+
 ## C10 — Kéo-thả sắp cảnh + nhãn AI ở tầng video (Phase H, 2026-08-21)
 
 Chủ dự án gửi một bản đề bài "C3 — ghép ảnh sản phẩm thành video ngắn". Đối
