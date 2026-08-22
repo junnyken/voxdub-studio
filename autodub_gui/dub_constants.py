@@ -19,7 +19,37 @@ SOURCE_LANGS: list[tuple[str, str]] = [
     ("Tiếng Nhật (ja-JP)", "ja-JP"),
     ("Tiếng Thái (th-TH)", "th-TH"),
     ("Tiếng Indonesia (id-ID)", "id-ID"),
+    # Thêm 22/8/2026 theo yêu cầu người dùng thật. Whisper nghe được tiếng
+    # Việt sẵn — KHÔNG cần cài thêm bộ nhận dạng nào (Paraformer chỉ dành cho
+    # tiếng Trung). Bộ dịch ngoại tuyến cũng đã biết tiếng Việt từ trước
+    # (`translate_local.py`: "vi-VN" → "vie_Latn"), nên đây thuần là thêm một
+    # dòng vào danh sách chọn.
+    #
+    # Có nghĩa khi ĐÍCH khác tiếng Việt (video tiếng Việt → lồng tiếng Anh,
+    # Nhật…). Nguồn và đích cùng tiếng Việt thì không có gì để dịch — xem
+    # `cung_ngon_ngu()`.
+    ("Tiếng Việt (vi-VN)", "vi-VN"),
 ]
+
+#: Mã nguồn (BCP-47) → khoá đích tương ứng, để biết nguồn và đích có trùng
+#: ngôn ngữ không.
+_NGUON_SANG_DICH = {
+    "vi-VN": "vi", "en-US": "en", "ja-JP": "ja", "th-TH": "th",
+    "id-ID": "id", "ko-KR": "ko",
+    "zh-CN": "zh", "zh-HK": "zh", "zh-TW": "zh",
+}
+
+
+def cung_ngon_ngu(source_lang: str, target_key: str) -> bool:
+    """Nguồn và đích có cùng một ngôn ngữ không.
+
+    Dịch tiếng Việt sang tiếng Việt thì không có gì để dịch: người dùng mất
+    tiền cho một lượt gọi mô hình chỉ để nhận lại gần đúng câu cũ. Chặn sớm
+    và chỉ sang trang Chép lời — đó mới là thứ họ đang cần.
+    """
+    if not source_lang or not target_key:
+        return False
+    return _NGUON_SANG_DICH.get(source_lang, "") == target_key
 
 #: Paraformer (autodub/speech/paraformer_transcriber.py) chỉ hỗ trợ tiếng
 #: Trung — dùng để cảnh báo trong GUI khi chọn kèm ngôn ngữ khác (backend đã

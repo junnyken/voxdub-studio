@@ -709,6 +709,18 @@ class NewProjectPage(BasePage):
         data = self.values()
         source = data["source"]
 
+        # Nguồn và đích cùng một ngôn ngữ thì không có gì để dịch — người
+        # dùng sẽ trả tiền cho một lượt gọi mô hình để nhận lại gần đúng câu
+        # cũ. Chặn ở đây và chỉ sang đúng trang họ cần (thêm 22/8/2026, cùng
+        # lượt mở tiếng Việt cho danh sách nguồn).
+        if not data["auto_detect"] and consts.cung_ngon_ngu(
+                data["source_lang"], data.get("target_key") or "vi"):
+            TOASTS.warn(
+                "Video đã cùng ngôn ngữ với đích cần lồng — không có gì để "
+                "dịch. Đổi «Dịch sang» thành ngôn ngữ khác, hoặc dùng trang "
+                "Chép lời nếu bạn chỉ cần văn bản.")
+            return None
+
         # Nếu nguồn là URL nhưng file đã tải sẵn, truyền file_path trực tiếp
         # vào pipeline (tránh tải lại), giữ url để pipeline ghi metadata.
         prefetched = (self._prefetched_path

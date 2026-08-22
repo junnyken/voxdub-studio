@@ -8474,6 +8474,72 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C19 — Nguồn tiếng Việt, và "chưa cài" phải nói là chưa cài (Phase H, 2026-08-22)
+
+Hai việc từ hai câu hỏi liên tiếp của người dùng thật.
+
+### 1. "Không thấy tiếng Việt trong danh sách, có cần cài thêm bộ nhận dạng không?"
+
+Trả lời: **không cần cài gì thêm.** Whisper nghe được tiếng Việt sẵn
+(Paraformer mới là bộ riêng, và nó chỉ dành cho tiếng Trung), còn bộ dịch
+ngoại tuyến đã biết `vi-VN` → `vie_Latn` từ V4. Thiếu chỉ là **thiếu một dòng
+trong danh sách chọn** — danh sách nguồn dừng ở 8 ngôn ngữ từ V4 và không ai
+quay lại thêm khi các đích mới mở ra ở V11/V17.
+
+Có nghĩa khi đích khác tiếng Việt: video tiếng Việt → lồng tiếng Anh, Nhật…
+
+Nhưng mở nguồn tiếng Việt thì đẻ ra ca mới: **nguồn tiếng Việt + đích tiếng
+Việt**. Dịch tiếng Việt sang tiếng Việt là trả tiền cho một lượt gọi mô hình
+để nhận lại gần đúng câu cũ. Nay chặn sớm và chỉ sang trang Chép lời — thứ họ
+thật sự cần khi chỉ muốn văn bản.
+
+Kèm một bộ canh chung: **mọi mã nguồn trong danh sách đều phải có mã dịch
+tương ứng**. Thêm ngôn ngữ mà quên bảng dịch là hỏng lúc chạy, không phải lúc
+dựng.
+
+### 2. `ModuleNotFoundError: No module named 'vieneu'`
+
+Người dùng nâng cấp sang thư mục mới, chạy lồng tiếng, và nhận nguyên văn câu
+lỗi Python. Đúng về mặt kỹ thuật, vô dụng với người đọc: không biết phải cài
+gì, cài bằng cách nào, hay đây có phải lỗi ứng dụng không.
+
+Nay kiểm **dấu hiệu cài xong trên đĩa** trước khi khởi động tiến trình con, và
+nói thẳng: *"Chưa cài bộ giọng đọc VieNeu cho bản này. Mở thư mục ứng dụng rồi
+chạy «Cai dat giong VieNeu.bat»"*, kèm giải thích rằng nâng cấp sang thư mục
+mới thì ứng dụng tự tìm lại bản cài ở thư mục cũ cạnh bên (V77) — không thấy
+nghĩa là thư mục cũ đã bị xoá hoặc đổi chỗ.
+
+Kiểm bằng dấu hiệu trên đĩa **chứ không thử import** — bài học V74: bản đóng
+gói không mang theo mấy gói nặng đó nên import trong tiến trình chính luôn trả
+lời sai.
+
+Và khi worker vẫn hỏng vì lý do khác, câu lỗi nay kèm **đường dẫn trình thông
+dịch đang dùng**: cùng một câu "No module named" có thể là venv hỏng, cũng có
+thể là đang chạy nhầm Python hệ thống — không in ra thì không phân biệt được.
+
+### Tests (+12)
+
+Tiếng Việt (9): có trong danh sách nguồn · nhãn đọc được · bộ dịch biết mã đó ·
+Paraformer vẫn chỉ dành cho tiếng Trung · Việt→Việt bị coi là trùng · các cặp
+trùng khác (Anh, Nhật, ba biến thể tiếng Trung) · cặp khác ngôn ngữ thì không
+chặn · để máy tự nghe thì không kết luận · **mọi mã nguồn đều có mã dịch**.
+
+VieNeu (3): chưa cài thì nói rõ phải chạy tệp nào và **không** nhắc
+`ModuleNotFoundError` · chưa cài thì **không khởi động tiến trình con** (chạy
+rồi mới báo là bắt người dùng chờ vô ích) · đã cài rồi thì vẫn đi tiếp như cũ.
+
+Gỡ chốt "chưa cài" ra → 2 đỏ. Bộ test cũ về phong cách đọc phải nói rõ "đã
+cài" — chốt mới chặn đúng chỗ nên nó chặn cả test doubles.
+
+**1790 Python · 499 Node.**
+
+### Còn tồn
+
+- Chưa biết vì sao máy người dùng khởi động được một Python mà Python đó
+  không có `vieneu`. Câu lỗi mới in đường dẫn ra, lần sau gặp là biết ngay.
+- Nguồn tiếng Việt chưa live-verify: chưa chạy lượt lồng tiếng thật nào từ
+  video tiếng Việt.
+
 ## C18 — Cổng video chặn nhầm đúng người đang hiệu chỉnh (Phase H, 2026-08-22)
 
 Chủ dự án dựng xong 3 ảnh (2 lượt kiểm đều SAFE, lý do đọc được: *"Chỉ đổi bối

@@ -42,6 +42,10 @@ def _synth(monkeypatch, tmp_path):
     settings = Settings()
     monkeypatch.setattr(settings, "vieneu_venv_python_path", lambda: sys.executable)
     monkeypatch.setattr(settings, "vieneu_model_dir_path", lambda: "/tmp/fake-model")
+    # Bộ test này đo chuyện truyền phong cách đọc, không đo chuyện cài đặt.
+    # `_start()` nay chặn sớm khi chưa cài (22/8/2026) nên phải nói rõ là đã
+    # cài, thay vì để chốt đó chặn nhầm.
+    monkeypatch.setattr(settings, "vieneu_configured", lambda: True)
     synth = vieneu_vi.VieNeuSynthesizer(settings, "Minh Trang", num_workers=1)
     return synth
 

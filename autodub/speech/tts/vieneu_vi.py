@@ -88,6 +88,21 @@ class _VieNeuWorker:
 
     def _start(self) -> None:
         settings = self._owner.settings
+        # Chưa cài thì nói "chưa cài", đừng để người dùng đọc
+        # `ModuleNotFoundError: No module named 'vieneu'` rồi tự đoán (gặp
+        # thật 22/8/2026, ngay sau khi người dùng nâng cấp sang thư mục mới).
+        #
+        # Kiểm bằng DẤU HIỆU CÀI XONG trên đĩa, không bằng cách thử import —
+        # bài học V74: import trong tiến trình chính luôn cho câu trả lời sai
+        # vì bản đóng gói không mang theo mấy gói nặng đó.
+        if not settings.vieneu_configured():
+            raise RuntimeError(
+                "Chưa cài bộ giọng đọc VieNeu cho bản này.\n\n"
+                "Mở thư mục ứng dụng rồi chạy «Cai dat giong VieNeu.bat» "
+                "(một lần, khoảng 300 MB). Nâng cấp sang thư mục mới thì ứng "
+                "dụng tự tìm lại bản đã cài ở thư mục cũ cạnh bên — không "
+                "thấy nghĩa là thư mục cũ đã bị xoá hoặc đổi chỗ.")
+
         cmd = [
             settings.vieneu_venv_python_path(),
             _WORKER_SCRIPT,
@@ -118,8 +133,12 @@ class _VieNeuWorker:
                          name=f"vieneu-stdout-{self._idx}").start()
         ready = self._read_response(STARTUP_TIMEOUT)
         if not ready.get("ready"):
+            # Kèm ĐƯỜNG DẪN trình thông dịch: cùng một câu lỗi
+            # "No module named" có thể là venv hỏng, cũng có thể là đang chạy
+            # nhầm Python hệ thống. Không in ra thì không phân biệt được.
             raise RuntimeError(
-                f"VieNeu worker failed to start: {ready}\n{self._tail()}")
+                f"VieNeu worker failed to start: {ready}\n"
+                f"Python đang dùng: {cmd[0]}\n{self._tail()}")
         logger.info(f"[worker {self._idx}] VieNeu worker ready")
 
     def ensure(self) -> None:
