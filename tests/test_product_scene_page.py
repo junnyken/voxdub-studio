@@ -468,3 +468,35 @@ def test_dung_anh_xong_thi_danh_sach_hien_ra(ghep):
     phien.ket_qua = [_ket()]
     trang._xong(phien)
     assert trang.thu_tu.count() == 1
+
+
+def test_cua_so_thap_thi_KHONG_ep_be_o_nhap(page):
+    """Cửa sổ thấp hơn nội dung thì phải CUỘN, không được ép các ô nhập.
+
+    Bug thật, chủ dự án báo trên v3.6.1: các ô "Chế độ", "Ghi chú thêm",
+    "Thư mục lưu ảnh" bị cắt ngang, trông như chồng lên nhau. Trang không nằm
+    trong vùng cuộn, mà thẻ "Thứ tự cảnh" thêm ở C10 làm nội dung dài thêm —
+    Qt hết chỗ thì ép mọi widget xuống dưới chiều cao tối thiểu của chúng.
+
+    Đo bằng chính định nghĩa của lỗi: không widget nào được thấp hơn
+    `sizeHint()` của nó.
+    """
+    from PySide6.QtWidgets import QComboBox, QLineEdit, QListWidget
+
+    page.resize(1400, 700)
+    page.show()
+    QApplication.processEvents()
+
+    ep = [f"{type(w).__name__} cao {w.height()}px < cần {w.sizeHint().height()}px"
+          for loai in (QLineEdit, QComboBox, QListWidget)
+          for w in page.findChildren(loai)
+          if w.height() < w.sizeHint().height()]
+    assert not ep, "widget bị ép bẹp: " + "; ".join(ep)
+
+
+def test_trang_nam_trong_vung_cuon(page):
+    """Chốt cấu trúc: gỡ vùng cuộn ra thì test trên chỉ đỏ ở đúng vài kích
+    thước cửa sổ, còn đây đỏ ngay."""
+    from PySide6.QtWidgets import QScrollArea
+
+    assert page.findChildren(QScrollArea), "trang không có vùng cuộn"

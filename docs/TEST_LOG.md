@@ -8474,6 +8474,76 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C13 — Ô nhập bị ép bẹp, và CI ăn mất suất dùng thử (Phase H, 2026-08-22)
+
+Hai lỗi do chính hai bản sửa hôm nay đẻ ra.
+
+### 1. Trang Ảnh sản phẩm không cuộn được
+
+Chủ dự án gửi ảnh chụp v3.6.1: các ô "Chế độ", "Ghi chú thêm", "Thư mục lưu
+ảnh" bị cắt ngang, nhìn như chồng lên nhau.
+
+Trang chưa bao giờ nằm trong vùng cuộn. Trước C10 nội dung còn vừa cửa sổ nên
+không ai thấy; C10 thêm thẻ "Thứ tự cảnh" là tràn, và Qt hết chỗ thì **ép mọi
+widget xuống dưới chiều cao tối thiểu của chúng** — chữ trong ô bị cắt.
+
+Đo bằng chính định nghĩa của lỗi (`height() < sizeHint().height()`), dựng trang
+thật ở chế độ không màn hình với đúng bộ giao diện của app:
+
+| Cửa sổ cao | Trước | Sau |
+|---|---|---|
+| 1050px | ép 1 widget | ổn |
+| 950px | ép 1 | ổn |
+| 850px | ép 1 | ổn |
+| 750px | ép 1 | ổn |
+
+Sửa: bọc trang vào `QScrollArea` theo đúng khuôn trang Cài đặt đang dùng. Danh
+sách thứ tự đổi từ **trần** 170px sang **sàn** 150px — trần làm nó co lại tới
+mức vô dụng khi thiếu chỗ, sàn buộc vùng cuộn phải cấp đủ chỗ rồi cuộn.
+
+Quét 6 trang khác chưa có vùng cuộn (`character`, `download`, `subtitle_tool`,
+`subtitle_translate`, `transcribe`, `translate_tool`): ở 700px đều **ổn** —
+nội dung ngắn hơn. Không đụng vào.
+
+### 2. Mỗi lần CI dựng bản là một suất 500 Vox bị tiêu
+
+Ngay lượt build đầu sau khi C12 nhúng được địa chỉ máy chủ, danh sách thiết bị
+mọc ra một máy tên `runnervm6iq3x (Windows 10.0.26100)` **mang 500 Vox dùng
+thử**. Smoke test dựng đủ mọi trang; trang Tài khoản gọi máy chủ; máy chủ cấp
+thiết bị mới kèm suất dùng thử.
+
+Sửa ở `resolve_api_url()` — cửa duy nhất mọi lượt gọi phải đi qua, nên không
+còn đường vòng nào: `AUTODUB_SMOKE=1` thì trả rỗng.
+
+Nhưng như thế smoke test mất luôn khả năng biết địa chỉ đã nhúng hay chưa —
+đúng thứ C12 vừa sửa. Nên mục `api_url_nhung` đọc **thẳng tệp nhúng**, không
+qua `resolve_api_url()`, và **bản dựng hỏng nếu nó False**. Lỗi im lặng hôm
+qua nay là lỗi dựng.
+
+### Tests (+6)
+
+Bố cục (2): cửa sổ thấp thì không widget nào bị ép dưới `sizeHint` · trang
+phải nằm trong vùng cuộn. Gỡ vùng cuộn ra → 24 đỏ.
+
+Chạy thử tự động (4): chế độ chạy thử thì không có máy chủ · ngoài chế độ đó
+vẫn đọc địa chỉ như thường · vẫn báo được đã nhúng hay chưa (chốt đối lập:
+đọc qua `resolve_api_url()` thì bản dựng nào cũng hỏng) · thiếu địa chỉ thì
+`ok = False`.
+
+**1758 passed, 7 skipped.**
+
+### Đã đặt trên máy chủ
+
+Máy Windows của chủ dự án (`DESKTOP-KHMFF0U`, mã `E11BFB39`) đã đăng ký thật
+và được thêm vào `image.scene.calibration.devices` cùng với workspace.
+
+### Còn tồn
+
+- Thiết bị `runnervm…` và 25 máy Linux rác vẫn nằm trong cơ sở dữ liệu, vài
+  cái còn Vox dùng thử. Dọn là xoá dữ liệu thật — chờ chủ dự án quyết.
+- Chưa có bộ canh nào cho các trang khác về chuyện cuộn; hiện chỉ đo tay một
+  lượt ở 700px.
+
 ## C12 — Mọi bản .exe từng phát hành đều chạy ngoại tuyến (Phase H, 2026-08-22)
 
 Chủ dự án cài v3.6.0, mở app lên, nhắn "tôi đã mở rồi". Máy chủ **không thấy

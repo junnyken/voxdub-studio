@@ -33,7 +33,7 @@ APP_NAME = "VoxDub Studio"
 APP_TAGLINE = "Lồng tiếng video bằng AI"
 logger = setup_logging("autodub_gui.app")
 
-APP_VERSION = "3.6.1"
+APP_VERSION = "3.6.2"
 
 # -- Danh mục trang ----------------------------------------------------
 ROW_HOME, ROW_NEW, ROW_PROJECTS, ROW_BATCH, ROW_DOWNLOAD = 0, 1, 2, 3, 4
@@ -690,6 +690,20 @@ class _NavKeyFilter(QObject):
         return False
 
 
+def _co_nhung_dia_chi() -> bool:
+    """Bản này có địa chỉ máy chủ nhúng sẵn không (mini-spec C12).
+
+    Đọc THẲNG tệp nhúng, không qua `resolve_api_url()`: hàm đó cố ý trả rỗng
+    trong chế độ chạy thử tự động, nên hỏi nó ở đây thì lúc nào cũng nhận
+    được câu "chưa nhúng".
+    """
+    try:
+        from autodub_gui._embedded import VOXDUB_API_URL
+    except ImportError:
+        return False
+    return bool(str(VOXDUB_API_URL).strip())
+
+
 def _smoke_report(window: MainWindow) -> int:
     """Chế độ tự kiểm tra (AUTODUB_SMOKE=1): ghi kết quả chẩn đoán rồi thoát."""
     import json
@@ -727,6 +741,12 @@ def _smoke_report(window: MainWindow) -> int:
         "multimedia_importable": True,
         "video_playable": None,
         "app_fonts_loaded": 0,
+        # Địa chỉ máy chủ có được nhúng vào bản này không. Đọc THẲNG tệp
+        # nhúng, không qua `resolve_api_url()` — hàm đó cố ý trả rỗng trong
+        # chế độ chạy thử, nên hỏi nó ở đây là luôn nhận được câu "chưa".
+        # Bản .exe thiếu địa chỉ này chạy hoàn toàn ngoại tuyến mà không có
+        # một câu lỗi nào (bug 22/8/2026) — nên nó là mục PHẢI đạt.
+        "api_url_nhung": _co_nhung_dia_chi(),
     }
     _probe_optional_imports(checks)
     _probe_video_playback(checks, settings)

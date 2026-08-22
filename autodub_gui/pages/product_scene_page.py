@@ -27,7 +27,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QFileDialog, QGridLayout, QHBoxLayout,
-    QLabel, QListWidget, QListWidgetItem, QVBoxLayout, QWidget,
+    QLabel, QListWidget, QListWidgetItem, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from autodub_gui import tokens
@@ -36,6 +36,7 @@ from autodub_gui.system_open import open_folder
 from autodub_gui.ui.badges import StatusBadge
 from autodub_gui.ui.buttons import GhostButton, PrimaryButton, SecondaryButton
 from autodub_gui.ui.cards import Card
+from autodub_gui.ui.style import clear_background
 from autodub_gui.ui.inputs import LabeledCombo, LabeledLineEdit
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.widgets import LogPanel
@@ -88,7 +89,27 @@ class ProductScenePage(BasePage):
 
     # ------------------------------------------------------------ dựng UI --
     def _build(self) -> None:
-        root = QVBoxLayout(self)
+        # Trang này PHẢI cuộn được. Không cuộn thì khi cửa sổ thấp hơn nội
+        # dung, Qt ép mọi ô nhập xuống dưới chiều cao tối thiểu của chúng —
+        # chữ trong ô bị cắt ngang, các hàng trông như chồng lên nhau. Chủ dự
+        # án gặp đúng cảnh đó ở v3.6.1, sau khi C10 thêm thẻ "Thứ tự cảnh"
+        # làm nội dung dài thêm một đoạn.
+        #
+        # Cùng khuôn với trang Cài đặt: viewport tự co giãn, không viền, không
+        # thanh cuộn ngang (cuộn ngang là dấu hiệu bố cục sai, không phải tính
+        # năng).
+        ngoai = QVBoxLayout(self)
+        ngoai.setContentsMargins(0, 0, 0, 0)
+        vung_cuon = QScrollArea()
+        vung_cuon.setWidgetResizable(True)
+        vung_cuon.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        vung_cuon.setFrameShape(QScrollArea.Shape.NoFrame)
+        khung = QWidget()
+        clear_background(khung)
+        ngoai.addWidget(vung_cuon)
+
+        root = QVBoxLayout(khung)
         root.setContentsMargins(_PAGE_MARGIN, tokens.SP_2, _PAGE_MARGIN,
                                 tokens.SP_5)
         root.setSpacing(tokens.SP_4)
@@ -180,7 +201,8 @@ class ProductScenePage(BasePage):
             QAbstractItemView.DragDropMode.InternalMove)
         self.thu_tu.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection)
-        self.thu_tu.setMaximumHeight(170)
+        self.thu_tu.setMinimumHeight(150)
+        self.thu_tu.setMaximumHeight(240)
         the_thu_tu.body.addWidget(self.thu_tu)
         root.addWidget(the_thu_tu)
 
@@ -199,6 +221,8 @@ class ProductScenePage(BasePage):
         self.ket_qua.setSpacing(tokens.SP_3)
         root.addLayout(self.ket_qua)
         root.addStretch()
+
+        vung_cuon.setWidget(khung)
 
     # ----------------------------------------------------------- hành động --
     def _chon_anh(self) -> None:

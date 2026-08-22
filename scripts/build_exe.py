@@ -249,6 +249,13 @@ def step_smoke_test() -> bool:
     # bắt buộc (exe chạy, GUI dựng được, ghi .env được, import đủ) quyết
     # định pass/fail; phần còn lại là thông tin.
     ok = bool(checks.get("ok")) and proc.returncode == 0
+    # Thiếu địa chỉ máy chủ thì bản .exe chạy ngoại tuyến hoàn toàn mà không
+    # kêu một tiếng nào (bug 22/8/2026). Cho hỏng ngay ở đây: một bản dựng đỏ
+    # rẻ hơn nhiều so với một bản phát hành im lặng không dùng được.
+    if not checks.get("api_url_nhung"):
+        log("!! api_url_nhung = False — bản này KHÔNG nhúng địa chỉ máy chủ, "
+            "sẽ chạy ngoại tuyến. Đặt VOXDUB_API_URL rồi dựng lại.")
+        ok = False
     os.remove(result_json)
     # Bài kiểm tra ghi .env đã tạo file .env trong dist — dọn đi để bản
     # phân phối sạch (người dùng tự tạo qua tab Cài đặt).

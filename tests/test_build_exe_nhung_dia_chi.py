@@ -68,3 +68,55 @@ def test_quy_trinh_phat_hanh_PHAI_truyen_dia_chi_may_chu():
     truoc_build = yml.split("run: python scripts/build_exe.py", 1)[0]
     assert "VOXDUB_API_URL" in truoc_build, (
         "biến phải được đặt TRƯỚC bước chạy build_exe.py mới có tác dụng")
+
+
+# -- Chạy thử tự động lúc dựng bản không được chạm máy chủ thật -------------
+#
+# Ngay lượt build đầu sau khi nhúng được địa chỉ, máy chủ mọc ra một thiết bị
+# tên `runnervm…` mang 500 Vox dùng thử: smoke test dựng đủ mọi trang, trang
+# Tài khoản gọi máy chủ, máy chủ cấp thiết bị mới. Mỗi lần dựng bản là một
+# suất dùng thử bị tiêu và một dòng rác trong danh sách máy.
+
+def test_che_do_chay_thu_thi_khong_co_may_chu(monkeypatch):
+    from autodub import saas_client
+
+    monkeypatch.setenv("AUTODUB_SMOKE", "1")
+    monkeypatch.setattr(saas_client, "ENV_KEY", "VOXDUB_API_URL")
+    assert saas_client.resolve_api_url() == ""
+    assert not saas_client.is_configured()
+
+
+def test_ngoai_che_do_chay_thu_thi_van_doc_dia_chi(monkeypatch):
+    from autodub import saas_client
+
+    monkeypatch.delenv("AUTODUB_SMOKE", raising=False)
+    monkeypatch.setenv("VOXDUB_API_URL", "https://may-chu.example")
+    assert saas_client.resolve_api_url() == "https://may-chu.example"
+
+
+def test_smoke_van_bao_duoc_da_nhung_dia_chi_hay_chua(monkeypatch):
+    """Chốt đối lập: tắt máy chủ đi rồi thì vẫn phải biết bản này có địa chỉ.
+
+    Nếu mục này đọc qua `resolve_api_url()` thì trong chế độ chạy thử nó luôn
+    trả "chưa nhúng" và bản dựng nào cũng hỏng.
+    """
+    import autodub_gui.app as app_mod
+
+    monkeypatch.setenv("AUTODUB_SMOKE", "1")
+    import autodub_gui._embedded as nhung
+
+    monkeypatch.setattr(nhung, "VOXDUB_API_URL", "https://may-chu.example")
+    assert app_mod._co_nhung_dia_chi() is True
+    monkeypatch.setattr(nhung, "VOXDUB_API_URL", "")
+    assert app_mod._co_nhung_dia_chi() is False
+
+
+def test_ban_dung_hong_khi_thieu_dia_chi():
+    """Lỗi im lặng phải thành lỗi DỰNG, không phải một dòng log hiền lành."""
+    from tests.doc_ma import cac_luot_goi  # noqa: F401  (giữ cùng bộ công cụ)
+
+    nguon = open(os.path.join(GOC, "scripts", "build_exe.py"),
+                 encoding="utf-8").read()
+    than = nguon.split("def step_smoke_test", 1)[1].split("\ndef ", 1)[0]
+    assert "api_url_nhung" in than, "smoke test không xét mục địa chỉ nhúng"
+    assert "ok = False" in than, "xét rồi nhưng không cho bản dựng hỏng"

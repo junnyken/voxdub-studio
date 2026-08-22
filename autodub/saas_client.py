@@ -89,6 +89,17 @@ def resolve_api_url() -> str:
     """
     import sys
 
+    # Chạy thử tự động lúc dựng bản (AUTODUB_SMOKE=1) KHÔNG được chạm máy
+    # chủ thật. Bỏ qua điều này thì mỗi lần CI dựng bản là một thiết bị mới
+    # đăng ký và một suất Vox dùng thử bị tiêu — đã xảy ra thật ngày
+    # 22/8/2026, ngay lượt build đầu sau khi nhúng được địa chỉ máy chủ:
+    # máy chủ mọc ra một máy tên `runnervm…` mang 500 Vox.
+    #
+    # Chốt đặt ở ĐÂY chứ không ở từng trang: đây là cửa duy nhất mọi lượt
+    # gọi phải đi qua, nên không có đường vòng nào sót lại.
+    if os.environ.get("AUTODUB_SMOKE") == "1":
+        return ""
+
     try:
         from autodub_gui._embedded import VOXDUB_API_URL as embedded
     except ImportError:
