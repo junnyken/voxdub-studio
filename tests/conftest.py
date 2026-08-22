@@ -62,3 +62,13 @@ def pytest_configure(config):
     """
     for name in NETWORK_ENV_VARS:
         os.environ.pop(name, None)
+
+    # Thiếu thư viện hệ thống thì DỪNG NGAY với một câu đọc được, thay vì để
+    # pytest nôn ra 24 lỗi import rời rạc rồi người đọc đi tìm lỗi trong mã.
+    # Chốt này đặt SAU chốt Qt ở đầu tệp: phải đặt QT_QPA_PLATFORM xong mới
+    # thử nạp Qt được.
+    from tests.kiem_moi_truong import kiem_hoac_dung
+
+    loi = kiem_hoac_dung()
+    if loi:
+        raise pytest.UsageError(loi)

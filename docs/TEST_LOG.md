@@ -8555,6 +8555,29 @@ test xanh chỉ có giá trị kèm theo môi trường nó chạy**. `.github/w
 test.yml` đã liệt kê đủ các gói này từ V38 — thứ thiếu là một lối cài lại
 nhanh cho máy phát triển.
 
+**Chữa dứt, ngay trong cùng lượt (bổ sung sau khi chủ dự án hỏi "giải quyết
+chưa" — câu trả lời đúng lúc đó là *chưa*, mới chỉ chữa một lần):**
+
+- `scripts/cai_moi_truong_test.sh` — một lệnh, cài đủ 18 gói rồi tự kiểm lại
+  bằng chính hai thứ đã hỏng (`import PySide6.QtWidgets`, `command -v ffmpeg`).
+- `tests/conftest.py` hỏi hai câu rẻ tiền **trước khi thu thập test**. Thiếu
+  thì dừng ngay với MỘT câu kèm câu lệnh chữa, thay vì 24 lỗi import rời rạc
+  ở 24 tệp chẳng liên quan gì nhau. Có lối thoát
+  `VOXDUB_BO_QUA_KIEM_MOI_TRUONG=1` cho ai cố ý chạy nhóm test không cần Qt.
+- Danh sách gói **không được trôi khỏi CI**: `tests/test_kiem_moi_truong.py`
+  đối chiếu script với `.github/workflows/test.yml`. Script được phép nhiều
+  hơn (máy chạy CI của GitHub có sẵn `libfontconfig1`/`libfreetype6`, workspace
+  trần thì không) nhưng không được thiếu. Bỏ một gói khỏi script để đo → đỏ.
+- Gỡ lượt gọi khỏi `pytest_configure` thì mọi test khác vẫn xanh, nên có một
+  test hỏi cây cú pháp đúng lượt gọi đó (bài học C8).
+
+Đo bằng đúng ca đã hỏng: giấu `ffmpeg` khỏi `PATH` rồi chạy `pytest` →
+dừng ngay, in đúng ba dòng đọc được. **+8 test, tổng 1741.**
+
+Còn tồn: gói vẫn phải cài lại sau mỗi lần workspace mất `/usr`. Chữa tận gốc
+là đưa chúng vào image workspace của Coder — nằm ngoài repo, cần người quản
+trị template.
+
 ### Còn tồn
 
 - **Live verification vẫn chưa chạy được**: chưa có ảnh SAFE thật nào. Chủ dự
