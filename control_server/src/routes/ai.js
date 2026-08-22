@@ -1077,6 +1077,17 @@ module.exports = async function aiRoutes(fastify) {
         assistTask: task,
         assistRole: result.role,
         assistPromptVersion: assistPrompts.PROMPT_VERSION,
+        // Ba trường này từng CHỈ có ở đường đọc-từ-đệm phía trên, không có ở
+        // đây — tức là mọi lượt kiểm CHẠY THẬT đều không ghi lại phán quyết
+        // và không ghi lại nấc. Bảng hiệu chỉnh đếm theo đúng ba trường ấy,
+        // nên nó luôn đọc ra "khong-ro" và số lượt hợp lệ luôn bằng 0: đợt
+        // hiệu chỉnh không bao giờ tiến lên được dù người dùng chạy bao
+        // nhiêu ảnh (phát hiện 22/8/2026, ngay lượt kiểm thật đầu tiên).
+        verdict: task === 'packaging_check'
+          ? String(result.results[0]?.value || '') : '',
+        reason: task === 'packaging_check'
+          ? String(result.results[0]?.reason || '').slice(0, 500) : '',
+        runMode: runModeCuaLuot,
         inputSize: result.results.length,
         creditCharged: paid.charged,
         aiProvider: result.provider,
