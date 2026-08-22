@@ -70,8 +70,23 @@ def run(cmd: list[str], **kw) -> None:
 # ------------------------------------------------------------------ steps --
 
 def read_env_value(key: str) -> str:
-    """Đọc 1 khóa từ .env của máy build (không dùng python-dotenv để script
-    chạy được cả khi thiếu package)."""
+    """Đọc 1 khóa: BIẾN MÔI TRƯỜNG trước, rồi mới tới `.env` của máy build.
+
+    Vì sao biến môi trường phải đứng trước (bug thật, 22/8/2026): máy dựng
+    bản phát hành là runner Windows của GitHub — nó **không có `.env`**. Nên
+    mọi bản `.exe` do CI dựng từ trước tới nay đều nhúng địa chỉ máy chủ
+    RỖNG, tức là chạy hoàn toàn ngoại tuyến: không đăng ký được thiết bị,
+    không gọi được tính năng nào cần máy chủ, mà giao diện vẫn hiện đủ menu.
+
+    Triệu chứng nhìn từ người dùng là "bấm vào không thấy gì xảy ra" — không
+    có câu lỗi nào, vì theo mã thì đây là chế độ chạy-thuần-trên-máy hợp lệ.
+
+    Không dùng python-dotenv để script chạy được cả khi thiếu package.
+    """
+    tu_moi_truong = os.environ.get(key, "").strip()
+    if tu_moi_truong:
+        return tu_moi_truong
+
     env_path = os.path.join(PROJECT_ROOT, ".env")
     if not os.path.isfile(env_path):
         return ""
@@ -93,8 +108,9 @@ def step_embed_api_url() -> str:
     if url:
         log(f"nhúng VOXDUB_API_URL vào exe: {url}")
     else:
-        log("(.env không có VOXDUB_API_URL — exe dùng địa chỉ cố định "
-            "trong autodub/saas_client.py)")
+        log("!! KHÔNG có VOXDUB_API_URL (cả biến môi trường lẫn .env) — bản "
+            "exe này sẽ chạy NGOẠI TUYẾN: không đăng ký thiết bị, không dùng "
+            "được tính năng nào cần máy chủ.")
     write_embedded(url)
     return url
 

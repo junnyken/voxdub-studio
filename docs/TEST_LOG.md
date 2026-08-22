@@ -8474,6 +8474,56 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C12 — Mọi bản .exe từng phát hành đều chạy ngoại tuyến (Phase H, 2026-08-22)
+
+Chủ dự án cài v3.6.0, mở app lên, nhắn "tôi đã mở rồi". Máy chủ **không thấy
+thiết bị nào đăng ký** — vẫn đúng 25 máy Linux cũ, không có máy Windows nào.
+
+Không phải mạng, không phải khoá. `scripts/build_exe.py` đọc `VOXDUB_API_URL`
+từ **`.env` của máy build**, mà máy dựng bản phát hành là runner Windows của
+GitHub — nó không có `.env`. Nên `autodub_gui/_embedded.py` được ghi bằng
+chuỗi RỖNG, và `resolve_api_url()` của bản đóng gói chỉ đọc đúng giá trị nhúng
+đó (biến môi trường cố ý bị bỏ qua khi `sys.frozen`).
+
+**Mọi bản `.exe` CI từng phát hành đều chạy hoàn toàn ngoại tuyến.** Menu vẫn
+đủ, trang Ảnh sản phẩm vẫn hiện, bấm vào thì không có gì xảy ra — và **không
+có câu lỗi nào**, vì với địa chỉ rỗng thì đó là chế độ chạy-thuần-trên-máy
+hoàn toàn hợp lệ theo mã. Đúng loại hỏng im lặng đắt nhất: nhìn như đang chạy.
+
+Trước giờ không lộ ra vì mọi lượt thử đều chạy **từ mã nguồn** trong workspace,
+nơi có `.env` và nơi biến môi trường được đọc.
+
+### Sửa
+
+- `read_env_value()` đọc **biến môi trường trước**, rồi mới tới `.env`.
+- `release.yml` truyền `VOXDUB_API_URL` cho bước build. Không phải bí mật —
+  là địa chỉ công khai của máy chủ — nên để thẳng trong workflow cho ai đọc
+  cũng thấy, không giấu vào secret.
+- Nhánh "không có địa chỉ" nay **kêu to** trong log build (`!! ... sẽ chạy
+  NGOẠI TUYẾN`) thay vì một dòng ghi chú hiền lành.
+
+### Tests (+5)
+
+Không có `.env` thì lấy từ biến môi trường (đúng ca của runner CI) · biến môi
+trường được ưu tiên hơn `.env` · không truyền gì thì vẫn đọc `.env` như cũ ·
+không có gì cả thì trả rỗng · **`release.yml` phải truyền `VOXDUB_API_URL`, và
+phải truyền TRƯỚC dòng chạy build**.
+
+Bản đầu của chính test cuối dính đúng bẫy C8: cắt tệp ở chữ
+`scripts/build_exe.py` đầu tiên, mà chữ đó nằm trong **lời chú thích** đầu
+workflow chứ không phải dòng chạy → đỏ oan. Cắt ở `run: python
+scripts/build_exe.py` mới đúng.
+
+Gỡ biến khỏi `release.yml` để đo → đỏ. **1752 passed, 7 skipped.**
+
+### Còn tồn
+
+- Bản v3.6.0 đã phát hành vẫn là bản ngoại tuyến; v3.6.1 mới là bản đầu tiên
+  thật sự nói chuyện được với máy chủ.
+- Đổi địa chỉ máy chủ vẫn phải phát hành lại `.exe`. Bản đóng gói cố ý không
+  đọc biến môi trường, và giao diện không có ô nhập địa chỉ. Chấp nhận ở đợt
+  này; nếu sau này đổi tên miền thì đây là việc phải làm.
+
 ## C11 — Lượt gọi THẬT đầu tiên, và một máy hoá thành 25 máy (Phase H, 2026-08-22)
 
 Chủ dự án cắm khoá Gemini rồi bảo "làm hộ hết". Đây là lần đầu tiên toàn bộ

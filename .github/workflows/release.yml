@@ -28,7 +28,15 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
+      # Địa chỉ máy chủ phải nhúng vào exe TẠI ĐÂY. Runner của GitHub không
+      # có `.env`, nên trước ngày 22/8/2026 mọi bản phát hành đều nhúng chuỗi
+      # rỗng và chạy ngoại tuyến hoàn toàn — menu vẫn đủ, bấm vào thì không
+      # có gì xảy ra và cũng không có câu lỗi nào. Đây không phải bí mật (là
+      # địa chỉ công khai của máy chủ), nên để thẳng ở đây cho ai đọc cũng
+      # thấy; có test đối chiếu trong `tests/test_build_exe_nhung_dia_chi.py`.
       - name: Build (PyInstaller onedir + lắp ráp + smoke test)
+        env:
+          VOXDUB_API_URL: https://voxdub-app.cmc-1.vibenode.matbao.ai
         run: python scripts/build_exe.py
 
       - name: Nén dist/VoxDub thành zip phân phối
