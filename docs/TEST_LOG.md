@@ -8474,6 +8474,114 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C17 — Chọn nơi gọi mô hình, và ô "Tên sản phẩm" (Phase H, 2026-08-22)
+
+Chủ dự án hỏi ba câu cùng lúc. Cả ba đều đúng chỗ.
+
+**1. "Thêm liên kết phần mềm tạo ảnh khác, chọn được nhà cung cấp."** Một nửa
+đã có: bốn giao thức, trong đó **"Tự khai"** cắm được nền tảng bất kỳ bằng
+cách khai đường dẫn và khuôn dữ liệu — không cần viết code. Nửa thiếu đúng như
+câu hỏi: **chọn**. Nhiều nơi gọi trong cùng một vai trước giờ chỉ là hàng chờ
+dự phòng, cái đầu hỏng mới rơi xuống cái sau.
+
+Nay có ô "Nơi gọi mô hình", mặc định *Tự động*. Hai luật: chọn tên không còn
+tồn tại thì **báo lỗi, không rơi âm thầm** (rơi âm thầm = người dùng tưởng trả
+tiền cho mô hình mình chọn, thực tế trả cho mô hình khác), và chặn **trước khi
+tính tiền**. Danh sách gửi xuống app chỉ có tên + nhãn — khoá API và địa chỉ
+máy chủ là chuyện quản trị.
+
+Hỏi danh sách là lượt gọi mạng nhỏ nhưng vẫn là gọi mạng → `ImageProvidersWorker`,
+không nằm trong `on_shown()` (bài học C7).
+
+**2. "Một tấm ảnh thì lấy đâu ra 17 tấm nữa."** Không có bản vá cho câu này, và
+đó mới là câu trả lời thật: chủ dự án bán hosting, tên miền, chữ ký số — **dịch
+vụ, không phải hàng vật lý**. Tính năng dựng cho người bán TikTok Shop có hàng
+thật trong kho; chạy một tấm ảnh 20 lần chỉ chứng minh mô hình nhất quán với
+đúng tấm đó. Đã nêu ba đường (chụp 5–7 món thật / dừng và làm bộ dựng banner /
+hạ ngưỡng — nhưng hạ là làm yếu chính cái chốt) và **không tự quyết thay**.
+
+**3. "Gợi ý kịch bản dựa trên prompt nào."** Đọc mã trả lời: gửi lên đúng tên
+các bối cảnh và ô "Ghi chú thêm" gắn nhãn *Sản phẩm*. **Nó không nhìn thấy tấm
+ảnh.** Luật ghim trong câu lệnh: mỗi cảnh ≤12 chữ, nói lợi ích hoặc cảm giác,
+cấm hứa công dụng chữa bệnh, cấm từ tuyệt đối. Ô Ghi chú vốn để tả bối cảnh
+nên đang kiêm hai việc → thêm ô **"Tên sản phẩm"**, trống thì lui về ghi chú.
+
+### Tests (+17)
+
+Máy chủ (8): liệt kê đúng nơi gọi đang bật của vai ảnh · thứ tự theo ưu tiên ·
+**không lộ khoá API** · nhãn trống thì lấy tên · tìm theo tên đúng vai · nơi
+gọi đã tắt thì tìm không ra · không truyền tên thì đi đường Tự động · **route
+tra tên TRƯỚC khi trừ tiền**.
+
+App (9): không chọn thì không gửi gì · chọn thì gửi đúng tên cho **cả mẻ** ·
+mặc định Tự động · danh sách luôn giữ Tự động ở đầu và hiện NHÃN · danh sách
+rỗng vẫn còn Tự động · lựa chọn đi xuống worker · hỏi danh sách không nằm trên
+luồng giao diện · tên sản phẩm đi vào gợi ý kịch bản · chưa điền thì lui về
+ghi chú.
+
+Đảo thứ tự tra tên xuống sau khi trừ tiền → đỏ. **1775 Python · 494 Node.**
+
+### Còn tồn
+
+- Mỗi vai vẫn chỉ một chuỗi ưu tiên: chọn theo từng lượt thì được, nhưng chưa
+  đặt được luật "banner luôn dùng OpenAI, ảnh sản phẩm luôn dùng Gemini".
+- Gợi ý kịch bản vẫn không nhìn thấy ảnh. Cho nó xem sẽ tốn thêm tiền mỗi
+  lượt; chưa làm vì chưa biết có đáng không.
+
+## C16 — Lượt kiểm chạy thật không ghi phán quyết (Phase H, 2026-08-22)
+
+Lộ ra ở đúng lượt kiểm bao bì THẬT đầu tiên của dự án, ngay sau khi C15 mở
+được đường: sổ ghi `runMode: ''`, `verdict: ''`, `reason: ''`.
+
+Bảng hiệu chỉnh đếm theo đúng ba trường ấy, nên lượt kiểm rơi vào nhóm
+"khong-ro" và số lượt hợp lệ vẫn là 0. Nghĩa là đợt hiệu chỉnh **không bao giờ
+đủ 20 lượt** dù người bán chạy bao nhiêu ảnh — mỗi ảnh vẫn tốn 33 Vox.
+
+Gốc rễ ngược đời: bản ghi ở đường **đọc-từ-đệm** có đủ ba trường, còn bản ghi ở
+đường **chạy thật** thì không. Lượt đáng đếm nhất lại là lượt không được đếm.
+
+Bộ canh đọc thẳng mã nguồn: mọi bản ghi thành công trong đường `/assist` phải
+mang `verdict` + `reason` + `runMode`. Gỡ một trường ra để đo → đỏ. **+3 test.**
+
+## C15 — Máy chủ trừ tiền rồi chết vì một dòng ghi bộ nhớ đệm (Phase H, 2026-08-22)
+
+Câu lỗi lấy từ tệp log trên máy chủ dự án — thứ duy nhất chỉ đúng chỗ sau khi
+tôi đi tìm nhầm hai vòng:
+
+    JobResult validation failed: action: `product_scene` is not a valid enum
+    value for path `action`.
+
+Chuỗi hậu quả dài nhất dự án gặp tới nay:
+
+1. `assist` (V89) và `product_scene` (C1) thêm route mà quên thêm vào enum
+   `action` của `JobResult`.
+2. Mongoose ném lỗi validation; `remember()` ném tiếp ra ngoài.
+3. Route chết **sau khi** đã gọi Gemini và đã trừ tiền.
+4. `UsageLog` viết trước nên sổ máy chủ ghi **"thành công"** — và tôi tin sổ
+   đó, đi tìm lỗi ở phía app suốt hai vòng.
+5. App nhận 500, báo "Không dựng được ảnh nào": không ảnh, không lượt kiểm.
+6. Chủ dự án bấm ba lượt, mất 90 Vox, không lượt nào thấy ảnh.
+
+### Sửa hai tầng
+
+- Enum có đủ `assist` + `product_scene`, kèm test đối chiếu **thẳng với mã
+  nguồn**: mọi giá trị route gọi `remember()` phải nằm trong enum. Bỏ một giá
+  trị ra để đo → 3 đỏ.
+- **`remember()` không bao giờ ném ra ngoài nữa.** Đây là lớp tăng tốc: lượt
+  gọi đã chạy xong, tiền đã trừ, kết quả đang trong tay — để một dòng ghi đệm
+  giết cả lượt gọi là người dùng mất tiền mà không nhận được gì. Hỏng thì kêu
+  to trong log máy chủ, người dùng vẫn nhận kết quả đã trả tiền.
+
+### Bài học đắt nhất
+
+**Sổ ghi "thành công" không chứng minh người dùng nhận được gì.** Nó chỉ chứng
+minh dòng ghi sổ chạy trước dòng làm hỏng. Lần sau gặp "máy chủ bảo xong, app
+bảo hỏng" thì đọc log của máy KHÁCH trước, đừng đọc sổ máy chủ trước.
+
+**+6 test** (kèm phía app: lý do hỏng từng bối cảnh nay hiện thẳng lên dòng
+trạng thái và khung Nhật ký, thay cho câu "thử lại sau ít phút" — câu đó sai
+với gần hết nguyên nhân thật, mà thử lại thì mất thêm 30 Vox mỗi lượt).
+
 ## C14 — Cổng tuân thủ chưa từng chạy một lần nào (Phase H, 2026-08-22)
 
 Chủ dự án bấm "Dựng ảnh" trên v3.6.2, chờ, rồi báo **"không thấy gì hết"**.
