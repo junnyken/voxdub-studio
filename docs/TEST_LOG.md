@@ -8474,6 +8474,98 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C10 — Kéo-thả sắp cảnh + nhãn AI ở tầng video (Phase H, 2026-08-21)
+
+Chủ dự án gửi một bản đề bài "C3 — ghép ảnh sản phẩm thành video ngắn". Đối
+chiếu trước khi gõ dòng nào: **đó chính là C6 của repo, đã xong lúc 15:54**,
+và phần bản đề bài hẹn "C3b làm sau" chính là C7, xong lúc 16:24. 7/8 ràng
+buộc đã có sẵn, một chỗ còn chặt hơn đề bài (băm nội dung tệp — đề bài không
+nghĩ tới đường thay ruột tệp sau khi kiểm).
+
+Trừ hết phần đã có, còn đúng hai việc thật. Làm hai việc đó.
+
+### 1. Thứ tự cảnh do người bán quyết, không phải do máy
+
+Trước C10, thứ tự trong video là thứ tự ghi trong nhật ký — tức là thứ tự
+MÁY dựng ảnh. Người bán không nói được "mở bằng cảnh trên tay, đóng bằng cảnh
+giỏ quà". Nay có danh sách kéo-thả (`QListWidget` + `InternalMove`), bỏ tích
+được ảnh không muốn đưa vào.
+
+Danh sách **chỉ nạp ảnh đăng bán được** — không phải để giấu, mà vì đây là
+danh sách "đưa vào video", và ảnh lệch nhãn thì không được vào. Lý do vì sao
+một ảnh không được vào vẫn hiện dưới chính ảnh đó ở lưới kết quả.
+
+**Chỗ quyết định của cả mini-spec này** nằm ở ca hiếm: ảnh đã chọn mà phán
+quyết bị lật giữa lúc chọn và lúc bấm ghép. Cách dễ là lặng lẽ bỏ ảnh đó ra —
+và đó là cách sai: video xuất được, thiếu một cảnh, không ai biết. Nay ảnh đó
+**vẫn đi xuống** lớp kiểm cuối để bị chặn cả lượt kèm tên ảnh và lý do. Đắt
+hơn một nhịp, nhưng người bán biết chuyện gì đã xảy ra.
+
+Ảnh biến mất hẳn khỏi nhật ký cũng đi xuống, với lý do "không còn trong nhật
+ký ảnh đã dựng" — không im lặng bỏ qua.
+
+### 2. Nhãn AI-generated đóng thêm một lần ở tầng video
+
+C1 đã đóng nhãn lên từng tấm ảnh, nên thoạt nghe là thừa. Không thừa: nhãn
+của C1 chỉ nằm trên ảnh đi qua đường dựng của C1. Ngày nào ghép thêm ảnh từ
+nguồn khác — ảnh chụp thật, ảnh cũ, ảnh người dùng tự sửa — thì video ra đời
+không nhãn mà không ai kịp nhận ra. `_lenh_ghep()` là hàm duy nhất tạo ra tệp
+video, nên đóng ở đây là chỗ duy nhất phủ được mọi nguồn.
+
+Không có tham số nào tắt được — có test riêng cho điều đó, vì một cái nút tắt
+là một cái nút để bấm nhầm.
+
+Đặt ở đỉnh khung (nhãn C1 nằm đáy — chồng nhau thì đọc được đúng một cái), chỉ
+hiện suốt cảnh đầu. Bản đầu có nhánh riêng cho video một ảnh (`null[ra]`) và
+nhánh đó **suýt không có nhãn**; đã gộp làm một đường.
+
+### Kiểm bằng video thật, không chỉ bằng chuỗi lệnh
+
+Dựng thật một video hai ảnh bằng ffmpeg, rồi trích khung ở giây 1 và giây 4:
+khung đầu có nhãn, khung sau sạch. Test đọc chuỗi lệnh chỉ chứng minh chuỗi
+đúng — nó không chứng minh ffmpeg chịu chạy chuỗi đó.
+
+### Tests (+17)
+
+Nhãn (8): có mặt ở cảnh đầu · **video một ảnh cũng phải có** · nhãn nằm trên
+luồng RA cuối cùng chứ không phải một nhánh bỏ đi · đổi nhịp thế nào cũng còn
+(3 ca) · không có tham số nào tắt được · đường xuất thật vẫn mang nhãn (chặn
+ca sửa `_lenh_ghep` mà quên đường `dung_video` gọi).
+
+Thứ tự (9): danh sách chỉ có ảnh đăng bán được · kéo-thả được bật · **thứ tự
+kéo lại quyết định thứ tự video** · bỏ tích thì ảnh đó không vào · bỏ tích hết
+thì không ghép · ảnh nay không còn đạt thì VẪN đi xuống để bị chặn · ảnh biến
+mất khỏi nhật ký đi xuống kèm lý do · chưa nạp danh sách thì giữ nếp cũ ·
+dựng ảnh xong thì danh sách hiện ra.
+
+Gỡ nhãn khỏi chuỗi lệnh → **7 đỏ**. Gỡ dây nối danh sách thứ tự → **5 đỏ**.
+
+**1733 passed, 7 skipped (Python) · 477 pass (Node).**
+
+### Máy chạy test mất sạch thư viện hệ thống giữa chừng
+
+Đầu phiên này `pytest` báo **24 tệp không import nổi** (`libGL.so.1`), rồi sau
+đó **21 test đỏ** vì không còn `ffmpeg` — cùng một máy mà buổi sáng chạy 1716
+test xanh. Không phải lỗi mã: workspace mất các gói hệ thống ở tầng `/usr`.
+Cài lại đúng danh sách CI đang cài (`libgl1 libegl1 libfontconfig1 … ffmpeg`)
+là xanh lại.
+
+Đáng ghi vì nó cùng một bài học với C9, ở tầng thấp hơn một nấc: **một lượt
+test xanh chỉ có giá trị kèm theo môi trường nó chạy**. `.github/workflows/
+test.yml` đã liệt kê đủ các gói này từ V38 — thứ thiếu là một lối cài lại
+nhanh cho máy phát triển.
+
+### Còn tồn
+
+- **Live verification vẫn chưa chạy được**: chưa có ảnh SAFE thật nào. Chủ dự
+  án đã cắm khoá vai `image`; còn thiếu vai `assist` (mô hình nhìn được ảnh)
+  và 20 lượt soi tay để chuyển nấc sang `production`. Toàn bộ C1→C10 vẫn chưa
+  có một lượt gọi thật nào đi qua.
+- Nhãn tầng video chỉ hiện ở cảnh đầu (đúng phạm vi đề bài). Nếu sau này ghép
+  ảnh từ nguồn ngoài đường dựng của app thành thói quen, nên cân nhắc cho nhãn
+  chạy suốt video.
+- Chưa có ô chọn thời lượng mỗi cảnh / kiểu chuyển cảnh — vẫn là hằng số.
+
 ## C9 — Bộ test hết phụ thuộc máy đang rảnh hay bận (Phase H, 2026-08-21)
 
 Rà lại chính những gì C8 vừa báo "xanh": chạy lại từ đầu trên máy này thì

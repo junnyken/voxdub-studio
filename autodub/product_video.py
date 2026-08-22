@@ -45,6 +45,19 @@ RONG, CAO = 1080, 1920
 
 _TOI_DA_ANH = 8
 
+#: Nhãn đóng ở TẦNG VIDEO, hiện suốt cảnh đầu.
+#:
+#: Vì sao cần dù C1 đã đóng nhãn lên từng tấm ảnh: nhãn của C1 nằm trên ảnh
+#: nào đi qua đường dựng của C1. Ngày nào ghép thêm ảnh từ nguồn khác — ảnh
+#: chụp thật, ảnh cũ, ảnh người dùng tự sửa — thì video ra đời không nhãn mà
+#: không ai kịp nhận ra. Đóng ở tầng video là chỗ DUY NHẤT phủ được mọi
+#: nguồn, vì đây là hàm duy nhất tạo ra tệp video.
+#:
+#: Không có tham số nào tắt được. Từ 13/5/2026 TikTok bắt buộc nhãn
+#: "AI-generated" cho nội dung chỉnh sửa bằng AI đáng kể; một cái nút tắt là
+#: một cái nút để bấm nhầm.
+NHAN_VIDEO = "AI-generated"
+
 
 @dataclass
 class AnhNguon:
@@ -293,17 +306,21 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh: float,
             f"pad={RONG}:{CAO}:(ow-iw)/2:(oh-ih)/2:color=white,"
             f"setsar=1,fps=30[v{i}]")
 
-    if len(anh) == 1:
-        loc.append("[v0]null[ra]")
-    else:
-        truoc = "v0"
-        for i in range(1, len(anh)):
-            sau = f"x{i}"
-            mocs = (giay_moi_anh - giay_chuyen) * i
-            loc.append(f"[{truoc}][v{i}]xfade=transition=fade:"
-                       f"duration={giay_chuyen:.3f}:offset={mocs:.3f}[{sau}]")
-            truoc = sau
-        loc.append(f"[{truoc}]null[ra]")
+    truoc = "v0"
+    for i in range(1, len(anh)):
+        sau = f"x{i}"
+        mocs = (giay_moi_anh - giay_chuyen) * i
+        loc.append(f"[{truoc}][v{i}]xfade=transition=fade:"
+                   f"duration={giay_chuyen:.3f}:offset={mocs:.3f}[{sau}]")
+        truoc = sau
+
+    # Nhãn đi vào chính luồng RA — không phải một nhánh phụ rồi bỏ đi. Đặt
+    # trên đỉnh khung vì nhãn của C1 nằm dưới đáy: chồng lên nhau thì cái sau
+    # che cái trước và người xem đọc được đúng một cái.
+    loc.append(
+        f"[{truoc}]drawtext=text='{NHAN_VIDEO}':fontcolor=white:"
+        "fontsize=h/28:box=1:boxcolor=black@0.55:boxborderw=8:"
+        f"x=(w-text_w)/2:y=16:enable='lte(t,{giay_moi_anh:.3f})'[ra]")
 
     lenh += ["-filter_complex", ";".join(loc), "-map", "[ra]"]
     lenh += video_codec_args()

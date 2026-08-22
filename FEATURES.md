@@ -148,6 +148,12 @@ Giám khảo là mô hình thị giác trả **lời văn** ("nhãn khác chữ 
 gốc"), **không phải điểm số** — cố ý, vì người bán đi khiếu nại cần lý do
 đọc được. Có nhật ký tra soát ghi cạnh ảnh để dùng khi khiếu nại.
 
+**Dựng video ngắn** từ chính những ảnh đã duyệt: kéo để sắp thứ tự cảnh, bỏ
+tích ảnh không muốn đưa vào. Danh sách chỉ hiện ảnh đăng bán được — nhưng ảnh
+đã chọn mà phán quyết bị lật giữa chừng thì **chặn cả lượt xuất kèm lý do**,
+không lặng lẽ bỏ ảnh đó ra (xuất thiếu một cảnh mà không ai biết thì tệ hơn).
+Video ra luôn mang nhãn "AI-generated" ở cảnh đầu, không có tuỳ chọn tắt.
+
 ### 3.6 Máy chủ và quản trị
 
 - **Ví Vox**: nạp bằng mã kích hoạt hoặc thanh toán PayOS; có cơ chế *giữ

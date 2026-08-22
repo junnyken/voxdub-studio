@@ -309,3 +309,162 @@ def test_goi_y_kich_ban_chi_IN_RA_khong_dan_vao_video(page, monkeypatch, tmp_pat
     chu = page.log.toPlainText()
     assert "Ấm bụng mỗi sáng" in chu
     assert "tham khảo" in chu, "phải nói rõ đây chỉ là gợi ý"
+
+
+# -- Thứ tự cảnh: kéo-thả và bỏ tích (C10) -----------------------------------
+#
+# Trước C10 thứ tự video là thứ tự ghi trong nhật ký — tức là thứ tự MÁY dựng
+# ảnh, không phải thứ tự người bán muốn kể chuyện. Danh sách này là chỗ duy
+# nhất người dùng nói được điều đó, nên nó cũng là chỗ dễ mở ra một đường
+# vòng nhất: chỉ cần nó nạp nhầm một ảnh chưa kiểm là cả cổng tuân thủ vô
+# nghĩa.
+
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtWidgets import QAbstractItemView  # noqa: E402
+
+from autodub.product_video import AnhNguon  # noqa: E402
+
+
+def _nguon(duong, boi_canh="ban_go", ket_luan="SAFE", da_kiem=True,
+           ly_do="ổn"):
+    return AnhNguon(duong, boi_canh, ket_luan, ly_do, da_kiem, True, "bam")
+
+
+class _WorkerGhiLai:
+    """Worker giả: giữ lại danh sách nhận được rồi thôi."""
+
+    nhan: list = []
+
+    class _TinHieu:
+        def connect(self, *_a):
+            pass
+
+    def __init__(self, anh, ra, **_k):
+        _WorkerGhiLai.nhan = anh
+        self.xong = self._TinHieu()
+        self.hong = self._TinHieu()
+        self.canh_bao = self._TinHieu()
+
+    def start(self):
+        pass
+
+    def isRunning(self):  # noqa: N802 — theo quy ước của Qt
+        return False
+
+
+@pytest.fixture()
+def ghep(page, monkeypatch):
+    """Trang đã mở nấc chạy thật, với worker giả ghi lại danh sách nguồn."""
+    from autodub import product_video
+
+    _WorkerGhiLai.nhan = []
+    monkeypatch.setattr(psp, "ProductVideoWorker", _WorkerGhiLai)
+    monkeypatch.setattr(product_video, "duoc_dung_video", lambda: (True, ""))
+
+    def _dat_nhat_ky(anh):
+        monkeypatch.setattr(product_video, "doc_nhat_ky", lambda *_a: anh)
+
+    return page, _dat_nhat_ky
+
+
+def test_danh_sach_thu_tu_chi_co_anh_dang_ban_duoc(ghep):
+    trang, dat = ghep
+    dat([_nguon("/tot.jpg"), _nguon("/lech.jpg", ket_luan="CONCEPT"),
+         _nguon("/chua.jpg", da_kiem=False)])
+    trang._nap_thu_tu("ra")
+    duong = [trang.thu_tu.item(i).data(Qt.ItemDataRole.UserRole)
+             for i in range(trang.thu_tu.count())]
+    assert duong == ["/tot.jpg"], "ảnh không đăng bán được lọt vào danh sách"
+
+
+def test_keo_tha_duoc_bat(page):
+    assert (page.thu_tu.dragDropMode()
+            == QAbstractItemView.DragDropMode.InternalMove)
+
+
+def test_thu_tu_trong_danh_sach_quyet_dinh_thu_tu_video(ghep):
+    trang, dat = ghep
+    dat([_nguon("/1.jpg"), _nguon("/2.jpg"), _nguon("/3.jpg")])
+    trang._nap_thu_tu("ra")
+
+    # Kéo mục đầu xuống cuối — đúng thứ Qt làm khi người dùng thả chuột.
+    trang.thu_tu.insertItem(2, trang.thu_tu.takeItem(0))
+
+    trang._dung_video()
+    assert [a.duong_dan for a in _WorkerGhiLai.nhan] == \
+        ["/2.jpg", "/3.jpg", "/1.jpg"]
+
+
+def test_bo_tich_thi_anh_do_khong_vao_video(ghep):
+    trang, dat = ghep
+    dat([_nguon("/1.jpg"), _nguon("/2.jpg")])
+    trang._nap_thu_tu("ra")
+    trang.thu_tu.item(0).setCheckState(Qt.CheckState.Unchecked)
+
+    trang._dung_video()
+    assert [a.duong_dan for a in _WorkerGhiLai.nhan] == ["/2.jpg"]
+
+
+def test_bo_tich_het_thi_khong_ghep(ghep):
+    """Bỏ tích hết mà vẫn ghép "cho đủ" là xuất một video người dùng
+    không chọn."""
+    trang, dat = ghep
+    dat([_nguon("/1.jpg")])
+    trang._nap_thu_tu("ra")
+    trang.thu_tu.item(0).setCheckState(Qt.CheckState.Unchecked)
+
+    trang._dung_video()
+    assert not _WorkerGhiLai.nhan
+
+
+def test_anh_da_chon_MA_NAY_KHONG_CON_DAT_thi_van_di_xuong(ghep):
+    """Không âm thầm bỏ ảnh ra.
+
+    Bỏ ra thì video xuất được, thiếu một cảnh, và không ai biết. Đi xuống
+    thì lớp kiểm cuối chặn cả lượt và nói rõ ảnh nào, vì sao — đắt hơn một
+    nhịp, nhưng người bán biết chuyện gì đã xảy ra.
+    """
+    trang, dat = ghep
+    dat([_nguon("/1.jpg"), _nguon("/2.jpg")])
+    trang._nap_thu_tu("ra")
+
+    # Giữa lúc chọn và lúc bấm ghép, phán quyết của /1.jpg bị lật.
+    dat([_nguon("/1.jpg", ket_luan="CONCEPT", ly_do="nhãn khác chữ"),
+         _nguon("/2.jpg")])
+    trang._dung_video()
+
+    lech = [a for a in _WorkerGhiLai.nhan if a.duong_dan == "/1.jpg"]
+    assert lech and not lech[0].dung_duoc
+    assert lech[0].ly_do == "nhãn khác chữ"
+
+
+def test_anh_bien_mat_khoi_nhat_ky_thi_di_xuong_kem_ly_do(ghep):
+    trang, dat = ghep
+    dat([_nguon("/1.jpg")])
+    trang._nap_thu_tu("ra")
+    dat([])  # nhật ký bị xoá/ghi đè giữa chừng
+
+    trang._dung_video()
+    assert len(_WorkerGhiLai.nhan) == 1
+    mat = _WorkerGhiLai.nhan[0]
+    assert not mat.dung_duoc
+    assert "không còn trong nhật ký" in mat.ly_do
+
+
+def test_chua_nap_danh_sach_thi_giu_nep_cu(ghep):
+    """Mở app rồi ghép thẳng thư mục cũ: vẫn phải chạy, và vẫn chỉ lấy ảnh
+    đăng bán được."""
+    trang, dat = ghep
+    dat([_nguon("/tot.jpg"), _nguon("/lech.jpg", ket_luan="CONCEPT")])
+    trang._dung_video()
+    assert [a.duong_dan for a in _WorkerGhiLai.nhan] == ["/tot.jpg"]
+
+
+def test_dung_anh_xong_thi_danh_sach_hien_ra(ghep):
+    trang, dat = ghep
+    dat([_nguon("/tot.jpg")])
+    trang._thu_muc_ket_qua = "ra"
+    phien = Phien(anh_goc="a.jpg", thu_muc="ra")
+    phien.ket_qua = [_ket()]
+    trang._xong(phien)
+    assert trang.thu_tu.count() == 1

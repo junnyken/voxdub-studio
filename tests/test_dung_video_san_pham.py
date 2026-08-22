@@ -316,3 +316,69 @@ def test_goi_y_kich_ban_tra_dung_so_canh(tmp_path, co_tai_khoan):
 def test_goi_y_hong_thi_tra_rong_khong_no(tmp_path, co_tai_khoan):
     anh = [_nguon(str(tmp_path), "a.jpg")]
     assert pv.goi_y_kich_ban(anh, khach=_KhachLienTuc(no=True)) == []
+
+
+# -- Nhãn AI-generated ở tầng video (C10) ------------------------------------
+#
+# C1 đã đóng nhãn lên từng tấm ảnh, nên vì sao còn đóng thêm ở tầng video:
+# nhãn của C1 chỉ nằm trên ảnh đi qua đường dựng của C1. Ngày nào ghép thêm
+# ảnh từ nguồn khác thì video ra đời không nhãn mà không ai kịp nhận ra.
+# `_lenh_ghep` là hàm duy nhất tạo ra tệp video — đóng ở đây là chỗ duy nhất
+# phủ được mọi nguồn.
+
+def _bo_loc(lenh: list[str]) -> str:
+    return lenh[lenh.index("-filter_complex") + 1]
+
+
+def test_nhan_ai_co_mat_o_canh_dau():
+    loc = _bo_loc(pv._lenh_ghep(["a.jpg", "b.jpg"], "ra.mp4", 2.5, 0.5))
+    assert "drawtext" in loc
+    assert pv.NHAN_VIDEO in loc
+    # Chỉ hiện ở cảnh đầu — mốc phải bám đúng độ dài một ảnh, không phải
+    # một con số gõ cứng ở đâu đó.
+    assert "enable='lte(t,2.500)'" in loc
+
+
+def test_mot_anh_cung_phai_co_nhan():
+    """Ca dễ lọt nhất: bản cũ có nhánh riêng cho video một ảnh."""
+    loc = _bo_loc(pv._lenh_ghep(["a.jpg"], "ra.mp4", 2.5, 0.5))
+    assert pv.NHAN_VIDEO in loc
+
+
+def test_nhan_nam_tren_luong_RA_chu_khong_phai_nhanh_bo_di():
+    """Đóng nhãn lên một nhánh rồi không dùng nhánh đó = video trần."""
+    loc = _bo_loc(pv._lenh_ghep(["a.jpg", "b.jpg", "c.jpg"], "ra.mp4", 2.5, 0.5))
+    cuoi = loc.split(";")[-1]
+    assert "drawtext" in cuoi and cuoi.endswith("[ra]")
+
+
+@pytest.mark.parametrize("giay,chuyen", [(2.5, 0.5), (1.0, 0.2), (6.0, 1.5)])
+def test_doi_nhip_the_nao_nhan_van_con(giay, chuyen):
+    loc = _bo_loc(pv._lenh_ghep(["a.jpg", "b.jpg"], "ra.mp4", giay, chuyen))
+    assert pv.NHAN_VIDEO in loc
+    assert f"enable='lte(t,{giay:.3f})'" in loc
+
+
+def test_khong_co_tham_so_nao_tat_duoc_nhan():
+    """Nhãn không được là tuỳ chọn: một cái nút tắt là một cái nút bấm nhầm."""
+    import inspect
+
+    for ham in (pv.dung_video, pv._lenh_ghep):
+        ten = set(inspect.signature(ham).parameters)
+        assert not (ten & {"nhan", "watermark", "dong_nhan", "khong_nhan"}), (
+            f"{ham.__name__} có tham số tắt nhãn")
+
+
+def test_duong_xuat_that_van_mang_nhan(tmp_path, monkeypatch):
+    """Chặn đường vòng: sửa `_lenh_ghep` mà quên đường `dung_video` gọi."""
+    lenh_da_chay = {}
+
+    def _gia(lenh, **_k):
+        lenh_da_chay["lenh"] = lenh
+        open(lenh[-1], "wb").write(b"x")
+        return type("R", (), {"returncode": 0, "stderr": ""})()
+
+    anh = _nguon(str(tmp_path), "tot.jpg")
+    monkeypatch.setattr(pv.subprocess, "run", _gia)
+    pv.dung_video([anh], str(tmp_path / "ra.mp4"))
+    assert pv.NHAN_VIDEO in _bo_loc(lenh_da_chay["lenh"])

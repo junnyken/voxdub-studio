@@ -184,7 +184,78 @@ Phía client: không có DB — toàn bộ state là file trên đĩa dưới `o
 (bao gồm `data/` chứa mọi artifact trung gian để resume/cache), `.env` cho settings,
 `securestore` (AES-256-GCM) cho artifact bị "hold" bởi credit system.
 
-## 4. Điểm cần lưu ý khi maintain/nâng cấp
+## 4. Ảnh sản phẩm chạy Ở ĐÂU (đọc trước khi viết mini-spec cho luồng này)
+
+Mục này tồn tại vì một lý do cụ thể: trong ngày 21/8/2026, **ba bản đề bài
+liên tiếp** đều giả định luồng ảnh sản phẩm có thực thể phía máy chủ
+(`image_id`, `ProductSceneVideoJob`, `POST /video-job/{id}/export`). Không
+cái nào tồn tại, và không phải vì chưa làm kịp — mà vì đã cố ý không làm.
+Tài liệu không nói ra thì lần thứ tư sẽ lặp lại.
+
+### Ranh giới máy chủ / máy người dùng
+
+**Máy chủ chỉ có hai việc, cả hai đều là lượt gọi lẻ, không trạng thái:**
+
+| Cửa | Việc |
+|---|---|
+| `POST /v1/ai/product-scene` | Vẽ ảnh mới theo bối cảnh — nhận ảnh gốc, trả ảnh ra |
+| `POST /v1/ai/assist` (`packaging_check`) | Chấm: ảnh mới còn là sản phẩm thật không |
+| `POST /v1/ai/assist` (`scene_continuity`, `scene_script`) | Nhận xét độ liền mạch, gợi ý câu dẫn — **cảnh báo, không phải cổng chặn** |
+
+**Mọi thứ còn lại chạy trên máy người dùng** (`autodub/product_scene.py`,
+`autodub/product_video.py`, `autodub_gui/pages/product_scene_page.py`): chọn
+ảnh, đóng nhãn, giữ sổ, sắp thứ tự, ghép video bằng ffmpeg.
+
+### Máy chủ KHÔNG có những thứ này — và đó là quyết định, không phải thiếu sót
+
+- **Không lưu ảnh** (gốc lẫn ảnh dựng). Ảnh đi qua như một lượt gọi rồi thôi.
+- **Không có `image_id`** — không có thực thể ảnh thì không có mã ảnh. Bất kỳ
+  bản đề bài nào nhận `image_id` làm đầu vào đều đang mô tả một hệ thống khác.
+- **Không có thực thể job ghép video**, không có `/video-job`, không có trạng
+  thái `draft/ready/exporting`.
+
+Vì sao không dựng cổng chặn phía máy chủ cho khâu ghép: video được ghép **trên
+máy người bán, bằng ffmpeg của họ**. Ai cố tình muốn ghép ảnh lệch nhãn thì mở
+phần mềm dựng phim bất kỳ là xong — không cần lách qua app. Cổng chặn phía
+máy chủ vì thế không thêm được sự an toàn nào thật, chỉ thêm chi phí và buộc
+phải đẩy ảnh lên. Thứ nó *sẽ* thêm được là **bằng chứng khi sàn phạt oan** —
+nếu cần cái đó thì đáng dựng, nhưng đó là một mini-spec riêng với lý do khác
+hẳn, không phải "làm nốt cho đủ kiến trúc".
+
+### Sổ phán quyết nằm ở đâu
+
+`nhat_ky_dung_anh.json` (hằng số `NHAT_KY`), nằm cạnh ảnh trong thư mục kết
+quả **trên máy người dùng**. Mỗi mục ghi: tên tệp · bối cảnh · kết luận
+(`SAFE`/`CONCEPT`) · lý do bằng lời · đã kiểm được chưa · đã đóng được nhãn
+chưa · **băm nội dung tệp lúc kiểm**.
+
+Băm là thứ dễ tưởng thừa nhất và là thứ đóng đường lách thật duy nhất: sổ chỉ
+ghi *tên* tệp thì thay ruột tệp sau khi kiểm xong là tên vẫn thế, phán quyết
+vẫn "đạt", mà ảnh đã là ảnh khác. Không cần ác ý — sửa ảnh cho đẹp rồi lưu đè
+là đủ.
+
+### Ba điều kiện để một ảnh vào được video
+
+Kiểm **hai lần**, và lần hai nằm trong chính hàm tạo ra tệp video
+(`dung_video()` tự gọi `kiem_lai_truoc_khi_xuat()`, không tin bên gọi đã
+kiểm):
+
+1. Phán quyết là `SAFE` **và** đã kiểm được thật (không kiểm được ≠ đạt).
+2. Đã đóng được nhãn "AI-generated" lên ảnh.
+3. Nội dung tệp còn khớp băm lúc kiểm.
+
+Thiếu một điều là **chặn cả lượt xuất**, kèm tên ảnh và lý do — không lặng lẽ
+xuất thiếu ảnh đó. Nhãn "AI-generated" còn được đóng thêm một lần nữa ở tầng
+video (cảnh đầu), phủ được cả ảnh đến từ nguồn ngoài đường dựng của app.
+
+### Cổng ba nấc
+
+`image.scene.stage` (`off` → `calibration` → `production`) nằm **trên máy
+chủ**; app hỏi qua `app_config()` trước khi mở khâu ghép video. Hỏi không được
+thì **đóng** — mặc định phải nghiêng về phía an toàn. Chuyển nấc là thao tác
+của người quản trị, và máy chủ tự chặn nếu chưa đủ số lượt soi tay.
+
+## 5. Điểm cần lưu ý khi maintain/nâng cấp
 
 - Đóng gói GUI (`autodub_gui`, PyInstaller onedir) **vẫn chỉ Windows**. `control_server`
   đã Docker hoá (mini-spec V7, `docker-compose.yml` ở root) — `docker compose up` chạy

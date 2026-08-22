@@ -26,8 +26,8 @@ import os
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout,
-    QWidget,
+    QAbstractItemView, QCheckBox, QFileDialog, QGridLayout, QHBoxLayout,
+    QLabel, QListWidget, QListWidgetItem, QVBoxLayout, QWidget,
 )
 
 from autodub_gui import tokens
@@ -164,6 +164,26 @@ class ProductScenePage(BasePage):
         hanh_dong.addStretch()
         root.addLayout(hanh_dong)
 
+        # Thứ tự cảnh: danh sách này CHỈ chứa ảnh đăng bán được. Ảnh lệch
+        # nhãn và ảnh chưa kiểm được không có mặt ở đây — không phải để giấu,
+        # mà vì đây là danh sách "đưa vào video", và chúng không được vào.
+        # Lý do vì sao chúng không được vào vẫn hiện dưới từng ảnh ở lưới
+        # kết quả.
+        the_thu_tu = Card(padding=tokens.SP_4)
+        the_thu_tu.add_header("Thứ tự cảnh trong video")
+        goi_y = QLabel("Kéo để đổi thứ tự. Bỏ tích ảnh không muốn đưa vào.")
+        goi_y.setObjectName("hint")
+        the_thu_tu.body.addWidget(goi_y)
+
+        self.thu_tu = QListWidget()
+        self.thu_tu.setDragDropMode(
+            QAbstractItemView.DragDropMode.InternalMove)
+        self.thu_tu.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection)
+        self.thu_tu.setMaximumHeight(170)
+        the_thu_tu.body.addWidget(self.thu_tu)
+        root.addWidget(the_thu_tu)
+
         self.status = QLabel("")
         self.status.setWordWrap(True)
         self.status.setObjectName("hint")
@@ -255,7 +275,9 @@ class ProductScenePage(BasePage):
             return
 
         thu_muc = self._thu_muc_ket_qua or self._thu_muc_ra()
-        anh = [a for a in product_video.doc_nhat_ky(thu_muc) if a.dung_duoc]
+        anh = self._anh_nguon(thu_muc)
+        if anh is None:
+            return
         if not anh:
             TOASTS.warn("Chưa có ảnh nào đăng bán được để ghép. Dựng ảnh trước đã.")
             return
@@ -273,6 +295,67 @@ class ProductScenePage(BasePage):
         worker.hong.connect(self._video_hong)
         self._worker_video = worker
         worker.start()
+
+    def _anh_nguon(self, thu_muc: str) -> list | None:
+        """Danh sách ảnh sẽ vào video, ĐÚNG THỨ TỰ người dùng đã kéo.
+
+        Trả ``None`` nghĩa là đã báo người dùng và không chạy tiếp.
+
+        Đọc lại nhật ký ngay tại đây chứ không tin những gì danh sách đang
+        hiện: giữa lúc nạp danh sách và lúc bấm ghép, một lượt dựng khác có
+        thể đã lật phán quyết của chính tấm ảnh đó.
+
+        Ảnh đã chọn mà nay không còn đăng bán được thì **vẫn đi xuống** —
+        không lặng lẽ bỏ ra. Bỏ ra là xuất một video thiếu cảnh mà không ai
+        biết; đi xuống thì lớp kiểm cuối chặn cả lượt và nói rõ ảnh nào,
+        vì sao.
+        """
+        from autodub import product_video
+
+        tat_ca = product_video.doc_nhat_ky(thu_muc)
+        theo_duong = {a.duong_dan: a for a in tat_ca}
+        chon = self._thu_tu_da_chon()
+
+        if self.thu_tu.count() and not chon:
+            TOASTS.warn("Chưa chọn cảnh nào — tích ít nhất một ảnh.")
+            return None
+        if not chon:
+            # Chưa nạp danh sách (vd mở app rồi ghép luôn thư mục cũ): giữ
+            # nguyên nếp cũ, lấy mọi ảnh đăng bán được theo thứ tự nhật ký.
+            return [a for a in tat_ca if a.dung_duoc]
+
+        ra = []
+        for duong in chon:
+            co = theo_duong.get(duong)
+            ra.append(co if co is not None else product_video.AnhNguon(
+                duong_dan=duong, boi_canh="", ket_luan="",
+                ly_do="không còn trong nhật ký ảnh đã dựng",
+                da_kiem=False, da_dong_nhan=False, bam_luc_kiem=""))
+        return ra
+
+    def _thu_tu_da_chon(self) -> list[str]:
+        """Đường dẫn các ảnh còn tích, theo đúng thứ tự đang hiện."""
+        ra = []
+        for i in range(self.thu_tu.count()):
+            muc = self.thu_tu.item(i)
+            if muc.checkState() == Qt.CheckState.Checked:
+                ra.append(str(muc.data(Qt.ItemDataRole.UserRole) or ""))
+        return ra
+
+    def _nap_thu_tu(self, thu_muc: str) -> None:
+        """Nạp lại danh sách thứ tự từ nhật ký của thư mục vừa dựng."""
+        from autodub import product_video
+
+        self.thu_tu.clear()
+        for a in product_video.doc_nhat_ky(thu_muc):
+            if not a.dung_duoc:
+                continue
+            ten = dict(BOI_CANH).get(a.boi_canh, a.boi_canh or "—")
+            muc = QListWidgetItem(f"{ten} — {os.path.basename(a.duong_dan)}")
+            muc.setData(Qt.ItemDataRole.UserRole, a.duong_dan)
+            muc.setFlags(muc.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            muc.setCheckState(Qt.CheckState.Checked)
+            self.thu_tu.addItem(muc)
 
     def _goi_y_kich_ban(self) -> None:
         """Xin gợi ý câu dẫn cho từng cảnh, in ra Nhật ký để người dùng chép.
@@ -343,6 +426,8 @@ class ProductScenePage(BasePage):
     def _xong(self, phien) -> None:
         self.btn_run.setEnabled(True)
         self.btn_open.setEnabled(True)
+        if self._thu_muc_ket_qua:
+            self._nap_thu_tu(self._thu_muc_ket_qua)
         if not phien.ket_qua:
             self.status.setText("Không dựng được ảnh nào — thử lại sau ít phút.")
             return
