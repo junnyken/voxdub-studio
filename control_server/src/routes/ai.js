@@ -62,12 +62,28 @@ async function replay(jobId, fingerprint) {
   return doc ? doc.result : null
 }
 
-async function remember(jobId, fingerprint, action, result, creditCharged) {
+/**
+ * Nhớ kết quả để app gọi lại cùng `jobId` không bị tính tiền lần hai.
+ *
+ * **Không bao giờ được ném ra ngoài.** Đây là lớp TĂNG TỐC, không phải một
+ * phần của việc chính: lượt gọi đã chạy xong, tiền đã trừ, kết quả đang nằm
+ * trong tay. Ghi đệm hỏng mà giết cả lượt gọi thì người dùng mất tiền và
+ * không nhận được gì — chính xác chuyện đã xảy ra ngày 22/8/2026 khi enum
+ * `action` thiếu hai giá trị.
+ *
+ * Hỏng thì KÊU TO trong log máy chủ (không nuốt im lặng), nhưng người dùng
+ * vẫn nhận được kết quả họ đã trả tiền.
+ */
+async function remember(jobId, fingerprint, action, result, creditCharged, log) {
   if (!jobId) return
   try {
     await JobResult.create({ jobId, fingerprint, action, result, creditCharged })
   } catch (err) {
-    if (err.code !== 11000) throw err   // trùng jobId = đã lưu rồi, không sao
+    if (err.code === 11000) return   // trùng jobId = đã lưu rồi, không sao
+    const noi = log || console
+    noi.error({ err, action, jobId },
+      'remember() hỏng — lượt gọi VẪN trả kết quả, nhưng gọi lại cùng jobId '
+      + 'sẽ tính tiền lần nữa')
   }
 }
 

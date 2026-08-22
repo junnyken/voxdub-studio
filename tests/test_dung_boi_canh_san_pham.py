@@ -328,3 +328,24 @@ def test_kiem_hong_thi_ly_do_noi_RO_vi_sao(cam_may_chu, tmp_path):
                              khach=khach)
 
     assert "ảnh quá nặng" in phien.ket_qua[0].ly_do
+
+
+def test_dung_hong_thi_ly_do_di_cung_ket_qua(cam_may_chu, tmp_path):
+    """Lý do nằm trong tệp log kỹ thuật thì người bán không bao giờ đọc."""
+    khach = _KhachGia(no_khi_dung=RuntimeError("mô hình từ chối vẽ nhãn"))
+
+    phien = ps.dung_boi_canh(str(cam_may_chu), ["ban_go"], str(tmp_path / "ra"),
+                             khach=khach)
+
+    assert phien.ket_qua == []
+    assert phien.hong and phien.hong[0][0] == "ban_go"
+    assert "từ chối vẽ nhãn" in phien.hong[0][1]
+
+
+def test_may_chu_khong_tra_anh_thi_noi_dung_chuyen_do(cam_may_chu, tmp_path):
+    khach = _KhachGia(anh_hong=True)
+
+    phien = ps.dung_boi_canh(str(cam_may_chu), ["ban_go"], str(tmp_path / "ra"),
+                             khach=khach)
+
+    assert phien.hong and "không trả về ảnh" in phien.hong[0][1]

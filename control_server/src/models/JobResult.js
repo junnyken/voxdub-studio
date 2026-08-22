@@ -12,8 +12,19 @@ const jobResultSchema = new mongoose.Schema({
   fingerprint: { type: String, required: true },
   action: {
     type: String,
-    // 'translate_subtitle' thêm ở mini-spec V14 (docs/PLAN.md).
-    enum: ['translate', 'analyze', 'review', 'generate_post', 'translate_subtitle'],
+    // Danh sách này PHẢI phủ mọi giá trị `remember()` được gọi với — có test
+    // đối chiếu (`job-result-actions.test.js`).
+    //
+    // Bug thật, 22/8/2026: `assist` (V89) và `product_scene` (C1) thêm route
+    // mà quên thêm ở đây. Mongoose ném lỗi validation, `remember()` ném tiếp,
+    // và route chết SAU KHI đã trừ tiền — người dùng mất 30 Vox mỗi lượt, sổ
+    // máy chủ ghi "thành công", còn app nhận về lỗi 500 không hiểu nổi. Ba
+    // lượt liên tiếp như vậy trước khi tìm ra.
+    enum: [
+      'translate', 'analyze', 'review', 'generate_post', 'translate_subtitle',
+      'assist',         // mini-spec V89
+      'product_scene',  // mini-spec C1
+    ],
     required: true,
   },
   result: { type: mongoose.Schema.Types.Mixed, required: true },

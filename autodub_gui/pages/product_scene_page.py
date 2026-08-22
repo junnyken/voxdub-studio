@@ -474,8 +474,21 @@ class ProductScenePage(BasePage):
         self._cuon_toi_trang_thai()
         if self._thu_muc_ket_qua:
             self._nap_thu_tu(self._thu_muc_ket_qua)
+        # In NGUYÊN VĂN lý do từng bối cảnh hỏng. "Thử lại sau ít phút" là
+        # câu trả lời sai cho gần hết các nguyên nhân thật (ảnh quá nặng, mô
+        # hình từ chối vẽ, máy chủ nhận tiền nhưng không trả ảnh) — và thử
+        # lại thì mất thêm 30 Vox mỗi lượt.
+        for ten_bc, ly_do in getattr(phien, "hong", []):
+            ten = dict(BOI_CANH).get(ten_bc, ten_bc)
+            self.log.append_log(f"Không dựng được «{ten}»: {ly_do}", 30)
+
         if not phien.ket_qua:
-            self.status.setText("Không dựng được ảnh nào — thử lại sau ít phút.")
+            hong = getattr(phien, "hong", [])
+            if hong:
+                self.status.setText(f"Không dựng được ảnh nào — {hong[0][1]}")
+            else:
+                self.status.setText(
+                    "Không dựng được ảnh nào — thử lại sau ít phút.")
             return
 
         for i, k in enumerate(phien.ket_qua):

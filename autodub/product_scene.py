@@ -87,6 +87,13 @@ class Phien:
     anh_goc: str
     thu_muc: str
     ket_qua: list[KetQua] = field(default_factory=list)
+    #: (bối cảnh, lý do) cho từng bối cảnh KHÔNG dựng được.
+    #:
+    #: Trước C15 lý do chỉ đi vào tệp nhật ký kỹ thuật, còn màn hình nói
+    #: "Không dựng được ảnh nào — thử lại sau ít phút". Người dùng thử lại
+    #: đúng ba lần, mỗi lần mất 30 Vox, và không lần nào biết vì sao — trong
+    #: khi máy chủ ghi rõ lượt gọi thành công. Lý do phải đi cùng kết quả.
+    hong: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def so_dung_duoc(self) -> int:
@@ -260,11 +267,14 @@ def dung_boi_canh(anh_goc_path: str, boi_canh: list[str], thu_muc_ra: str, *,
             if getattr(e, "code", "") in _KHONG_THU_LAI:
                 raise
             logger.warning(f"Không dựng được bối cảnh «{ten_bc}» ({str(e)[:120]})")
+            phien.hong.append((ten_bc, str(e)[:200]))
             continue
 
         anh_moi = tra_ve.get("image") or {}
         if not anh_moi.get("data"):
             logger.warning(f"Bối cảnh «{ten_bc}»: máy chủ không trả ảnh")
+            phien.hong.append((ten_bc, "máy chủ nhận lượt gọi nhưng không "
+                                       "trả về ảnh"))
             continue
 
         ra_path = os.path.join(thu_muc_ra, f"{ten_bc}.jpg")

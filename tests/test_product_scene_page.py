@@ -532,3 +532,16 @@ def test_chay_va_xong_deu_keo_man_hinh_toi_phan_hoi():
     for ham in (psp.ProductScenePage._chay, psp.ProductScenePage._xong):
         assert co_goi(ham, "_cuon_toi_trang_thai"), (
             f"{ham.__name__} không kéo màn hình tới chỗ có phản hồi")
+
+
+def test_ly_do_hong_hien_LEN_MAN_HINH(page):
+    """Máy chủ báo thành công, app báo hỏng, người dùng không biết vì sao —
+    đã xảy ra ba lượt liên tiếp, mỗi lượt 30 Vox."""
+    from autodub.product_scene import Phien
+
+    phien = Phien(anh_goc="a.jpg", thu_muc="ra")
+    phien.hong = [("ban_go", "mô hình từ chối vẽ nhãn")]
+    page._xong(phien)
+
+    assert "mô hình từ chối vẽ nhãn" in page.status.text()
+    assert "mô hình từ chối vẽ nhãn" in page.log.toPlainText()
