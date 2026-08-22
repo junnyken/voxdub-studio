@@ -545,3 +545,136 @@ def test_ly_do_hong_hien_LEN_MAN_HINH(page):
 
     assert "mô hình từ chối vẽ nhãn" in page.status.text()
     assert "mô hình từ chối vẽ nhãn" in page.log.toPlainText()
+
+
+# -- Chọn nơi gọi mô hình (C17) ----------------------------------------------
+
+def test_mac_dinh_la_TU_DONG(page):
+    """Không chọn gì thì phải giữ nguyên nếp cũ, không tự ghim một nhà cung cấp."""
+    assert page.noi_goi.current_key() == ""
+
+
+def test_danh_sach_nap_ve_luon_giu_TU_DONG_o_dau(page):
+    page._nap_noi_goi([("gemini-anh", "Gemini"), ("openai-anh", "OpenAI")])
+
+    keys = [page.noi_goi.combo.itemData(i)
+            for i in range(page.noi_goi.combo.count())]
+    assert keys == ["", "gemini-anh", "openai-anh"]
+    assert page.noi_goi.combo.itemText(1) == "Gemini", "phải hiện NHÃN, không phải tên máy"
+
+
+def test_danh_sach_rong_thi_van_con_TU_DONG(page):
+    """Hỏi máy chủ hỏng thì mất một tiện nghi, không được mất cả trang."""
+    page._nap_noi_goi([])
+    assert page.noi_goi.combo.count() == 1
+    assert page.noi_goi.current_key() == ""
+
+
+def test_lua_chon_di_xuong_worker(page, monkeypatch, tmp_path):
+    nhan = {}
+
+    class _WorkerGia:
+        class _TinHieu:
+            def connect(self, *_a):
+                pass
+
+        def __init__(self, *a, **k):
+            nhan.update(k)
+            self.tien_trinh = self._TinHieu()
+            self.xong = self._TinHieu()
+            self.hong = self._TinHieu()
+
+        def start(self):
+            pass
+
+        def isRunning(self):  # noqa: N802 — theo quy ước của Qt
+            return False
+
+    anh = tmp_path / "a.jpg"
+    anh.write_bytes(b"\xff\xd8\xff\xe0x")
+    page.anh_goc.set_text(str(anh))
+    page._nap_noi_goi([("openai-anh", "OpenAI")])
+    page.noi_goi.combo.setCurrentIndex(1)
+    monkeypatch.setattr(psp, "ProductSceneWorker", _WorkerGia)
+
+    page._chay()
+
+    assert nhan.get("noi_goi") == "openai-anh"
+
+
+def test_hoi_danh_sach_KHONG_tren_luong_giao_dien():
+    """Một lượt gọi mạng nhỏ vẫn là gọi mạng — bài học C7."""
+    from tests.doc_ma import co_goi
+
+    assert not co_goi(psp.ProductScenePage.on_shown, "danh_sach_noi_goi"), \
+        "hỏi máy chủ ngay trong on_shown là treo cửa sổ lúc mở trang"
+
+    from autodub_gui.workers import ImageProvidersWorker
+
+    assert co_goi(ImageProvidersWorker.run, "danh_sach_noi_goi"), \
+        "worker mới là chỗ được phép gọi mạng"
+
+
+def test_ten_san_pham_di_vao_goi_y_kich_ban(page, monkeypatch, tmp_path):
+    """Gợi ý kịch bản không nhìn thấy ảnh — tên sản phẩm là thứ DUY NHẤT nói
+    cho nó biết đang bán cái gì."""
+    from autodub import product_video
+
+    nhan = {}
+
+    class _WorkerGia:
+        class _TinHieu:
+            def connect(self, *_a):
+                pass
+
+        def __init__(self, anh, mo_ta, **_k):
+            nhan["mo_ta"] = mo_ta
+            self.xong = self._TinHieu()
+
+        def start(self):
+            pass
+
+        def isRunning(self):  # noqa: N802 — theo quy ước của Qt
+            return False
+
+    monkeypatch.setattr(psp, "SceneScriptWorker", _WorkerGia)
+    monkeypatch.setattr(product_video, "doc_nhat_ky",
+                        lambda *_a: [_nguon("/1.jpg")])
+    page.ten_san_pham.set_text("thức ăn hạt cho mèo Catsrang 400g")
+    page.ghi_chu.set_text("đặt cạnh ly cà phê")
+
+    page._goi_y_kich_ban()
+
+    assert nhan["mo_ta"] == "thức ăn hạt cho mèo Catsrang 400g", (
+        "ghi chú bối cảnh bị dùng thay tên sản phẩm — đúng lỗi C17 đi sửa")
+
+
+def test_chua_dien_ten_thi_lui_ve_ghi_chu(page, monkeypatch):
+    """Không có tên thì gửi ghi chú còn hơn gửi rỗng."""
+    from autodub import product_video
+
+    nhan = {}
+
+    class _WorkerGia:
+        class _TinHieu:
+            def connect(self, *_a):
+                pass
+
+        def __init__(self, anh, mo_ta, **_k):
+            nhan["mo_ta"] = mo_ta
+            self.xong = self._TinHieu()
+
+        def start(self):
+            pass
+
+        def isRunning(self):  # noqa: N802
+            return False
+
+    monkeypatch.setattr(psp, "SceneScriptWorker", _WorkerGia)
+    monkeypatch.setattr(product_video, "doc_nhat_ky",
+                        lambda *_a: [_nguon("/1.jpg")])
+    page.ghi_chu.set_text("đặt cạnh ly cà phê")
+
+    page._goi_y_kich_ban()
+
+    assert nhan["mo_ta"] == "đặt cạnh ly cà phê"

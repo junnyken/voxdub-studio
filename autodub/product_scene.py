@@ -236,8 +236,22 @@ def kiem_tuan_thu(khach, anh_goc: dict, anh_moi: dict, *,
     return gia_tri, ly_do, True
 
 
+def danh_sach_noi_goi(khach=None) -> list[tuple[str, str]]:
+    """[(tên, nhãn)] các nơi gọi mô hình ảnh — mini-spec C17.
+
+    Gọi mạng, nên nơi dùng phải đưa vào luồng nền (bài học C7).
+    """
+    from autodub.saas_client import get_client, is_configured
+
+    if not is_configured():
+        return []
+    khach = khach or get_client()
+    return [(str(m.get("name") or ""), str(m.get("label") or m.get("name") or ""))
+            for m in khach.image_providers() if m.get("name")]
+
+
 def dung_boi_canh(anh_goc_path: str, boi_canh: list[str], thu_muc_ra: str, *,
-                  che_do: str = "SAFE", ghi_chu: str = "",
+                  che_do: str = "SAFE", ghi_chu: str = "", noi_goi: str = "",
                   khach=None) -> Phien:
     """Dựng nhiều bối cảnh từ một ảnh, kiểm từng ảnh, ghi nhật ký.
 
@@ -258,7 +272,8 @@ def dung_boi_canh(anh_goc_path: str, boi_canh: list[str], thu_muc_ra: str, *,
     for ten_bc in boi_canh:
         try:
             tra_ve = khach.product_scene(goc, ten_bc, job_id=new_job_id(),
-                                         mode=che_do, note=ghi_chu)
+                                         mode=che_do, note=ghi_chu,
+                                         provider=noi_goi)
         except Exception as e:  # noqa: BLE001 — một bối cảnh hỏng không giết cả mẻ
             # Trừ những lý do KHÔNG phải trục trặc nhất thời: tính năng đang
             # tắt, hoặc máy này chưa nằm trong danh sách chạy thử (C2). Thử

@@ -52,6 +52,36 @@ async function providersFor(role) {
 
 function invalidateProviders() { providerCache.clear() }
 
+/**
+ * Danh sách nơi gọi mô hình cho một vai, ở dạng ĐỌC ĐƯỢC cho người dùng cuối.
+ *
+ * Cố ý chỉ trả tên và nhãn: app cần đủ để dựng ô chọn, không cần và không
+ * được biết khoá API, địa chỉ máy chủ hay tên mô hình — đó là chuyện quản
+ * trị. Thứ tự giữ nguyên theo ưu tiên nên mục đầu chính là cái "Tự động" sẽ
+ * dùng.
+ */
+async function danhSachChon(role) {
+  const list = await providersFor(role)
+  return list.map((p) => ({
+    name: p.name,
+    label: p.label || p.name,
+  }))
+}
+
+/**
+ * Tìm một nơi gọi theo TÊN trong đúng vai đó.
+ *
+ * Trả `null` khi không thấy — nơi gọi bị tắt hoặc bị xoá giữa chừng là
+ * chuyện thường, và người dùng cần nghe "nơi gọi này không còn" chứ không
+ * phải âm thầm rơi về nơi khác. Rơi âm thầm nghĩa là họ tưởng đang dùng mô
+ * hình A trong khi tiền trả cho mô hình B.
+ */
+async function timTheoTen(role, name) {
+  if (!name) return null
+  const list = await providersFor(role)
+  return list.find((p) => p.name === name) || null
+}
+
 // ------------------------------------------------------------ gọi mô hình ---
 
 function openAiHeaders(provider, apiKey) {
@@ -885,6 +915,8 @@ async function assist({ task, input, images }) {
 }
 
 module.exports = {
+  danhSachChon,
+  timTheoTen,
   thuNgay,
   AiError,
   assist,

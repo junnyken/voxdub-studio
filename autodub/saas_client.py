@@ -609,9 +609,24 @@ class SaasClient:
         self._note_usage(data)
         return data
 
+    def image_providers(self, timeout: float = 20.0) -> list[dict]:
+        """Các nơi gọi mô hình ảnh người dùng được chọn — mini-spec C17.
+
+        Hỏng thì trả danh sách rỗng: không chọn được nơi gọi chỉ mất một tiện
+        nghi, còn chặn cả trang vì không hỏi được danh sách là mất cả tính
+        năng. Đường "Tự động" luôn còn đó.
+        """
+        try:
+            data = self._request("GET", "/v1/ai/image-providers", timeout=timeout)
+        except SaasError as e:
+            logger.warning(f"Không lấy được danh sách nơi gọi ảnh ({e})")
+            return []
+        muc = data.get("items")
+        return muc if isinstance(muc, list) else []
+
     def product_scene(self, image: dict, scene: str, *, job_id: str,
                       mode: str = "SAFE", note: str = "",
-                      hold_id: str | None = None,
+                      hold_id: str | None = None, provider: str = "",
                       timeout: float = 120.0) -> dict:
         """Dựng lại ảnh sản phẩm trong một bối cảnh khác — mini-spec C1.
 
@@ -624,6 +639,8 @@ class SaasClient:
         """
         payload = {"jobId": job_id, "scene": scene, "mode": mode,
                    "image": image}
+        if provider:
+            payload["provider"] = provider
         if note:
             payload["note"] = note[:300]
         if hold_id:

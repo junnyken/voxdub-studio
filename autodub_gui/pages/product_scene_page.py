@@ -41,7 +41,8 @@ from autodub_gui.ui.inputs import LabeledCombo, LabeledLineEdit
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.widgets import LogPanel
 from autodub_gui.workers import (
-    ProductSceneWorker, ProductVideoWorker, SceneScriptWorker,
+    ImageProvidersWorker, ProductSceneWorker, ProductVideoWorker,
+    SceneScriptWorker,
 )
 
 _PAGE_MARGIN = 28
@@ -58,6 +59,10 @@ BOI_CANH: list[tuple[str, str]] = [
     ("ngoai_troi", "Ngoài trời"),
     ("tay_cam", "Trên tay"),
 ]
+
+#: Mục đầu của ô chọn nơi gọi: giữ nguyên nếp cũ (máy chủ tự chọn theo ưu
+#: tiên). Chuỗi rỗng làm khoá — không gửi gì lên thì máy chủ tự quyết.
+_TU_DONG = ("Tự động (nơi gọi ưu tiên nhất)", "")
 
 #: Nhãn CHỌN chế độ. Chữ nói thẳng hậu quả, không nói tên kỹ thuật —
 #: "SAFE/CONCEPT" không giúp người bán quyết định được gì.
@@ -82,6 +87,7 @@ class ProductScenePage(BasePage):
         self._worker: ProductSceneWorker | None = None
         self._worker_video: ProductVideoWorker | None = None
         self._worker_kich_ban: SceneScriptWorker | None = None
+        self._worker_noi_goi: ImageProvidersWorker | None = None
         self._anh_kich_ban: list = []
         self._thu_muc_ket_qua = ""
         self._o_boi_canh: dict[str, QCheckBox] = {}
@@ -149,6 +155,26 @@ class ProductScenePage(BasePage):
             "Chế độ ý tưởng dựng lại cả bao bì — đẹp để tham khảo, nhưng "
             "dùng làm ảnh bán hàng là đúng lỗi TikTok Shop đang phạt.")
         card.body.addWidget(self.che_do)
+
+        # Chọn NƠI GỌI cho lượt này (C17). Trước đây nhiều nhà cung cấp trong
+        # cùng một vai chỉ là hàng chờ dự phòng — cái đầu hỏng mới rơi xuống
+        # cái sau. Có mô hình vẽ chữ tiếng Việt tốt hơn, có mô hình rẻ hơn
+        # mười lần; người dùng phải chọn được, không phải chịu thứ tự cố định.
+        self.noi_goi = LabeledCombo(
+            "Nơi gọi mô hình", [_TU_DONG],
+            "Để «Tự động» thì máy chủ dùng nơi gọi ưu tiên nhất. Chọn đích "
+            "danh khi muốn một mô hình cụ thể — ví dụ mô hình vẽ chữ tốt hơn.")
+        card.body.addWidget(self.noi_goi)
+
+        # Ô này sinh ra vì "Gợi ý kịch bản" KHÔNG nhìn thấy tấm ảnh — nó chỉ
+        # nhận tên các bối cảnh và một dòng chữ mô tả. Trước C17 dòng chữ đó
+        # là ô "Ghi chú thêm", vốn để tả bối cảnh, nên mô hình phải đoán sản
+        # phẩm là gì và ra câu dẫn chung chung. Tách hai việc ra.
+        self.ten_san_pham = LabeledLineEdit(
+            "Tên sản phẩm (giúp gợi ý kịch bản đúng hơn)",
+            "ví dụ: thức ăn hạt cho mèo Catsrang 400g, nhập Hàn Quốc",
+            "Chỉ dùng cho gợi ý kịch bản. Không ảnh hưởng tới ảnh dựng ra.")
+        card.body.addWidget(self.ten_san_pham)
 
         self.ghi_chu = LabeledLineEdit(
             "Ghi chú thêm (không bắt buộc)", "ví dụ: đặt cạnh ly cà phê",
@@ -232,6 +258,25 @@ class ProductScenePage(BasePage):
         vung_cuon.setWidget(khung)
         self._vung_cuon = vung_cuon
 
+    def on_shown(self) -> None:
+        """Nạp danh sách nơi gọi mỗi lần mở trang.
+
+        Hỏi lại mỗi lượt mở chứ không nhớ một lần: người quản trị thêm hoặc
+        tắt một nhà cung cấp thì lần mở sau phải thấy đúng. Chạy trên luồng
+        nền — đây vẫn là một lượt gọi mạng (bài học C7).
+        """
+        if self._worker_noi_goi is not None and self._worker_noi_goi.isRunning():
+            return
+        worker = ImageProvidersWorker(self)
+        worker.xong.connect(self._nap_noi_goi)
+        self._worker_noi_goi = worker
+        worker.start()
+
+    def _nap_noi_goi(self, danh_sach) -> None:
+        """Đổ danh sách vào ô chọn, luôn giữ «Tự động» ở đầu."""
+        muc = [_TU_DONG] + [(nhan or ten, ten) for ten, nhan in (danh_sach or [])]
+        self.noi_goi.set_options(muc)
+
     def _cuon_toi_trang_thai(self) -> None:
         """Kéo màn hình tới chỗ có phản hồi.
 
@@ -294,7 +339,8 @@ class ProductScenePage(BasePage):
         worker = ProductSceneWorker(
             anh, chon, thu_muc,
             che_do=str(self.che_do.current_key() or "SAFE"),
-            ghi_chu=self.ghi_chu.text().strip(), parent=self)
+            ghi_chu=self.ghi_chu.text().strip(),
+            noi_goi=str(self.noi_goi.current_key() or ""), parent=self)
         worker.tien_trinh.connect(self.status.setText)
         worker.xong.connect(self._xong)
         worker.hong.connect(self._hong)
@@ -422,7 +468,10 @@ class ProductScenePage(BasePage):
         self._anh_kich_ban = anh
         self.btn_kich_ban.setEnabled(False)
         self.log.append_log("Đang xin gợi ý kịch bản…", 20)
-        worker = SceneScriptWorker(anh, self.ghi_chu.text().strip(), parent=self)
+        # Tên sản phẩm nếu có; không có thì đành dùng ghi chú như nếp cũ —
+        # còn hơn không gửi gì để mô hình đoán từ mỗi tên bối cảnh.
+        mo_ta = self.ten_san_pham.text().strip() or self.ghi_chu.text().strip()
+        worker = SceneScriptWorker(anh, mo_ta, parent=self)
         worker.xong.connect(self._kich_ban_xong)
         self._worker_kich_ban = worker
         worker.start()

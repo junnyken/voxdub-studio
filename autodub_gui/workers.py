@@ -1195,13 +1195,15 @@ class ProductSceneWorker(QThread):
     hong = Signal(str)
 
     def __init__(self, anh_goc: str, boi_canh: list[str], thu_muc: str,
-                 che_do: str = "SAFE", ghi_chu: str = "", parent=None):
+                 che_do: str = "SAFE", ghi_chu: str = "", noi_goi: str = "",
+                 parent=None):
         super().__init__(parent)
         self._anh_goc = anh_goc
         self._boi_canh = list(boi_canh)
         self._thu_muc = thu_muc
         self._che_do = che_do
         self._ghi_chu = ghi_chu
+        self._noi_goi = noi_goi
 
     def run(self) -> None:
         try:
@@ -1211,12 +1213,32 @@ class ProductSceneWorker(QThread):
                 f"Đang dựng {len(self._boi_canh)} bối cảnh…")
             phien = product_scene.dung_boi_canh(
                 self._anh_goc, self._boi_canh, self._thu_muc,
-                che_do=self._che_do, ghi_chu=self._ghi_chu)
+                che_do=self._che_do, ghi_chu=self._ghi_chu,
+                noi_goi=self._noi_goi)
         except Exception as e:  # noqa: BLE001 — lỗi phải lên tới người dùng
             logger.warning(f"Dựng bối cảnh hỏng: {e}")
             self.hong.emit(str(e))
             return
         self.xong.emit(phien)
+
+
+class ImageProvidersWorker(QThread):
+    """Hỏi máy chủ có những nơi gọi mô hình ảnh nào — mini-spec C17.
+
+    Một lượt gọi mạng nhỏ nhưng vẫn là gọi mạng: đặt trên luồng giao diện là
+    đúng lỗi đã mắc ở C7 (cửa sổ đứng hình ngay lúc mở trang).
+    """
+
+    xong = Signal(object)   # list[(tên, nhãn)]
+
+    def run(self) -> None:
+        from autodub import product_scene
+
+        try:
+            self.xong.emit(product_scene.danh_sach_noi_goi())
+        except Exception as e:  # noqa: BLE001 — mất tiện nghi, không mất trang
+            logger.warning(f"Không lấy được danh sách nơi gọi ảnh: {e}")
+            self.xong.emit([])
 
 
 class ProductVideoWorker(QThread):

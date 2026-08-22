@@ -1103,6 +1103,20 @@ module.exports = async function aiRoutes(fastify) {
     return response
   })
 
+  /**
+   * Danh sách nơi gọi mô hình ảnh mà người dùng được CHỌN (mini-spec C17).
+   *
+   * Vì sao cần: nhiều nơi gọi trong cùng một vai trước giờ chỉ là hàng chờ
+   * dự phòng — cái đầu hỏng mới rơi xuống cái sau. Không có cách nói "lượt
+   * này dùng OpenAI vì nó vẽ chữ tốt hơn, lượt kia dùng Gemini vì rẻ hơn".
+   *
+   * Chỉ trả tên và nhãn. Khoá API, địa chỉ máy chủ, tên mô hình là chuyện
+   * quản trị — app không cần biết và không được biết.
+   */
+  fastify.get('/image-providers', async () => ({
+    items: await gateway.danhSachChon('image'),
+  }))
+
   // -------------------------- dựng bối cảnh ảnh sản phẩm (mini-spec C1) --
   //
   // Người bán đưa MỘT ảnh sản phẩm thật, chọn bối cảnh, nhận về ảnh mới.
@@ -1126,6 +1140,9 @@ module.exports = async function aiRoutes(fastify) {
           scene: { type: 'string', enum: scenePrompts.TEN_BOI_CANH },
           mode: { type: 'string', enum: ['SAFE', 'CONCEPT'], default: 'SAFE' },
           note: { type: 'string', maxLength: 300 },
+          // Tên nơi gọi người dùng chọn (mini-spec C17). Bỏ trống = tự động
+          // theo ưu tiên, đúng nếp cũ.
+          provider: { type: 'string', maxLength: 120 },
           holdId: { type: 'string', minLength: 8, maxLength: 100 },
           image: {
             type: 'object',
@@ -1140,7 +1157,8 @@ module.exports = async function aiRoutes(fastify) {
     },
   }, async (request, reply) => {
     const { device } = request
-    const { jobId, scene, image, mode = 'SAFE', note = '', holdId } = request.body
+    const { jobId, scene, image, mode = 'SAFE', note = '', holdId,
+      provider: tenNoiGoi = '' } = request.body
 
     // Chốt chuyển pha (C2) đứng TRƯỚC cả `replay`: cửa đã đóng thì không
     // được phục vụ nốt kết quả cũ — đóng cửa mà vẫn trả hàng qua khe thì
@@ -1208,10 +1226,27 @@ module.exports = async function aiRoutes(fastify) {
       })
     }
 
+    // Người dùng chỉ đích danh một nơi gọi: tìm TRƯỚC khi tính tiền. Chọn
+    // nhầm tên mà vẫn trừ tiền rồi mới báo lỗi là kiểu hỏng tệ nhất — và
+    // rơi âm thầm sang nơi khác còn tệ hơn: họ tưởng đang dùng mô hình mình
+    // chọn, trong khi tiền trả cho mô hình khác.
+    let chiDinh = null
+    if (tenNoiGoi) {
+      const noi = await gateway.timTheoTen('image', tenNoiGoi)
+      if (!noi) {
+        return reply.code(400).send({
+          code: 'KHONG_THAY_NOI_GOI',
+          message: `Không còn nơi gọi mô hình tên "${tenNoiGoi}" cho việc sinh `
+            + 'ảnh. Chọn lại nơi khác hoặc để "Tự động".',
+        })
+      }
+      chiDinh = [noi]
+    }
+
     const started = Date.now()
     let result
     try {
-      result = await gateway.generateScene({ image, scene, mode, note })
+      result = await gateway.generateScene({ image, scene, mode, note, chiDinh })
     } catch (err) {
       request.log.warn({ err, jobId, scene, mode }, 'product-scene failed')
       UsageLog.create({

@@ -33,10 +33,12 @@ class _KhachGia:
         self.no_khi_dung = no_khi_dung
         self.da_dung = []
         self.da_kiem = []
+        self.noi_goi_nhan_duoc = []
 
     def product_scene(self, image, scene, *, job_id, mode="SAFE", note="",
-                      hold_id=None, timeout=120.0):
+                      hold_id=None, provider="", timeout=120.0):
         self.da_dung.append((scene, mode))
+        self.noi_goi_nhan_duoc.append(provider)
         if self.no_khi_dung:
             raise self.no_khi_dung
         if self.anh_hong:
@@ -349,3 +351,25 @@ def test_may_chu_khong_tra_anh_thi_noi_dung_chuyen_do(cam_may_chu, tmp_path):
                              khach=khach)
 
     assert phien.hong and "không trả về ảnh" in phien.hong[0][1]
+
+
+# -- 5. Chọn nơi gọi mô hình cho từng lượt (C17) -----------------------------
+
+def test_khong_chon_thi_khong_gui_gi_len(cam_may_chu, tmp_path):
+    """Bỏ trống = giữ nguyên nếp cũ, máy chủ tự chọn theo ưu tiên."""
+    khach = _KhachGia([("SAFE", "ổn")])
+
+    ps.dung_boi_canh(str(cam_may_chu), ["ban_go"], str(tmp_path / "ra"),
+                     khach=khach)
+
+    assert khach.noi_goi_nhan_duoc == [""]
+
+
+def test_chon_noi_goi_thi_gui_dung_ten_do(cam_may_chu, tmp_path):
+    khach = _KhachGia([("SAFE", "ổn")])
+
+    ps.dung_boi_canh(str(cam_may_chu), ["ban_go", "gio_qua"],
+                     str(tmp_path / "ra"), noi_goi="openai-anh", khach=khach)
+
+    assert khach.noi_goi_nhan_duoc == ["openai-anh", "openai-anh"], (
+        "lựa chọn phải theo cả mẻ, không phải chỉ ảnh đầu")
