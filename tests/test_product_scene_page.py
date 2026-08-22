@@ -500,3 +500,35 @@ def test_trang_nam_trong_vung_cuon(page):
     from PySide6.QtWidgets import QScrollArea
 
     assert page.findChildren(QScrollArea), "trang không có vùng cuộn"
+
+
+def test_phan_hoi_nam_TREN_danh_sach_thu_tu(page):
+    """Bấm nút xong phải thấy phản hồi, không phải cuộn đi tìm.
+
+    Bản đầu của C10 chèn thẻ "Thứ tự cảnh" ngay dưới hàng nút, đẩy dòng trạng
+    thái, khung Nhật ký và cả lưới ảnh xuống dưới đáy màn hình. Chủ dự án bấm
+    "Dựng ảnh", chờ 14 giây, không thấy gì — trong khi máy chủ đã dựng xong
+    ảnh và trừ 30 Vox.
+    """
+    page.resize(1400, 900)
+    page.show()
+    QApplication.processEvents()
+
+    # `y()` tính theo widget cha, mà danh sách nằm trong một thẻ Card nên số
+    # của nó nhỏ hơn hẳn dù đứng dưới. Phải quy về cùng một hệ toạ độ —
+    # chính bẫy này làm bản đầu của test đỏ oan.
+    def cao_do(w):
+        return w.mapTo(page, w.rect().topLeft()).y()
+
+    assert cao_do(page.status) < cao_do(page.thu_tu), "dòng trạng thái nằm dưới danh sách"
+    assert cao_do(page.log) < cao_do(page.thu_tu), "khung Nhật ký nằm dưới danh sách"
+    assert page.ket_qua.geometry().y() < cao_do(page.thu_tu), "lưới ảnh nằm dưới danh sách"
+
+
+def test_chay_va_xong_deu_keo_man_hinh_toi_phan_hoi():
+    """Đúng thứ tự khối vẫn chưa đủ khi cửa sổ thấp — phải kéo tới nơi."""
+    from tests.doc_ma import co_goi
+
+    for ham in (psp.ProductScenePage._chay, psp.ProductScenePage._xong):
+        assert co_goi(ham, "_cuon_toi_trang_thai"), (
+            f"{ham.__name__} không kéo màn hình tới chỗ có phản hồi")

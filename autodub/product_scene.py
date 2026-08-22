@@ -116,7 +116,24 @@ def chuan_bi_anh(duong_dan: str, thu_muc_tam: str) -> dict:
         raise FileNotFoundError(f"Không thấy ảnh: {duong_dan}")
 
     os.makedirs(thu_muc_tam, exist_ok=True)
-    nho = os.path.join(thu_muc_tam, "_anh_goc_thu_nho.jpg")
+    return thu_nho_de_gui(duong_dan, thu_muc_tam, "_anh_goc_thu_nho.jpg")
+
+
+def thu_nho_de_gui(duong_dan: str, thu_muc_tam: str, ten_tam: str) -> dict:
+    """Thu nhỏ MỘT ảnh trên đĩa rồi đóng gói ``{"mimeType", "data"}``.
+
+    Dùng cho cả ảnh gốc lẫn ảnh vừa dựng. Vì sao ảnh vừa dựng cũng phải qua
+    đây (bug thật, 22/8/2026): bản đầu gửi thẳng ảnh máy chủ trả về đi kiểm.
+    Mô hình sinh ảnh trả PNG 1024px — base64 lên tới vài MB — cộng với ảnh
+    gốc là vượt trần thân yêu cầu của máy chủ. Lượt kiểm bị chặn ngay ở tầng
+    vận chuyển, **không để lại một dòng nào trong sổ**, và app lặng lẽ đánh
+    dấu "chưa kiểm được".
+
+    Hậu quả: hai ảnh đã dựng, 60 Vox đã trừ, và **không một lượt kiểm bao bì
+    nào chạy** — tức là cổng tuân thủ, thứ duy nhất tính năng này sinh ra để
+    làm, chưa từng hoạt động.
+    """
+    nho = os.path.join(thu_muc_tam, ten_tam)
     ok = _chay_ffmpeg([
         "-i", duong_dan,
         "-vf", f"scale='min({_CANH_DAI_TOI_DA},iw)':-2",
@@ -195,9 +212,12 @@ def kiem_tuan_thu(khach, anh_goc: dict, anh_moi: dict, *,
             "packaging_check", {"note": ghi_chu[:300]},
             images=[anh_goc, anh_moi], job_id=new_job_id(), timeout=90.0)
     except Exception as e:  # noqa: BLE001 — mọi lỗi đều nghiêng về an toàn
+        # Kèm NGUYÊN VĂN nguyên nhân: "chưa kiểm được" một mình không cho
+        # người bán biết nên chụp lại ảnh, đợi mạng, hay báo lỗi.
         logger.warning(f"Không kiểm được ảnh ({str(e)[:120]}) — đánh dấu là "
                        "ảnh ý tưởng cho chắc")
-        return "CONCEPT", "chưa kiểm được, đánh dấu an toàn", False
+        return ("CONCEPT",
+                f"chưa kiểm được ({str(e)[:80]}) — đánh dấu an toàn", False)
 
     if not ket:
         return "CONCEPT", "máy chủ không trả kết quả kiểm", False
@@ -251,8 +271,18 @@ def dung_boi_canh(anh_goc_path: str, boi_canh: list[str], thu_muc_ra: str, *,
         with open(ra_path, "wb") as f:
             f.write(base64.b64decode(anh_moi["data"]))
 
+        # Gửi bản THU NHỎ của ảnh vừa dựng, không phải ảnh máy chủ trả về:
+        # ảnh gốc từ mô hình quá nặng nên lượt kiểm bị chặn ở tầng vận
+        # chuyển (xem `thu_nho_de_gui`). Phán quyết vẫn đúng vì bước này
+        # nhìn bao bì và chữ trên nhãn, không soi từng điểm ảnh.
+        try:
+            anh_de_kiem = thu_nho_de_gui(ra_path, thu_muc_ra, "_anh_kiem_tam.jpg")
+        except (OSError, ValueError) as e:
+            logger.warning(f"Không chuẩn bị được ảnh để kiểm ({e})")
+            anh_de_kiem = anh_moi
+
         che_do_that, ly_do, da_kiem = kiem_tuan_thu(
-            khach, goc, anh_moi, ghi_chu=ghi_chu)
+            khach, goc, anh_de_kiem, ghi_chu=ghi_chu)
         # Người dùng xin SAFE không có nghĩa ảnh ra là SAFE — phán quyết của
         # bước kiểm mới là thứ tính.
         da_dong_nhan = dong_nhan_ai(ra_path, che_do_that)

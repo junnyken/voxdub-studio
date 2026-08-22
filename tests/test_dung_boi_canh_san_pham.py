@@ -277,3 +277,54 @@ def test_truc_trac_nhat_thoi_thi_VAN_thu_boi_canh_con_lai(cam_may_chu, tmp_path)
                              str(tmp_path / "ra"), khach=khach)
     assert len(khach.da_dung) == 2, "lỗi nhất thời mà đã bỏ luôn bối cảnh sau"
     assert phien.ket_qua == []
+
+
+# -- 4. Ảnh vừa dựng phải THU NHỎ trước khi đem đi kiểm (C14) ----------------
+#
+# Bug thật, 22/8/2026, đo được trong sổ máy chủ: chủ dự án dựng 2 ảnh, bị trừ
+# 60 Vox, và **0 lượt kiểm bao bì nào chạy**. Bản đầu gửi thẳng ảnh do mô hình
+# trả về đi kiểm; ảnh đó là PNG 1024px, base64 vài MB, cộng ảnh gốc là vượt
+# trần thân yêu cầu — lượt kiểm bị chặn ở tầng vận chuyển, không để lại dòng
+# nào trong sổ, và app lặng lẽ ghi "chưa kiểm được".
+#
+# Tức là cổng tuân thủ, thứ duy nhất tính năng này sinh ra để làm, chưa từng
+# chạy một lần nào.
+
+def test_anh_vua_dung_phai_qua_buoc_thu_nho_truoc_khi_kiem(cam_may_chu,
+                                                           tmp_path,
+                                                           monkeypatch):
+    da_thu_nho = []
+    that = ps.thu_nho_de_gui
+
+    def theo_doi(duong_dan, thu_muc_tam, ten_tam):
+        da_thu_nho.append(os.path.basename(duong_dan))
+        return that(duong_dan, thu_muc_tam, ten_tam)
+
+    monkeypatch.setattr(ps, "thu_nho_de_gui", theo_doi)
+    khach = _KhachGia([("SAFE", "chỉ đổi nền")])
+
+    ps.dung_boi_canh(str(cam_may_chu), ["ban_go"], str(tmp_path / "ra"),
+                     khach=khach)
+
+    assert "ban_go.jpg" in da_thu_nho, (
+        "ảnh vừa dựng đi thẳng lên máy chủ, không qua bước thu nhỏ")
+
+
+def test_van_kiem_du_mot_luot_cho_moi_anh(cam_may_chu, tmp_path):
+    """Đo bằng chính con số đã sai: 2 ảnh phải ra 2 lượt kiểm, không phải 0."""
+    khach = _KhachGia([("SAFE", "ổn")])
+
+    ps.dung_boi_canh(str(cam_may_chu), ["ban_go", "gio_qua"],
+                     str(tmp_path / "ra"), khach=khach)
+
+    assert [t for t, _ in khach.da_kiem] == ["packaging_check"] * 2
+
+
+def test_kiem_hong_thi_ly_do_noi_RO_vi_sao(cam_may_chu, tmp_path):
+    """"chưa kiểm được" một mình không cho người bán biết nên làm gì tiếp."""
+    khach = _KhachGia([("__NO__", "ảnh quá nặng")])
+
+    phien = ps.dung_boi_canh(str(cam_may_chu), ["ban_go"], str(tmp_path / "ra"),
+                             khach=khach)
+
+    assert "ảnh quá nặng" in phien.ket_qua[0].ly_do

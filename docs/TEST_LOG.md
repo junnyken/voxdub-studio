@@ -8474,6 +8474,72 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C14 — Cổng tuân thủ chưa từng chạy một lần nào (Phase H, 2026-08-22)
+
+Chủ dự án bấm "Dựng ảnh" trên v3.6.2, chờ, rồi báo **"không thấy gì hết"**.
+Sổ máy chủ nói ngược lại: hai lượt `product_scene`, cùng thành công, Gemini
+chạy 13,7 và 14,1 giây, trừ 60 Vox. Nhưng sổ còn nói một điều nữa, nặng hơn
+nhiều: **0 lượt `packaging_check`**.
+
+Tức là ảnh đã dựng, tiền đã trừ, và **cổng kiểm bao bì — lý do tồn tại của cả
+tính năng — chưa từng chạy một lần nào.**
+
+### Ba lỗi chồng lên nhau, mỗi lỗi che lỗi kia
+
+**1. Ảnh vừa dựng đi thẳng lên máy chủ để kiểm, không thu nhỏ.**
+`chuan_bi_anh()` thu nhỏ và chặn trần 1,6MB — nhưng chỉ cho ảnh GỐC. Ảnh do mô
+hình trả về (PNG 1024px, base64 vài MB) được đưa nguyên vào lượt kiểm, cộng
+với ảnh gốc là vượt trần thân yêu cầu. Lượt kiểm bị chặn ở **tầng vận chuyển**
+— trước cả khi vào route — nên nó không để lại một dòng nào trong sổ. Nhìn từ
+máy chủ: như thể app chưa bao giờ hỏi.
+
+Sửa: tách `thu_nho_de_gui()` ra dùng chung, ảnh vừa dựng cũng phải qua đó.
+Phán quyết không kém đi: bước này nhìn bao bì và chữ trên nhãn, không soi từng
+điểm ảnh.
+
+**2. Kiểm hỏng thì chỉ ghi "chưa kiểm được".** Đúng chính sách (nghiêng về phía
+an toàn) nhưng vô dụng với người bán: không biết nên chụp lại ảnh, đợi mạng,
+hay báo lỗi. Nay kèm nguyên văn nguyên nhân.
+
+**3. Và người dùng không thấy gì cả — lỗi của chính C10.** Thẻ "Thứ tự cảnh"
+được chèn ngay dưới hàng nút, đẩy dòng trạng thái, khung Nhật ký **và cả lưới
+ảnh** xuống dưới đáy màn hình. Bấm nút, chờ 14 giây, màn hình không đổi một
+chút nào — trong khi bên dưới tầm nhìn mọi thứ vẫn chạy và vẫn tiêu tiền.
+
+Sửa: trật tự theo đúng trình tự người dùng làm — nhập → bấm → **trạng thái →
+Nhật ký → ảnh** → rồi mới tới sắp thứ tự cho video (việc chỉ có nghĩa khi đã
+có ảnh). Thêm `_cuon_toi_trang_thai()` gọi lúc bắt đầu và lúc xong: đúng thứ
+tự khối vẫn chưa đủ khi cửa sổ thấp.
+
+### Một chuyện không phải lỗi
+
+Chủ dự án mở thư mục `output/anh_san_pham` và thấy trống. Đó là thư mục của
+bản **v3.6.1**, còn hai lượt chạy là của **v3.6.2** (sổ ghi rõ `appVersion`) —
+ảnh nằm trong thư mục của bản mới. Kiểm tra sổ trước khi kết luận mất dữ liệu
+là việc đáng làm.
+
+### Tests (+5)
+
+Engine (3): ảnh vừa dựng **phải qua bước thu nhỏ** trước khi đi kiểm · 2 ảnh
+phải ra **2 lượt kiểm** (đo bằng chính con số đã sai: 0) · kiểm hỏng thì lý do
+nói rõ vì sao.
+
+Giao diện (2): dòng trạng thái, Nhật ký và lưới ảnh đều phải nằm **TRÊN** danh
+sách thứ tự · `_chay` và `_xong` đều phải kéo màn hình tới chỗ có phản hồi.
+
+Bản đầu của test bố cục đỏ oan vì so `y()` của hai widget khác cha — danh sách
+nằm trong một thẻ Card nên số của nó nhỏ hơn dù đứng dưới. Phải quy về cùng hệ
+toạ độ bằng `mapTo()`.
+
+Gỡ bước thu nhỏ ra → đỏ. **1763 passed, 7 skipped.**
+
+### Còn tồn
+
+- Chưa xác nhận lại bằng lượt chạy thật: cần chủ dự án dựng thêm một ảnh trên
+  v3.6.3 rồi xem sổ có `packaging_check` chưa. **Chưa có bằng chứng cổng tuân
+  thủ hoạt động — chỉ có bằng chứng nó đã không hoạt động.**
+- 60 Vox đã trừ cho hai ảnh không hề được kiểm. Chưa hoàn.
+
 ## C13 — Ô nhập bị ép bẹp, và CI ăn mất suất dùng thử (Phase H, 2026-08-22)
 
 Hai lỗi do chính hai bản sửa hôm nay đẻ ra.

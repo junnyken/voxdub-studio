@@ -185,11 +185,32 @@ class ProductScenePage(BasePage):
         hanh_dong.addStretch()
         root.addLayout(hanh_dong)
 
-        # Thứ tự cảnh: danh sách này CHỈ chứa ảnh đăng bán được. Ảnh lệch
-        # nhãn và ảnh chưa kiểm được không có mặt ở đây — không phải để giấu,
-        # mà vì đây là danh sách "đưa vào video", và chúng không được vào.
-        # Lý do vì sao chúng không được vào vẫn hiện dưới từng ảnh ở lưới
-        # kết quả.
+        self.status = QLabel("")
+        self.status.setWordWrap(True)
+        self.status.setObjectName("hint")
+        root.addWidget(self.status)
+
+        # Khung Nhật ký: chỗ duy nhất đủ dài để in gợi ý kịch bản từng cảnh
+        # và câu cảnh báo liên tục — dòng trạng thái một dòng không chứa nổi.
+        self.log = LogPanel()
+        self.log.setMaximumHeight(150)
+        root.addWidget(self.log)
+
+        self.ket_qua = QGridLayout()
+        self.ket_qua.setSpacing(tokens.SP_3)
+        root.addLayout(self.ket_qua)
+
+        # Thứ tự cảnh nằm SAU lưới kết quả, không phải trước.
+        #
+        # Bản đầu của C10 chèn thẻ này ngay dưới hàng nút, đẩy dòng trạng
+        # thái, khung Nhật ký và cả lưới ảnh xuống dưới đáy màn hình. Chủ dự
+        # án bấm "Dựng ảnh", chờ 14 giây, **không thấy gì xảy ra** — trong khi
+        # máy chủ đã dựng xong ảnh và trừ 30 Vox. Thứ hỏng không phải tính
+        # năng mà là chỗ đặt: mọi phản hồi đều nằm ngoài tầm nhìn.
+        #
+        # Trật tự đúng theo đúng trình tự người dùng làm: nhập → bấm → thấy
+        # trạng thái → thấy ảnh → rồi mới tới sắp thứ tự cho video (việc chỉ
+        # có nghĩa khi đã có ảnh).
         the_thu_tu = Card(padding=tokens.SP_4)
         the_thu_tu.add_header("Thứ tự cảnh trong video")
         goi_y = QLabel("Kéo để đổi thứ tự. Bỏ tích ảnh không muốn đưa vào.")
@@ -206,23 +227,22 @@ class ProductScenePage(BasePage):
         the_thu_tu.body.addWidget(self.thu_tu)
         root.addWidget(the_thu_tu)
 
-        self.status = QLabel("")
-        self.status.setWordWrap(True)
-        self.status.setObjectName("hint")
-        root.addWidget(self.status)
-
-        # Khung Nhật ký: chỗ duy nhất đủ dài để in gợi ý kịch bản từng cảnh
-        # và câu cảnh báo liên tục — dòng trạng thái một dòng không chứa nổi.
-        self.log = LogPanel()
-        self.log.setMaximumHeight(150)
-        root.addWidget(self.log)
-
-        self.ket_qua = QGridLayout()
-        self.ket_qua.setSpacing(tokens.SP_3)
-        root.addLayout(self.ket_qua)
         root.addStretch()
 
         vung_cuon.setWidget(khung)
+        self._vung_cuon = vung_cuon
+
+    def _cuon_toi_trang_thai(self) -> None:
+        """Kéo màn hình tới chỗ có phản hồi.
+
+        Bấm nút xong mà dòng trạng thái nằm ngoài tầm nhìn thì với người
+        dùng, app **không làm gì cả** — kể cả khi nó đang chạy và đang tiêu
+        tiền. Đây là chuyện đã xảy ra thật: dựng xong ảnh, trừ 30 Vox, người
+        bấm không thấy một dấu hiệu nào.
+        """
+        vung = getattr(self, "_vung_cuon", None)
+        if vung is not None:
+            vung.ensureWidgetVisible(self.status)
 
     # ----------------------------------------------------------- hành động --
     def _chon_anh(self) -> None:
@@ -269,6 +289,7 @@ class ProductScenePage(BasePage):
         self._thu_muc_ket_qua = thu_muc
         self.btn_run.setEnabled(False)
         self.status.setText("Đang dựng…")
+        self._cuon_toi_trang_thai()
 
         worker = ProductSceneWorker(
             anh, chon, thu_muc,
@@ -450,6 +471,7 @@ class ProductScenePage(BasePage):
     def _xong(self, phien) -> None:
         self.btn_run.setEnabled(True)
         self.btn_open.setEnabled(True)
+        self._cuon_toi_trang_thai()
         if self._thu_muc_ket_qua:
             self._nap_thu_tu(self._thu_muc_ket_qua)
         if not phien.ket_qua:
