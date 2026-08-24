@@ -256,9 +256,9 @@ def transcribe_media(source: str, output_dir: str, settings,
     os.makedirs(output_dir, exist_ok=True)
     ghi_dan = _GhiDan(duong_tam)
     try:
-        segments = run_asr(audio_path, lang, settings,
-                           cancel_event=cancel_event,
-                           on_segment=ghi_dan.them)
+        segments = _chep_mot_hoac_nhieu_doan(
+            audio_path, lang, settings, run_asr,
+            cancel_event=cancel_event, ghi_dan=ghi_dan, say=say)
     except BaseException:
         # Giữ NGUYÊN tệp dở và nói chỗ của nó. Hỏng giữa chừng mà xoá luôn
         # phần đã nghe được là lấy đi thứ duy nhất còn cứu được.
@@ -305,6 +305,60 @@ def transcribe_media(source: str, output_dir: str, settings,
     say("done", f"Xong: {len(segments)} câu")
     _don_tam(work_dir, audio_path, media_path)
     return result
+
+
+#: Dài hơn ngần này thì tự cắt ra rồi nghe từng đoạn (mini-spec C26).
+#:
+#: 45 phút: dưới mức đó thì một lượt chạy liền mạch vừa đơn giản vừa không có
+#: ranh giới nào để làm hỏng câu. Trên mức đó thì lợi ích của việc chia nhỏ
+#: (thấy tiến độ, hỏng một đoạn không mất cả buổi) vượt cái giá của ranh giới.
+PHUT_TU_CAT = 45
+
+
+def _chep_mot_hoac_nhieu_doan(audio_path, lang, settings, run_asr, *,
+                              cancel_event, ghi_dan, say):
+    """Nghe cả tệp một lượt, hoặc tự cắt ra nghe từng đoạn rồi GHÉP LẠI.
+
+    Người dùng không phải quyết định gì: tệp ngắn thì chạy như cũ, tệp dài
+    thì tự chia. Và dù chia hay không, **kết quả trả về là MỘT mạch duy nhất**
+    với mốc thời gian liên tục từ đầu tới cuối — chia nhỏ là chuyện nội bộ,
+    không phải chuyện người dùng phải đi ghép tay tám tệp lại.
+
+    Mốc cắt nắn về khoảng lặng (xem `media/cat_tep.py`) nên ranh giới rơi vào
+    chỗ im, không rơi giữa câu.
+    """
+    from autodub.media.cat_tep import cat_deu, do_dai_giay
+
+    tong = do_dai_giay(audio_path)
+    if not tong or tong <= PHUT_TU_CAT * 60:
+        return run_asr(audio_path, lang, settings, cancel_event=cancel_event,
+                       on_segment=ghi_dan.them)
+
+    thu_muc_doan = os.path.join(os.path.dirname(audio_path), "doan_tam")
+    doan = cat_deu(audio_path, thu_muc_doan, phut=PHUT_TU_CAT)
+    if len(doan) <= 1:
+        return run_asr(audio_path, lang, settings, cancel_event=cancel_event,
+                       on_segment=ghi_dan.them)
+
+    say("asr", f"Tệp dài {tong / 60:.0f} phút — chia làm {len(doan)} đoạn để "
+               "nghe cho chắc.")
+    tat_ca: list[dict] = []
+    moc = 0.0
+    for i, tep in enumerate(doan, 1):
+        _kiem_huy(cancel_event)
+        say("asr", f"Đang nghe đoạn {i}/{len(doan)}…")
+        cau = run_asr(tep, lang, settings, cancel_event=cancel_event,
+                      on_segment=ghi_dan.them)
+        # Dời mốc về THỜI GIAN THẬT trong tệp gốc. Không dời thì tám đoạn đều
+        # bắt đầu từ 00:00 và bản chép lời ghép lại thành vô nghĩa.
+        for c in cau:
+            c["start"] = round(float(c.get("start", 0) or 0) + moc, 3)
+            c["end"] = round(float(c.get("end", 0) or 0) + moc, 3)
+            c["id"] = len(tat_ca) + 1
+            tat_ca.append(c)
+        moc += do_dai_giay(tep) or 0.0
+    _don_tam(thu_muc_doan, *doan)
+    return tat_ca
 
 
 #: Đuôi tệp ghi dở. Đặt rõ ràng để người dùng nhìn là biết đây là bản chưa

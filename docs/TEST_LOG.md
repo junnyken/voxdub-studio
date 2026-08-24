@@ -8474,6 +8474,83 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C26 — Cắt theo khoảng lặng, và tệp dài thì TỰ chia rồi TỰ ghép (Phase H, 2026-08-24)
+
+Chủ dự án hỏi hai câu và trả lời một câu.
+
+### 1. Sửa đúng điểm yếu tôi tự nêu
+
+C25 cắt theo thời lượng đều, nên mỗi ranh giới rơi vào giữa một câu — tệp
+3 giờ 43 cắt 8 đoạn là **7 câu bị chia đôi**, và một câu bị chia đôi là một
+câu SAI ở CẢ HAI bản chép lời.
+
+Nay dò quãng im bằng `silencedetect` rồi **nắn mốc cắt về quãng im gần nhất**
+trong khoảng ±90 giây. Ba luật:
+
+- Cắt ở **giữa** quãng im, không ở đầu cũng không ở cuối: cắt lúc bắt đầu im
+  thì chữ cuối câu trước dễ hụt đuôi, cắt lúc hết im thì chữ đầu câu sau dễ
+  mất.
+- **Không có quãng im nào đủ gần thì giữ mốc đều** — thà cắt giữa câu còn hơn
+  để một đoạn dài gấp đôi các đoạn khác.
+- **Tên tệp mang mốc THẬT**, không suy từ `số thứ tự × độ dài đoạn` — mốc đã
+  nắn thì phép nhân đó sai.
+
+**Đo trên âm thanh thật** (55s tiếng — 4s im — 55s tiếng — 4s im — 55s tiếng):
+dò ra đúng hai quãng im ở **57,0s và 116,0s**; cắt đều sẽ rơi vào 60/120 giữa
+tiếng nói; bản mới cắt ở 57/116, đoạn đầu dài 57s thay vì 60s. Tổng thời lượng
+không mất giây nào.
+
+### 2. Tệp dài thì tự chia — và trả về MỘT mạch, không phải tám tệp
+
+Câu hỏi: *"tệp dài thì nó tự hiểu không, và chạy xong ghép lại hay gửi thành
+các file nhỏ?"*
+
+Trước bản này người dùng phải tự bấm nút cắt. Nay `transcribe_media` tự xử:
+dài quá **45 phút** thì cắt ra (theo khoảng lặng), nghe từng đoạn, rồi **ghép
+lại thành một mạch duy nhất**.
+
+Điểm mấu chốt là **dời mốc thời gian**: mỗi đoạn được ASR trả về với mốc bắt
+đầu từ 0, nên phải cộng thời điểm bắt đầu thật của đoạn đó. Không dời thì tám
+đoạn đều bắt đầu từ 00:00 và bản chép lời ghép lại thành vô nghĩa. Số thứ tự
+câu cũng đánh lại cho chạy liền.
+
+Vì sao ngưỡng 45 phút: dưới mức đó một lượt chạy liền mạch vừa đơn giản vừa
+không có ranh giới nào để làm hỏng câu; trên mức đó thì lợi ích của chia nhỏ
+(thấy tiến độ, hỏng một đoạn không mất cả buổi) vượt cái giá của ranh giới.
+
+Nút "Cắt tệp dài…" của C25 vẫn giữ — cho ai muốn **tệp rời** thật sự (mỗi
+đoạn một bản chép lời riêng), thay vì một mạch liền.
+
+### 3. Câu hỏi không cần code: nhãn người nói
+
+*"Nó có cần thiết không? Tôi chỉ cần nó viết chính xác nội dung."*
+
+Trả lời: **không cần**, và tôi không làm. Tệp giảng bài chủ yếu một người nói;
+nhãn *Người 1 / Người 2* không làm nội dung đúng thêm một chữ nào. Đổi lại nó
+đòi cài `.venv-diar` + khoá HuggingFace, và **chưa từng chạy thật lần nào**
+trong dự án. Ghi lại đây để lần sau ai hỏi thì có câu trả lời sẵn, không phải
+cân nhắc lại từ đầu.
+
+### Chứng minh từng luật
+
+Bỏ nắn về khoảng lặng → 2 đỏ. Suy mốc từ số thứ tự → 1 đỏ. Không dời mốc khi
+ghép → 1 đỏ.
+
+**1840 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- Dò khoảng lặng phải **quét hết tệp một lượt** bằng ffmpeg trước khi cắt. Với
+  tệp 3-4 giờ đó là thêm vài phút. Tắt được bằng `theo_khoang_lang=False`
+  nhưng giao diện chưa có ô tắt.
+- Ngưỡng im **-30 dB / 0,6 giây** chọn cho giọng giảng bài trong phòng ồn nhẹ;
+  chưa hiệu chỉnh trên nhiều loại thu âm.
+- Với tệp VIDEO, `-c copy` chỉ cắt được ở khung hình khoá, nên mốc thật có thể
+  lệch vài giây so với mốc đã nắn. Với tệp âm thanh thuần thì gần như chính
+  xác.
+- **Vẫn chưa chạy thật một tệp dài nào qua ASR** — không có `.venv-whisper`
+  trong môi trường này. Phần cắt và ghép mốc đã đo thật; phần nghe thì chưa.
+
 ## C25 — Cắt tệp dài, ngay trong app (Phase H, 2026-08-24)
 
 Chủ dự án: *"tôi phải cắt sao vì tôi không có phần mềm cắt, bạn có hỗ trợ

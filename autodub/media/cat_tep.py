@@ -59,8 +59,14 @@ def do_dai_giay(duong_dan: str) -> float:
 
 
 def cat_deu(duong_dan: str, thu_muc_ra: str = "", *,
-            phut: int = PHUT_MAC_DINH, timeout: float = 1800.0) -> list[str]:
-    """Cắt tệp thành các đoạn dài `phut` phút. Trả về danh sách đường dẫn.
+            phut: int = PHUT_MAC_DINH, theo_khoang_lang: bool = True,
+            timeout: float = 1800.0) -> list[str]:
+    """Cắt tệp thành các đoạn khoảng `phut` phút. Trả về danh sách đường dẫn.
+
+    `theo_khoang_lang=True` (mặc định) dò các quãng im rồi **nắn mốc cắt về
+    quãng im gần nhất** trong khoảng ±90 giây. Cắt đều tăm tắp thì mỗi ranh
+    giới rơi vào giữa một câu — với tệp 3 giờ 43 cắt 8 đoạn là 7 câu bị chia
+    đôi, và một câu bị chia đôi là một câu SAI ở cả hai bản chép lời.
 
     Tệp ngắn hơn một đoạn thì **trả về chính nó** — cắt một tệp 10 phút thành
     "một đoạn 10 phút" chỉ tạo thêm một bản sao vô ích.
@@ -84,10 +90,21 @@ def cat_deu(duong_dan: str, thu_muc_ra: str = "", *,
 
     # `%03d` là số thứ tự do ffmpeg điền; mốc bắt đầu điền sau, khi đổi tên —
     # ffmpeg không có chỗ điền "giây bắt đầu của đoạn này".
+    # Mốc cắt: nắn về khoảng lặng nếu dò được, còn không thì cắt đều.
+    moc_cat: list[float] = []
+    if theo_khoang_lang:
+        moc_cat = chon_moc_cat(tong or 0.0, phut,
+                               tim_khoang_lang(duong_dan, timeout=timeout))
+    if moc_cat:
+        cat_theo = ["-segment_times",
+                    ",".join(f"{g:.3f}" for g in moc_cat)]
+    else:
+        cat_theo = ["-segment_time", str(phut * 60)]
+
     mau = os.path.join(thu_muc_ra, f"{goc}_phan_%03d{duoi}")
     lenh = [
         duong_dan_ffmpeg(), "-y", "-i", duong_dan,
-        "-f", "segment", "-segment_time", str(phut * 60),
+        "-f", "segment", *cat_theo,
         # Chép luồng: nhanh và không mất chất lượng. Mã hoá lại một tệp 3 giờ
         # mất hàng chục phút để đổi lấy một tệp xấu hơn.
         "-c", "copy",
@@ -112,9 +129,14 @@ def cat_deu(duong_dan: str, thu_muc_ra: str = "", *,
         raise RuntimeError("ffmpeg chạy xong nhưng không có đoạn nào được tạo.")
 
     # Đổi tên để mang MỐC BẮT ĐẦU — xem docstring đầu tệp.
+    # Mốc bắt đầu THẬT của từng đoạn. Suy ra từ `số thứ tự × độ dài đoạn` là
+    # sai ngay khi mốc đã được nắn về khoảng lặng.
+    bat_dau = [0.0] + list(moc_cat) if moc_cat else \
+        [i * phut * 60 for i in range(len(phan))]
+
     ra: list[str] = []
     for i, cu in enumerate(phan):
-        moc = _mmss_ten(i * phut * 60)
+        moc = _mmss_ten(bat_dau[i] if i < len(bat_dau) else i * phut * 60)
         moi = os.path.join(thu_muc_ra, f"{goc}_phan_{i + 1:02d}_tu_{moc}{duoi}")
         try:
             os.replace(cu, moi)
@@ -123,4 +145,63 @@ def cat_deu(duong_dan: str, thu_muc_ra: str = "", *,
             moi = cu
         ra.append(moi)
     logger.info(f"Đã cắt thành {len(ra)} đoạn ở «{thu_muc_ra}».")
+    return ra
+
+#: Tìm khoảng lặng trong khoảng ± bao nhiêu giây quanh mốc cắt mong muốn.
+#: 90 giây: đủ rộng để gần như luôn có một quãng nghỉ, đủ hẹp để các đoạn
+#: không lệch nhau quá nhiều về độ dài.
+_SAI_SO_GIAY = 90
+
+#: Ngưỡng coi là "im". -30 dB bắt được quãng nghỉ giữa câu của người giảng
+#: bài trong phòng có tiếng ồn nền nhẹ; im tuyệt đối thì gần như không có.
+_NGUONG_DB = -30
+_IM_TOI_THIEU_S = 0.6
+
+
+def tim_khoang_lang(duong_dan: str, timeout: float = 1800.0) -> list[float]:
+    """Các mốc (giây) mà âm thanh im — dùng làm chỗ cắt.
+
+    Trả về giữa mỗi quãng im: cắt ngay lúc bắt đầu im thì chữ cuối câu trước
+    dễ bị hụt đuôi, cắt lúc hết im thì chữ đầu câu sau dễ mất.
+    """
+    lenh = [duong_dan_ffmpeg(), "-i", duong_dan, "-af",
+            f"silencedetect=noise={_NGUONG_DB}dB:d={_IM_TOI_THIEU_S}",
+            "-f", "null", "-"]
+    try:
+        chay = subprocess.run(lenh, capture_output=True, text=True,
+                              timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning(f"Không dò được khoảng lặng ({e})")
+        return []
+
+    moc: list[float] = []
+    bat_dau = None
+    for dong in (chay.stderr or "").splitlines():
+        m = re.search(r"silence_start:\s*(-?[\d.]+)", dong)
+        if m:
+            bat_dau = float(m.group(1))
+            continue
+        m = re.search(r"silence_end:\s*(-?[\d.]+)", dong)
+        if m and bat_dau is not None:
+            ket = float(m.group(1))
+            moc.append(round((bat_dau + ket) / 2, 3))
+            bat_dau = None
+    return moc
+
+
+def chon_moc_cat(tong_giay: float, phut: int,
+                 khoang_lang: list[float]) -> list[float]:
+    """Chọn các mốc cắt: bám mốc đều, nhưng NẮN về khoảng lặng gần nhất.
+
+    Không có khoảng lặng nào đủ gần thì giữ nguyên mốc đều — thà cắt giữa câu
+    còn hơn để một đoạn dài gấp đôi các đoạn khác.
+    """
+    buoc = phut * 60
+    ra: list[float] = []
+    moc = buoc
+    while moc < tong_giay - 1:
+        gan = [g for g in khoang_lang if abs(g - moc) <= _SAI_SO_GIAY
+               and g > (ra[-1] if ra else 0) + 5]
+        ra.append(min(gan, key=lambda g: abs(g - moc)) if gan else float(moc))
+        moc += buoc
     return ra
