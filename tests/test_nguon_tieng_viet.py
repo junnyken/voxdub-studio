@@ -72,11 +72,11 @@ def test_moi_ma_nguon_deu_co_trong_bang_dich():
     assert thieu == [], f"nguồn {thieu} không có mã dịch tương ứng"
 
 
-# -- Chốt "nguồn trùng đích" phải có ở MỌI đường vào (mini-spec C22) ---------
+# -- Cùng ngôn ngữ = BỎ KHÂU DỊCH, không phải chặn (mini-spec C23) ----------
 #
-# Chốt này thêm ngày 22/8 nhưng chỉ ở trang Tạo dự án. Xử lý hàng loạt và
-# `voxdub dub` vẫn nhận nguồn trùng đích — và trả tiền cho một lượt gọi mô
-# hình mỗi video để nhận lại gần đúng câu cũ.
+# C22 chặn cả ba đường vào. Chặn thì đúng về tiền nhưng bỏ mất một việc người
+# dùng thật sự cần: đổi giọng cho video tiếng Việt sẵn có. C23 đổi thành bỏ
+# hẳn khâu dịch — vừa làm được việc, vừa không tốn một đồng nào cho phần dịch.
 
 def test_phep_so_nam_o_LOI_de_dong_lenh_dung_duoc():
     """Dòng lệnh không được nhập gói giao diện, nên phép so phải ở lõi."""
@@ -90,11 +90,10 @@ def test_khong_con_bang_chep_tay_trong_goi_giao_dien():
     import io
 
     s = io.open("autodub_gui/dub_constants.py", encoding="utf-8").read()
-    assert "_NGUON_SANG_DICH = {" not in s, \
-        "hai bản chép là có ngày lệch nhau"
+    assert "_NGUON_SANG_DICH = {" not in s, "hai bản chép là có ngày lệch nhau"
 
 
-def test_tu_nhan_dang_thi_khong_ket_luan(monkeypatch):
+def test_tu_nhan_dang_thi_khong_ket_luan():
     """Chặn oan còn tệ hơn không chặn."""
     from autodub.languages import cung_ngon_ngu
 
@@ -102,44 +101,65 @@ def test_tu_nhan_dang_thi_khong_ket_luan(monkeypatch):
     assert cung_ngon_ngu("", "vi") is False
 
 
-def test_dong_lenh_chan_nguon_trung_dich():
-    """`voxdub dub --source-lang vi-VN --target vi` phải bị chặn."""
+def test_duong_ong_BO_KHAU_DICH_khi_cung_ngon_ngu():
     from tests.doc_ma import co_goi
-    from autodub.cli import _cmd_dub
+    from autodub.pipeline import DubPipeline
 
-    assert co_goi(_cmd_dub, "cung_ngon_ngu"), "dòng lệnh chưa có chốt"
-
-
-def test_dong_lenh_chan_TRUOC_khi_tai_video():
-    """Tải xong mới báo là đã tốn băng thông và thời gian của người dùng."""
-    from tests.doc_ma import cac_luot_goi
-    from autodub.cli import _cmd_dub
-
-    goi = cac_luot_goi(_cmd_dub)
-    assert "cung_ngon_ngu" in goi
-    # Mọi lượt gọi liên quan tới tải/chạy pipeline phải đứng SAU.
-    i = goi.index("cung_ngon_ngu")
-    sau = goi[i:]
-    for ten in ("run", "DubPipeline"):
-        if ten in goi:
-            assert ten in sau, f"«{ten}» chạy trước khi kiểm ngôn ngữ"
-
-
-def test_xu_ly_hang_loat_chan_o_MOT_cho_duy_nhat():
-    """Chặn ở nơi gọi thì thêm đường vào thứ ba là sót."""
-    from tests.doc_ma import co_goi
-    from autodub_gui.pages.batch_page import BatchPage
-
-    assert co_goi(BatchPage._launch, "_chan_cung_ngon_ngu"), \
-        "đường chạy mẻ chưa có chốt"
-    # Hai đường vào đều đi qua `_launch`, nên KHÔNG cần chặn riêng ở chúng.
-    for ham in (BatchPage._start_all, BatchPage._run_single):
-        assert co_goi(ham, "_launch")
-
-
-def test_xu_ly_hang_loat_chan_ca_duong_len_may_chu():
-    """Đường đẩy lên máy chủ cũng phải bị chặn — nó tốn tiền hơn."""
+    # `run()` chỉ là lớp vỏ bọc lỗi; việc thật nằm ở `_run_impl`.
+    assert co_goi(DubPipeline._run_impl, "cung_ngon_ngu"), \
+        "đường ống không hề biết tới ca cùng ngôn ngữ"
+    # Và phải hỏi TRƯỚC khi giữ tiền, không phải sau.
     from tests.doc_ma import goi_truoc
+
+    assert goi_truoc(DubPipeline._run_impl, "cung_ngon_ngu", "_setup_hold"), \
+        "giữ tiền xong mới biết là không cần dịch thì đã giữ thừa"
+
+
+def test_KHONG_giu_cho_tien_dich_khi_khong_dich():
+    """Giữ chỗ rồi không dùng nghĩa là người dùng bị chặn vì «không đủ Vox»
+    cho một việc không hề tốn Vox — với video dài đó là hàng chục nghìn Vox."""
+    import io
+
+    s = io.open("autodub/billing.py", encoding="utf-8").read()
+    assert "and not khong_can_dich" in s, \
+        "cờ không đi vào auto_translate của lệnh giữ tiền"
+
+
+def test_cau_dich_chinh_la_cau_goc():
+    """Bỏ khâu dịch mà quên gán câu thì các bước sau nhận chuỗi rỗng."""
+    import io
+
+    s = io.open("autodub/pipeline.py", encoding="utf-8").read()
+    assert 'seg[target.text_field] = seg.get("text", "")' in s
+
+
+def test_KHONG_con_chan_o_bat_ky_duong_vao_nao():
+    """Chặn là bỏ mất việc đổi giọng — ca có thật."""
+    import io
+
+    from tests.doc_ma import cay_ham
+    import ast
     from autodub_gui.pages.batch_page import BatchPage
 
-    assert goi_truoc(BatchPage._launch, "_chan_cung_ngon_ngu", "_launch_cloud")
+    # `_chan_cung_ngon_ngu` phải luôn trả về False (chỉ thông báo).
+    tra_ve = [n for n in ast.walk(cay_ham(BatchPage._chan_cung_ngon_ngu))
+              if isinstance(n, ast.Return)]
+    assert tra_ve, "hàm không trả về gì"
+    assert all(isinstance(n.value, ast.Constant) and n.value.value is False
+               for n in tra_ve), "vẫn còn đường chặn cả mẻ"
+
+    s = io.open("autodub/cli.py", encoding="utf-8").read()
+    i = s.index("if cung_ngon_ngu(args.source_lang")
+    assert "CliArgError" not in s[i:i + 400], "dòng lệnh vẫn chặn"
+
+
+def test_van_noi_cho_nguoi_dung_biet():
+    """Im lặng cũng không được: người chọn Tiếng Việt vì tưởng phải khai đúng
+    ngôn ngữ video, chứ không biết mình vừa chọn một luồng khác."""
+    import io
+
+    for tep, chu in [("autodub_gui/pages/batch_page.py", "TOASTS.info"),
+                     ("autodub_gui/pages/new_project_page.py", "TOASTS.info"),
+                     ("autodub/cli.py", "bỏ qua khâu dịch")]:
+        s = io.open(tep, encoding="utf-8").read()
+        assert chu in s, f"{tep} không nói gì với người dùng"

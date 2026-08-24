@@ -175,7 +175,7 @@ class TranscribeCancelled(RuntimeError):
 
 def transcribe(audio_path: str, language: str, settings: Settings,
                whisper_cache: "WhisperCache | None" = None,
-               cancel_event=None) -> list[dict]:
+               cancel_event=None, on_segment=None) -> list[dict]:
     """Transcribe audio with the configured local ASR (free, offline).
 
     Engines: Whisper (default, multilingual) or Paraformer (Chinese only,
@@ -220,7 +220,8 @@ def transcribe(audio_path: str, language: str, settings: Settings,
                 and settings.whisper_venv_configured():
             try:
                 segments = _transcribe_whisper_subprocess(
-                    audio_path, language, settings, cancel_event=cancel_event)
+                    audio_path, language, settings, cancel_event=cancel_event,
+                    on_segment=on_segment)
             except TranscribeCancelled:
                 # V74 — Dừng KHÔNG phải lỗi. `TranscribeCancelled` kế thừa
                 # `RuntimeError` nên `except Exception` bên dưới nuốt gọn nó,
@@ -265,7 +266,8 @@ def transcribe(audio_path: str, language: str, settings: Settings,
 
 
 def _transcribe_whisper_subprocess(
-    audio_path: str, language: str, settings: Settings, cancel_event=None
+    audio_path: str, language: str, settings: Settings, cancel_event=None,
+    on_segment=None,
 ) -> list[dict]:
     """Chạy Whisper trong .venv-whisper (subprocess) — không cần bundle
     faster-whisper/ctranslate2 trong exe, giảm ~112 MB bản phân phối.
@@ -417,6 +419,16 @@ def _transcribe_whisper_subprocess(
                 if words:
                     seg["words"] = words
                 segments.append(seg)
+                # Báo NGAY từng câu ra ngoài (mini-spec C24): với file vài
+                # giờ, chờ tới lúc xong hết mới ghi ra đĩa là đánh cược —
+                # hỏng ở phút thứ 200 là mất sạch.
+                if on_segment is not None:
+                    try:
+                        on_segment(seg)
+                    except Exception:  # noqa: BLE001
+                        # Ghi tạm hỏng KHÔNG được làm hỏng lượt chép lời.
+                        logger.warning("Không ghi tạm được câu vừa nghe",
+                                       exc_info=True)
                 logger.info(f"Segment {seg['id']}: "
                             f"[{start:.1f}s-{end:.1f}s] "
                             f"{seg['text'][:50]}...")

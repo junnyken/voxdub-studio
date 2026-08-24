@@ -534,8 +534,28 @@ class DubPipeline:
         # hai luồng là THỜI ĐIỂM chốt: wizard dừng chờ bấm Xuất video, còn
         # batch/legacy chốt ngay sau khi xuất xong (xem cuối hàm).
         video_duration_s = max(float(s.get("end", 0) or 0) for s in segments)
+
+        # Nguồn đã cùng ngôn ngữ với đích: KHÔNG có gì để dịch (mini-spec C23).
+        #
+        # Trước đây ba đường vào đều chặn thẳng, nhưng chặn là bỏ mất một việc
+        # người dùng thật sự cần: đổi giọng cho video tiếng Việt sẵn có (giọng
+        # gốc ồn, nói nhanh, hoặc muốn giọng khác). Việc đó chỉ cần
+        # nghe-chép → tạo giọng → ghép, bỏ hẳn khâu dịch.
+        #
+        # Quan trọng về tiền: cờ này đi thẳng vào `create_hold(auto_translate=)`
+        # nên máy chủ KHÔNG giữ chỗ tiền dịch. Với video 3-4 giờ, khoản đó là
+        # hàng chục nghìn Vox.
+        from autodub.languages import cung_ngon_ngu
+
+        khong_can_dich = cung_ngon_ngu(req.source_lang or "", target.key)
+        if khong_can_dich:
+            logger.warning(
+                f"Nguồn và đích đều là {target.name} — bỏ qua bước dịch, "
+                "chỉ thay giọng đọc. Không tính Vox cho phần dịch.")
+
         blocked = self._setup_hold(segments, target, work_dir,
-                                   video_duration_s)
+                                   video_duration_s,
+                                   khong_can_dich=khong_can_dich)
         if blocked is not None:
             bg_future.result()   # kết quả đã cache — lần chạy lại dùng ngay
             return blocked
@@ -562,7 +582,15 @@ class DubPipeline:
         rep.check_cancelled()
         logger.info("=" * 60)
         logger.info(f"STEP 4: Loading {target.name} translation")
-        if os.path.exists(transcript_dub_path):
+        if khong_can_dich:
+            # Câu đích CHÍNH LÀ câu gốc. Vẫn ghi ra tệp bản dịch để các bước
+            # sau (phụ đề, tạo giọng, xuất) không cần biết gì về ca này.
+            for seg in segments:
+                seg[target.text_field] = seg.get("text", "")
+            _refresh_subs(segments, work_dir, target, subtitle_style)
+            rep.emit("translate", "done",
+                     detail=f"Không cần dịch — nguồn đã là {target.name}")
+        elif os.path.exists(transcript_dub_path):
             logger.info(f"Reusing existing translation: {transcript_dub_path}")
             logger.info("Dùng lại bản dịch đã có — đỡ chờ")
             segments = self._load_translation(transcript_dub_path, segments, target)
@@ -1306,7 +1334,7 @@ class DubPipeline:
 
     def _setup_hold(
         self, segments: list[dict], target: TargetLang, work_dir: str,
-        video_duration_s: float,
+        video_duration_s: float, khong_can_dich: bool = False,
     ) -> DubResult | None:
         """Giữ chỗ Vox cho lượt chạy — gọi ngay sau ASR, mọi luồng.
 
@@ -1314,7 +1342,8 @@ class DubPipeline:
         (mini-spec V2 — di chuyển nguyên văn, xem docs/PLAN.md).
         """
         return self._billing.setup_hold(segments, target, work_dir,
-                                        video_duration_s)
+                                        video_duration_s,
+                                        khong_can_dich=khong_can_dich)
 
     def _money_note_for_manual(self) -> str:
         """Dòng trấn an về Vox để ghi vào hướng dẫn dịch tay.

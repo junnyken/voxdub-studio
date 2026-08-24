@@ -637,20 +637,24 @@ class BatchPage(BasePage):
 
     # -- Chạy ----------------------------------------------------------
     def _chan_cung_ngon_ngu(self) -> bool:
-        """Trả True nếu phải chặn: nguồn đã cùng ngôn ngữ với đích.
+        """Nói trước khi chạy nếu nguồn đã cùng ngôn ngữ với đích.
 
-        Xử lý hàng loạt KHÔNG có ô chọn đích — nó luôn lồng sang tiếng Việt.
-        Nên chọn nguồn Tiếng Việt ở đây là dịch tiếng Việt sang tiếng Việt cho
-        CẢ MẺ: mỗi video một lượt gọi mô hình để nhận lại gần đúng câu cũ.
-        Trang Tạo dự án đã chặn từ 22/8; đường này thì chưa (mini-spec C22).
+        KHÔNG chặn (mini-spec C23). Xử lý hàng loạt luôn lồng sang tiếng
+        Việt, nên chọn nguồn Tiếng Việt là ca "đổi giọng": đường ống bỏ hẳn
+        khâu dịch và **không giữ chỗ tiền dịch**. Đó là một việc có thật —
+        video tiếng Việt giọng ồn, nói nhanh, hoặc muốn giọng khác.
+
+        Chặn như bản C22 là bỏ mất việc đó. Nhưng im lặng cũng không được:
+        người chọn Tiếng Việt vì tưởng phải khai đúng ngôn ngữ video, chứ
+        không biết mình vừa chọn một luồng khác.
         """
         if not consts.cung_ngon_ngu(self.opt_lang.current_key() or "", "vi"):
             return False
-        TOASTS.warn(
-            "Ngôn ngữ gốc đang là Tiếng Việt, mà xử lý hàng loạt luôn lồng "
-            "sang tiếng Việt — không có gì để dịch. Đổi ngôn ngữ gốc, hoặc "
-            "dùng trang Chép lời nếu bạn chỉ cần văn bản.")
-        return True
+        TOASTS.info(
+            "Nguồn và đích đều là tiếng Việt — sẽ CHỈ đổi giọng, bỏ qua khâu "
+            "dịch và không tính Vox cho phần dịch. Nếu bạn chỉ cần văn bản "
+            "thì trang Chép lời nhanh hơn.")
+        return False
 
     def _template(self) -> DubRequest:
         settings = self._settings_provider()

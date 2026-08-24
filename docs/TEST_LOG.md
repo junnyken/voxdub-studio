@@ -8474,6 +8474,86 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C23–C24 — Cùng ngôn ngữ thì BỎ khâu dịch, và Chép lời ghi dần (Phase H, 2026-08-24)
+
+### C23 — Chặn là câu trả lời dở
+
+C22 chặn cả ba đường vào khi nguồn trùng đích. Đúng về tiền, nhưng **bỏ mất
+một việc người dùng thật sự cần**: đổi giọng cho video tiếng Việt sẵn có —
+giọng gốc ồn, nói nhanh, hoặc muốn giọng khác. Việc đó chỉ cần nghe-chép →
+tạo giọng → ghép, không cần dịch một chữ nào.
+
+Nay đường ống có nhánh riêng: `khong_can_dich` tính ngay sau bước nghe-chép,
+bỏ hẳn bước 4, và **câu đích chính là câu gốc** (`seg[target.text_field] =
+seg["text"]`) nên các bước sau không cần biết gì về ca này.
+
+**Chỗ quan trọng nhất là tiền, không phải luồng.** Cờ đó đi thẳng vào
+`create_hold(auto_translate=…)`, nên máy chủ **không giữ chỗ tiền dịch**. Giữ
+chỗ rồi không dùng nghĩa là người dùng bị chặn vì "không đủ Vox" cho một việc
+không hề tốn Vox. Có test đọc thẳng mã để chắc cờ đi tới nơi, và test khoá
+thứ tự: hỏi TRƯỚC khi giữ tiền, không phải sau.
+
+Ba đường vào đổi từ **chặn** sang **nói ra**: người chọn Tiếng Việt vì tưởng
+phải khai đúng ngôn ngữ video, chứ không biết mình vừa chọn một luồng khác —
+im lặng cũng không được.
+
+### C24 — Chép lời ghi dần, cho tệp 3 giờ 43 phút
+
+Chủ dự án có một tệp `.m4a` 206 MB, dài **3:43:04**. Kiểm trước khi trả lời:
+`.m4a` nằm trong danh sách nhận · **không có trần thời lượng hay dung lượng
+nào** · timeout là 600 giây **giữa hai câu liên tiếp**, không phải cho cả tệp
+— nên file dài bao nhiêu cũng chạy được miễn nó còn nhả câu.
+
+Nhưng kết quả **chỉ ghi ra đĩa khi xong hết**: hỏng ở phút thứ 200 là mất
+sạch, và trong lúc chạy không có gì trong tay để biết nó nghe tới đâu.
+
+Nay mỗi câu nghe được là ghi thêm một dòng vào `<tên>.dang_chay.txt`. Bốn
+quyết định:
+
+- **Nối đuôi, không ghi lại cả tệp.** Vài nghìn câu mà ghi lại từ đầu mỗi lần
+  là công việc bình phương theo số câu. Có test đếm số lần mở tệp = 1.
+- **Xả đệm sau mỗi câu.** Đệm nằm trong bộ nhớ thì mất khi tiến trình bị giết
+  — mà đó đúng là ca tệp này sinh ra để cứu.
+- **Hỏng giữa chừng thì GIỮ tệp dở** và nói chỗ của nó. Xoá phần đã nghe được
+  là lấy đi thứ duy nhất còn cứu được.
+- **Ghi tạm hỏng không được làm hỏng lượt chép lời** — nó là tiện ích, hỏng
+  thì cùng lắm mất tiện ích đó.
+
+Chưa nghe được câu nào thì không tạo tệp rỗng; xuất xong thì xoá tệp dở để
+thư mục không lẫn hai bản của cùng một nội dung.
+
+### Con số tiền, lấy từ cấu hình
+
+Giá: **10 Vox/câu** cho khâu dịch, 1 Vox = 10 đồng.
+
+| Việc | Chi phí |
+|---|---|
+| Chép lời tệp 3:43 | **0 Vox** — Whisper chạy trên máy, không gọi máy chủ |
+| Lồng tiếng vi→vi **trước C23** | ~2.700 câu × 10 Vox ≈ **270.000đ** cho một video |
+| Lồng tiếng vi→vi **sau C23** | **0đ** cho khâu dịch |
+
+Ước theo mật độ 4–6 giây/câu: 22.310 – 33.460 Vox, tức 223.000 – 335.000đ. Đó
+là khoản C23 cắt bỏ, cho **mỗi** video tiếng Việt chạy qua luồng lồng tiếng.
+
+### Chứng minh từng luật
+
+Bỏ `flush` → 1 đỏ. Hỏng giữa chừng mà xoá tệp dở → 1 đỏ. Bỏ `try/except`
+quanh hook ghi → 1 đỏ. Trỏ test vào `run()` thay vì `_run_impl` → đỏ (lớp đọc
+cây cú pháp bắt đúng, tôi trỏ nhầm hàm).
+
+**1819 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- Vẫn **chưa chạy thật** một tệp dài nào: không có `.venv-whisper` trong môi
+  trường này. Đường ghi dần đã có test, nhưng lượt chạy 3 giờ đầu tiên vẫn là
+  phép thử thật.
+- Ghi dần chỉ có ở **trang Chép lời**, chưa có ở luồng lồng tiếng (ở đó câu
+  còn phải đi qua dịch và tạo giọng nên "phần đã xong" khó định nghĩa hơn).
+- Tệp dở là `.txt` có mốc thời gian, **không phải `.srt`** — nó để cứu vãn,
+  không để dùng thẳng.
+- Ca "đổi giọng" (vi→vi) chưa live-verify đầu-cuối.
+
 ## C22 — Chốt "nguồn trùng đích" chỉ có ở một trong ba đường vào (Phase H, 2026-08-24)
 
 Chủ dự án hỏi: *"về nhận định rõ tiếng Việt và chọn ngôn ngữ video bị thiếu

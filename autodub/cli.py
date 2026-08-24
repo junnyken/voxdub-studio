@@ -160,10 +160,12 @@ def _cmd_dub(args: argparse.Namespace) -> int:
         from autodub.languages import cung_ngon_ngu
 
         if cung_ngon_ngu(args.source_lang or "", args.target):
-            raise CliArgError(
-                f"--source-lang {args.source_lang} đã cùng ngôn ngữ với "
-                f"--target {args.target}: không có gì để dịch. Đổi --target, "
-                "hoặc dùng `voxdub transcribe` nếu chỉ cần văn bản.")
+            # Không chặn: đây là ca ĐỔI GIỌNG, đường ống bỏ khâu dịch và
+            # không giữ chỗ tiền dịch (mini-spec C23). Chỉ nói ra để người
+            # chạy biết mình đang ở luồng nào.
+            print(f"Nguồn và đích đều là {args.target} — bỏ qua khâu dịch, "
+                  "chỉ đổi giọng. Không tính Vox cho phần dịch.",
+                  file=sys.stderr)
         _validate_voice(args.voice, target, settings)
     except (CliArgError, ValueError) as e:
         print(f"Lỗi tham số: {e}", file=sys.stderr)

@@ -244,7 +244,31 @@ def transcribe_media(source: str, output_dir: str, settings,
     lang = (language or getattr(settings, "default_source_lang", "") or "").strip()
     say("asr", "Đang nghe và chép lời…")
     from autodub.speech.transcriber import transcribe as run_asr
-    segments = run_asr(audio_path, lang, settings, cancel_event=cancel_event)
+
+    # Ghi DẦN từng câu ra một tệp tạm (mini-spec C24).
+    #
+    # Trước đây kết quả chỉ ghi ra đĩa khi xong hết. Với file vài giờ, hỏng ở
+    # phút thứ 200 là mất sạch — và người dùng không có gì trong tay để biết
+    # nó đã nghe được tới đâu. Nay mỗi câu nghe được là ghi thêm một dòng,
+    # nối đuôi nên không tốn công ghi lại từ đầu.
+    ten_tam = f"{output_name or 'chep_loi'}{DUOI_DANG_CHAY}"
+    duong_tam = os.path.join(output_dir, ten_tam)
+    os.makedirs(output_dir, exist_ok=True)
+    ghi_dan = _GhiDan(duong_tam)
+    try:
+        segments = run_asr(audio_path, lang, settings,
+                           cancel_event=cancel_event,
+                           on_segment=ghi_dan.them)
+    except BaseException:
+        # Giữ NGUYÊN tệp dở và nói chỗ của nó. Hỏng giữa chừng mà xoá luôn
+        # phần đã nghe được là lấy đi thứ duy nhất còn cứu được.
+        ghi_dan.dong()
+        if ghi_dan.so_cau:
+            logger.warning(
+                f"Dừng giữa chừng — {ghi_dan.so_cau} câu đã nghe được vẫn "
+                f"nằm ở «{duong_tam}».")
+        raise
+    ghi_dan.dong()
     if not segments:
         raise TranscribeError(
             "Không nghe được câu nào — file có thể không có tiếng nói, "
@@ -275,9 +299,63 @@ def transcribe_media(source: str, output_dir: str, settings,
             save_transcript(segments, path)
         result.outputs[fmt] = path
 
+    # Xuất xong rồi thì tệp dở hết việc — bỏ đi để thư mục không lẫn hai
+    # bản của cùng một nội dung.
+    ghi_dan.xoa()
     say("done", f"Xong: {len(segments)} câu")
     _don_tam(work_dir, audio_path, media_path)
     return result
+
+
+#: Đuôi tệp ghi dở. Đặt rõ ràng để người dùng nhìn là biết đây là bản chưa
+#: xong, và để lượt chạy sau không nhầm nó với kết quả thật.
+DUOI_DANG_CHAY = ".dang_chay.txt"
+
+
+class _GhiDan:
+    """Ghi từng câu ra đĩa ngay khi nghe được (mini-spec C24).
+
+    NỐI ĐUÔI chứ không ghi lại cả tệp: với vài nghìn câu, ghi lại từ đầu mỗi
+    lần là công việc bình phương theo số câu. Nối đuôi thì mỗi câu tốn đúng
+    một lần ghi, và tệp vẫn đọc được ngay cả khi tiến trình bị giết đột ngột.
+    """
+
+    def __init__(self, duong_dan: str) -> None:
+        self.duong_dan = duong_dan
+        self.so_cau = 0
+        self._f = None
+
+    def them(self, seg: dict) -> None:
+        if self._f is None:
+            self._f = open(self.duong_dan, "w", encoding="utf-8")
+            self._f.write("# Bản chép lời đang chạy — chưa xong.\n\n")
+        moc = _mmss(float(seg.get("start", 0) or 0))
+        self._f.write(f"[{moc}] {str(seg.get('text', '')).strip()}\n")
+        # Xả ngay: đệm nằm trong bộ nhớ thì mất khi tiến trình bị giết, mà đó
+        # đúng là ca tệp này sinh ra để cứu.
+        self._f.flush()
+        self.so_cau += 1
+
+    def dong(self) -> None:
+        if self._f is not None:
+            try:
+                self._f.close()
+            finally:
+                self._f = None
+
+    def xoa(self) -> None:
+        self.dong()
+        try:
+            if os.path.exists(self.duong_dan):
+                os.remove(self.duong_dan)
+        except OSError as e:
+            logger.warning(f"Không xoá được tệp dở «{self.duong_dan}» ({e})")
+
+
+def _mmss(giay: float) -> str:
+    phut, gy = divmod(int(giay), 60)
+    gio, phut = divmod(phut, 60)
+    return f"{gio:02d}:{phut:02d}:{gy:02d}" if gio else f"{phut:02d}:{gy:02d}"
 
 
 def _output_basename(source: str, title: str) -> str:

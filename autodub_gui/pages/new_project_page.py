@@ -713,13 +713,15 @@ class NewProjectPage(BasePage):
         # dùng sẽ trả tiền cho một lượt gọi mô hình để nhận lại gần đúng câu
         # cũ. Chặn ở đây và chỉ sang đúng trang họ cần (thêm 22/8/2026, cùng
         # lượt mở tiếng Việt cho danh sách nguồn).
+        # Cùng ngôn ngữ = ca ĐỔI GIỌNG, không phải ca lỗi (mini-spec C23).
+        # Đường ống bỏ hẳn khâu dịch và không giữ chỗ tiền dịch. Trước đây
+        # chặn thẳng ở đây — chặn là bỏ mất một việc người dùng thật sự cần.
         if not data["auto_detect"] and consts.cung_ngon_ngu(
                 data["source_lang"], data.get("target_key") or "vi"):
-            TOASTS.warn(
-                "Video đã cùng ngôn ngữ với đích cần lồng — không có gì để "
-                "dịch. Đổi «Dịch sang» thành ngôn ngữ khác, hoặc dùng trang "
-                "Chép lời nếu bạn chỉ cần văn bản.")
-            return None
+            TOASTS.info(
+                "Video đã cùng ngôn ngữ với đích — sẽ CHỈ đổi giọng, bỏ qua "
+                "khâu dịch và không tính Vox cho phần dịch. Cần văn bản thôi "
+                "thì dùng trang Chép lời.")
 
         # Nếu nguồn là URL nhưng file đã tải sẵn, truyền file_path trực tiếp
         # vào pipeline (tránh tải lại), giữ url để pipeline ghi metadata.

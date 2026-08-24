@@ -50,7 +50,7 @@ class HoldBillingAdapter:
     # cho khớp adapter và self._unlock_after_commit -> self.unlock_after_commit.
     def setup_hold(
         self, segments: list[dict], target: "TargetLang", work_dir: str,
-        video_duration_s: float,
+        video_duration_s: float, khong_can_dich: bool = False,
     ) -> "DubResult | None":
         """Giữ chỗ Vox cho lượt chạy — gọi ngay sau ASR, mọi luồng.
 
@@ -82,7 +82,11 @@ class HoldBillingAdapter:
         if not is_configured():
             # Chạy thuần trên máy — không có ví Vox nào để giữ chỗ.
             return None
-        auto = bool(self.settings.translate_enabled)
+        # Cùng ngôn ngữ thì không có bước dịch nào chạy, nên KHÔNG giữ chỗ
+        # tiền dịch (mini-spec C23). Với video dài, khoản này là phần lớn giá
+        # một lượt chạy — giữ chỗ rồi không dùng nghĩa là người dùng bị chặn
+        # vì "không đủ Vox" cho một việc không hề tốn Vox.
+        auto = bool(self.settings.translate_enabled) and not khong_can_dich
         meta = bool(getattr(self.settings, "generate_metadata", True))
         run_id = run_id_for(segments, target)
         mins, secs = divmod(int(video_duration_s), 60)
