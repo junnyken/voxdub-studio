@@ -38,6 +38,7 @@ from autodub_gui.ui.buttons import GhostButton, PrimaryButton, SecondaryButton
 from autodub_gui.ui.cards import Card
 from autodub_gui.ui.style import clear_background
 from autodub_gui.ui.inputs import LabeledCombo, LabeledLineEdit
+from autodub_gui.env_store import read_env, write_env
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.widgets import LogPanel
 from autodub_gui.workers import (
@@ -75,7 +76,28 @@ _CHE_DO = [
 #: không ai lỡ tay chọn cả sáu rồi mới nhìn hoá đơn.
 _TOI_DA_MOI_LUOT = 4
 
+#: Khoá lưu nơi gọi mô hình đã chọn. Nằm cùng tệp cấu hình với mọi tuỳ chọn
+#: khác của app — không dựng kho riêng cho một ô chọn.
+_KHOA_NOI_GOI = "PRODUCT_SCENE_PROVIDER"
+
 _ANH_FILTER = "Ảnh (*.jpg *.jpeg *.png *.webp);;Tất cả (*.*)"
+
+
+def _bang_nhip():
+    """Lấy THẲNG danh sách từ `product_video` — chép tay là có ngày lệch.
+
+    Nhập ở đây (chứ không ở đầu tệp) vì `product_video` kéo theo `media.video`
+    và cả chuỗi phụ thuộc ffmpeg; trang này phải dựng được cả khi những thứ
+    đó chưa sẵn sàng.
+    """
+    from autodub import product_video as pv
+
+    thoi_luong = [(f"{g:g} giây", f"{g:g}") for g in pv.GIAY_CHON_DUOC]
+    kieu = [(nhan, khoa) for khoa, (nhan, _) in pv.KIEU_CHUYEN.items()]
+    return thoi_luong, kieu
+
+
+_THOI_LUONG, _KIEU_CHUYEN = _bang_nhip()
 
 
 class ProductScenePage(BasePage):
@@ -185,6 +207,33 @@ class ProductScenePage(BasePage):
             "Thư mục lưu ảnh", "",
             "Để trống thì lưu vào thư mục «anh_san_pham» cạnh các dự án.")
         card.body.addWidget(self.thu_muc)
+
+        # Nhịp video: hai ô này chỉ dùng cho nút "Dựng video ngắn". Đặt cạnh
+        # nhau vì người dùng chỉnh chúng cùng lúc — chọn cảnh dài hơn thì
+        # thường muốn chuyển cảnh chậm hơn.
+        hang_video = QHBoxLayout()
+        hang_video.setSpacing(tokens.SP_3)
+        self.thoi_luong = LabeledCombo(
+            "Mỗi cảnh giữ", _THOI_LUONG,
+            "Video sản phẩm trên sàn thường 2–3 giây mỗi cảnh. Dài hơn thì "
+            "người xem lướt qua.")
+        self.kieu_chuyen = LabeledCombo(
+            "Chuyển cảnh", _KIEU_CHUYEN,
+            "«Cắt thẳng» giữ nguyên thời lượng từng cảnh; các kiểu còn lại "
+            "chồng lấn nên video ngắn hơn một chút.")
+        hang_video.addWidget(self.thoi_luong, 1)
+        hang_video.addWidget(self.kieu_chuyen, 1)
+        card.body.addLayout(hang_video)
+
+        # Mặc định TẮT, và nói thẳng giá: bật lên là mỗi lượt gợi ý đắt hơn.
+        # Một ô tick âm thầm làm tăng tiền là thứ người dùng chỉ phát hiện ra
+        # khi đọc lịch sử ví.
+        self.kich_ban_xem_anh = QCheckBox(
+            "Cho trợ lý xem ảnh khi gợi ý kịch bản (8 Vox thay vì 3)")
+        self.kich_ban_xem_anh.setToolTip(
+            "Xem ảnh thì câu dẫn bám vào thứ thật sự trong khung thay vì chỉ "
+            "tên bối cảnh. Đổi lại mô hình đọc nhiều hơn nên tốn hơn.")
+        card.body.addWidget(self.kich_ban_xem_anh)
         root.addWidget(card)
 
         hanh_dong = QHBoxLayout()
@@ -273,9 +322,35 @@ class ProductScenePage(BasePage):
         worker.start()
 
     def _nap_noi_goi(self, danh_sach) -> None:
-        """Đổ danh sách vào ô chọn, luôn giữ «Tự động» ở đầu."""
+        """Đổ danh sách vào ô chọn, luôn giữ «Tự động» ở đầu.
+
+        Chọn lại thứ người dùng đã dùng lần trước (mini-spec C20). Trước đây
+        mỗi lần mở app lại về «Tự động», nên ai muốn dùng cố định một nơi gọi
+        phải chọn tay mỗi lượt — và quên một lượt là trả tiền cho mô hình
+        khác mà không biết.
+
+        Nơi gọi đã lưu mà nay không còn trong danh sách thì KHÔNG chọn bừa:
+        để «Tự động» và nói ra, vì im lặng đổi nơi gọi đúng là thứ luật của
+        C17 cấm.
+        """
         muc = [_TU_DONG] + [(nhan or ten, ten) for ten, nhan in (danh_sach or [])]
         self.noi_goi.set_options(muc)
+
+        da_luu = read_env().get(_KHOA_NOI_GOI, "").strip()
+        if not da_luu:
+            return
+        if any(khoa == da_luu for _nhan, khoa in muc):
+            self.noi_goi.set_key(da_luu)
+        else:
+            self.log.append_log(
+                f"Nơi gọi mô hình «{da_luu}» dùng lần trước nay không còn — "
+                "đang để «Tự động».", 30)
+
+    def _nho_noi_goi(self) -> None:
+        """Ghi nhớ lựa chọn để lần sau khỏi chọn lại."""
+        khoa = str(self.noi_goi.current_key() or "")
+        if khoa != read_env().get(_KHOA_NOI_GOI, ""):
+            write_env({_KHOA_NOI_GOI: khoa})
 
     def _cuon_toi_trang_thai(self) -> None:
         """Kéo màn hình tới chỗ có phản hồi.
@@ -329,6 +404,7 @@ class ProductScenePage(BasePage):
                         "bỏ bớt rồi chạy lại lượt sau.")
             return
 
+        self._nho_noi_goi()
         self._xoa_ket_qua()
         thu_muc = self._thu_muc_ra()
         self._thu_muc_ket_qua = thu_muc
@@ -383,7 +459,11 @@ class ProductScenePage(BasePage):
         self.btn_video.setEnabled(False)
         self.status.setText(f"Đang ghép {len(anh)} ảnh thành video…")
 
-        worker = ProductVideoWorker(anh, ra, parent=self)
+        worker = ProductVideoWorker(
+            anh, ra,
+            giay_moi_anh=float(self.thoi_luong.current_key() or 2.5),
+            kieu_chuyen=str(self.kieu_chuyen.current_key() or "mo_chong"),
+            parent=self)
         # Kiểm liên tục (C7) chạy TRONG worker rồi bắn cảnh báo ngược lên —
         # đây là CẢNH BÁO, không phải cổng chặn: video vẫn ghép, quyền quyết
         # định giữ hay dựng lại cảnh lạc là của người bán.

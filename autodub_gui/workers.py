@@ -1252,11 +1252,13 @@ class ProductVideoWorker(QThread):
     hong = Signal(str)
     canh_bao = Signal(str)  # các cảnh chưa liền mạch — KHÔNG chặn ghép
 
-    def __init__(self, anh, duong_ra: str, giay_moi_anh: float = 2.5, parent=None):
+    def __init__(self, anh, duong_ra: str, giay_moi_anh: float = 2.5,
+                 kieu_chuyen: str = "mo_chong", parent=None):
         super().__init__(parent)
         self._anh = list(anh)
         self._duong_ra = duong_ra
         self._giay = giay_moi_anh
+        self._kieu_chuyen = kieu_chuyen
 
     def run(self) -> None:
         from autodub import product_video
@@ -1274,7 +1276,8 @@ class ProductVideoWorker(QThread):
 
         try:
             duong = product_video.dung_video(
-                self._anh, self._duong_ra, giay_moi_anh=self._giay)
+                self._anh, self._duong_ra, giay_moi_anh=self._giay,
+                kieu_chuyen=self._kieu_chuyen)
         except Exception as e:  # noqa: BLE001 — lý do phải tới người dùng
             logger.warning(f"Ghép video sản phẩm hỏng: {e}")
             self.hong.emit(str(e))
@@ -1291,17 +1294,19 @@ class SceneScriptWorker(QThread):
 
     xong = Signal(list)     # [(câu dẫn, gợi ý nhịp)]
 
-    def __init__(self, anh, san_pham: str = "", parent=None):
+    def __init__(self, anh, san_pham: str = "", xem_anh: bool = False,
+                 parent=None):
         super().__init__(parent)
         self._anh = list(anh)
         self._san_pham = san_pham
+        self._xem_anh = xem_anh
 
     def run(self) -> None:
         try:
             from autodub import product_video
 
             goi_y = product_video.goi_y_kich_ban(
-                self._anh, san_pham=self._san_pham)
+                self._anh, san_pham=self._san_pham, xem_anh=self._xem_anh)
         except Exception as e:  # noqa: BLE001 — tiện ích hỏng thì thôi
             logger.warning(f"Không lấy được gợi ý kịch bản: {e}")
             goi_y = []

@@ -972,11 +972,15 @@ module.exports = async function aiRoutes(fastify) {
       return { ...cuNoiDung, jobId, creditCharged: 0, fromCache: true }
     }
 
+    // Tác vụ nhận ảnh TUỲ CHỌN thì giá theo việc có gửi ảnh hay không: gửi
+    // ảnh tốn gấp nhiều lần token, thu cùng một giá là tự hở biên (C20).
+    const coAnh = Boolean((images || []).length)
+    const khoaGia = (coAnh && spec.costKeyAnh) ? spec.costKeyAnh : spec.costKey
     const cfg = await config.getMany([
-      'credit.enabled', spec.costKey,
+      'credit.enabled', khoaGia,
       'assist.daily.limit', `assist.daily.limit.${task}`,
     ])
-    const cost = cfg['credit.enabled'] ? (cfg[spec.costKey] || 0) : 0
+    const cost = cfg['credit.enabled'] ? (cfg[khoaGia] || 0) : 0
 
     // Hạn mức riêng của tác vụ (nếu có) đi trước hạn mức chung: tác vụ miễn
     // phí như explain_error cần trần riêng vì nó không bị giá Vox chặn.

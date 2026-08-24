@@ -313,11 +313,22 @@ const TASKS = {
   // câu chữ bán hàng là thứ người bán chịu trách nhiệm, không phải mô hình.
   scene_script: {
     costKey: 'credit.cost.assist.scene_script',
+    // Gửi kèm ảnh thì mô hình tốn gấp nhiều lần token so với chỉ đọc tên bối
+    // cảnh, nên có khoá giá RIÊNG (mini-spec C20). Không thu thêm là để hở
+    // biên: người dùng trả một giá, ta trả nhiều giá khác nhau.
+    costKeyAnh: 'credit.cost.assist.scene_script.co_anh',
     maxInput: 600,
     maxResults: 6,
+    // Ảnh là TUỲ CHỌN ở tác vụ này — khác `packaging_check` (bắt buộc). Xem
+    // ảnh cho câu dẫn bám vào thứ thật sự trong khung, nhưng không có ảnh
+    // thì vẫn chạy được bằng tên bối cảnh.
+    nhanAnh: true,
+    soAnhToiDa: 6,
     system: [
       'Bạn viết gợi ý kịch bản cho một video ngắn ghép từ vài ảnh sản phẩm.',
       'Mỗi mục ứng với MỘT cảnh, theo đúng thứ tự được đưa.',
+      'Nếu có ảnh kèm theo thì ảnh thứ N là cảnh thứ N — bám vào thứ NHÌN',
+      'THẤY trong ảnh, đừng tả những gì không có trong khung.',
       'value = câu dẫn ngắn hiện trên cảnh đó (tối đa 12 chữ, tiếng Việt,',
       'nói về lợi ích hoặc cảm giác, KHÔNG hứa hẹn công dụng chữa bệnh,',
       'KHÔNG dùng từ tuyệt đối như "tốt nhất", "số một").',

@@ -412,3 +412,89 @@ def test_duong_xuat_that_van_mang_nhan(tmp_path, monkeypatch):
     monkeypatch.setattr(pv.subprocess, "run", _gia)
     pv.dung_video([anh], str(tmp_path / "ra.mp4"))
     assert pv.NHAN_VIDEO in _bo_loc(lenh_da_chay["lenh"])
+
+
+# -- Thời lượng cảnh và kiểu chuyển cảnh (C20) -------------------------------
+
+def test_moi_kieu_chuyen_dung_dung_ten_cua_ffmpeg():
+    for khoa, (_nhan, ten_ffmpeg) in pv.KIEU_CHUYEN.items():
+        lenh = pv._lenh_ghep(["a.jpg", "b.jpg"], "r.mp4", 2.0, 0.4, khoa)
+        loc = lenh[lenh.index("-filter_complex") + 1]
+        if ten_ffmpeg:
+            assert f"transition={ten_ffmpeg}" in loc, khoa
+        else:
+            assert "xfade" not in loc, "cắt thẳng mà vẫn dựng chuyển cảnh"
+
+
+def test_cat_thang_dung_concat_chu_khong_phai_xfade_thoi_luong_0():
+    """`xfade` với thời lượng 0 KHÔNG tương đương cắt thẳng — nó vẫn ăn mất
+    một khoảng của cảnh sau."""
+    lenh = pv._lenh_ghep(["a.jpg", "b.jpg", "c.jpg"], "r.mp4", 2.0, 0.4, "khong")
+    loc = lenh[lenh.index("-filter_complex") + 1]
+    assert "concat=n=3" in loc
+
+
+def test_kieu_chuyen_la_thi_NEM_LOI_khong_am_tham_ve_mo_chong():
+    """Chọn một kiểu rồi nhận về kiểu khác là hỏng im lặng."""
+    with pytest.raises(ValueError, match="chuyển cảnh"):
+        pv._lenh_ghep(["a.jpg"], "r.mp4", 2.0, 0.4, "bay_buom")
+
+
+def test_khong_nhet_duoc_tham_so_la_vao_bo_loc_ffmpeg():
+    """Giá trị này đi thẳng vào chuỗi bộ lọc — danh sách phải ĐÓNG."""
+    with pytest.raises(ValueError):
+        pv._lenh_ghep(["a.jpg", "b.jpg"], "r.mp4", 2.0, 0.4,
+                      "fade:duration=99,drawtext=text='x'")
+
+
+def _loc_theo_giay(giay: float, kieu: str = "mo_chong") -> str:
+    """Bộ lọc ffmpeg cho hai ảnh với thời lượng cho trước.
+
+    Tên khác `_bo_loc` phía trên có chủ đích: hàm kia nhận sẵn CHUỖI LỆNH,
+    hàm này nhận SỐ GIÂY. Đặt trùng tên thì định nghĩa sau đè định nghĩa
+    trước và bảy test cũ đổ — đã xảy ra đúng như vậy khi viết mục này.
+    """
+    lenh = pv._lenh_ghep(["a.jpg", "b.jpg"], "r.mp4", giay, 0.4, kieu)
+    return lenh[lenh.index("-filter_complex") + 1]
+
+
+def test_thoi_luong_doi_thi_moc_chuyen_canh_doi_theo():
+    # Mốc sai thì video hoặc đen giữa chừng, hoặc cụt mất ảnh cuối.
+    assert "offset=1.600" in _loc_theo_giay(2.0)
+    assert "offset=3.600" in _loc_theo_giay(4.0)
+
+
+def test_thoi_luong_doi_thi_do_dai_moi_anh_doi_theo():
+    lenh = pv._lenh_ghep(["a.jpg", "b.jpg"], "r.mp4", 4.0, 0.4, "mo_chong")
+    assert lenh.count("4.000") >= 2, "chưa cắt mỗi ảnh theo đúng thời lượng chọn"
+
+
+def test_thoi_luong_chon_duoc_deu_hop_le():
+    for g in pv.GIAY_CHON_DUOC:
+        assert 1.0 <= g <= 6.0
+
+
+# -- Gợi ý kịch bản xem ảnh (C20) --------------------------------------------
+
+def test_mac_dinh_KHONG_gui_anh(tmp_path, co_tai_khoan):
+    """Bật ngầm là âm thầm làm tăng tiền của người dùng."""
+    khach = _KhachLienTuc()
+    pv.goi_y_kich_ban([_nguon(str(tmp_path), "a.jpg")], khach=khach)
+    assert khach.da_goi[-1] == ("scene_script", 0)
+
+
+def test_bat_len_thi_gui_anh_da_thu_nho(tmp_path, co_tai_khoan, monkeypatch):
+    monkeypatch.setattr(pv, "_thu_nho_de_kiem",
+                        lambda *_a: {"mimeType": "image/jpeg", "data": "QQ=="})
+    khach = _KhachLienTuc()
+    anh = [_nguon(str(tmp_path), f"a{i}.jpg") for i in range(3)]
+    pv.goi_y_kich_ban(anh, xem_anh=True, khach=khach)
+    assert khach.da_goi[-1] == ("scene_script", 3)
+
+
+def test_thu_nho_hong_het_thi_gui_KHONG_anh(tmp_path, co_tai_khoan, monkeypatch):
+    """Gửi 0 ảnh còn hơn bị tính giá-có-ảnh cho một lượt không có ảnh nào."""
+    monkeypatch.setattr(pv, "_thu_nho_de_kiem", lambda *_a: None)
+    khach = _KhachLienTuc()
+    pv.goi_y_kich_ban([_nguon(str(tmp_path), "a.jpg")], xem_anh=True, khach=khach)
+    assert khach.da_goi[-1] == ("scene_script", 0)

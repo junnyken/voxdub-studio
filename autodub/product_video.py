@@ -39,6 +39,23 @@ logger = setup_logging("autodub.product_video")
 GIAY_MOI_ANH = 2.5
 GIAY_CHUYEN_CANH = 0.5
 
+#: Kiểu chuyển cảnh chọn được (mini-spec C20). Khoá → (nhãn, tên của ffmpeg).
+#:
+#: Danh sách ĐÓNG, không nhận chuỗi tuỳ ý: giá trị này đi thẳng vào chuỗi bộ
+#: lọc của ffmpeg, nên một chuỗi lạ vừa làm hỏng cả lượt ghép vừa là chỗ chèn
+#: tham số không ai kiểm.
+KIEU_CHUYEN: dict[str, tuple[str, str]] = {
+    "mo_chong": ("Mờ chồng", "fade"),
+    "truot_trai": ("Trượt sang trái", "slideleft"),
+    "truot_len": ("Trượt lên", "slideup"),
+    "mo_vong": ("Mở vòng tròn", "circleopen"),
+    "tan": ("Tan dần", "dissolve"),
+    "khong": ("Cắt thẳng, không chuyển cảnh", ""),
+}
+
+#: Thời lượng mỗi ảnh chọn được. Trần 6 giây: dài hơn thì người xem lướt qua.
+GIAY_CHON_DUOC = (1.5, 2.0, 2.5, 3.0, 4.0, 6.0)
+
 #: Khung hình đầu ra. Dọc 9:16 vì video sản phẩm gần như luôn xem trên điện
 #: thoại; ảnh ngang sẽ được đệm hai bên chứ không bị cắt mất bao bì.
 RONG, CAO = 1080, 1920
@@ -271,35 +288,61 @@ def kiem_lien_tuc(anh: list[AnhNguon], *, ghi_chu: str = "",
 
 
 def goi_y_kich_ban(anh: list[AnhNguon], *, san_pham: str = "",
-                   khach=None) -> list[tuple[str, str]]:
+                   xem_anh: bool = False, khach=None) -> list[tuple[str, str]]:
     """Gợi ý câu dẫn và nhịp cho từng cảnh. Trả [(câu dẫn, gợi ý nhịp)].
 
     CHỈ gợi ý: không có đường nào từ đây dán chữ vào video. Câu chữ bán hàng
     là thứ người bán chịu trách nhiệm trước sàn, không phải mô hình.
+
+    `xem_anh=True` gửi kèm chính các tấm ảnh (đã thu nhỏ) để câu dẫn bám vào
+    thứ nhìn thấy trong khung thay vì chỉ tên bối cảnh. Mặc định TẮT vì nó
+    tốn gấp nhiều lần token — và giá bên máy chủ cũng khác (mini-spec C20).
     """
     from autodub.saas_client import get_client, is_configured, new_job_id
 
     if not anh or not is_configured():
         return []
     khach = khach or get_client()
+    anh_gui = None
+    tam = None
+    if xem_anh:
+        import tempfile
+
+        tam = tempfile.TemporaryDirectory(prefix="kich_ban_")
+        anh_gui = [x for x in (_thu_nho_de_kiem(a.duong_dan, tam.name)
+                               for a in anh[:6]) if x]
+        # Thu nhỏ hỏng hết thì gửi không ảnh còn hơn tính giá ảnh cho một
+        # lượt không có ảnh nào.
+        if not anh_gui:
+            anh_gui = None
     try:
         ket = khach.assist("scene_script", {
             "product": san_pham[:200],
             "scenes": [a.boi_canh for a in anh[:6]],
-        }, job_id=new_job_id(), timeout=45)
+        }, job_id=new_job_id(), images=anh_gui, timeout=60 if anh_gui else 45)
     except Exception as e:  # noqa: BLE001 — gợi ý hỏng thì thôi
         logger.warning(f"Không lấy được gợi ý kịch bản ({str(e)[:120]})")
         return []
+    finally:
+        if tam is not None:
+            tam.cleanup()
     return [(str(r.get("value", "")).strip(), str(r.get("reason", "")).strip())
             for r in (ket or []) if str(r.get("value", "")).strip()]
 
 
 def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh: float,
-               giay_chuyen: float) -> list[str]:
-    """Dựng lệnh ffmpeg cho một video trình chiếu có mờ chồng.
+               giay_chuyen: float, kieu_chuyen: str = "mo_chong") -> list[str]:
+    """Dựng lệnh ffmpeg cho một video trình chiếu.
 
     Tách riêng để test đọc được lệnh mà không phải chạy ffmpeg thật.
+
+    `kieu_chuyen` phải là một khoá trong `KIEU_CHUYEN` — khoá lạ thì NÉM LỖI
+    chứ không âm thầm rơi về mờ chồng: người dùng chọn một kiểu rồi nhận về
+    kiểu khác là hỏng im lặng, còn khoá lạ ở đây chỉ có thể do lỗi lập trình.
     """
+    if kieu_chuyen not in KIEU_CHUYEN:
+        raise ValueError(f"Không có kiểu chuyển cảnh «{kieu_chuyen}»")
+    ten_ffmpeg = KIEU_CHUYEN[kieu_chuyen][1]
     lenh: list[str] = ["ffmpeg", "-y"]
     for duong in anh:
         # `-loop 1` biến ảnh tĩnh thành luồng hình; `-t` cắt đúng độ dài cần.
@@ -315,12 +358,20 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh: float,
             f"setsar=1,fps=30[v{i}]")
 
     truoc = "v0"
-    for i in range(1, len(anh)):
-        sau = f"x{i}"
-        mocs = (giay_moi_anh - giay_chuyen) * i
-        loc.append(f"[{truoc}][v{i}]xfade=transition=fade:"
-                   f"duration={giay_chuyen:.3f}:offset={mocs:.3f}[{sau}]")
-        truoc = sau
+    if not ten_ffmpeg:
+        # Cắt thẳng: nối đuôi nhau, không chồng lấn. `xfade` với thời lượng 0
+        # không tương đương — nó vẫn ăn mất một khoảng của cảnh sau.
+        if len(anh) > 1:
+            loc.append("".join(f"[v{i}]" for i in range(len(anh)))
+                       + f"concat=n={len(anh)}:v=1:a=0[xn]")
+            truoc = "xn"
+    else:
+        for i in range(1, len(anh)):
+            sau = f"x{i}"
+            mocs = (giay_moi_anh - giay_chuyen) * i
+            loc.append(f"[{truoc}][v{i}]xfade=transition={ten_ffmpeg}:"
+                       f"duration={giay_chuyen:.3f}:offset={mocs:.3f}[{sau}]")
+            truoc = sau
 
     # Nhãn đi vào chính luồng RA — không phải một nhánh phụ rồi bỏ đi. Đặt
     # trên đỉnh khung vì nhãn của C1 nằm dưới đáy: chồng lên nhau thì cái sau
@@ -339,6 +390,7 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh: float,
 def dung_video(anh: list[AnhNguon], duong_ra: str, *,
                giay_moi_anh: float = GIAY_MOI_ANH,
                giay_chuyen: float = GIAY_CHUYEN_CANH,
+               kieu_chuyen: str = "mo_chong",
                timeout: float = 300.0) -> str:
     """Ghép các ảnh đã duyệt thành một video ngắn.
 
@@ -359,7 +411,7 @@ def dung_video(anh: list[AnhNguon], duong_ra: str, *,
 
     os.makedirs(os.path.dirname(os.path.abspath(duong_ra)) or ".", exist_ok=True)
     lenh = _lenh_ghep([a.duong_dan for a in anh], duong_ra,
-                      giay_moi_anh, giay_chuyen)
+                      giay_moi_anh, giay_chuyen, kieu_chuyen)
     try:
         chay = subprocess.run(lenh, capture_output=True, text=True,
                               timeout=timeout)

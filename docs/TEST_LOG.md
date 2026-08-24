@@ -8474,6 +8474,86 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C20 — Bốn mục "còn tồn" tự ghi, làm nốt (Phase H, 2026-08-22)
+
+Chủ dự án bảo: việc nào không cần anh vào thì làm trước. Bốn mục dưới đây đều
+là mã thuần; ba mục còn lại (đủ 20 lượt hiệu chỉnh, hoàn 60 Vox, dọn 25 thiết
+bị rác) đều cần quyền quản trị hoặc ảnh thật nên không tự làm được.
+
+### 1. Hai tệp test JS còn đọc chuỗi — đã chuyển sang lớp `doc-ma`
+
+`ai-provider-roles` và `test-now-va-soi-tay` là hai chỗ cuối còn đọc mã bằng
+`indexOf`. Chuyển xong, rồi gỡ chốt khỏi route đo lại: **vẫn đỏ** — không mất
+răng.
+
+Chuyển xong lộ ra một luật dùng lớp đó: **mốc để so thứ tự phải là MÃ, không
+phải chữ.** `truoc()` cố ý moi ruột chuỗi (để "gọi hàm X" không bị tính khi X
+nằm trong câu thông báo), nên mã lỗi `'CHUA_DU_LUOT_SOI_TAY'` biến mất khỏi
+bản đem so. Đổi mốc sang `xet.du` — chính phép kiểm.
+
+### 2. Ô chọn thời lượng cảnh và kiểu chuyển cảnh
+
+Sáu kiểu: mờ chồng · trượt trái · trượt lên · mở vòng tròn · tan dần · cắt
+thẳng. Sáu mức thời lượng 1,5–6 giây.
+
+Ba quyết định:
+
+- **Danh sách ĐÓNG.** Giá trị này đi thẳng vào chuỗi bộ lọc của ffmpeg, nên
+  chuỗi lạ vừa làm hỏng cả lượt ghép vừa là chỗ chèn tham số không ai kiểm.
+  Có test bắn thử `"fade:duration=99,drawtext=text='x'"` — phải bị từ chối.
+- **Khoá lạ thì NÉM LỖI**, không âm thầm rơi về mờ chồng: chọn một kiểu rồi
+  nhận về kiểu khác là hỏng im lặng.
+- **Cắt thẳng dùng `concat`, không dùng `xfade` thời lượng 0** — hai thứ đó
+  không tương đương, `xfade` vẫn ăn mất một khoảng của cảnh sau. Đo thật:
+  cắt thẳng 4,60 giây, mờ chồng 3,73 giây cho cùng ba ảnh.
+
+**Ghép thật cả sáu kiểu bằng ffmpeg**, rồi trích khung ĐÚNG lúc chuyển cảnh và
+mở ra nhìn: thấy rõ "11" trượt ra và "22" trượt vào, kiểu mở vòng tròn chồng
+đúng kiểu vòng, và nhãn AI-generated còn nguyên trên cả hai.
+
+Bảng lựa chọn trong giao diện **lấy thẳng từ `product_video`** chứ không chép
+tay — chép tay là có ngày lệch.
+
+### 3. Nhớ nơi gọi mô hình đã chọn
+
+Trước đây mỗi lần mở app lại về «Tự động», nên ai muốn dùng cố định một nơi
+gọi phải chọn tay mỗi lượt — và quên một lượt là trả tiền cho mô hình khác mà
+không biết. Nay lưu vào chính tệp cấu hình của app.
+
+Nơi gọi đã lưu mà nay không còn thì **không chọn bừa**: để «Tự động» và nói ra
+— im lặng đổi nơi gọi đúng là thứ luật C17 cấm.
+
+### 4. Gợi ý kịch bản xem được ảnh — mặc định TẮT
+
+Xem ảnh thì câu dẫn bám vào thứ thật sự trong khung thay vì chỉ tên bối cảnh.
+Đổi lại mô hình đọc nhiều gấp mấy lần.
+
+**Nên có khoá giá riêng**: `credit.cost.assist.scene_script.co_anh` = 8 Vox so
+với 3. Thu cùng một giá cho hai mức token là tự hở biên. Ô tick ghi thẳng
+"8 Vox thay vì 3" — một ô tick âm thầm làm tăng tiền là thứ người dùng chỉ
+phát hiện khi đọc lịch sử ví.
+
+Thu nhỏ ảnh hỏng hết thì gửi **không ảnh** còn hơn bị tính giá-có-ảnh cho một
+lượt không có ảnh nào.
+
+### Lỗi tự gây khi làm, và nó nói lên điều gì
+
+Tôi thêm một hàm `_bo_loc` vào tệp test **đã có sẵn một hàm cùng tên** — định
+nghĩa sau đè định nghĩa trước, bảy test cũ đổ với một lỗi kiểu dữ liệu khó
+hiểu. Đúng loại lỗi vừa bị nhắc: sửa tệp mà không đọc hết tệp. Đã đổi tên và
+ghi lý do ngay tại chỗ.
+
+**1800 passed, 7 skipped (Python) · 498 pass (Node) · web build sạch · smoke
+18 trang.**
+
+### Remaining Limits
+
+- Kiểu chuyển cảnh là danh sách cố định 6 kiểu; ffmpeg có hàng chục kiểu nữa.
+  Mở rộng bằng cách thêm dòng vào `KIEU_CHUYEN`, không phải sửa logic.
+- Thời lượng áp cho MỌI cảnh như nhau — chưa đặt riêng từng cảnh được.
+- Gợi ý kịch bản xem ảnh **chưa chạy thật lượt nào** (chưa ai bật ô đó).
+- Nơi gọi mô hình nhớ theo MÁY, không theo tài khoản: đổi máy phải chọn lại.
+
 ## C19 — Nguồn tiếng Việt, và "chưa cài" phải nói là chưa cài (Phase H, 2026-08-22)
 
 Hai việc từ hai câu hỏi liên tiếp của người dùng thật.

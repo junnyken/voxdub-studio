@@ -104,6 +104,8 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     // số cảnh.
     'credit.cost.assist.scene_continuity',
     'credit.cost.assist.scene_script',
+    // Cùng tác vụ, giá khác khi có gửi ảnh kèm (mini-spec C20).
+    'credit.cost.assist.scene_script.co_anh',
     'credit.cost.assist.series_glossary',
     'credit.cost.assist.tighten_line',
     'credit.cost.assist.video_summary',

@@ -18,20 +18,15 @@ const path = require('node:path')
 
 const stats = require('../src/services/assist-stats.service')
 
-const GOC = path.join(__dirname, '..')
-const doc = (p) => fs.readFileSync(path.join(GOC, p), 'utf8')
+const h = require('./helpers/doc-ma')
 
-/** Thân của MỘT hàm, cắt tới hàm kế tiếp.
+/** Mã đã bỏ chú thích; `thanHam` cắt đúng một hàm, tới hàm kế tiếp.
  *
  *  Cắt tới `module.exports` như bản đầu là đọc lây sang các hàm phía sau —
- *  test đỏ oan vì thấy đoạn mã của hàm khác. Đã mắc đúng lỗi đó ở đây. */
-function thanHam(ten) {
-  const src = doc('src/services/ai-gateway.service.js')
-  const i = src.indexOf(`async function ${ten}`)
-  assert.ok(i > 0, `không thấy hàm ${ten}`)
-  const j = src.indexOf('\nasync function ', i + 10)
-  return src.slice(i, j > 0 ? j : src.length)
-}
+ *  test đỏ oan vì thấy mã của hàm khác. Nay dùng chung lớp `helpers/doc-ma`
+ *  (mini-spec C8), có test riêng cho cả bốn kiểu hỏng. */
+const doc = (p) => h.ma(p)
+const thanHam = (ten) => h.thanHam('src/services/ai-gateway.service.js', ten)
 
 // -- Thử ngay không được đụng vào tiền của ai --------------------------------
 
@@ -104,14 +99,14 @@ test('bảng phán quyết có đếm số lượt đã soi và số lượt đ�
 test('MÁY CHỦ chặn bật nấc chạy thật khi chưa soi đủ', () => {
   // Hỏi lại trên giao diện không phải là chặn: giao diện nào cũng đi vòng
   // được bằng một lượt gọi API.
-  const src = doc('src/routes/admin.js')
-  const i = src.indexOf("fastify.put('/config/:key'")
-  const than = src.slice(i, src.indexOf('fastify.', i + 40))
+  const than = h.thanHam('src/routes/admin.js', '/config/:key')
   assert.match(than, /image\.scene\.stage/)
   assert.match(than, /CHUA_DU_LUOT_SOI_TAY/)
-  const iChan = than.indexOf('CHUA_DU_LUOT_SOI_TAY')
-  const iGhi = than.indexOf('await config.set(')
-  assert.ok(iChan > 0 && iGhi > 0 && iChan < iGhi,
+  // Mốc so thứ tự phải là MÃ, không phải chữ: `truoc()` moi ruột chuỗi (để
+  // "gọi hàm X" không bị tính khi X nằm trong câu thông báo), nên mã lỗi
+  // `'CHUA_DU_LUOT_SOI_TAY'` biến mất khỏi bản đem so. Dùng `xet.du` —
+  // chính phép kiểm — làm mốc.
+  h.truoc(than, 'xet.du', 'await config.set(',
     'phải chặn TRƯỚC khi ghi giá trị mới')
 })
 
@@ -123,8 +118,7 @@ test('sổ hiệu chỉnh lưu LÝ DO bằng lời, không chỉ nhãn', () => {
 })
 
 test('cửa soi tay chỉ nhận lượt hiệu chỉnh của đúng tác vụ kiểm bao bì', () => {
-  const src = doc('src/routes/admin.js')
-  const than = src.slice(src.indexOf("fastify.post('/calibration/runs/:id/review'"))
-  assert.match(than.slice(0, 1200), /runMode: 'calibration'/)
-  assert.match(than.slice(0, 1200), /assistTask: 'packaging_check'/)
+  const than = h.thanHam('src/routes/admin.js', '/calibration/runs/:id/review')
+  assert.match(than, /runMode: 'calibration'/)
+  assert.match(than, /assistTask: 'packaging_check'/)
 })

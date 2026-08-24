@@ -19,10 +19,11 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const GOC = path.join(__dirname, '..')
+const h = require('./helpers/doc-ma')
 
-function doc(p) {
-  return fs.readFileSync(path.join(GOC, p), 'utf8')
-}
+/** Mã nguồn đã BỎ CHÚ THÍCH — xem `helpers/doc-ma.js` để biết vì sao không
+ *  đọc thô nữa (mini-spec C8). */
+const doc = (p) => h.ma(p)
 
 /** Vai trò mà mã đang thật sự dùng: providersFor('x') và callWithFallback('x'). */
 function vaiDangDung() {
@@ -89,27 +90,26 @@ test('giao diện quản trị có lựa chọn cho mọi vai', () => {
  * thì nói thẳng, đừng gọi mạng rồi đoán.
  */
 test('vai image từ chối giao thức không sinh được ảnh, TRƯỚC khi gọi mạng', () => {
-  const src = doc('src/services/ai-gateway.service.js')
-  const than = src.slice(src.indexOf('async function generateScene'))
-  const iDung = than.indexOf('transport.dungYeuCau(')
-  const iChan = than.indexOf('if (!yeuCau)')
-  const iMang = than.indexOf('axios.post(')
-  assert.ok(iDung > 0, 'generateScene không dùng bảng giao thức')
-  assert.ok(iChan > 0, 'không có nhánh chặn khi không dựng được yêu cầu')
-  assert.ok(iChan < iMang, 'phải chặn TRƯỚC khi gọi mạng')
-  assert.match(than.slice(iChan, iChan + 500), /GIAO_THUC/,
+  const than = h.thanHam('src/services/ai-gateway.service.js', 'generateScene')
+  assert.ok(than.includes('transport.dungYeuCau('),
+    'generateScene không dùng bảng giao thức')
+  // `truoc()` bắt buộc CẢ HAI phải có mặt rồi mới so thứ tự — viết tay bằng
+  // `indexOf` thì -1 nhỏ hơn mọi vị trí và test xanh cả khi nhánh chặn biến
+  // mất (mini-spec C8).
+  h.truoc(than, 'if (!yeuCau)', 'axios.post(', 'phải chặn TRƯỚC khi gọi mạng')
+  const i = than.indexOf('if (!yeuCau)')
+  assert.match(than.slice(i, i + 500), /GIAO_THUC/,
     'thông báo phải liệt kê các giao thức dùng được')
 })
 
 /** Lỗi của nhà cung cấp phải tới được người cấu hình, không bị nuốt còn mã số. */
 test('mã lỗi HTTP đi kèm nguyên văn lý do nhà cung cấp trả về', () => {
-  const src = doc('src/services/ai-gateway.service.js')
-  const than = src.slice(src.indexOf('async function generateScene'))
-  const i = than.indexOf('Mô hình sinh ảnh trả')
-  assert.ok(i > 0)
-  // "trả 401" một mình không cho biết là sai khoá, hết tiền, hay sai tên mô
-  // hình — ba việc phải xử khác hẳn nhau.
-  assert.match(than.slice(i - 300, i + 200), /error\?\.message/)
+  // Chuỗi thông báo bị `ma()` moi ruột, nên tìm theo BIẾN dựng câu chứ không
+  // theo lời văn: `resp.data?.error?.message` mới là thứ phải có mặt.
+  const than = h.thanHam('src/services/ai-gateway.service.js', 'generateScene')
+  assert.match(than, /error\?\.message/,
+    '"trả 401" một mình không cho biết là sai khoá, hết tiền, hay sai tên mô '
+    + 'hình — ba việc phải xử khác hẳn nhau')
 })
 
 /** Khoá bật/tắt tính năng ảnh phải TÌM THẤY được trong trang quản trị. */

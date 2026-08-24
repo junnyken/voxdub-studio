@@ -65,6 +65,8 @@ const DEFAULTS = {
   // vẫn chỉ là một câu (mini-spec C7).
   'credit.cost.assist.scene_continuity': 4,
   'credit.cost.assist.scene_script': 3,
+  // Cùng tác vụ nhưng có gửi ảnh: token gấp nhiều lần nên giá cao hơn.
+  'credit.cost.assist.scene_script.co_anh': 8,
   // --- Dựng bối cảnh ảnh sản phẩm (mini-spec C1) --------------------------
   // Sinh ảnh đắt hơn hẳn tác vụ chữ (một ảnh ~ vài trăm lần token một câu
   // hỏi ngắn), nên giá cao hơn nhưng vẫn dưới giá một lần sinh nhạc.
