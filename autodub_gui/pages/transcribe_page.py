@@ -26,7 +26,7 @@ from autodub_gui.ui.inputs import LabeledCombo, LabeledLineEdit
 from autodub_gui.dub_constants import friendly_assist_error
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.widgets import LogPanel
-from autodub_gui.workers import TranscribeWorker
+from autodub_gui.workers import CatTepWorker, TranscribeWorker
 
 _PAGE_MARGIN = 28
 
@@ -55,6 +55,14 @@ _FORMATS = [
     ("Tất cả định dạng", "txt,srt,vtt,json"),
 ]
 
+#: Độ dài mỗi đoạn khi cắt. 30 phút là mặc định — xem `media/cat_tep.py`.
+_DO_DAI_DOAN = [
+    ("15 phút", "15"),
+    ("30 phút", "30"),
+    ("45 phút", "45"),
+    ("60 phút", "60"),
+]
+
 _MEDIA_FILTER = ("Video hoặc âm thanh (*.mp4 *.mkv *.mov *.avi *.webm "
                  "*.mp3 *.wav *.m4a *.aac *.flac *.ogg *.opus);;Tất cả (*.*)")
 
@@ -68,6 +76,7 @@ class TranscribePage(BasePage):
         self._tieu_de_gan_nhat = ""
         self._settings_provider = settings_provider
         self._worker: TranscribeWorker | None = None
+        self._worker_cat: CatTepWorker | None = None
         self._last_output_dir: str = ""
         self._build()
 
@@ -91,6 +100,22 @@ class TranscribePage(BasePage):
         self.btn_pick = SecondaryButton("Chọn file…")
         self.btn_pick.clicked.connect(self._pick_file)
         chon.addWidget(self.btn_pick)
+
+        # Cắt tệp dài (mini-spec C25). Người dùng có tệp 3 giờ 43 và không có
+        # phần mềm cắt nào — mà ffmpeg thì app đã cần sẵn cho mọi việc khác,
+        # nên "phải cài thêm phần mềm" là một câu trả lời sai.
+        self.btn_cat = SecondaryButton("Cắt tệp dài…")
+        self.btn_cat.setToolTip(
+            "Cắt tệp đang chọn thành nhiều đoạn đều nhau. Chép lại luồng nên "
+            "gần như tức thì và KHÔNG giảm chất lượng. Cắt xong tự điền các "
+            "đoạn vào ô trên để chép lời luôn.")
+        self.btn_cat.clicked.connect(self._cat_tep)
+        chon.addWidget(self.btn_cat)
+        self.do_dai_doan = LabeledCombo(
+            "Mỗi đoạn", _DO_DAI_DOAN,
+            "Đoạn ngắn thì chạy lại một đoạn hỏng đỡ đau; đoạn dài thì ít tệp "
+            "hơn.")
+        chon.addWidget(self.do_dai_doan)
         chon.addStretch()
         card.body.addLayout(chon)
 
@@ -160,6 +185,57 @@ class TranscribePage(BasePage):
             _MEDIA_FILTER)
         if paths:
             self.source.set_text(" | ".join(paths))
+
+    def _cat_tep(self) -> None:
+        """Cắt tệp đang chọn thành nhiều đoạn, rồi điền luôn vào ô nguồn."""
+        from autodub.transcribe_tool import is_url
+
+        if self._worker_cat is not None and self._worker_cat.isRunning():
+            TOASTS.warn("Đang cắt — chờ xong đã.")
+            return
+
+        nguon = self._sources()
+        if len(nguon) != 1:
+            TOASTS.warn("Chọn ĐÚNG MỘT tệp để cắt.")
+            return
+        duong = nguon[0]
+        if is_url(duong):
+            TOASTS.warn("Chỉ cắt được tệp trên máy. Tải video về trước đã.")
+            return
+        if not os.path.isfile(duong):
+            TOASTS.warn(f"Không tìm thấy: {duong}")
+            return
+
+        phut = int(self.do_dai_doan.current_key() or 30)
+        self.btn_cat.setEnabled(False)
+        self.status.setText("Đang cắt…")
+
+        worker = CatTepWorker(duong, phut, parent=self)
+        worker.xong.connect(self._cat_xong)
+        worker.hong.connect(self._cat_hong)
+        self._worker_cat = worker
+        worker.start()
+
+    def _cat_xong(self, phan: list) -> None:
+        self.btn_cat.setEnabled(True)
+        if len(phan) == 1:
+            self.status.setText("Tệp ngắn hơn một đoạn — không cần cắt.")
+            return
+        # Điền luôn vào ô nguồn: cắt xong mà bắt người dùng tự đi chọn lại
+        # từng đoạn là bỏ dở việc giữa chừng.
+        self.source.set_text(" | ".join(phan))
+        self.status.setText(
+            f"Đã cắt thành {len(phan)} đoạn và điền vào ô trên. Mốc thời gian "
+            "trong mỗi đoạn chạy lại từ 0 — tên tệp có ghi đoạn đó bắt đầu ở "
+            "phút thứ mấy.")
+        self.log.append_log(f"Đã cắt thành {len(phan)} đoạn:", 20)
+        for p in phan:
+            self.log.append_log(f"  {os.path.basename(p)}", 20)
+
+    def _cat_hong(self, loi: str) -> None:
+        self.btn_cat.setEnabled(True)
+        self.status.setText(loi)
+        TOASTS.error(loi)
 
     def _sources(self) -> list[str]:
         """Tách ô nhập thành danh sách nguồn — mini-spec V72."""

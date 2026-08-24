@@ -99,7 +99,7 @@ lại cả video.
 
 | Công cụ | Việc nó làm |
 |---|---|
-| **Chép lời** | Liên kết/video/mp3 → văn bản + `.srt`/`.vtt`/`.json`, có mốc thời gian. Chọn nhiều tệp một lượt. |
+| **Chép lời** | Liên kết/video/mp3 → văn bản + `.srt`/`.vtt`/`.json`, có mốc thời gian. Chọn nhiều tệp một lượt. **Ghi kết quả dần** (tệp dài không sợ mất) và **cắt tệp dài** ngay trong app. |
 | **Dịch phụ đề** | Dịch một tệp `.srt`/`.vtt` rời |
 | **Tải xuống** | Chỉ tải video về, không lồng tiếng |
 | **Xử lý hàng loạt** | Lồng tiếng nhiều video một lượt, có thử lại và ghi nhật ký hỏng |

@@ -8474,6 +8474,64 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C25 — Cắt tệp dài, ngay trong app (Phase H, 2026-08-24)
+
+Chủ dự án: *"tôi phải cắt sao vì tôi không có phần mềm cắt, bạn có hỗ trợ
+không?"*
+
+Câu trả lời đúng không phải "cài thêm phần mềm" — **ffmpeg thì app đã cần sẵn
+cho mọi việc khác**. Nên nút cắt nằm ngay trên trang Chép lời, cạnh nút chọn
+tệp.
+
+### Hai quyết định
+
+**Chép lại luồng, KHÔNG mã hoá lại** (`-c copy`). Mã hoá lại một tệp 3 giờ mất
+hàng chục phút để đổi lấy một tệp *xấu hơn*, trong khi việc cần làm chỉ là
+cắt. Đo thật: đổi sang mã hoá lại thì riêng bộ test đó chạy từ 36 giây lên
+**118 giây** — trên tệp thử 5 phút. Nhân lên cho tệp 3 giờ 43 thì thấy ngay
+đây không phải chuyện nhỏ.
+
+**Tên tệp mang MỐC BẮT ĐẦU** (`..._phan_03_tu_01-00-00.m4a`). Sau khi cắt, mốc
+thời gian trong mỗi bản chép lời chạy lại từ 0. Không nói ra thì người đọc
+tưởng câu ở phút 5 của phần 3 là phút 5 của cả buổi. Tên tệp là chỗ duy nhất
+giữ được thông tin đó mà không phải sửa đường chép lời.
+
+Kèm `-reset_timestamps 1`: thiếu cờ này thì đoạn 2 mang mốc của phút thứ 30 và
+nhiều trình phát tưởng tệp hỏng.
+
+### Ba chỗ từ chối làm việc thừa
+
+- Tệp **ngắn hơn một đoạn** thì trả về chính nó — cắt tệp 5 phút thành "một
+  đoạn 5 phút" chỉ tạo thêm một bản sao vô ích.
+- Chỉ cắt **tệp trên máy**, không cắt liên kết.
+- Chỉ cắt **đúng một tệp** mỗi lượt (ô nguồn nhận nhiều tệp phân cách bởi `|`).
+
+Cắt xong **tự điền các đoạn vào ô nguồn** — cắt xong mà bắt người dùng đi chọn
+lại từng đoạn là bỏ dở việc giữa chừng.
+
+### Đã cắt thật, không dừng ở "lệnh trông đúng"
+
+Dựng một tệp `.m4a` thật 310 giây, cắt 2 phút mỗi đoạn: ra **3 đoạn
+120+120+70 = đúng 310 giây**, không mất một giây nào, mỗi đoạn mở được và đọc
+được độ dài. Bộ test dựng tệp thật bằng ffmpeg chứ không giả lập.
+
+### Chứng minh từng luật
+
+Mã hoá lại thay vì chép luồng → 1 đỏ. Bỏ `-reset_timestamps` → 1 đỏ. Tên tệp
+không mang mốc bắt đầu → 1 đỏ.
+
+**1831 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- Cắt theo **thời lượng đều**, không cắt theo khoảng lặng. Một câu nói vắt qua
+  ranh giới hai đoạn sẽ bị chia đôi — với tệp giảng bài dài thì đó là một câu
+  hỏng trên mỗi ranh giới.
+- Chưa gộp các bản chép lời của các đoạn thành một tệp duy nhất có mốc thời
+  gian liên tục. Tên tệp có mốc bắt đầu nên cộng tay được, nhưng vẫn là việc
+  tay.
+- Chưa thử với tệp vài GB: tệp thử là 2,5 MB.
+
 ## C23–C24 — Cùng ngôn ngữ thì BỎ khâu dịch, và Chép lời ghi dần (Phase H, 2026-08-24)
 
 ### C23 — Chặn là câu trả lời dở

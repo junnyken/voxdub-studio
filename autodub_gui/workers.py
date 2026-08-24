@@ -1311,3 +1311,31 @@ class SceneScriptWorker(QThread):
             logger.warning(f"Không lấy được gợi ý kịch bản: {e}")
             goi_y = []
         self.xong.emit(goi_y)
+
+
+class CatTepWorker(QThread):
+    """Cắt một tệp dài thành nhiều đoạn — mini-spec C25.
+
+    Chạy nền dù chép luồng rất nhanh: với tệp vài GB trên ổ chậm, "rất nhanh"
+    vẫn có thể là chục giây, và đóng băng cửa sổ mười giây là đủ để người dùng
+    tưởng app treo.
+    """
+
+    xong = Signal(list)     # danh sách đường dẫn các đoạn
+    hong = Signal(str)
+
+    def __init__(self, duong_dan: str, phut: int = 30, parent=None):
+        super().__init__(parent)
+        self._duong_dan = duong_dan
+        self._phut = phut
+
+    def run(self) -> None:
+        try:
+            from autodub.media.cat_tep import cat_deu
+
+            phan = cat_deu(self._duong_dan, phut=self._phut)
+        except Exception as e:  # noqa: BLE001 — lý do phải tới người dùng
+            logger.warning(f"Cắt tệp hỏng: {e}")
+            self.hong.emit(str(e))
+            return
+        self.xong.emit(phan)
