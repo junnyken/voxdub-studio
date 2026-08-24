@@ -8474,6 +8474,73 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C27 — Bản chép lời vụn thành 1–2 chữ mỗi dòng (Phase H, 2026-08-24)
+
+Chủ dự án chạy thật tệp giảng bài 3 giờ 43 trên v3.8.1 và gửi ảnh chụp màn
+hình. Nhìn dòng nhật ký là thấy ngay:
+
+```
+Câu 449 · 12:06 — Là những
+Câu 450 · 12:07 — Cử chỉ
+Câu 451 · 12:07 — Hành vi
+Câu 452 · 12:09 — Này
+```
+
+456 câu trong 12 phút 12 giây = **1,6 giây mỗi câu**. Ghép lại thì rõ ràng đó
+là MỘT câu bị băm vụn. Với cả tệp là khoảng **tám nghìn dòng**, mỗi dòng 1-2
+chữ.
+
+### Nguyên nhân — có sẵn từ trước, không phải lỗi mới
+
+`asr_whisper_worker.py` bật `vad_filter=True` với
+`min_silence_duration_ms: 500`. Người giảng bài nói chậm và ngắt nhịp liên
+tục, nên **mỗi nhịp ngắt là một câu mới**. Trên video biên tập sẵn (nói liền
+mạch) thì không lộ; trên bài giảng thì lộ ngay.
+
+**Chữ vẫn ĐÚNG và ĐỦ — chỉ chỗ xuống dòng là sai.** Đây là điểm quyết định
+chỗ sửa: không đụng vào khâu nghe (đang chạy đúng), chỉ sửa khâu ghi.
+
+### Vì sao gộp ở khâu ghi `.txt`, không ở khâu nghe
+
+Phụ đề (`.srt`/`.vtt`) **cần** từng mẩu ngắn để hiện kịp trên màn hình. Gộp ở
+khâu nghe là làm hỏng phụ đề để chữa cho văn bản. Có test đọc mã nguồn cấm
+`gop_cau` xuất hiện trong đường ghi phụ đề.
+
+Ba lý do để xuống dòng, theo thứ tự: mẩu trước kết thúc bằng dấu chấm câu ·
+người nói nghỉ hơn 1,2 giây · dòng đã quá dài (14 giây hoặc 220 chữ). Mốc
+thời gian của dòng gộp là mốc của mẩu **đầu tiên** — người đọc tua tới đó
+phải rơi vào đầu câu, không phải giữa câu.
+
+### Cứu lượt chạy đang chạy dở
+
+Chủ dự án đang chạy dở vài giờ trên bản cũ. Bảo họ chạy lại là không được, nên
+thêm nút **"Gộp câu cho .txt…"**: chọn một bản chép lời đã xuất, đọc ngược các
+dòng `[mm:ss] chữ` thành câu, gộp, ghi ra tệp mới `…_da_gop.txt`.
+
+Hai luật: **không ghi đè tệp gốc** (bản vụn vẫn là dữ liệu thật, gộp sai thì
+còn đường quay lại), và **dòng không đúng khuôn thì nối vào câu trước** chứ
+không vứt — vứt là mất chữ.
+
+### Chứng minh từng luật
+
+Bỏ luật "dấu chấm là ranh giới" → 5 đỏ. Gộp vô tận không giới hạn độ dài →
+1 đỏ. Ghi đè tệp gốc → 1 đỏ.
+
+**1858 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- **Không sửa chữ hoa.** Mỗi mẩu được bộ nghe viết hoa chữ đầu, nên dòng gộp
+  đọc thành "Là những Cử chỉ Hành vi Này." Hạ chữ thường thì hỏng danh từ
+  riêng (Google, TikTok) — chọn giữ nguyên chữ của người dùng, chấp nhận xấu.
+- **Chưa hạ ngưỡng `min_silence_duration_ms`.** Sửa ở đó thì gốc rễ hơn,
+  nhưng nó đổi hành vi của cả luồng lồng tiếng (phụ đề, khớp giọng) mà chưa đo
+  được ảnh hưởng. Gộp ở khâu ghi là bản vá hẹp và an toàn.
+- Ngưỡng gộp (1,2 giây / 14 giây / 220 chữ) chọn theo giọng giảng bài, **chưa
+  hiệu chỉnh** trên nhiều loại thu âm.
+- Nút gộp chạy trên luồng giao diện — đọc-ghi một tệp văn bản vài trăm KB,
+  không phải việc chờ đợi.
+
 ## C26 — Cắt theo khoảng lặng, và tệp dài thì TỰ chia rồi TỰ ghép (Phase H, 2026-08-24)
 
 Chủ dự án hỏi hai câu và trả lời một câu.

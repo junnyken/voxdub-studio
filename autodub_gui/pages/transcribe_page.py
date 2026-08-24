@@ -111,6 +111,16 @@ class TranscribePage(BasePage):
             "đoạn vào ô trên để chép lời luôn.")
         self.btn_cat.clicked.connect(self._cat_tep)
         chon.addWidget(self.btn_cat)
+
+        # Gộp lại bản chép lời đã xuất bằng bản cũ (mini-spec C27). Người dùng
+        # chạy mất vài giờ rồi mới có bản vá thì không thể bảo họ chạy lại.
+        self.btn_gop = SecondaryButton("Gộp câu cho .txt…")
+        self.btn_gop.setToolTip(
+            "Chọn một bản chép lời .txt có mốc thời gian và nối các mẩu ngắn "
+            "thành câu đọc được. Tệp gốc giữ nguyên, bản gộp lưu thành tệp "
+            "mới «…_da_gop.txt».")
+        self.btn_gop.clicked.connect(self._gop_txt)
+        chon.addWidget(self.btn_gop)
         self.do_dai_doan = LabeledCombo(
             "Mỗi đoạn", _DO_DAI_DOAN,
             "Đoạn ngắn thì chạy lại một đoạn hỏng đỡ đau; đoạn dài thì ít tệp "
@@ -185,6 +195,30 @@ class TranscribePage(BasePage):
             _MEDIA_FILTER)
         if paths:
             self.source.set_text(" | ".join(paths))
+
+    def _gop_txt(self) -> None:
+        """Gộp câu cho một tệp .txt đã có sẵn.
+
+        Chạy thẳng trên luồng giao diện: đây là đọc-ghi một tệp văn bản vài
+        trăm KB, không phải việc chờ đợi. Bọc lỗi để tệp lạ không làm sập
+        trang.
+        """
+        from autodub.transcribe_tool import gop_tep_txt
+
+        duong, _ = QFileDialog.getOpenFileName(
+            self, "Chọn bản chép lời .txt cần gộp câu", "",
+            "Bản chép lời (*.txt);;Tất cả (*.*)")
+        if not duong:
+            return
+        try:
+            ra = gop_tep_txt(duong)
+        except Exception as e:  # noqa: BLE001 — lý do phải tới người dùng
+            self.status.setText(str(e))
+            TOASTS.error(str(e))
+            return
+        self.status.setText(f"Đã gộp xong: {ra}")
+        self.log.append_log(f"Bản gộp: {ra} (tệp gốc giữ nguyên)", 20)
+        TOASTS.success("Đã gộp câu xong.")
 
     def _cat_tep(self) -> None:
         """Cắt tệp đang chọn thành nhiều đoạn, rồi điền luôn vào ô nguồn."""

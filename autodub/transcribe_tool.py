@@ -104,8 +104,116 @@ def write_vtt(segments: list[dict], output_path: str) -> str:
     return output_path
 
 
+#: Gộp câu cho bản .txt (mini-spec C27).
+#:
+#: Bộ nghe bật lọc khoảng lặng ngưỡng 0,5 giây, nên người nói chậm — giảng
+#: bài, đọc chậm — bị cắt câu ở MỌI nhịp ngắt. Kết quả: mỗi dòng 1-2 chữ.
+#: Với tệp 3 giờ 43 là khoảng tám nghìn dòng, đúng chữ nhưng không đọc nổi.
+#:
+#: Gộp ở khâu GHI .txt chứ không ở khâu nghe: phụ đề (.srt/.vtt) CẦN từng
+#: mẩu ngắn để hiện kịp trên màn hình, gộp ở đó là làm hỏng phụ đề.
+_GOP_TOI_DA_GIAY = 14.0
+_GOP_TOI_DA_CHU = 220
+_KHOANG_NGHI_TACH_DOAN = 1.2
+_DAU_KET_CAU = ".!?…"
+
+
+def gop_cau(segments: list[dict]) -> list[dict]:
+    """Nối các mẩu ngắn liền nhau thành câu đọc được.
+
+    Ba lý do để CẮT sang dòng mới, theo thứ tự ưu tiên:
+
+    1. Mẩu trước kết thúc bằng dấu chấm câu — đó là ranh giới thật.
+    2. Người nói nghỉ hơn `_KHOANG_NGHI_TACH_DOAN` giây — nghỉ dài thường là
+       hết ý, kể cả khi bộ nghe không đánh dấu chấm.
+    3. Dòng đã quá dài (theo thời lượng hoặc số chữ) — không có ranh giới nào
+       thì vẫn phải xuống dòng, chứ không để một dòng dài vô tận.
+
+    Mốc thời gian của dòng gộp là mốc của mẩu ĐẦU TIÊN: người đọc tua tới đó
+    để nghe lại thì phải rơi vào đầu câu, không phải giữa câu.
+    """
+    ra: list[dict] = []
+    for seg in segments:
+        chu = str(seg.get("text", "")).strip()
+        if not chu:
+            continue
+        dau = float(seg.get("start", 0) or 0)
+        cuoi = float(seg.get("end", 0) or 0)
+
+        if ra:
+            truoc_do = ra[-1]
+            het_cau = truoc_do["text"].rstrip().endswith(tuple(_DAU_KET_CAU))
+            nghi = dau - float(truoc_do["end"])
+            qua_dai = (cuoi - float(truoc_do["start"]) > _GOP_TOI_DA_GIAY
+                       or len(truoc_do["text"]) + len(chu) > _GOP_TOI_DA_CHU)
+            if not (het_cau or nghi > _KHOANG_NGHI_TACH_DOAN or qua_dai):
+                truoc_do["text"] = f"{truoc_do['text']} {chu}".strip()
+                truoc_do["end"] = cuoi
+                continue
+
+        ra.append({"start": dau, "end": cuoi, "text": chu})
+    return ra
+
+
+def doc_txt_co_moc(duong_dan: str) -> list[dict]:
+    """Đọc ngược một bản chép lời `.txt` có mốc thời gian thành danh sách câu.
+
+    Dùng để GỘP LẠI một tệp đã xuất bằng bản cũ (mini-spec C27) — người dùng
+    chạy mất vài giờ rồi mới có bản vá thì không thể bảo họ chạy lại.
+
+    Dòng không đúng khuôn `[mm:ss] chữ` được nối vào câu ngay trước: bản chép
+    lời có thể có dòng chú thích đầu tệp, và vứt đi là mất chữ.
+    """
+    import re
+
+    cau: list[dict] = []
+    with open(duong_dan, encoding="utf-8") as f:
+        for dong in f:
+            dong = dong.rstrip("\n")
+            if not dong.strip() or dong.lstrip().startswith("#"):
+                continue
+            m = re.match(r"\s*\[(?:(\d+):)?(\d{1,2}):(\d{2}(?:\.\d+)?)\]\s*(.*)", dong)
+            if not m:
+                if cau:
+                    cau[-1]["text"] = f"{cau[-1]['text']} {dong.strip()}".strip()
+                continue
+            gio = int(m.group(1) or 0)
+            giay = gio * 3600 + int(m.group(2)) * 60 + float(m.group(3))
+            cau.append({"start": giay, "end": giay, "text": m.group(4).strip()})
+
+    # Mỗi câu kết thúc ở lúc câu sau bắt đầu — tệp .txt không ghi mốc kết
+    # thúc, mà `gop_cau` cần nó để biết người nói nghỉ bao lâu.
+    for i, c in enumerate(cau[:-1]):
+        c["end"] = cau[i + 1]["start"]
+    return cau
+
+
+def gop_tep_txt(duong_dan: str, duong_ra: str = "") -> str:
+    """Gộp câu cho một tệp `.txt` đã xuất sẵn. Trả về đường dẫn tệp mới.
+
+    KHÔNG ghi đè tệp gốc: bản vụn vẫn là dữ liệu thật của người dùng, và gộp
+    sai thì họ còn đường quay lại.
+    """
+    cau = doc_txt_co_moc(duong_dan)
+    if not cau:
+        raise ValueError(
+            "Tệp này không có dòng nào dạng [phút:giây] chữ — có thể không "
+            "phải bản chép lời có mốc thời gian.")
+    goc, duoi = os.path.splitext(duong_dan)
+    duong_ra = duong_ra or f"{goc}_da_gop{duoi or '.txt'}"
+    write_txt(cau, duong_ra, with_timestamps=True, gop=True)
+    logger.info(f"Gộp {len(cau)} mẩu thành bản dễ đọc: «{duong_ra}»")
+    return duong_ra
+
+
 def write_txt(segments: list[dict], output_path: str,
-              with_timestamps: bool = False) -> str:
+              with_timestamps: bool = False, gop: bool = True) -> str:
+    """Ghi bản chép lời ra .txt.
+
+    `gop=True` (mặc định) nối các mẩu ngắn thành câu — xem `gop_cau`.
+    """
+    if gop:
+        segments = gop_cau(segments)
     lines = []
     for seg in segments:
         text = str(seg.get("text", "")).strip()
