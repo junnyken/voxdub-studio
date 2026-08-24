@@ -8474,6 +8474,71 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C21 — Dọn thiết bị hàng loạt (Phase H, 2026-08-24)
+
+Chủ dự án: *"có mỗi máy đầu là của tôi, còn lại là test; không thấy chỗ nào
+tắt hoặc xoá hàng loạt, vào chi tiết tắt từng máy rất lâu."* Đúng — 25 máy
+Linux rác cộng một máy CI, mỗi máy một lượt bấm vào rồi bấm ra.
+
+Cũng chốt luôn: **bỏ mục hoàn 60 Vox** theo yêu cầu.
+
+### Thao tác không lùi được thì chốt phải nằm trước cú bấm
+
+Xoá một máy là xoá luôn ví Vox của máy đó. Nên phần quyết định "được làm gì
+với máy nào" tách hẳn sang `device-bulk.service.js` để test được mà không cần
+cơ sở dữ liệu, và có bốn chốt:
+
+- **Trần 200 máy mỗi lượt.** Không phải chống lạm dụng — chống một cú bấm
+  "chọn tất cả" trên bộ lọc rộng hơn người bấm tưởng.
+- **Chỉ nhận danh sách vân tay tường minh.** Không nhận bộ lọc để tự quét:
+  nhận bộ lọc là mở đường cho "xoá tất cả" bằng một tham số. Có test đọc mã
+  nguồn cấm đúng chuyện đó.
+- **Kể TÊN từng máy còn số dư**, không nói chung chung "một vài máy còn tiền".
+  Xoá một ví còn tiền là huỷ tiền, và người bấm cần thấy điều đó TRƯỚC khi
+  bấm chứ không phải sau.
+- **Máy chọn mà không tìm thấy thì báo ra.** Chọn 25 máy mà chỉ 23 máy đổi
+  trạng thái thì người bấm phải biết hai máy kia đi đâu.
+
+Thêm một đường **xem trước** (`xemTruoc: true`): trả về đúng những gì sẽ xảy
+ra mà không đụng gì. Giao diện hỏi máy chủ trước, rồi mới hiện hộp xác nhận
+với số liệu thật — không đoán từ dữ liệu đang hiện trên màn hình.
+
+### Giao diện
+
+Ô chọn từng dòng + ô chọn cả trang; thanh công cụ hiện khi đã chọn, với ba
+nút Khoá / Mở khoá / Xoá. Hộp xác nhận kể tên tối đa 10 máy còn tiền kèm tổng
+Vox, và với việc xoá thì nói thẳng: *"Xoá không lùi lại được. Muốn giữ đường
+quay lại thì dùng «Khoá» — máy bị khoá mất token ngay nhưng còn trong hệ
+thống."*
+
+Chọn theo **vân tay**, không theo chỉ số dòng: đổi trang hay đổi bộ lọc là chỉ
+số trỏ sang máy khác — với thao tác không lùi được thì đó là lỗi chết người.
+
+### Hai lần đặt sai chỗ trong JSX
+
+Chèn thanh công cụ bằng script, hai lần đặt vào giữa nhánh của một biểu thức
+ba ngôi — mà nhánh đó chỉ nhận MỘT phần tử. Cả hai lần đều lộ ra ngay ở bước
+build, không lọt được đi đâu. Bài học nhỏ: chèn JSX bằng khớp chuỗi thì phải
+neo vào mốc ở đúng CẤP, không neo vào thẻ gần nhất.
+
+### Chứng minh từng luật
+
+Bỏ trần số máy → 1 đỏ. Không kể tên máy còn tiền → 1 đỏ. Đọc dữ liệu trước
+khi xét yêu cầu → 1 đỏ. Khoá mà không thu hồi token → 1 đỏ.
+
+**510 pass (Node) · website build sạch.**
+
+### Remaining Limits
+
+- Xoá máy KHÔNG xoá lịch sử của máy đó (`UsageLog`, `CreditLedger`) — cố ý:
+  sổ sách còn thì còn tra được, mà bản ghi máy thì không cần giữ. Nghĩa là
+  báo cáo cũ vẫn đếm những máy đã xoá.
+- Chưa có "chọn tất cả kết quả của bộ lọc" — chỉ chọn được trong TRANG đang
+  xem. Với 25 máy thì một trang là đủ; nhiều hơn thì phải qua từng trang.
+- Chưa có lọc nhanh theo mẫu tên (vd mọi máy tên `trieunt-c`). Gõ vào ô tìm
+  rồi chọn cả trang là làm được, chỉ là chưa có nút tắt.
+- Chưa chạy thật: cửa đã lên máy chủ nhưng chưa ai bấm.
+
 ## C20 — Bốn mục "còn tồn" tự ghi, làm nốt (Phase H, 2026-08-22)
 
 Chủ dự án bảo: việc nào không cần anh vào thì làm trước. Bốn mục dưới đây đều

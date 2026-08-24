@@ -27,6 +27,7 @@ const config = require('../services/config.service')
 const activation = require('../services/activation.service')
 const gateway = require('../services/ai-gateway.service')
 const imageTransport = require('../services/image-transport.service')
+const deviceBulk = require('../services/device-bulk.service')
 const audit = require('../services/audit.service')
 const holdService = require('../services/hold.service')
 const backup = require('../services/backup.service')
@@ -115,6 +116,87 @@ module.exports = async function adminRoutes(fastify) {
       note: reason,
     })
     return { ok: true, device: { fingerprint: device.fingerprint, status: device.status } }
+  })
+
+  /**
+   * Khoá / mở khoá / xoá NHIỀU máy một lượt (mini-spec C21).
+   *
+   * Vào xem chi tiết rồi tắt từng máy là việc của mười phút cho hai mươi lăm
+   * máy thử nghiệm. Nhưng đây là thao tác không lùi được, nên cửa này:
+   *
+   * - chỉ nhận DANH SÁCH VÂN TAY tường minh, không nhận bộ lọc để tự quét
+   *   (không có đường "xoá tất cả");
+   * - `xemTruoc: true` trả về đúng những gì SẼ xảy ra mà không đụng gì —
+   *   giao diện dùng nó để kể tên máy còn số dư trước khi hỏi lần cuối;
+   * - báo rõ máy nào không tìm thấy thay vì im lặng bỏ qua.
+   */
+  fastify.post('/devices/bulk', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['fingerprints', 'action'],
+        properties: {
+          fingerprints: {
+            type: 'array',
+            maxItems: 500,
+            items: { type: 'string', minLength: 4, maxLength: 200 },
+          },
+          action: { type: 'string' },
+          reason: { type: 'string', maxLength: 500 },
+          xemTruoc: { type: 'boolean', default: false },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { reason = '', xemTruoc = false } = request.body
+    const xet = deviceBulk.xetYeuCau(request.body)
+    if (xet.loi) {
+      return reply.code(400).send({ code: 'YEU_CAU_KHONG_HOP_LE', message: xet.loi })
+    }
+
+    const may = await Device.find({ fingerprint: { $in: xet.fingerprints } }).lean()
+    const conTien = deviceBulk.mayConTien(may)
+    const khongThay = deviceBulk.mayKhongThay(xet.fingerprints, may)
+
+    if (xemTruoc) {
+      return {
+        viec: xet.viec,
+        soMay: may.length,
+        conTien,
+        khongThay,
+        tongVox: conTien.reduce((t, d) => t + d.creditBalance, 0),
+      }
+    }
+
+    let daLam = 0
+    for (const d of may) {
+      if (xet.viec === 'delete') {
+        await Device.deleteOne({ _id: d._id })
+      } else {
+        const khoa = xet.viec === 'block'
+        await Device.updateOne({ _id: d._id }, {
+          $set: {
+            status: khoa ? 'blocked' : 'active',
+            blockedReason: khoa ? reason : '',
+          },
+          // Khoá máy = thu hồi mọi token đã cấp, có hiệu lực ngay.
+          ...(khoa ? { $inc: { tokenVersion: 1 } } : {}),
+        })
+      }
+      daLam += 1
+    }
+
+    // Một dòng nhật ký cho CẢ lượt, kèm danh sách: hai mươi lăm dòng rời rạc
+    // thì không ai đọc ra được "đã có một lượt dọn hàng loạt lúc mấy giờ".
+    await audit.log({
+      action: `admin.device.bulk.${xet.viec}`,
+      target: `${daLam} máy`,
+      before: { conTien, khongThay },
+      after: { fingerprints: xet.fingerprints.slice(0, 50), reason },
+      ip: request.ip,
+    })
+
+    return { ok: true, viec: xet.viec, daLam, khongThay, conTien }
   })
 
   fastify.post('/devices/:fingerprint/credit', {

@@ -259,6 +259,20 @@ Vai `image` trả `{goiDuoc, coAnh, kieuAnh, kichThuocAnh}`; vai chữ trả
 **không** ghi vào sổ hiệu chỉnh, **không** dùng lại kết quả phép thử nhìn cũ,
 và ghim đúng nơi đang thử (không rơi sang nơi khác qua fallback).
 
+### `POST /v1/admin/devices/bulk` (admin, mini-spec C21)
+Khoá / mở khoá / xoá NHIỀU máy một lượt.
+Body: `{ fingerprints: string[], action: 'block'|'unblock'|'delete', reason?, xemTruoc? }`
+
+`xemTruoc: true` trả về đúng những gì SẼ xảy ra mà **không đụng gì**:
+`{ viec, soMay, conTien[], tongVox, khongThay[] }` — giao diện dùng nó để kể
+tên từng máy còn số dư trước khi hỏi lần cuối.
+
+Ba chốt: trần **200 máy** mỗi lượt (chống cú bấm "chọn tất cả" rộng hơn người
+bấm tưởng) · chỉ nhận **danh sách vân tay tường minh**, không nhận bộ lọc để
+tự quét (không có đường "xoá tất cả") · máy chọn mà không tìm thấy được **báo
+ra** trong `khongThay`, không im lặng bỏ qua. Khoá kèm `tokenVersion += 1` nên
+token cũ chết ngay. Một dòng nhật ký cho cả lượt, kèm danh sách vân tay.
+
 ### `GET /v1/admin/calibration/runs` · `POST /v1/admin/calibration/runs/:id/review` (admin, C5)
 Liệt kê lượt hiệu chỉnh chờ soi (kèm `verdict` và `reason` bằng lời), và đánh
 dấu đã soi: `{agree: boolean, note?}`. Số lượt **đã soi** — không phải số lượt
