@@ -149,6 +149,19 @@ def main() -> None:
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 500},
             word_timestamps=True,
+            # Mini-spec C28 — CHẶN VÒNG LẶP BỊA.
+            #
+            # Mặc định của faster-whisper là bơm bản chép của đoạn trước vào
+            # lời nhắc của đoạn sau. Gặp quãng im hoặc tiếng nhỏ, mô hình
+            # không có gì để nghe nên nó lặp lại chính câu vừa in ra — rồi
+            # câu đó lại thành lời nhắc cho đoạn kế. Kết quả trên bài giảng
+            # thật: từ phút 33 tới 37 in ra một dòng "Các bạn hãy đăng ký
+            # kênh…" mỗi 40 giây, không ai nói câu nào cả.
+            #
+            # Tắt đi thì mất một chút mạch văn giữa các đoạn, nhưng đổi lại
+            # không có chữ nào bị BỊA RA. Với bản chép lời, bịa nguy hiểm hơn
+            # lạc mạch nhiều.
+            condition_on_previous_text=False,
         )
     except Exception as e:
         _die(proto_out, f"Lỗi khi nhận dạng: {e}")

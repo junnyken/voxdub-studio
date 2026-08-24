@@ -8474,6 +8474,86 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C28 — Mô hình BỊA khi gặp quãng im (Phase H, 2026-08-24)
+
+Ảnh chụp thứ hai của chủ dự án, cùng lượt chạy 3 giờ 43:
+
+```
+Câu 1485 · 33:27 — Hãy subscribe cho kênh Ghiền Mì Gõ Để không bỏ lỡ
+Câu 1486 · 33:48 — Các bạn hãy đăng ký kênh để ủng hộ kênh của mình
+Câu 1488 · 35:11 — Các bạn hãy đăng ký kênh để ủng hộ kênh của mình
+Câu 1489 · 35:55 — Các bạn hãy đăng ký kênh để ủng hộ kênh của mình
+Câu 1490 · 36:38 — Các bạn hãy đăng ký kênh để ủng hộ kênh của mình
+Câu 1491 · 37:17 — Các bạn hãy đăng ký kênh để ủng hộ kênh của mình
+```
+
+Từ phút 33 tới 37, mỗi ~40 giây một dòng y hệt. **Không ai nói câu nào cả.**
+Đây là câu mẫu quảng cáo YouTube — Whisper học từ hàng triệu phụ đề tiếng
+Việt, nên gặp quãng im hoặc tiếng nhỏ là lấp chỗ trống bằng đúng những câu
+quen thuộc nhất.
+
+Nguy hiểm hơn hẳn chuyện vụn câu ở C27: **vụn câu là trình bày xấu, bịa là
+dữ liệu SAI**.
+
+### Gốc rễ: mô hình lấy chính câu vừa in làm lời nhắc
+
+`faster-whisper` mặc định bơm bản chép của đoạn trước vào lời nhắc của đoạn
+sau. Gặp quãng im, mô hình không có gì để nghe nên lặp lại chính câu vừa in —
+rồi câu đó lại thành lời nhắc cho đoạn kế. Vòng lặp tự nuôi nó.
+
+Đặt `condition_on_previous_text=False`. Mất một chút mạch văn giữa các đoạn,
+đổi lại **không có chữ nào bị bịa ra**. Với bản chép lời, bịa nguy hiểm hơn
+lạc mạch nhiều.
+
+### Lưới an toàn: lọc câu lặp liên tiếp
+
+Tắt ở gốc là đúng nhưng chưa đủ — tệp đã xuất bằng bản cũ vẫn đầy câu bịa, mà
+chủ dự án đang chạy dở vài giờ. Nên thêm `loc_lap_lai()`:
+
+- **Chỉ gộp khi lặp từ BA lần liên tiếp trở lên.** Người nói lặp hai lần là
+  chuyện thật ("Không. Không."); lặp bốn năm lần y hệt thì gần như chắc chắn
+  là máy bịa.
+- **So sau khi bỏ dấu câu và chữ hoa** — cùng một câu bịa hiện ra lúc có dấu
+  chấm lúc không.
+- **Lặp KHÔNG liên tiếp thì không đụng tới**: giảng viên nhắc lại một ý ở đoạn
+  sau là chuyện bình thường.
+- **Báo ra số câu đã bỏ.** Im lặng xoá chữ của người dùng là điều tệ nhất một
+  công cụ chép lời có thể làm.
+
+Lọc **ngay sau khi nghe xong**, trước mọi định dạng xuất — câu bịa là dữ liệu
+sai nên phụ đề và `.json` cũng không được có nó. Khác hẳn C27 (gộp câu) vốn
+chỉ là cách trình bày nên chỉ áp cho `.txt`. Nút "Gộp câu cho .txt…" cũng lọc
+luôn, vì đó chính là tệp cần cứu.
+
+### Hai bộ canh sẵn có của repo bắt lỗi của tôi
+
+Phép thay chuỗi của tôi khớp nhầm `    ghi_dan.dong()` (4 dấu cách) vào bên
+trong `        ghi_dan.dong()` (8 dấu cách) — tức là chèn phần lọc **vào giữa
+khối bắt lỗi**, nuốt mất cả `raise` lẫn dòng cảnh báo giữ tệp dở.
+
+Bắt được nhờ hai bộ canh có sẵn: **luật "nuốt lỗi phải có dấu vết"** (V92/V93)
+chỉ thẳng `transcribe_media()` dòng 417, và test C24 về giữ tệp dở. Không có
+chúng thì lỗi này lọt, và hậu quả là chép lời hỏng giữa chừng **không báo gì**
+— đúng lớp lỗi đã mất nhiều ngày để dọn.
+
+### Chứng minh từng luật
+
+Bật lại việc bơm bản chép đoạn trước → 1 đỏ. Gộp cả khi chỉ lặp 2 lần → 1 đỏ.
+Lọc sau khi đã ghi tệp → 1 đỏ.
+
+**1867 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- **Chỉ bắt được câu bịa LẶP LẠI.** Một câu bịa đứng lẻ giữa quãng im thì vẫn
+  lọt. Muốn chắc phải đối chiếu với mức âm lượng của đoạn đó — chưa làm.
+- **Không có danh sách câu mẫu YouTube để chặn thẳng.** Cân nhắc rồi bỏ: nếu
+  giảng viên thật sự nói "các bạn hãy đăng ký kênh" thì chặn theo danh sách là
+  xoá chữ thật của họ.
+- Ngưỡng ba lần chọn theo đúng ca này, chưa đo trên nhiều loại thu âm.
+- `condition_on_previous_text=False` **chưa chạy thật lần nào** — máy này
+  không có Whisper. Lượt chạy tới của chủ dự án là phép thử đầu tiên.
+
 ## C27 — Bản chép lời vụn thành 1–2 chữ mỗi dòng (Phase H, 2026-08-24)
 
 Chủ dự án chạy thật tệp giảng bài 3 giờ 43 trên v3.8.1 và gửi ảnh chụp màn

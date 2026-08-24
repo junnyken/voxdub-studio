@@ -104,6 +104,48 @@ def write_vtt(segments: list[dict], output_path: str) -> str:
     return output_path
 
 
+def _chuan_hoa_so_sanh(chu: str) -> str:
+    """Bỏ dấu câu và chữ hoa để so hai câu có PHẢI CÙNG MỘT CÂU không."""
+    import re
+
+    return re.sub(r"[^\w\s]", "", str(chu or "")).lower().strip()
+
+
+def loc_lap_lai(segments: list[dict], toi_thieu: int = 3) -> tuple[list[dict], int]:
+    """Bỏ những câu lặp lại liên tiếp do mô hình BỊA (mini-spec C28).
+
+    Whisper học từ hàng triệu phụ đề YouTube, nên gặp quãng im nó lấp chỗ
+    trống bằng đúng những câu quen thuộc nhất: "các bạn hãy đăng ký kênh",
+    "hãy subscribe"… Chạy thật trên bài giảng 3 giờ 43: từ phút 33 tới 37 in
+    ra một dòng như thế mỗi 40 giây, trong khi không ai nói câu nào.
+
+    **Chỉ gộp khi lặp từ `toi_thieu` lần liên tiếp trở lên.** Người nói lặp
+    hai lần là chuyện thật ("Không. Không."); lặp bốn năm lần y hệt thì gần
+    như chắc chắn là máy bịa. Giữ MỘT bản, bỏ phần thừa.
+
+    Trả `(danh sách đã lọc, số câu đã bỏ)` — số đó phải nói ra, vì im lặng
+    xoá chữ của người dùng là điều tệ nhất một công cụ chép lời có thể làm.
+    """
+    ra: list[dict] = []
+    bo = 0
+    i = 0
+    while i < len(segments):
+        chu = _chuan_hoa_so_sanh(segments[i].get("text", ""))
+        j = i + 1
+        while (j < len(segments)
+               and chu
+               and _chuan_hoa_so_sanh(segments[j].get("text", "")) == chu):
+            j += 1
+        dai = j - i
+        if dai >= toi_thieu:
+            ra.append(segments[i])
+            bo += dai - 1
+        else:
+            ra.extend(segments[i:j])
+        i = j
+    return ra, bo
+
+
 #: Gộp câu cho bản .txt (mini-spec C27).
 #:
 #: Bộ nghe bật lọc khoảng lặng ngưỡng 0,5 giây, nên người nói chậm — giảng
@@ -199,6 +241,11 @@ def gop_tep_txt(duong_dan: str, duong_ra: str = "") -> str:
         raise ValueError(
             "Tệp này không có dòng nào dạng [phút:giây] chữ — có thể không "
             "phải bản chép lời có mốc thời gian.")
+    # Tệp xuất bằng bản cũ còn nguyên các câu bịa lặp lại (mini-spec C28) —
+    # lọc luôn ở đây, vì đó chính là tệp cần cứu.
+    cau, so_bo = loc_lap_lai(cau)
+    if so_bo:
+        logger.warning(f"Đã bỏ {so_bo} câu lặp lại liên tiếp.")
     goc, duoi = os.path.splitext(duong_dan)
     duong_ra = duong_ra or f"{goc}_da_gop{duoi or '.txt'}"
     write_txt(cau, duong_ra, with_timestamps=True, gop=True)
@@ -377,6 +424,14 @@ def transcribe_media(source: str, output_dir: str, settings,
                 f"nằm ở «{duong_tam}».")
         raise
     ghi_dan.dong()
+
+    # Bỏ những câu lặp do mô hình bịa (mini-spec C28). Lọc ở ĐÂY chứ không ở
+    # khâu ghi .txt: câu bịa là dữ liệu SAI, nên phụ đề và .json cũng không
+    # được có nó — khác hẳn chuyện gộp câu, vốn chỉ là cách trình bày.
+    segments, so_bo = loc_lap_lai(segments)
+    if so_bo:
+        say("asr", f"Đã bỏ {so_bo} câu lặp lại liên tiếp — nhiều khả năng là "
+                   "chỗ im lặng bị nghe nhầm.")
     if not segments:
         raise TranscribeError(
             "Không nghe được câu nào — file có thể không có tiếng nói, "

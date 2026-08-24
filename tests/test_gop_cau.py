@@ -126,3 +126,84 @@ def test_tep_khong_phai_ban_chep_loi_thi_bao_ro(tmp_path):
     duong.write_text("không có mốc nào cả\n", encoding="utf-8")
     with pytest.raises(ValueError, match="mốc thời gian"):
         tt.gop_tep_txt(str(duong))
+
+
+# -- Lọc câu BỊA lặp lại (mini-spec C28) ------------------------------------
+#
+# Chạy thật bài giảng 3h43: từ phút 33 tới 37, mỗi ~40 giây một dòng "Các bạn
+# hãy đăng ký kênh để ủng hộ kênh của mình" — trong khi không ai nói câu nào.
+# Whisper học từ hàng triệu phụ đề YouTube nên gặp quãng im là lấp bằng đúng
+# những câu quen thuộc nhất.
+
+def test_lap_nhieu_lan_lien_tiep_thi_giu_MOT_ban():
+    mau = [{"start": i, "text": "Các bạn hãy đăng ký kênh"} for i in range(5)]
+    ra, bo = tt.loc_lap_lai(mau)
+    assert len(ra) == 1 and bo == 4
+
+
+def test_lap_HAI_lan_thi_GIU_NGUYEN():
+    """Người nói lặp hai lần là chuyện thật — «Không. Không.»"""
+    ra, bo = tt.loc_lap_lai([{"start": 0, "text": "Không"},
+                             {"start": 1, "text": "Không"}])
+    assert len(ra) == 2 and bo == 0
+
+
+def test_khac_dau_cau_hay_chu_hoa_van_tinh_la_MOT_cau():
+    mau = [{"start": 0, "text": "Đăng ký kênh"},
+           {"start": 1, "text": "đăng ký kênh."},
+           {"start": 2, "text": "Đăng ký kênh!"}]
+    ra, bo = tt.loc_lap_lai(mau)
+    assert len(ra) == 1 and bo == 2
+
+
+def test_lap_KHONG_lien_tiep_thi_khong_dung_toi():
+    """Giảng viên nhắc lại một ý ở đoạn sau là chuyện bình thường."""
+    mau = [{"start": 0, "text": "Điểm quan trọng"},
+           {"start": 1, "text": "Chuyện khác"},
+           {"start": 2, "text": "Điểm quan trọng"}]
+    ra, bo = tt.loc_lap_lai(mau)
+    assert len(ra) == 3 and bo == 0
+
+
+def test_cau_rong_khong_bi_gom_nham():
+    ra, bo = tt.loc_lap_lai([{"start": i, "text": ""} for i in range(5)])
+    assert len(ra) == 5 and bo == 0
+
+
+def test_bao_RA_so_cau_da_bo():
+    """Im lặng xoá chữ của người dùng là điều tệ nhất một công cụ chép lời
+    có thể làm."""
+    _ra, bo = tt.loc_lap_lai([{"start": i, "text": "lặp"} for i in range(7)])
+    assert bo == 6
+
+
+def test_loc_TRUOC_khi_xuat_moi_dinh_dang():
+    """Câu bịa là dữ liệu SAI nên phụ đề và .json cũng không được có nó —
+    khác hẳn chuyện gộp câu, vốn chỉ là cách trình bày."""
+    from tests.doc_ma import cac_luot_goi
+
+    goi = cac_luot_goi(tt.transcribe_media)
+    assert "loc_lap_lai" in goi
+    assert goi.index("loc_lap_lai") < goi.index("write_txt"), \
+        "lọc sau khi đã ghi tệp thì tệp vẫn bẩn"
+
+
+def test_nut_gop_tep_cu_cung_loc_lap(tmp_path):
+    """Tệp xuất bằng bản cũ còn nguyên các câu bịa — đó chính là tệp cần cứu."""
+    duong = tmp_path / "vun.txt"
+    duong.write_text(
+        "[33:48] Các bạn hãy đăng ký kênh\n"
+        "[35:11] Các bạn hãy đăng ký kênh\n"
+        "[35:55] Các bạn hãy đăng ký kênh\n"
+        "[36:38] Các bạn hãy đăng ký kênh\n", encoding="utf-8")
+    ra = tt.gop_tep_txt(str(duong))
+    assert open(ra, encoding="utf-8").read().count("đăng ký kênh") == 1
+
+
+def test_tat_bom_ban_chep_doan_truoc_vao_loi_nhac():
+    """Gốc rễ của vòng lặp bịa: mô hình lấy chính câu vừa in làm lời nhắc."""
+    import inspect
+    import io as _io
+
+    s = _io.open("autodub/speech/asr_whisper_worker.py", encoding="utf-8").read()
+    assert "condition_on_previous_text=False" in s
