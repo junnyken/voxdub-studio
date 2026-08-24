@@ -154,6 +154,16 @@ def _cmd_dub(args: argparse.Namespace) -> int:
         settings.speaker_count = int(args.speakers)
     try:
         target = _validate_target(args.target)
+        # Nguồn trùng đích thì không có gì để dịch — chặn TRƯỚC khi tải video
+        # về, vì tải xong mới báo là đã tốn băng thông và thời gian của người
+        # dùng (mini-spec C22).
+        from autodub.languages import cung_ngon_ngu
+
+        if cung_ngon_ngu(args.source_lang or "", args.target):
+            raise CliArgError(
+                f"--source-lang {args.source_lang} đã cùng ngôn ngữ với "
+                f"--target {args.target}: không có gì để dịch. Đổi --target, "
+                "hoặc dùng `voxdub transcribe` nếu chỉ cần văn bản.")
         _validate_voice(args.voice, target, settings)
     except (CliArgError, ValueError) as e:
         print(f"Lỗi tham số: {e}", file=sys.stderr)

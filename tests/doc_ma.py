@@ -41,13 +41,20 @@ def _ten_goi(node: ast.Call) -> str:
 
 
 def cac_luot_goi(ham) -> list[str]:
-    """Mọi lượt gọi hàm bên trong, theo thứ tự xuất hiện.
+    """Mọi lượt gọi hàm bên trong, THEO THỨ TỰ TRONG MÃ.
 
     Chỉ lấy LƯỢT GỌI thật (`ast.Call`) — dòng `def` cùng tên không tính, chữ
     trong chú thích không tính, chuỗi ký tự không tính.
+
+    Sắp theo `(dòng, cột)`, KHÔNG theo thứ tự `ast.walk` trả về: `walk` đi
+    theo bề rộng của cây nên một lượt gọi nằm ở dòng cuối có thể được trả về
+    trước một lượt gọi ở dòng đầu. Bản đầu của tệp này tin vào thứ tự của
+    `walk` và `goi_truoc()` so nhầm — lỗi lộ ra khi kiểm thứ tự trong
+    `cli._cmd_dub` (mini-spec C22).
     """
-    return [_ten_goi(n) for n in ast.walk(cay_ham(ham))
-            if isinstance(n, ast.Call)]
+    goi = [n for n in ast.walk(cay_ham(ham)) if isinstance(n, ast.Call)]
+    goi.sort(key=lambda n: (n.lineno, n.col_offset))
+    return [_ten_goi(n) for n in goi]
 
 
 def co_goi(ham, ten: str) -> bool:

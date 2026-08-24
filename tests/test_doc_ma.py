@@ -64,3 +64,26 @@ def test_nhan_ra_luot_goi_co_ten_mo_dun():
 
     assert co_goi(_mau, "join")
     assert "os.path.join" in cac_luot_goi(_mau)
+
+
+def _mau_thu_tu_theo_dong():
+    """Lượt gọi ở dòng ĐẦU phải được trả về trước lượt gọi ở dòng cuối.
+
+    `ast.walk` đi theo bề rộng của cây, nên một lượt gọi nằm sâu trong một
+    khối `if` ở đầu hàm có thể bị trả về SAU một lượt gọi phẳng ở cuối hàm —
+    và `goi_truoc()` so nhầm. Đây là mẫu bẫy đúng hình dạng đó (C22).
+    """
+    if len("x"):
+        if len("y"):
+            str(1)          # sâu trong hai khối, nhưng ở DÒNG TRƯỚC
+    repr(2)                  # phẳng, nhưng ở DÒNG SAU
+
+
+def test_thu_tu_luot_goi_theo_MA_khong_theo_cay():
+    from tests.doc_ma import cac_luot_goi as goi
+
+    ds = goi(_mau_thu_tu_theo_dong)
+    assert ds.index("str") < ds.index("repr"), \
+        "đang trả về theo thứ tự ast.walk chứ không theo thứ tự trong mã"
+    assert goi_truoc(_mau_thu_tu_theo_dong, "str", "repr")
+    assert not goi_truoc(_mau_thu_tu_theo_dong, "repr", "str")

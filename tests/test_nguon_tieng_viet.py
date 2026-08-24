@@ -70,3 +70,76 @@ def test_moi_ma_nguon_deu_co_trong_bang_dich():
 
     thieu = [key for _n, key in consts.SOURCE_LANGS if key not in LANG_TO_FLORES]
     assert thieu == [], f"nguồn {thieu} không có mã dịch tương ứng"
+
+
+# -- Chốt "nguồn trùng đích" phải có ở MỌI đường vào (mini-spec C22) ---------
+#
+# Chốt này thêm ngày 22/8 nhưng chỉ ở trang Tạo dự án. Xử lý hàng loạt và
+# `voxdub dub` vẫn nhận nguồn trùng đích — và trả tiền cho một lượt gọi mô
+# hình mỗi video để nhận lại gần đúng câu cũ.
+
+def test_phep_so_nam_o_LOI_de_dong_lenh_dung_duoc():
+    """Dòng lệnh không được nhập gói giao diện, nên phép so phải ở lõi."""
+    from autodub.languages import cung_ngon_ngu as o_loi
+    from autodub_gui.dub_constants import cung_ngon_ngu as o_gui
+
+    assert o_loi is o_gui, "gói giao diện đang giữ một bản chép riêng"
+
+
+def test_khong_con_bang_chep_tay_trong_goi_giao_dien():
+    import io
+
+    s = io.open("autodub_gui/dub_constants.py", encoding="utf-8").read()
+    assert "_NGUON_SANG_DICH = {" not in s, \
+        "hai bản chép là có ngày lệch nhau"
+
+
+def test_tu_nhan_dang_thi_khong_ket_luan(monkeypatch):
+    """Chặn oan còn tệ hơn không chặn."""
+    from autodub.languages import cung_ngon_ngu
+
+    assert cung_ngon_ngu("auto", "vi") is False
+    assert cung_ngon_ngu("", "vi") is False
+
+
+def test_dong_lenh_chan_nguon_trung_dich():
+    """`voxdub dub --source-lang vi-VN --target vi` phải bị chặn."""
+    from tests.doc_ma import co_goi
+    from autodub.cli import _cmd_dub
+
+    assert co_goi(_cmd_dub, "cung_ngon_ngu"), "dòng lệnh chưa có chốt"
+
+
+def test_dong_lenh_chan_TRUOC_khi_tai_video():
+    """Tải xong mới báo là đã tốn băng thông và thời gian của người dùng."""
+    from tests.doc_ma import cac_luot_goi
+    from autodub.cli import _cmd_dub
+
+    goi = cac_luot_goi(_cmd_dub)
+    assert "cung_ngon_ngu" in goi
+    # Mọi lượt gọi liên quan tới tải/chạy pipeline phải đứng SAU.
+    i = goi.index("cung_ngon_ngu")
+    sau = goi[i:]
+    for ten in ("run", "DubPipeline"):
+        if ten in goi:
+            assert ten in sau, f"«{ten}» chạy trước khi kiểm ngôn ngữ"
+
+
+def test_xu_ly_hang_loat_chan_o_MOT_cho_duy_nhat():
+    """Chặn ở nơi gọi thì thêm đường vào thứ ba là sót."""
+    from tests.doc_ma import co_goi
+    from autodub_gui.pages.batch_page import BatchPage
+
+    assert co_goi(BatchPage._launch, "_chan_cung_ngon_ngu"), \
+        "đường chạy mẻ chưa có chốt"
+    # Hai đường vào đều đi qua `_launch`, nên KHÔNG cần chặn riêng ở chúng.
+    for ham in (BatchPage._start_all, BatchPage._run_single):
+        assert co_goi(ham, "_launch")
+
+
+def test_xu_ly_hang_loat_chan_ca_duong_len_may_chu():
+    """Đường đẩy lên máy chủ cũng phải bị chặn — nó tốn tiền hơn."""
+    from tests.doc_ma import goi_truoc
+    from autodub_gui.pages.batch_page import BatchPage
+
+    assert goi_truoc(BatchPage._launch, "_chan_cung_ngon_ngu", "_launch_cloud")

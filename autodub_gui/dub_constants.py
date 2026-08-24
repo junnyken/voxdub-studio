@@ -33,23 +33,10 @@ SOURCE_LANGS: list[tuple[str, str]] = [
 
 #: Mã nguồn (BCP-47) → khoá đích tương ứng, để biết nguồn và đích có trùng
 #: ngôn ngữ không.
-_NGUON_SANG_DICH = {
-    "vi-VN": "vi", "en-US": "en", "ja-JP": "ja", "th-TH": "th",
-    "id-ID": "id", "ko-KR": "ko",
-    "zh-CN": "zh", "zh-HK": "zh", "zh-TW": "zh",
-}
-
-
-def cung_ngon_ngu(source_lang: str, target_key: str) -> bool:
-    """Nguồn và đích có cùng một ngôn ngữ không.
-
-    Dịch tiếng Việt sang tiếng Việt thì không có gì để dịch: người dùng mất
-    tiền cho một lượt gọi mô hình chỉ để nhận lại gần đúng câu cũ. Chặn sớm
-    và chỉ sang trang Chép lời — đó mới là thứ họ đang cần.
-    """
-    if not source_lang or not target_key:
-        return False
-    return _NGUON_SANG_DICH.get(source_lang, "") == target_key
+# Phép so "nguồn trùng đích" nằm ở LÕI (`autodub.languages`) để dòng lệnh
+# dùng được — gói giao diện chỉ mượn lại, không giữ bản chép. Hai bản chép là
+# có ngày lệch nhau (mini-spec C22).
+from autodub.languages import cung_ngon_ngu  # noqa: E402,F401  (dùng lại ở GUI)
 
 #: Paraformer (autodub/speech/paraformer_transcriber.py) chỉ hỗ trợ tiếng
 #: Trung — dùng để cảnh báo trong GUI khi chọn kèm ngôn ngữ khác (backend đã

@@ -636,6 +636,22 @@ class BatchPage(BasePage):
                         "đã chuyển sang Ghi thẳng vào hình.")
 
     # -- Chạy ----------------------------------------------------------
+    def _chan_cung_ngon_ngu(self) -> bool:
+        """Trả True nếu phải chặn: nguồn đã cùng ngôn ngữ với đích.
+
+        Xử lý hàng loạt KHÔNG có ô chọn đích — nó luôn lồng sang tiếng Việt.
+        Nên chọn nguồn Tiếng Việt ở đây là dịch tiếng Việt sang tiếng Việt cho
+        CẢ MẺ: mỗi video một lượt gọi mô hình để nhận lại gần đúng câu cũ.
+        Trang Tạo dự án đã chặn từ 22/8; đường này thì chưa (mini-spec C22).
+        """
+        if not consts.cung_ngon_ngu(self.opt_lang.current_key() or "", "vi"):
+            return False
+        TOASTS.warn(
+            "Ngôn ngữ gốc đang là Tiếng Việt, mà xử lý hàng loạt luôn lồng "
+            "sang tiếng Việt — không có gì để dịch. Đổi ngôn ngữ gốc, hoặc "
+            "dùng trang Chép lời nếu bạn chỉ cần văn bản.")
+        return True
+
     def _template(self) -> DubRequest:
         settings = self._settings_provider()
         return DubRequest(
@@ -699,6 +715,11 @@ class BatchPage(BasePage):
         return confirmed
 
     def _launch(self, items: list[BatchItem]) -> None:
+        # Chặn ở ĐÂY, không ở hai chỗ gọi: `_start_all` và `_run_single` đều
+        # đi qua đây, kể cả đường đẩy lên máy chủ. Chặn ở nơi gọi thì thêm
+        # đường vào thứ ba là sót (mini-spec C22).
+        if self._chan_cung_ngon_ngu():
+            return
         if self.cloud_mode():
             self._launch_cloud(items)
             return

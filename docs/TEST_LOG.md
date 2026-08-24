@@ -8474,6 +8474,67 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C22 — Chốt "nguồn trùng đích" chỉ có ở một trong ba đường vào (Phase H, 2026-08-24)
+
+Chủ dự án hỏi: *"về nhận định rõ tiếng Việt và chọn ngôn ngữ video bị thiếu
+tiếng Việt, bạn làm chưa?"*
+
+**Đã làm, và đã có trong bản v3.7.2 đang phát hành.** Kiểm bằng mã: Tiếng Việt
+(vi-VN) nằm trong `SOURCE_LANGS` dùng chung cho Tạo dự án / Xử lý hàng loạt /
+Cài đặt; trang Chép lời có riêng; đích lồng tiếng có `vi`; dịch phụ đề rời có
+`vie_Latn`. Và `asr_whisper_worker` chuẩn hoá `vi-VN` → `vi` rồi truyền thẳng
+làm gợi ý ngôn ngữ cho Whisper — đó chính là thứ làm nhận dạng chính xác thay
+vì để nó tự đoán.
+
+### Nhưng chốt đi kèm thì chỉ có ở MỘT trong ba đường vào
+
+Cùng lượt mở tiếng Việt (22/8), một chốt được thêm: nguồn trùng đích thì không
+có gì để dịch, chặn lại và chỉ sang trang Chép lời. Chốt đó **chỉ có ở trang
+Tạo dự án**.
+
+- **Xử lý hàng loạt** không có ô chọn đích — nó LUÔN lồng sang tiếng Việt. Nên
+  chọn nguồn Tiếng Việt ở đây là vi→vi cho **cả mẻ**: mỗi video một lượt gọi
+  mô hình để nhận lại gần đúng câu cũ.
+- **`voxdub dub`** mặc định `--target vi`, cũng không kiểm.
+
+Sửa: đưa phép so xuống **lõi** (`autodub/languages.py`) để dòng lệnh dùng được
+mà không phải nhập gói giao diện; gói giao diện mượn lại chứ không giữ bản
+chép (hai bản chép là có ngày lệch). Chặn ở `_launch` — nơi CẢ HAI đường vào
+của Xử lý hàng loạt đều đi qua, kể cả đường đẩy lên máy chủ — chứ không chặn ở
+hai chỗ gọi, vì chặn ở nơi gọi thì thêm đường vào thứ ba là sót. Dòng lệnh
+chặn **trước khi tải video**: tải xong mới báo là đã tốn băng thông của người
+dùng.
+
+### Lỗi trong chính lớp đọc mã của tôi
+
+`cac_luot_goi()` khai là "theo thứ tự xuất hiện" nhưng dùng thứ tự `ast.walk`
+trả về — mà `walk` đi theo **bề rộng của cây**, không theo dòng. Một lượt gọi
+nằm sâu trong hai khối `if` ở đầu hàm bị trả về SAU một lượt gọi phẳng ở cuối
+hàm, nên `goi_truoc()` so nhầm. Lộ ra khi kiểm thứ tự trong `cli._cmd_dub`:
+`DubPipeline` (dòng cuối) đứng trước `cung_ngon_ngu` (dòng giữa).
+
+Sửa: sắp theo `(dòng, cột)`. Thêm một mẫu bẫy đúng hình dạng đó vào
+`test_doc_ma.py`, và gỡ dòng sắp ra đo lại → đỏ. Đây là lớp mà nhiều test
+khác đứng lên, nên nó sai là chúng xanh giả.
+
+### Chứng minh từng luật
+
+Quay lại thứ tự `ast.walk` → 1 đỏ. Bỏ chốt ở Xử lý hàng loạt → 2 đỏ. Bỏ chốt
+ở dòng lệnh → 2 đỏ.
+
+**1808 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- Nguồn tiếng Việt vẫn **chưa live-verify**: chưa chạy lượt lồng tiếng thật
+  nào từ một video tiếng Việt (giới hạn mang từ C19).
+- Chốt chỉ bắt được khi người dùng CHỌN ngôn ngữ. Bật "tự nhận dạng" thì
+  không kết luận được — trả `False` có chủ đích, vì chặn oan còn tệ hơn không
+  chặn. Nghĩa là auto-detect trên video tiếng Việt với đích tiếng Việt vẫn
+  chạy một lượt dịch vô ích.
+- Xử lý hàng loạt vẫn chưa có ô chọn đích. Thêm được, nhưng đó là thay đổi ở
+  trang khác.
+
 ## C21 — Dọn thiết bị hàng loạt (Phase H, 2026-08-24)
 
 Chủ dự án: *"có mỗi máy đầu là của tôi, còn lại là test; không thấy chỗ nào

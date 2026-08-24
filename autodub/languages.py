@@ -139,3 +139,30 @@ WHISPER_LANG_MAP = {
 def resolve_source_lang(lang: str) -> str:
     """Normalize a source-language shorthand to a BCP-47 locale."""
     return SOURCE_LANG_MAP.get(lang, lang)
+
+#: Mã nguồn (BCP-47) → khoá đích tương ứng.
+#:
+#: Nằm ở LÕI chứ không ở gói giao diện (mini-spec C22): dòng lệnh cũng cần
+#: phép so này, mà dòng lệnh không được nhập `autodub_gui`. Trước đây phép so
+#: chỉ có ở trang Tạo dự án, nên Xử lý hàng loạt và `voxdub dub` vẫn nhận
+#: nguồn trùng đích — và trả tiền cho một lượt gọi mô hình để nhận lại gần
+#: đúng câu cũ.
+NGUON_SANG_DICH = {
+    "vi-VN": "vi", "en-US": "en", "ja-JP": "ja", "th-TH": "th",
+    "id-ID": "id", "ko-KR": "ko",
+    "zh-CN": "zh", "zh-HK": "zh", "zh-TW": "zh",
+}
+
+
+def cung_ngon_ngu(source_lang: str, target_key: str) -> bool:
+    """Nguồn và đích có cùng một ngôn ngữ không.
+
+    Dịch tiếng Việt sang tiếng Việt thì không có gì để dịch: người dùng mất
+    tiền cho một lượt gọi mô hình chỉ để nhận lại gần đúng câu cũ.
+
+    Tự nhận dạng ngôn ngữ (`source_lang` rỗng hoặc "auto") thì KHÔNG kết luận
+    được — trả `False`, vì chặn oan còn tệ hơn không chặn.
+    """
+    if not source_lang or not target_key or source_lang == "auto":
+        return False
+    return NGUON_SANG_DICH.get(source_lang, "") == target_key
