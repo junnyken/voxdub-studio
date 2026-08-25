@@ -225,3 +225,43 @@ def format_timestamp(seconds: float) -> str:
     hours, rem = divmod(secs_total, 3600)
     minutes, secs = divmod(rem, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+#: Ký tự KHÔNG được tính là một phần của địa chỉ khi tách khỏi đoạn văn.
+#:
+#: Douyin/TikTok/Xiaohongshu đều chia sẻ dưới dạng một đoạn chữ có liên kết
+#: nằm giữa, và ngay sau liên kết thường là dấu câu tiếng Trung (「，」「！」)
+#: hoặc chữ dính liền. Cắt tới khoảng trắng là chưa đủ.
+_KY_TU_KET_URL = ' \t\n\r"\'<>«»，。！？、；：（）【】…'
+
+
+def tach_lien_ket(chu: str) -> str:
+    """Lấy địa chỉ web đầu tiên nằm trong một đoạn chữ (mini-spec C30).
+
+    Vì sao cần: nút Chia sẻ của Douyin sinh ra nguyên một đoạn — mã số, giờ,
+    lời mô tả tiếng Trung, hashtag, rồi mới tới liên kết, rồi lại thêm câu
+    "复制此链接…". Dán cả cụm vào ô liên kết thì `yt-dlp` nhận nguyên đoạn làm
+    địa chỉ và báo `ERROR: [generic] '9.76 y@t.rE 11/09…'` — người dùng không
+    có cách nào đoán ra là phải tự cắt lấy liên kết.
+
+    Không tìm thấy địa chỉ nào thì trả về NGUYÊN chuỗi đã cắt khoảng trắng:
+    đầu vào có thể là đường dẫn tệp trên máy, và biến nó thành chuỗi rỗng là
+    làm hỏng một đường đang chạy tốt.
+    """
+    text = str(chu or "").strip()
+    if not text:
+        return text
+    vi_tri = -1
+    for lo in ("http://", "https://"):
+        i = text.lower().find(lo)
+        if i >= 0 and (vi_tri < 0 or i < vi_tri):
+            vi_tri = i
+    if vi_tri < 0:
+        return text
+    con_lai = text[vi_tri:]
+    for i, ky_tu in enumerate(con_lai):
+        if ky_tu in _KY_TU_KET_URL:
+            con_lai = con_lai[:i]
+            break
+    # Dấu câu dính đuôi (「link.」「link,」) không thuộc địa chỉ.
+    return con_lai.rstrip(".,;:!?)]}\u3002\uff0c") or text
+

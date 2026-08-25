@@ -8474,6 +8474,66 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C30 — Dán nguyên đoạn chia sẻ Douyin vào ô liên kết (Phase H, 2026-08-25)
+
+Chủ dự án dán đúng thứ nút Chia sẻ của Douyin sinh ra:
+
+```
+9.76 y@t.rE 11/09 :5pm LJV:/ 今天晚餐吃照烧肥牛乌冬面 🍜 📍西瓜奶冻碗~
+还有甜辣脆皮鸡… #美食vlog https://v.douyin.com/9Rrk-r-GziU/
+复制此链接，打开Dou音搜索，直接观看视频！
+```
+
+App nhận NGUYÊN cụm đó làm địa chỉ →
+`ERROR: [generic] '9.76 y@t.rE 11/09…'`. Người dùng không có cách nào đoán ra
+là phải tự cắt lấy liên kết — và đây là **dạng chia sẻ mặc định** của Douyin,
+TikTok, Xiaohongshu, tức là ai dùng cũng gặp.
+
+### Cắt tới khoảng trắng là chưa đủ
+
+Douyin dán dấu câu tiếng Trung 「，」 **dính ngay sau** liên kết. Nên bảng ký tự
+kết thúc địa chỉ phải có cả 「，。！？、；：（）【】…」 lẫn dấu câu la-tinh dính
+đuôi.
+
+### Hai luật để không làm hỏng đường đang chạy tốt
+
+- **Không tìm thấy địa chỉ nào thì trả NGUYÊN chuỗi**, không trả rỗng: đầu vào
+  có thể là đường dẫn tệp trên máy (`C:/Users/…/Học luật ads 1.m4a`).
+- **Địa chỉ thiếu lược đồ giữ nguyên** (`www.youtube.com/…`) — `normalize_url`
+  mới là chỗ thêm `https://`, cắt mất ở đây là hỏng một đường khác.
+
+### Nối vào hai chỗ, không phải ba trang
+
+`normalize_url()` — chỗ nghẽn duy nhất của mọi đường tải — tách **trước mọi
+phép kiểm khác**, vì `urlparse`/`netloc` đều trượt nếu chuỗi còn dính chữ. Và
+`is_url()` cũng tách, để đoạn chia sẻ được định tuyến là LIÊN KẾT chứ không bị
+đẩy sang nhánh "tìm tệp trên máy" rồi báo "không tìm thấy file" — đúng kỹ
+thuật, vô nghĩa với người dùng.
+
+### Một phép đo sai của tôi
+
+Bộ canh "tách trước `urlparse`" tôi đo bằng cách dời lời gọi tới **ngay
+trước** `urlparse` — vẫn thoả điều kiện nên test xanh, và tôi suýt kết luận bộ
+canh không cắn. Dời hẳn ra **sau** `urlparse` thì đỏ 2 test. Phép đo sai chỗ
+cho kết quả sai y như test viết sai.
+
+### Chứng minh từng luật
+
+Chỉ cắt tới khoảng trắng → 1 đỏ. Không tìm thấy liên kết thì trả rỗng → 2 đỏ.
+Tách sau `urlparse` → 2 đỏ.
+
+**1890 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- Lấy **địa chỉ đầu tiên** trong đoạn. Đoạn có hai liên kết thì liên kết sau
+  bị bỏ qua — chưa gặp ca nào cần khác.
+- Không xử lý liên kết **rút gọn dạng chữ** không có `http://` (vd
+  `v.douyin.com/abc` trần). `looks_like_bare_url` có bắt, nhưng chỉ khi cả
+  chuỗi là địa chỉ, không bắt khi nó nằm giữa đoạn văn.
+- **Chưa tải thật một liên kết Douyin nào** từ đây — sandbox này bị chặn IP ở
+  khâu tải media (ghi nhận từ V73).
+
 ## C29 — Tự trả lời câu hỏi thay vì bắt người dùng đi nghe (Phase H, 2026-08-25)
 
 Chủ dự án chỉ ra một chuyện đúng: tôi giao cho họ phép kiểm *"nghe phút 33–37

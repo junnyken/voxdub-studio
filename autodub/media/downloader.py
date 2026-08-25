@@ -38,7 +38,13 @@ def normalize_url(url: str) -> str:
     """
     if not url:
         return url
-    url = url.strip()
+    # Tách địa chỉ khỏi đoạn chia sẻ trước MỌI thứ khác (mini-spec C30): nút
+    # Chia sẻ của Douyin/TikTok sinh ra cả một đoạn chữ có liên kết nằm giữa,
+    # và mọi phép kiểm bên dưới (`urlparse`, `netloc`) đều trượt nếu chuỗi
+    # còn dính chữ.
+    from autodub.utils import tach_lien_ket
+
+    url = tach_lien_ket(url)
     # Thêm lược đồ khi người dùng gõ tay `www.youtube.com/…`. Làm ở đây để
     # mọi khâu sau (chọn extractor, cắt tham số playlist, `urlparse`) nhìn
     # thấy một địa chỉ đầy đủ — `urlparse` không có lược đồ thì đẩy cả tên

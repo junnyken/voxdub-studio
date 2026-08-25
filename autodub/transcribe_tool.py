@@ -61,9 +61,12 @@ def is_url(source: str) -> bool:
     cố tình hẹp để không bao giờ coi một đường dẫn file là địa chỉ web.
     Lược đồ được `downloader.normalize_url` thêm vào trước khi tải.
     """
-    from autodub.utils import looks_like_bare_url
+    from autodub.utils import looks_like_bare_url, tach_lien_ket
 
-    text = source.strip()
+    # Đoạn chia sẻ của Douyin/TikTok là LIÊN KẾT, không phải đường dẫn tệp —
+    # không tách ở đây thì nó bị định tuyến sang nhánh "tìm tệp trên máy" rồi
+    # báo "không tìm thấy file" (mini-spec C30).
+    text = tach_lien_ket(source)
     return (text.lower().startswith(("http://", "https://"))
             or looks_like_bare_url(text))
 
