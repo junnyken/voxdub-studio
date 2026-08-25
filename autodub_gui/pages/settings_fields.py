@@ -338,7 +338,7 @@ FIELDS: tuple[Field, ...] = (
           "mạng — nhưng chất lượng thấp hơn dịch tay hoặc máy chủ (dịch "
           "một lượt, không có ngữ cảnh video)."),
 
-    # V92: tiền tính theo SỐ DÒNG, mà bộ nghe cắt theo khoảng lặng 500ms nên
+    # V97: tiền tính theo SỐ DÒNG, mà bộ nghe cắt theo khoảng lặng 500ms nên
     # một câu liền mạch có thể vỡ thành hàng chục mẩu một-hai chữ — mỗi mẩu là
     # một lần trả tiền và một lượt đọc rời rạc của giọng máy.
     Field("GOP_CAU_TRUOC_KHI_DICH", CHECK,

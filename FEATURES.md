@@ -89,11 +89,11 @@ Bồ Đào Nha, Pháp, Đức.
 **Ngôn ngữ nguồn nhận diện (16):** en, vi, zh, ko, ja, th, id + các biến thể
 vùng.
 
-- **Chi phí hiện ra TRƯỚC khi chạy** (V92). Sau bước nghe-chép (chạy trên máy,
+- **Chi phí hiện ra TRƯỚC khi chạy** (V97). Sau bước nghe-chép (chạy trên máy,
   miễn phí) app hỏi "video này tốn bao nhiêu Vox, ví còn bao nhiêu" rồi mới
   chạy tiếp. Trước đó số Vox chỉ hiện ở bảng tổng kết — tức là sau khi đã trừ.
   Chỉ hỏi ở luồng wizard; batch/dòng lệnh chạy thẳng.
-- **Gộp mẩu vụn thành câu trước khi dịch** (V92). Máy chủ tính tiền theo số
+- **Gộp mẩu vụn thành câu trước khi dịch** (V97). Máy chủ tính tiền theo số
   dòng; bộ nghe cắt theo khoảng lặng 500ms nên một câu có thể vỡ thành hàng
   chục mẩu một-hai chữ. Đo trên dữ liệu vụn mô phỏng: còn 18% số dòng. Hạn
   mức 7 giây/84 chữ để dòng gộp vẫn làm phụ đề đọc được; không gộp qua hai
@@ -219,7 +219,7 @@ chỉ giữ tên/giọng, không giữ câu thoại.
 - **Nâng cấp: chỉ cần giải nén CẠNH bản cũ.** `.venv-*`, `models/`, `bin/` và
   `.env` đều nằm *trong* thư mục ứng dụng, nên bản mới về nguyên tắc là trắng
   trơn. App tự dò các thư mục **nằm cùng thư mục cha** và dùng lại: engine +
-  model (V77), FFmpeg (V81), và cài đặt/khoá API/token (V91 — chép sang một
+  model (V77), FFmpeg (V81), và cài đặt/khoá API/token (V96 — chép sang một
   lần lúc khởi động). Không phải chép tay 1,5 GB.
   **Điều kiện:** bản mới phải nằm cùng thư mục cha với bản cũ. Giải nén sang ổ
   đĩa khác thì vẫn phải chép tay, hoặc trỏ đường dẫn trong Cài đặt.

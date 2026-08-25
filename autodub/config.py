@@ -323,7 +323,7 @@ class Settings:
     # Dịch thuật (do BA duyệt câu chữ cuối cùng, theo BA⇄DEV convention).
     translate_local_enabled: bool = True
 
-    # Gộp mẩu vụn thành câu TRƯỚC bước dịch (mini-spec V92). Bộ nghe cắt theo
+    # Gộp mẩu vụn thành câu TRƯỚC bước dịch (mini-spec V97). Bộ nghe cắt theo
     # khoảng lặng 500ms nên một câu liền mạch có thể vỡ thành hàng chục mẩu
     # một-hai chữ; máy chủ tính tiền theo SỐ DÒNG nên mỗi mẩu là một lần trả
     # tiền. BẬT mặc định: gộp vừa rẻ hơn vừa cho giọng đọc liền mạch hơn,
@@ -387,7 +387,7 @@ class Settings:
             tep = os.path.join(app_root(), ".env")
             if not os.path.isfile(tep):
                 # Bản mới giải nén cạnh bản cũ: mượn cài đặt của bản cũ thay
-                # vì bắt khai báo lại khoá API và token từ đầu (V91).
+                # vì bắt khai báo lại khoá API và token từ đầu (V96).
                 from autodub.venv_discovery import tim_env_cu
 
                 tep = tim_env_cu() or tep

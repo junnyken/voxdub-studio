@@ -11766,7 +11766,9 @@ skip, 0 fail)**; smoke test toàn app exit 0.
   cho phim vs cho vlog). Đủ cho việc lặp hằng ngày, chưa đủ cho nhiều loại
   nội dung song song.
 
-## V91 — Nâng cấp không làm mất cài đặt (25/08/2026)
+## V96 — Nâng cấp không làm mất cài đặt (25/08/2026)
+
+> **Đánh số lại 26/8:** mục này ra đời ngày 25/8 với nhãn `V91`, trùng một mini-spec khác đã có từ 20/8. Commit gốc vẫn mang nhãn cũ (`V91`) — lịch sử git đã đẩy đi thì không viết lại, tra chéo bằng ghi chú này.
 
 **Vì sao:** V77 dạy app tự tìm lại `.venv-*`/`models/` của bản cũ nằm cạnh
 bên, V81 làm tiếp cho FFmpeg. Riêng `.env` thì bị bỏ quên — mà đó mới là chỗ
@@ -11797,7 +11799,9 @@ Windows thật.
 
 **Toàn bộ bộ test:** 1933 đạt, 7 bỏ qua.
 
-## V92 — Xem trước chi phí + gộp câu trước khi tính tiền (25/08/2026)
+## V97 — Xem trước chi phí + gộp câu trước khi tính tiền (25/08/2026)
+
+> **Đánh số lại 26/8:** mục này ra đời ngày 25/8 với nhãn `V92`, trùng một mini-spec khác đã có từ 20/8. Commit gốc vẫn mang nhãn cũ (`V92`) — lịch sử git đã đẩy đi thì không viết lại, tra chéo bằng ghi chú này.
 
 **Vì sao:** máy chủ tính tiền theo SỐ DÒNG (10 Vox nền + 2 Vox dịch mỗi dòng,
 `ai.js:287`), mà bộ nghe cắt theo khoảng lặng 500ms nên một câu liền mạch có

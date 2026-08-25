@@ -1066,7 +1066,7 @@ class NewProjectPage(BasePage):
                        "hoàn chỉnh.")
 
     def _hoi_duyet_chi_phi(self, result: DubResult) -> None:
-        """Hiện giá TRƯỚC khi tiêu, chờ người dùng quyết (mini-spec V92).
+        """Hiện giá TRƯỚC khi tiêu, chờ người dùng quyết (mini-spec V97).
 
         Nghe-chép chạy trên máy nên tới đây chưa tốn đồng nào — bấm Hủy là
         dừng hẳn, không mất gì. Bấm chạy tiếp thì lượt sau dùng lại bản đã

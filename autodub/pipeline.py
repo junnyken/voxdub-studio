@@ -111,7 +111,7 @@ class DubRequest:
     #: (``status="export_pending"``) — file trung gian trả phí nằm trên đĩa
     #: dưới dạng mã hóa cho tới khi người dùng bấm Xuất video (commit hold).
     #: Batch/legacy giữ False: trừ Vox theo từng lượt như cũ, không mã hóa.
-    #: mini-spec V92 — người dùng đã xem giá và bấm chạy tiếp. Chỉ luồng
+    #: mini-spec V97 — người dùng đã xem giá và bấm chạy tiếp. Chỉ luồng
     #: wizard mới hỏi (batch/dòng lệnh không có ai ngồi đó để trả lời).
     chi_phi_da_duyet: bool = False
     defer_export: bool = False
@@ -140,7 +140,7 @@ class DubRequest:
 @dataclass
 class DubResult:
     # "completed" | "translate_pending" | "export_pending" | "credit_blocked"
-    # | "cost_pending" (V92 — chờ người dùng duyệt giá)
+    # | "cost_pending" (V97 — chờ người dùng duyệt giá)
     status: str
     work_dir: str
     report: dict = field(default_factory=dict)
@@ -526,7 +526,7 @@ class DubPipeline:
         self._apply_diarization(segments, audio_path, target,
                                 character_profile=req.character_profile)
 
-        # --- Gộp mẩu vụn thành câu (mini-spec V92) ------------------------
+        # --- Gộp mẩu vụn thành câu (mini-spec V97) ------------------------
         # PHẢI đứng ở đây: sau phân giọng (để biết ranh giới người nói mà
         # không gộp nhầm hai người) và TRƯỚC `annotate_slots` + `_setup_hold`
         # (giá được chốt theo số dòng, nên gộp sau khi giữ chỗ thì chẳng tiết
@@ -586,7 +586,7 @@ class DubPipeline:
                 f"Nguồn và đích đều là {target.name} — bỏ qua bước dịch, "
                 "chỉ thay giọng đọc. Không tính Vox cho phần dịch.")
 
-        # --- Xem trước chi phí (mini-spec V92) ----------------------------
+        # --- Xem trước chi phí (mini-spec V97) ----------------------------
         # Chỉ hỏi ở luồng wizard: batch và dòng lệnh không có ai ngồi trước
         # màn hình để bấm, dừng lại ở đó là treo cả mẻ.
         duyet_moc = data_path(work_dir, "chi_phi_da_duyet.json")

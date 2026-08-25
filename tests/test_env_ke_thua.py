@@ -1,4 +1,4 @@
-"""V91 — nâng cấp không được làm mất cài đặt (khoá API, token đăng nhập).
+"""V96 — nâng cấp không được làm mất cài đặt (khoá API, token đăng nhập).
 
 Bối cảnh: `.venv-*`, `models/` và `bin/` đã biết tự tìm lại bản cài cũ nằm
 cạnh bên (V77/V81), riêng `.env` thì chưa — nên mỗi lần lên phiên bản là phải

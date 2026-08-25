@@ -1,4 +1,4 @@
-"""V92 phần 2 — cho xem giá TRƯỚC khi tiêu Vox.
+"""V97 phần 2 — cho xem giá TRƯỚC khi tiêu Vox.
 
 Trước mini-spec này, số Vox chỉ hiện ở bảng tổng kết — tức là sau khi máy chủ
 đã dịch và đã trừ tiền. Route `/v1/device/estimate` và hàm `SaasClient.estimate`

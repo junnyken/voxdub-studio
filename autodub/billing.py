@@ -51,7 +51,7 @@ class HoldBillingAdapter:
     def cong_xem_truoc(self, segments: list[dict], work_dir: str,
                        video_duration_s: float, *, khong_can_dich: bool,
                        da_duyet: bool):
-        """Dừng cho người dùng xem giá TRƯỚC khi tiêu (mini-spec V92).
+        """Dừng cho người dùng xem giá TRƯỚC khi tiêu (mini-spec V97).
 
         Trước đây con số Vox chỉ hiện ở bảng tổng kết — tức là sau khi máy chủ
         đã làm và đã trừ. Với video dài, chênh lệch giữa "biết trước" và "biết

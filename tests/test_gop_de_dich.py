@@ -1,4 +1,4 @@
-"""V92 phần 1 — gộp mẩu vụn TRƯỚC khi tính tiền.
+"""V97 phần 1 — gộp mẩu vụn TRƯỚC khi tính tiền.
 
 Máy chủ tính tiền theo SỐ DÒNG (10 Vox nền + 2 Vox dịch mỗi dòng), mà bộ nghe
 cắt theo khoảng lặng 500ms nên một câu liền mạch có thể vỡ thành hàng chục mẩu

@@ -983,7 +983,7 @@ def main() -> int:
     if not os.path.isfile(_env_path):
         # Ưu tiên cài đặt của bản cũ giải nén cạnh bên hơn là bản mẫu trống:
         # nâng cấp mà mất khoá API với token đăng nhập thì coi như cài lại từ
-        # đầu (V91). Chép hẳn sang chứ không đọc nhờ — màn hình Cài đặt và
+        # đầu (V96). Chép hẳn sang chứ không đọc nhờ — màn hình Cài đặt và
         # env_store đều ghi vào _env_path, đọc nhờ sẽ khiến lần Lưu đầu tiên
         # xoá trắng những khoá không hiện trên màn hình.
         import shutil as _shutil
