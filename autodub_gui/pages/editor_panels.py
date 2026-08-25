@@ -1050,9 +1050,16 @@ class MusicSfxPanel(CollapsibleSection):
         # tả kèm LÝ DO đo được, người dùng bấm một cái là điền sẵn vào ô trên.
         row0 = QHBoxLayout()
         self.btn_suggest_music = GhostButton("Gợi ý từ nội dung video")
+        # Câu này từng ghi "chạy ngay trên máy, không tốn Vox" — SAI kể từ
+        # V89: có tài khoản thì nó hỏi trợ lý trên máy chủ và trừ 2 Vox, chỉ
+        # khi không có tài khoản (hoặc máy chủ hỏng, hoặc quá ít lời thoại)
+        # mới rơi về đo trên máy. Hứa miễn phí rồi trừ tiền là kiểu sai tệ
+        # nhất trong mọi kiểu sai về câu chữ.
         self.btn_suggest_music.setToolTip(
             "Đọc lời thoại đã chép của video này rồi đề xuất vài kiểu nhạc "
-            "hợp với nó. Chạy ngay trên máy, không tốn Vox.")
+            "hợp với nó.\n"
+            "Có tài khoản: hỏi trợ lý trên máy chủ, 2 Vox mỗi lượt.\n"
+            "Không có tài khoản: đo ngay trên máy, không tốn gì.")
         self.btn_suggest_music.clicked.connect(
             self.music_suggest_requested.emit)
         row0.addWidget(self.btn_suggest_music)
