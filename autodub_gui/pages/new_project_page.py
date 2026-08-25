@@ -527,6 +527,7 @@ class NewProjectPage(BasePage):
         hints = {
             "translate_pending": "đang chờ bản dịch tiếng Việt",
             "credit_blocked": "dừng vì không đủ Vox",
+            "cost_pending": "đang chờ bạn duyệt chi phí",
             "export_pending": "đã lồng tiếng xong, chờ bấm Xuất video",
             "failed": "dừng vì gặp lỗi",
         }
@@ -1017,6 +1018,11 @@ class NewProjectPage(BasePage):
             self._show_pending(result)
             REGISTRY.finish_job(False, "đang chờ bản dịch tiếng Việt")
             return
+        if result.status == "cost_pending":
+            self._mark_interrupted("cost_pending", result.work_dir)
+            REGISTRY.finish_job(False, "chờ duyệt chi phí")
+            self._hoi_duyet_chi_phi(result)
+            return
         if result.status == "credit_blocked":
             self._mark_interrupted("credit_blocked", result.work_dir)
             self._show_credit_blocked(result)
@@ -1058,6 +1064,72 @@ class NewProjectPage(BasePage):
         self._go_to_step(_EXPORT_INDEX)
         TOASTS.success("Đã lồng tiếng xong. Bấm Xuất video để nhận video "
                        "hoàn chỉnh.")
+
+    def _hoi_duyet_chi_phi(self, result: DubResult) -> None:
+        """Hiện giá TRƯỚC khi tiêu, chờ người dùng quyết (mini-spec V92).
+
+        Nghe-chép chạy trên máy nên tới đây chưa tốn đồng nào — bấm Hủy là
+        dừng hẳn, không mất gì. Bấm chạy tiếp thì lượt sau dùng lại bản đã
+        nghe, không phải chờ nghe lại từ đầu.
+        """
+        r = result.report or {}
+        cau = int(r.get("sentences") or 0)
+        vox = int(r.get("estimated") or 0)
+        du = int(r.get("balance") or 0)
+        phut, giay = divmod(int(r.get("duration_s") or 0), 60)
+
+        message = (
+            f"Video dài {phut} phút {giay:02d} giây, có {cau:,} câu thoại.\n\n"
+            f"Chi phí: {vox:,} Vox (khoảng {vox * 10:,} VNĐ)\n"
+            f"Ví hiện có: {du:,} Vox")
+        if not r.get("sufficient", True):
+            message += (f"\n\nVí thiếu {vox - du:,} Vox — nạp thêm rồi quay "
+                        "lại bấm chạy tiếp.")
+        message += ("\n\nPhần nghe-chép chạy trên máy bạn nên tới đây chưa "
+                    "tốn Vox nào. Bấm Hủy là dừng hẳn, không mất gì.")
+
+        dong_y, _ = ConfirmDialog.ask(
+            self, "Duyệt chi phí trước khi chạy", message,
+            kind="warning", confirm_label=f"Chạy tiếp ({vox:,} Vox)",
+            cancel_label="Hủy",
+            detail=f"Thư mục dự án: {result.work_dir}")
+        if not dong_y:
+            self.pending_banner.set_text(
+                "Đã dừng trước khi tốn Vox. Bản nghe-chép vẫn nằm trong thư "
+                "mục dự án — bấm chạy lại lúc nào cũng được, không phải nghe "
+                f"lại từ đầu.\n\nThư mục dự án: {result.work_dir}")
+            self.pending_banner.setVisible(True)
+            return
+        self._chay_tiep_sau_khi_duyet_gia()
+
+    def _chay_tiep_sau_khi_duyet_gia(self) -> None:
+        """Chạy lại đúng thư mục cũ, lần này mang theo dấu đã duyệt giá.
+
+        Phải ĐỢI luồng cũ đóng hẳn. `finished_ok` bắn từ trong thân worker,
+        lúc đó `QThread` vẫn đang chạy — gọi `_launch` ngay tại đây thì nó
+        thấy "đang có một video chạy dở" và từ chối, người dùng bấm Chạy tiếp
+        mà không có gì xảy ra.
+        """
+        if self._result is None:
+            return
+        request = self._build_request()
+        if request is None:
+            return
+        request.resume_dir = self._result.work_dir
+        request.url = None
+        request.chi_phi_da_duyet = True
+
+        worker = self._worker
+        if worker is not None and worker.isRunning():
+            def _khi_luong_cu_dong():
+                try:
+                    worker.finished.disconnect(_khi_luong_cu_dong)
+                except (RuntimeError, TypeError):
+                    pass   # đã ngắt sẵn, hoặc worker bị dọn — không sao
+                QTimer.singleShot(0, lambda: self._launch(request))
+            worker.finished.connect(_khi_luong_cu_dong)
+            return
+        self._launch(request)
 
     def _show_credit_blocked(self, result: DubResult) -> None:
         report = result.report or {}

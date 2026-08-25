@@ -323,6 +323,13 @@ class Settings:
     # Dịch thuật (do BA duyệt câu chữ cuối cùng, theo BA⇄DEV convention).
     translate_local_enabled: bool = True
 
+    # Gộp mẩu vụn thành câu TRƯỚC bước dịch (mini-spec V92). Bộ nghe cắt theo
+    # khoảng lặng 500ms nên một câu liền mạch có thể vỡ thành hàng chục mẩu
+    # một-hai chữ; máy chủ tính tiền theo SỐ DÒNG nên mỗi mẩu là một lần trả
+    # tiền. BẬT mặc định: gộp vừa rẻ hơn vừa cho giọng đọc liền mạch hơn,
+    # người dùng nào muốn giữ đúng từng mẩu của bộ nghe thì tắt đi.
+    gop_cau_truoc_khi_dich: bool = True
+
     # Mini-spec V9 → V12 (docs/PLAN.md) — tách nhạc nền (Demucs) trên cloud
     # thay vì trên máy. Chỉ có nghĩa ở chế độ SaaS (is_configured()==True,
     # xem autodub.cloud_render.is_available) — TẮT mặc định, khác
@@ -512,6 +519,8 @@ class Settings:
             translate_batch_size=max(1, min(100,
                 env_int("TRANSLATE_BATCH_SIZE", "40"))),
             translate_local_enabled=env("TRANSLATE_LOCAL_ENABLED", "false")
+                                    .strip().lower() not in ("0", "false", "no"),
+            gop_cau_truoc_khi_dich=env("GOP_CAU_TRUOC_KHI_DICH", "true")
                                     .strip().lower() not in ("0", "false", "no"),
             cloud_render_enabled=env("CLOUD_RENDER_ENABLED", "false")
                                  .strip().lower() not in ("0", "false", "no"),

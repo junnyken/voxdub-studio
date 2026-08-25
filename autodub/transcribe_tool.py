@@ -199,6 +199,77 @@ _KHOANG_NGHI_TACH_DOAN = 1.2
 _DAU_KET_CAU = ".!?…"
 
 
+def _nen_cat(truoc_do: dict, chu: str, dau: float, cuoi: float,
+             toi_da_giay: float, toi_da_chu: int) -> bool:
+    """Có phải xuống dòng mới trước mẩu này không.
+
+    Tách riêng để `gop_cau` (xuất .txt) và `gop_de_dich` (luồng lồng tiếng)
+    dùng CHUNG một luật cắt, chỉ khác hạn mức. Hai bản luật song song là cách
+    chắc chắn nhất để một ngày nào đó chúng lệch nhau mà không ai biết.
+    """
+    het_cau = truoc_do["text"].rstrip().endswith(tuple(_DAU_KET_CAU))
+    nghi = dau - float(truoc_do["end"])
+    qua_dai = (cuoi - float(truoc_do["start"]) > toi_da_giay
+               or len(truoc_do["text"]) + len(chu) > toi_da_chu)
+    return het_cau or nghi > _KHOANG_NGHI_TACH_DOAN or qua_dai
+
+
+# Hạn mức cho luồng lồng tiếng — CHẶT hơn bản xuất .txt (14 giây/220 chữ) vì
+# những dòng này còn phải làm phụ đề đọc được: 7 giây là mức hiển thị tối đa
+# quen thuộc, 84 chữ là hai dòng 42 ký tự.
+GOP_DICH_TOI_DA_GIAY = 7.0
+GOP_DICH_TOI_DA_CHU = 84
+
+
+def gop_de_dich(segments: list[dict],
+                toi_da_giay: float = GOP_DICH_TOI_DA_GIAY,
+                toi_da_chu: int = GOP_DICH_TOI_DA_CHU) -> list[dict]:
+    """Gộp mẩu vụn TRƯỚC khi dịch — vừa rẻ hơn, vừa đọc tự nhiên hơn.
+
+    Máy chủ tính tiền THEO SỐ DÒNG (10 Vox nền + 2 Vox dịch mỗi dòng), mà bộ
+    nghe cắt theo khoảng lặng 500ms nên một câu nói liền mạch có thể vỡ thành
+    hàng chục mẩu một-hai chữ. Mỗi mẩu là một dòng phải trả tiền, và cũng là
+    một lượt đọc rời rạc của giọng máy.
+
+    Khác `gop_cau` (chỉ dùng lúc xuất .txt) ở ba điểm, đều bắt buộc vì kết quả
+    ở đây đi thẳng vào bước dịch, lồng tiếng và phụ đề:
+
+    1. **Giữ nguyên mọi trường khác** của mẩu đầu — nhất là ``speaker`` và
+       ``id``. ``id`` là tên tệp WAV của từng câu (``seg_wav_path``) nên giữ
+       lại id gốc: vẫn duy nhất, và chạy tiếp vẫn khớp tệp cũ.
+    2. **Không gộp qua hai người nói** — gộp hai người thành một dòng là giao
+       nhầm giọng cho cả đoạn.
+    3. **Nối cả ``words``** thay vì bỏ lại của mẩu đầu, để mốc từng chữ không
+       bị cụt.
+    """
+    ra: list[dict] = []
+    for seg in segments:
+        chu = str(seg.get("text", "")).strip()
+        if not chu:
+            continue
+        dau = float(seg.get("start", 0) or 0)
+        cuoi = float(seg.get("end", 0) or 0)
+
+        if ra:
+            truoc_do = ra[-1]
+            cung_nguoi = seg.get("speaker") == truoc_do.get("speaker")
+            if cung_nguoi and not _nen_cat(truoc_do, chu, dau, cuoi,
+                                           toi_da_giay, toi_da_chu):
+                truoc_do["text"] = f"{truoc_do['text']} {chu}".strip()
+                truoc_do["end"] = cuoi
+                if seg.get("words"):
+                    truoc_do["words"] = list(truoc_do.get("words") or []) \
+                        + list(seg["words"])
+                continue
+
+        moi = dict(seg)
+        moi["text"] = chu
+        moi["start"] = dau
+        moi["end"] = cuoi
+        ra.append(moi)
+    return ra
+
+
 def gop_cau(segments: list[dict]) -> list[dict]:
     """Nối các mẩu ngắn liền nhau thành câu đọc được.
 
@@ -223,11 +294,8 @@ def gop_cau(segments: list[dict]) -> list[dict]:
 
         if ra:
             truoc_do = ra[-1]
-            het_cau = truoc_do["text"].rstrip().endswith(tuple(_DAU_KET_CAU))
-            nghi = dau - float(truoc_do["end"])
-            qua_dai = (cuoi - float(truoc_do["start"]) > _GOP_TOI_DA_GIAY
-                       or len(truoc_do["text"]) + len(chu) > _GOP_TOI_DA_CHU)
-            if not (het_cau or nghi > _KHOANG_NGHI_TACH_DOAN or qua_dai):
+            if not _nen_cat(truoc_do, chu, dau, cuoi,
+                            _GOP_TOI_DA_GIAY, _GOP_TOI_DA_CHU):
                 truoc_do["text"] = f"{truoc_do['text']} {chu}".strip()
                 truoc_do["end"] = cuoi
                 continue

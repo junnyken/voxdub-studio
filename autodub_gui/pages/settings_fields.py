@@ -338,6 +338,18 @@ FIELDS: tuple[Field, ...] = (
           "mạng — nhưng chất lượng thấp hơn dịch tay hoặc máy chủ (dịch "
           "một lượt, không có ngữ cảnh video)."),
 
+    # V92: tiền tính theo SỐ DÒNG, mà bộ nghe cắt theo khoảng lặng 500ms nên
+    # một câu liền mạch có thể vỡ thành hàng chục mẩu một-hai chữ — mỗi mẩu là
+    # một lần trả tiền và một lượt đọc rời rạc của giọng máy.
+    Field("GOP_CAU_TRUOC_KHI_DICH", CHECK,
+          "Gộp mẩu vụn thành câu trước khi dịch", TAB_TRANSLATE,
+          "Dịch tự động", "true",
+          "Nối các mẩu ngắn liền nhau thành câu hoàn chỉnh trước khi gửi đi "
+          "dịch. Vì máy chủ tính tiền theo số dòng nên gộp lại rẻ hơn hẳn với "
+          "video dài, đồng thời giọng đọc liền mạch và phụ đề dễ đọc hơn. "
+          "Không gộp qua hai người nói khác nhau. Tắt đi nếu bạn muốn giữ "
+          "đúng từng mẩu mà bộ nghe cắt ra."),
+
     Field("TRANSLATE_DOMAIN", TEXT, "Chủ đề video", TAB_TRANSLATE,
           "Ngữ cảnh video", "",
           "Càng cụ thể thì bản dịch càng đúng ngữ cảnh. Để trống thì máy chủ "

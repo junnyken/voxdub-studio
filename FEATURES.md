@@ -89,6 +89,16 @@ Bồ Đào Nha, Pháp, Đức.
 **Ngôn ngữ nguồn nhận diện (16):** en, vi, zh, ko, ja, th, id + các biến thể
 vùng.
 
+- **Chi phí hiện ra TRƯỚC khi chạy** (V92). Sau bước nghe-chép (chạy trên máy,
+  miễn phí) app hỏi "video này tốn bao nhiêu Vox, ví còn bao nhiêu" rồi mới
+  chạy tiếp. Trước đó số Vox chỉ hiện ở bảng tổng kết — tức là sau khi đã trừ.
+  Chỉ hỏi ở luồng wizard; batch/dòng lệnh chạy thẳng.
+- **Gộp mẩu vụn thành câu trước khi dịch** (V92). Máy chủ tính tiền theo số
+  dòng; bộ nghe cắt theo khoảng lặng 500ms nên một câu có thể vỡ thành hàng
+  chục mẩu một-hai chữ. Đo trên dữ liệu vụn mô phỏng: còn 18% số dòng. Hạn
+  mức 7 giây/84 chữ để dòng gộp vẫn làm phụ đề đọc được; không gộp qua hai
+  người nói. Tắt được bằng `GOP_CAU_TRUOC_KHI_DICH`.
+
 ### 3.2 Trình chỉnh sửa
 
 Sửa từng câu phụ đề, nghe thử từng đoạn, đổi giọng cho từng nhân vật, xem

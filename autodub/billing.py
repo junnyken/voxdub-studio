@@ -48,6 +48,57 @@ class HoldBillingAdapter:
     # Di chuyển nguyên văn từ DubPipeline._setup_hold (pipeline.py, mini-spec
     # V2) — comment/logic giữ nguyên 100%, chỉ đổi self.settings/self.reporter
     # cho khớp adapter và self._unlock_after_commit -> self.unlock_after_commit.
+    def cong_xem_truoc(self, segments: list[dict], work_dir: str,
+                       video_duration_s: float, *, khong_can_dich: bool,
+                       da_duyet: bool):
+        """Dừng cho người dùng xem giá TRƯỚC khi tiêu (mini-spec V92).
+
+        Trước đây con số Vox chỉ hiện ở bảng tổng kết — tức là sau khi máy chủ
+        đã làm và đã trừ. Với video dài, chênh lệch giữa "biết trước" và "biết
+        sau" là hàng trăm nghìn đồng. Chỗ hỏi giá phải nằm sau ASR (mới biết
+        số câu) và trước ``setup_hold`` (chưa giữ chỗ đồng nào).
+
+        Trả ``DubResult(status="cost_pending")`` để pipeline dừng lại, hoặc
+        ``None`` để chạy thẳng.
+
+        **Hỏi giá không được thì KHÔNG chặn.** Đây là cổng thông tin, không
+        phải cổng an toàn: bước ``setup_hold`` ngay sau đó vẫn tự chặn khi
+        thiếu Vox (``credit_blocked``). Để một lần chớp mạng làm hỏng lượt
+        chạy thì tệ hơn. Nhưng cũng không được im lặng — mọi lần hỏi trượt
+        đều ghi cảnh báo vào nhật ký chạy để người dùng thấy.
+        """
+        from autodub.pipeline import DubResult
+        from autodub.saas_client import (
+            OfflineError, SaasError, get_client, is_configured)
+
+        if da_duyet or not is_configured():
+            return None
+
+        auto = bool(self.settings.translate_enabled) and not khong_can_dich
+        meta = bool(getattr(self.settings, "generate_metadata", True))
+        try:
+            data = get_client().estimate(len(segments), auto_translate=auto,
+                                         metadata=meta)
+        except (SaasError, OfflineError) as e:
+            logger.warning(f"Chưa hỏi được giá trước khi chạy ({e}) — chạy "
+                           "tiếp, bước giữ chỗ vẫn chặn nếu không đủ Vox.")
+            return None
+
+        if not data.get("creditEnabled", True):
+            return None   # máy chủ đang tắt tính tiền: không có gì để hỏi
+
+        return DubResult(
+            status="cost_pending", work_dir=work_dir,
+            report={
+                "sentences": len(segments),
+                "duration_s": video_duration_s,
+                "estimated": int(data.get("estimated") or 0),
+                "balance": int(data.get("balance") or 0),
+                "sufficient": bool(data.get("sufficient",
+                                            data.get("enough", True))),
+                "auto_translate": auto,
+            })
+
     def setup_hold(
         self, segments: list[dict], target: "TargetLang", work_dir: str,
         video_duration_s: float, khong_can_dich: bool = False,

@@ -11796,3 +11796,57 @@ khác thì vẫn phải chép tay. Toàn bộ test chạy trên Linux, chưa ki�
 Windows thật.
 
 **Toàn bộ bộ test:** 1933 đạt, 7 bỏ qua.
+
+## V92 — Xem trước chi phí + gộp câu trước khi tính tiền (25/08/2026)
+
+**Vì sao:** máy chủ tính tiền theo SỐ DÒNG (10 Vox nền + 2 Vox dịch mỗi dòng,
+`ai.js:287`), mà bộ nghe cắt theo khoảng lặng 500ms nên một câu liền mạch có
+thể vỡ thành hàng chục mẩu một-hai chữ. Luồng lồng tiếng gửi thẳng các mẩu đó
+đi dịch — `gop_cau()` trước nay chỉ dùng lúc xuất `.txt`. Song song, route
+`/v1/device/estimate` và `SaasClient.estimate()` đã có sẵn nhưng **không nơi
+nào gọi**: số Vox chỉ hiện ở bảng tổng kết, tức là sau khi đã trừ tiền.
+
+**Đã làm — phần 1 (gộp câu):**
+- `transcribe_tool._nen_cat()` — tách luật cắt để `gop_cau` (.txt) và
+  `gop_de_dich` (lồng tiếng) dùng chung, chỉ khác hạn mức.
+- `transcribe_tool.gop_de_dich()` — hạn mức 7,0 giây / 84 chữ (chặt hơn bản
+  .txt vì những dòng này còn phải làm phụ đề đọc được). Giữ nguyên `id` (là
+  tên tệp WAV từng câu — đánh số lại là trỏ nhầm tệp của lần chạy trước),
+  giữ mọi trường khác, nối cả `words`, và KHÔNG gộp qua hai người nói.
+- `pipeline._run_impl` — gộp sau phân giọng, trước `annotate_slots` và trước
+  cả `cong_xem_truoc` lẫn `_setup_hold`; ghi lại transcript + SRT gốc theo
+  dòng đã gộp để tệp trên đĩa khớp thứ đem đi lồng tiếng.
+- Cài đặt `GOP_CAU_TRUOC_KHI_DICH` (mặc định bật), có ô trong màn hình Cài đặt.
+
+**Đã làm — phần 2 (xem trước chi phí):**
+- `billing.cong_xem_truoc()` → `DubResult(status="cost_pending")` mang số câu,
+  Vox ước tính, số dư. Đặt sau ASR (mới biết số câu) và trước `setup_hold`
+  (chưa giữ chỗ đồng nào).
+- Chỉ hỏi ở luồng wizard (`req.defer_export`) — batch/dòng lệnh không có ai
+  ngồi đó để bấm. Dấu `chi_phi_da_duyet.json` trong thư mục dự án để chạy
+  tiếp không hỏi lại.
+- Giao diện: hộp thoại "Duyệt chi phí trước khi chạy" (Vox + quy đổi VNĐ + số
+  dư), bấm Hủy là dừng hẳn — nghe-chép chạy trên máy nên chưa tốn gì.
+
+**Quyết định có chủ đích:** hỏi giá TRƯỢT thì không chặn, chỉ ghi cảnh báo —
+`setup_hold` ngay sau đó vẫn tự chặn khi thiếu Vox (`credit_blocked`), để một
+lần chớp mạng làm hỏng lượt chạy thì tệ hơn.
+
+**Lỗi tự tìm ra khi làm:** `_chay_tiep_sau_khi_duyet_gia` gọi `_launch` ngay
+trong `_on_finished`, nhưng `finished_ok` bắn từ TRONG thân worker nên QThread
+vẫn đang chạy → `_launch` từ chối, người dùng bấm Chạy tiếp mà không có gì
+xảy ra. Sửa: đợi `worker.finished` rồi mới chạy.
+
+**Kiểm:** `tests/test_gop_de_dich.py` (10) + `tests/test_cong_xem_truoc_chi_phi.py`
+(11). Đã gỡ từng chốt để xác nhận đỏ: gộp qua hai người nói, đánh số lại id,
+hỏi giá trượt mà im lặng, đã duyệt vẫn hỏi lại, gộp sau khi báo giá.
+Một đột biến (dời khối gộp xuống ngay trước `_setup_hold`) KHÔNG đỏ — và đúng
+là không nên đỏ, vì tiền vẫn tính trên dòng đã gộp; nó lộ ra chốt còn thiếu
+nên đã siết thêm thứ tự so với `cong_xem_truoc` và `annotate_slots`.
+
+**Đo trên dữ liệu vụn mô phỏng (3.000 mẩu 1-2 chữ):** còn 560 dòng (18%),
+36.000 → 6.720 Vox, tức 360.000 → 67.200 VNĐ. Dòng dài nhất 7,0 giây, nhiều
+chữ nhất 63 — đều trong hạn mức phụ đề.
+
+**Chưa kiểm:** chưa chạy thật đầu-cuối trên máy Windows với video thật; hộp
+thoại duyệt giá chưa được bấm bằng tay lần nào.

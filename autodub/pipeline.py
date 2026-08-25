@@ -111,6 +111,9 @@ class DubRequest:
     #: (``status="export_pending"``) — file trung gian trả phí nằm trên đĩa
     #: dưới dạng mã hóa cho tới khi người dùng bấm Xuất video (commit hold).
     #: Batch/legacy giữ False: trừ Vox theo từng lượt như cũ, không mã hóa.
+    #: mini-spec V92 — người dùng đã xem giá và bấm chạy tiếp. Chỉ luồng
+    #: wizard mới hỏi (batch/dòng lệnh không có ai ngồi đó để trả lời).
+    chi_phi_da_duyet: bool = False
     defer_export: bool = False
 
     #: mini-spec V32b (docs/PLAN.md, Phase G) — "Đồng bộ khẩu hình" AI
@@ -137,6 +140,7 @@ class DubRequest:
 @dataclass
 class DubResult:
     # "completed" | "translate_pending" | "export_pending" | "credit_blocked"
+    # | "cost_pending" (V92 — chờ người dùng duyệt giá)
     status: str
     work_dir: str
     report: dict = field(default_factory=dict)
@@ -522,6 +526,35 @@ class DubPipeline:
         self._apply_diarization(segments, audio_path, target,
                                 character_profile=req.character_profile)
 
+        # --- Gộp mẩu vụn thành câu (mini-spec V92) ------------------------
+        # PHẢI đứng ở đây: sau phân giọng (để biết ranh giới người nói mà
+        # không gộp nhầm hai người) và TRƯỚC `annotate_slots` + `_setup_hold`
+        # (giá được chốt theo số dòng, nên gộp sau khi giữ chỗ thì chẳng tiết
+        # kiệm được đồng nào). Ghi lại bản chép lời và phụ đề gốc theo dòng đã
+        # gộp để tệp trên đĩa khớp đúng thứ đem đi lồng tiếng.
+        if settings.gop_cau_truoc_khi_dich and len(segments) > 1:
+            from autodub.transcribe_tool import gop_de_dich
+
+            truoc = len(segments)
+            segments = gop_de_dich(segments)
+            if len(segments) < truoc:
+                logger.info(
+                    f"Gộp câu: {truoc} mẩu → {len(segments)} dòng "
+                    f"({len(segments) * 100 // truoc}%) — tiền tính theo dòng "
+                    f"nên đây là phần không phải trả.")
+                # Nạp tại chỗ: đường DÙNG LẠI bản chép lời cũ không đi qua
+                # nhánh ASR nên hai tên này chưa có trong tầm nhìn.
+                from autodub.speech.transcriber import save_transcript
+                from autodub.text.srt import generate_srt
+
+                save_transcript(segments, transcript_orig_path)
+                generate_srt(segments,
+                             data_path(work_dir, "transcript_original.srt"),
+                             text_field="text",
+                             lang_key=lang_code.split("-")[0].lower())
+                rep.emit("asr", "done",
+                         detail=f"{len(segments)} câu (gộp từ {truoc} mẩu)")
+
         # Real per-clip time window (until the next line starts) — drives the
         # translation character budget and the TTS target duration.
         from autodub.text.translate_hint import annotate_slots
@@ -552,6 +585,28 @@ class DubPipeline:
             logger.warning(
                 f"Nguồn và đích đều là {target.name} — bỏ qua bước dịch, "
                 "chỉ thay giọng đọc. Không tính Vox cho phần dịch.")
+
+        # --- Xem trước chi phí (mini-spec V92) ----------------------------
+        # Chỉ hỏi ở luồng wizard: batch và dòng lệnh không có ai ngồi trước
+        # màn hình để bấm, dừng lại ở đó là treo cả mẻ.
+        duyet_moc = data_path(work_dir, "chi_phi_da_duyet.json")
+        da_duyet = req.chi_phi_da_duyet or os.path.isfile(duyet_moc)
+        if req.chi_phi_da_duyet and not os.path.isfile(duyet_moc):
+            # Ghi lại để lần chạy tiếp sau (kể cả sau khi mở lại app) không
+            # hỏi lại một câu người dùng đã trả lời.
+            try:
+                with open(duyet_moc, "w", encoding="utf-8") as f:
+                    json.dump({"sentences": len(segments)}, f)
+            except OSError as e:
+                logger.warning(f"Không ghi được dấu đã duyệt giá ({e}) — "
+                               "lần chạy tiếp sẽ hỏi lại.")
+        if req.defer_export:
+            cho_duyet = self._billing.cong_xem_truoc(
+                segments, work_dir, video_duration_s,
+                khong_can_dich=khong_can_dich, da_duyet=da_duyet)
+            if cho_duyet is not None:
+                bg_future.result()   # kết quả đã cache — chạy tiếp dùng ngay
+                return cho_duyet
 
         blocked = self._setup_hold(segments, target, work_dir,
                                    video_duration_s,
