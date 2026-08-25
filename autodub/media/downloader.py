@@ -143,6 +143,16 @@ def download_video(url: str, output_dir: str, settings=None) -> str:
     if not url:
         raise ValueError("URL cannot be empty")
 
+    # Tách liên kết khỏi đoạn chia sẻ NGAY ĐẦU (mini-spec C31).
+    #
+    # C30 tách bên trong `normalize_url`, nhưng phép hỏi `is_douyin_url` nằm
+    # TRƯỚC đó — nên dán nguyên đoạn chia sẻ Douyin thì câu hỏi "đây có phải
+    # Douyin không" nhận cả cụm chữ và trả lời KHÔNG. Đường tải Douyin riêng
+    # (dựng ra vì bộ tải Douyin của yt-dlp hỏng sẵn ở thượng nguồn) bị bỏ qua,
+    # rơi xuống yt-dlp rồi chết với "Fresh cookies are needed".
+    from autodub.utils import tach_lien_ket
+
+    url = tach_lien_ket(url)
     ensure_dir(output_dir)
 
     # Douyin's yt-dlp extractor is broken upstream (requires `a_bogus`
@@ -290,6 +300,11 @@ def download_one(
     Playwright-based extractor because yt-dlp's Douyin path is broken upstream.
     All other sites continue through yt-dlp.
     """
+    # Cùng lý do như `download_video` — xem mini-spec C31.
+    from autodub.utils import tach_lien_ket
+
+    url = tach_lien_ket(url)
+
     from autodub.media.douyin import is_douyin_url, download_douyin
     if is_douyin_url(url):
         logger.info(f"Routing to Playwright Douyin extractor: {url}")

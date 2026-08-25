@@ -167,6 +167,14 @@ FRIENDLY_ERRORS: list[tuple[str, str, str]] = [
      "→ thẻ Nâng cao → mục \"Tải video khó\", chọn trình duyệt bạn hay dùng "
      "rồi thử lại. Hoặc tải video về máy bằng trình duyệt rồi dùng nút Tải "
      "tệp lên."),
+    # C31 — Douyin đòi cookie. Người dùng thật gặp đúng dòng này. Cách chữa
+    # có thật trong app là cài tính năng Douyin (đường tải riêng, không qua
+    # yt-dlp) hoặc mượn cookie trình duyệt.
+    ("fresh cookies", "Trang Douyin đòi cookie",
+     "Chạy một lần tệp \"Cai dat tinh nang Douyin.bat\" nằm cạnh ứng dụng — "
+     "sau đó app dùng đường tải riêng cho Douyin, không cần cookie. Nếu vẫn "
+     "lỗi, mở Cài đặt → Nâng cao → \"Tải video khó\", chọn trình duyệt bạn "
+     "hay dùng rồi thử lại."),
     ("ffmpeg", "Máy chưa có FFmpeg",
      "Mở lại ứng dụng rồi bấm \"Tải giúp tôi\" ở hộp thoại hiện ra — ứng "
      "dụng tự tải giúp (~80 MB). Hoặc chép ffmpeg.exe và ffprobe.exe vào "

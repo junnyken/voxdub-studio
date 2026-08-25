@@ -8474,6 +8474,70 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C31 — Bản vá C30 mới đúng một nửa (Phase H, 2026-08-25)
+
+Chủ dự án cài v3.8.4 rồi dán lại đúng đoạn Douyin đó. **Lỗi đổi hẳn**, và đó
+là tin tốt:
+
+```
+trước:  ERROR: [generic] '9.76 y@t.rE 11/09…'
+sau:    ERROR: [Douyin] 7650489705510783333: Fresh cookies … are needed
+```
+
+Tức là C30 chạy đúng: đã tách được liên kết, giải được mã rút gọn
+`v.douyin.com/9Rrk-r-GziU/` thành số video, và gọi tới bộ tải Douyin.
+
+### Nhưng nó gọi NHẦM bộ tải
+
+Dự án có sẵn một đường tải Douyin riêng bằng Playwright, dựng ra **chính vì**
+bộ tải Douyin của yt-dlp hỏng ở thượng nguồn (đòi chữ ký `a_bogus`). Đường đó
+không cần cookie.
+
+`download_video()` hỏi `is_douyin_url(url)` để rẽ sang đường riêng — nhưng câu
+hỏi đó nằm **TRƯỚC** `normalize_url()`, nơi C30 tách liên kết. Nên nó nhận cả
+cụm chữ tiếng Trung và trả lời **KHÔNG**:
+
+```
+is_douyin_url(cả đoạn chia sẻ)  →  False
+is_douyin_url(sau khi tách)     →  True
+```
+
+Đường riêng bị bỏ qua, rơi xuống yt-dlp, chết vì cookie. **Vá đúng chỗ mà sai
+thứ tự thì vẫn hỏng.**
+
+Sửa: tách ngay đầu `download_video()`, trước cả `ensure_dir`. Và có **HAI**
+hàm cùng mẫu này — sửa một chỗ là còn sót chỗ kia, nên bộ canh quét cây cú
+pháp tìm MỌI hàm có gọi `is_douyin_url` rồi bắt buộc `tach_lien_ket` đứng
+trước trong từng hàm.
+
+### Lời soạn cho dòng lỗi cookie
+
+Dòng gốc của yt-dlp không gợi ý gì làm được trong app. Thêm vào bảng lời soạn:
+chạy một lần `Cai dat tinh nang Douyin.bat` là app dùng đường tải riêng, không
+cần cookie; nếu vẫn lỗi thì mượn cookie trình duyệt ở Cài đặt → Nâng cao.
+
+Test khoá luôn việc lời soạn phải **chỉ đúng tệp có thật** trong bản phát
+hành, không nói chung chung.
+
+### Chứng minh từng luật
+
+Gỡ tách ở `download_video` → 2 đỏ. Chỉ sửa một chỗ, bỏ sót chỗ thứ hai →
+1 đỏ. Bỏ lời soạn cho lỗi cookie → 1 đỏ.
+
+**1894 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- **Chưa tải thật một video Douyin nào** từ đây — sandbox bị chặn ở khâu tải
+  media (ghi nhận từ V73). Việc đường Playwright có chạy trót lọt hay không
+  vẫn phải chờ máy chủ dự án.
+- Đường Playwright cần chạy `Cai dat tinh nang Douyin.bat` một lần (tải
+  Chromium ~170 MB). Chưa cài thì vẫn rơi xuống yt-dlp và vẫn gặp lỗi cookie —
+  lời soạn nói đúng việc cần làm, nhưng app **chưa tự kiểm** xem đã cài chưa
+  để báo sớm.
+- Nếu Douyin đổi cách chống bot thì đường Playwright cũng hỏng theo; không có
+  cách nào bền vững ngoài việc tải video về máy rồi dùng nút Tải tệp lên.
+
 ## C30 — Dán nguyên đoạn chia sẻ Douyin vào ô liên kết (Phase H, 2026-08-25)
 
 Chủ dự án dán đúng thứ nút Chia sẻ của Douyin sinh ra:
