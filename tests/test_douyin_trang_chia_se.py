@@ -117,3 +117,78 @@ def test_thong_bao_lech_video_noi_VIEC_LAM_DUOC():
     than = inspect.getsource(douyin._download_via_playwright)
     assert "Tải tệp lên" in than, \
         "báo lỗi mà không nói cách đi tiếp thì người dùng bế tắc"
+
+
+# -- Cookie của người dùng là đường CUỐI CÙNG (mini-spec C33) ---------------
+#
+# Đo thật 25/8: Douyin đã đóng mọi cửa ẩn danh — trang chia sẻ không còn địa
+# chỉ video, API `iteminfo` trả 0 byte, API `aweme/detail` trả 403 "blocked",
+# yt-dlp bản mới nhất đòi cookie, và trang chia sẻ đẩy khách sang video gợi ý
+# (`abParams.reflow_to_featured_app = 1`).
+#
+# Trước đây Douyin bị định tuyến TRÁNH yt-dlp, nên ô cookie trong Cài đặt
+# không có tác dụng gì với Douyin — đúng thứ yt-dlp đang đòi thì lại không
+# bao giờ tới tay nó.
+
+def test_duong_trinh_duyet_hong_thi_THU_TIEP_bang_cookie():
+    from tests.doc_ma import cac_luot_goi
+
+    from autodub.media.downloader import download_video
+
+    goi = cac_luot_goi(download_video)
+    assert "download_douyin" in goi
+    assert "cookie_opts_from" in goi, \
+        "hỏng đường trình duyệt là bỏ cuộc, không thử cookie"
+
+
+def test_CHUA_cau_hinh_cookie_thi_nem_lai_loi_goc():
+    """Không có cookie thì thử tiếp cũng vô ích — đừng nuốt lỗi rồi báo một
+    thông báo khác gây rối."""
+    import ast
+    import io as _io
+
+    nguon = _io.open("autodub/media/downloader.py", encoding="utf-8").read()
+    i = nguon.index("if not cookie_opts_from(settings):")
+    assert "raise" in nguon[i:i + 120]
+
+
+def test_thanh_cong_thi_KHONG_thu_them_duong_nao():
+    """`else` của `try` chỉ chạy khi không có lỗi — tải xong là trả về ngay.
+
+    Hỏi CÂY CÚ PHÁP thay vì cắt một cửa sổ ký tự quanh lời gọi: khối chú
+    thích ở giữa dài hơn cửa sổ nên phép cắt trượt, test đỏ oan. Đây là kiểu
+    lỗi đã mắc nhiều lần trong đợt này.
+    """
+    import ast
+
+    from tests.doc_ma import cay_ham
+
+    from autodub.media.downloader import download_video
+
+    for node in ast.walk(cay_ham(download_video)):
+        if not isinstance(node, ast.Try):
+            continue
+        goi = [n for n in ast.walk(node.body[0] if node.body else node)
+               if isinstance(n, ast.Call)]
+        if not any(getattr(g.func, "id", "") == "download_douyin" for g in goi):
+            continue
+        assert node.orelse, "không có nhánh `else` — thành công vẫn chạy tiếp"
+        assert any(isinstance(n, ast.Return) for n in ast.walk(node.orelse[-1])
+                   ) or any(isinstance(n, ast.Return) for n in node.orelse), \
+            "nhánh `else` không trả về ngay"
+        return
+    raise AssertionError("không thấy khối try quanh download_douyin")
+
+
+def test_loi_dua_nham_video_co_loi_soan_san():
+    from autodub_gui.dub_constants import friendly_error
+
+    soan = friendly_error(
+        "Tải video thất bại: Douyin trả về một video KHÁC "
+        "(xin 7665732287728983464, nhận 7665940121195121966)")
+    assert soan is not None
+    tieu_de, cach_chua = soan
+    assert "nhầm video" in tieu_de
+    # Phải nói CẢ HAI đường: cookie, và đường luôn chạy được.
+    assert "Tải video khó" in cach_chua
+    assert "Tải tệp lên" in cach_chua

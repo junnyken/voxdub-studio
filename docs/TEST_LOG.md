@@ -8474,6 +8474,82 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C33 — Douyin đã đóng mọi cửa ẩn danh (Phase H, 2026-08-25)
+
+Chủ dự án cài Chromium xong, chạy v3.8.6, vẫn hỏng — và lộ ra chi tiết quyết
+định: **số video "nhận" gần như giống hệt lần trước dù dán liên kết khác**.
+Trình duyệt luôn rơi vào cùng một video gợi ý.
+
+### Đo hết mọi đường, không đoán
+
+Chủ dự án gửi liên kết nên lần này thử được thật từ sandbox:
+
+| Đường | Kết quả đo |
+|---|---|
+| JSON nhúng trong trang chia sẻ | **không còn địa chỉ video nào** (69 trường, 0 media) |
+| API `iteminfo` di động | HTTP 200 nhưng **0 byte** |
+| API `aweme/v1/web/aweme/detail` | **403 `blocked`** |
+| `yt-dlp` 2026.03.17 | `Fresh cookies … are needed` |
+| `yt-dlp` + cookie ẩn danh lấy từ douyin.com | vẫn đòi cookie |
+| Trình duyệt tự động (máy chủ dự án) | rơi vào video gợi ý |
+
+Và bằng chứng cho chuyện "video gợi ý" nằm ngay trong dữ liệu trang:
+`abParams.reflow_to_featured_app = 1`. Douyin **cố ý** đẩy khách vào trang
+chia sẻ sang nội dung nổi bật để ép mở app.
+
+**Đây không phải lỗi app.** Douyin đã đóng cửa với mọi lượt truy cập không
+đăng nhập từ ngoài Trung Quốc.
+
+### Đường còn lại: cookie của chính người dùng
+
+`yt-dlp` nói thẳng nó cần gì — *"Fresh cookies (not necessarily logged in)"*.
+App đã có sẵn ô cookie trong Cài đặt → Nâng cao từ mini-spec V85.
+
+Nhưng nó **chưa từng có tác dụng với Douyin**: Douyin bị định tuyến TRÁNH
+yt-dlp (vì bộ tải của yt-dlp hỏng ở thượng nguồn), nên đúng thứ yt-dlp đòi
+thì lại không bao giờ tới tay nó.
+
+Sửa: đường trình duyệt hỏng thì **thử tiếp bằng yt-dlp kèm cookie** — nhưng
+CHỈ khi người dùng đã cấu hình cookie. Chưa cấu hình thì ném lại lỗi gốc, vì
+thử tiếp cũng vô ích mà còn đổi thông báo thành thứ gây rối hơn.
+
+Thành công ở đường đầu thì trả về ngay, không chạy tiếp — dùng `else` của
+`try` chứ không đặt `return` trong `try`.
+
+### Lời soạn nói CẢ HAI đường
+
+Dòng lỗi "trả về một video KHÁC" nay có lời soạn: thử cookie trình duyệt
+trước; không được nữa thì tải video về máy rồi dùng «Tải tệp lên» — **cách
+này luôn chạy**. Test bắt buộc lời soạn phải nhắc cả hai, vì chỉ nói cách một
+là để người dùng bế tắc khi cách đó cũng hỏng.
+
+### Lại một test cắt cửa sổ ký tự
+
+Bộ canh "thành công thì trả về ngay" cắt 800 ký tự quanh lời gọi rồi tìm chữ
+`return`. Khối chú thích ở giữa dài hơn 800 ký tự nên phép cắt trượt → **đỏ
+oan**. Viết lại bằng cây cú pháp: tìm node `Try` có gọi `download_douyin`,
+rồi kiểm nhánh `orelse` có `Return`.
+
+### Chứng minh từng luật
+
+Hỏng đường trình duyệt thì bỏ cuộc luôn → 2 đỏ. Chưa có cookie mà vẫn nuốt
+lỗi → 1 đỏ.
+
+**1907 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- **Chưa ai tải xong một video Douyin nào.** Đường cookie chưa thử được từ
+  đây: sandbox không có hồ sơ trình duyệt nào đã đăng nhập Douyin.
+- Cookie lấy từ trình duyệt chỉ đọc được khi trình duyệt **đã đóng** (Chrome
+  khoá tệp cookie khi đang chạy), và Chrome đời mới mã hoá thêm một lớp khiến
+  cách này hỏng với một số máy. Chưa xử lý ca đó.
+- Nếu cả cookie cũng không xong thì **nên dừng** đường tự động cho Douyin. Mỗi
+  vòng vá tốn của chủ dự án một lượt tải 74 MB để đổi lấy một chặng nữa, mà
+  Douyin đang siết liên tục — đây là cuộc đua không thắng bền được.
+- Mọi thứ SAU khâu tải (chép lời, dịch, lồng tiếng, phụ đề) không dính gì tới
+  chuyện này: tải tay rồi «Tải tệp lên» là chạy y hệt.
+
 ## C32 — Douyin trả về một video KHÁC (Phase H, 2026-08-25)
 
 Chủ dự án cài v3.8.5, dán liên kết, và lỗi **lại đổi** — lần thứ ba, lần nào

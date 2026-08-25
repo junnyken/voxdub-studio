@@ -161,9 +161,25 @@ def download_video(url: str, output_dir: str, settings=None) -> str:
     from autodub.media.douyin import is_douyin_url, download_douyin
     if is_douyin_url(url):
         logger.info(f"Routing to Playwright Douyin extractor: {url}")
-        info = download_douyin(url, output_dir)
-        _save_meta(output_dir, info.get("title", ""), info.get("uploader", ""))
-        return info["filepath"]
+        try:
+            info = download_douyin(url, output_dir)
+        except Exception as e:  # noqa: BLE001 — còn một đường nữa để thử
+            # Douyin đã đóng mọi cửa ẩn danh (mini-spec C33): trang chia sẻ
+            # không còn địa chỉ video, API `iteminfo` trả rỗng, API `detail`
+            # trả 403, và trang chia sẻ đẩy khách sang video gợi ý.
+            #
+            # Đường CÒN LẠI là cookie của chính người dùng — đúng thứ yt-dlp
+            # đòi ("Fresh cookies … are needed"). Trước đây Douyin bị định
+            # tuyến TRÁNH yt-dlp nên ô cookie trong Cài đặt không có tác dụng
+            # gì với Douyin. Nay thử nốt đường đó thay vì bỏ cuộc.
+            if not cookie_opts_from(settings):
+                raise
+            logger.warning(
+                f"Đường trình duyệt hỏng ({str(e)[:100]}) — thử lại bằng "
+                "cookie trình duyệt bạn đã chọn trong Cài đặt.")
+        else:
+            _save_meta(output_dir, info.get("title", ""), info.get("uploader", ""))
+            return info["filepath"]
 
     canonical = normalize_url(url)
     if canonical != url:

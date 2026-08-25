@@ -170,6 +170,15 @@ FRIENDLY_ERRORS: list[tuple[str, str, str]] = [
     # C31 — Douyin đòi cookie. Người dùng thật gặp đúng dòng này. Cách chữa
     # có thật trong app là cài tính năng Douyin (đường tải riêng, không qua
     # yt-dlp) hoặc mượn cookie trình duyệt.
+    # C33 — Douyin đã đóng mọi cửa ẩn danh (đo thật 25/8: trang chia sẻ không
+    # còn địa chỉ video, API iteminfo trả rỗng, API detail trả 403, và trang
+    # chia sẻ đẩy khách sang video gợi ý). Đường còn lại duy nhất là cookie
+    # của chính người dùng.
+    ("trả về một video khác", "Douyin đưa nhầm video",
+     "Douyin đang đẩy lượt tải sang một video gợi ý. Mở Cài đặt → Nâng cao → "
+     "\"Tải video khó\", chọn trình duyệt bạn đang đăng nhập Douyin rồi thử "
+     "lại. Không được nữa thì mở video bằng trình duyệt, tải về máy, rồi dùng "
+     "nút \"Tải tệp lên\" — cách này luôn chạy."),
     ("fresh cookies", "Trang Douyin đòi cookie",
      "Chạy một lần tệp \"Cai dat tinh nang Douyin.bat\" nằm cạnh ứng dụng — "
      "sau đó app dùng đường tải riêng cho Douyin, không cần cookie. Nếu vẫn "
