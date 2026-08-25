@@ -158,6 +158,40 @@ _NGUONG_DB = -30
 _IM_TOI_THIEU_S = 0.6
 
 
+def tim_vung_lang(duong_dan: str, timeout: float = 1800.0
+                  ) -> list[tuple[float, float]]:
+    """Các VÙNG im, trả về (bắt đầu, kết thúc) tính bằng giây.
+
+    Khác `tim_khoang_lang` (chỉ trả điểm giữa để cắt tệp): ở đây cần cả khoảng
+    để trả lời câu hỏi "câu này có nằm trong chỗ im không" — dùng để phát hiện
+    câu do mô hình BỊA ra (mini-spec C29).
+    """
+    import re as _re
+
+    lenh = [duong_dan_ffmpeg(), "-i", duong_dan, "-af",
+            f"silencedetect=noise={_NGUONG_DB}dB:d={_IM_TOI_THIEU_S}",
+            "-f", "null", "-"]
+    try:
+        chay = subprocess.run(lenh, capture_output=True, text=True,
+                              timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        logger.warning(f"Không dò được vùng im ({e})")
+        return []
+
+    vung: list[tuple[float, float]] = []
+    dau = None
+    for dong in (chay.stderr or "").splitlines():
+        m = _re.search(r"silence_start:\s*(-?[\d.]+)", dong)
+        if m:
+            dau = float(m.group(1))
+            continue
+        m = _re.search(r"silence_end:\s*(-?[\d.]+)", dong)
+        if m and dau is not None:
+            vung.append((dau, float(m.group(1))))
+            dau = None
+    return vung
+
+
 def tim_khoang_lang(duong_dan: str, timeout: float = 1800.0) -> list[float]:
     """Các mốc (giây) mà âm thanh im — dùng làm chỗ cắt.
 

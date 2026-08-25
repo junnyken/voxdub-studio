@@ -74,3 +74,26 @@ def goi_truoc(ham, a: str, b: str) -> bool:
     if not hop or not hop_b:
         return False
     return min(hop) < min(hop_b)
+
+def goi_trong_khoi_if(ham, ten_goi: str, ten_bien: str) -> bool:
+    """Lời gọi `ten_goi` có nằm TRONG một khối `if <ten_bien>` không.
+
+    Kiểm bằng cây cú pháp chứ không bằng chuỗi: `"if so_bo:" in nguon_truoc_do`
+    chỉ nói rằng chữ đó xuất hiện đâu đó phía trên, không nói lời gọi có nằm
+    trong khối ấy hay không — và một khối `if so_bo:` khác ở trên là đủ để test
+    xanh giả. Đã mắc đúng lỗi đó (mini-spec C29).
+    """
+    for node in ast.walk(cay_ham(ham)):
+        if not isinstance(node, ast.If):
+            continue
+        ten = {n.id for n in ast.walk(node.test) if isinstance(n, ast.Name)}
+        if ten_bien not in ten:
+            continue
+        for trong in node.body:
+            for m in ast.walk(trong):
+                if isinstance(m, ast.Call) and (
+                        _ten_goi(m) == ten_goi
+                        or _ten_goi(m).endswith("." + ten_goi)):
+                    return True
+    return False
+

@@ -104,6 +104,42 @@ def write_vtt(segments: list[dict], output_path: str) -> str:
     return output_path
 
 
+#: Câu phải nằm TRỌN trong vùng im, trừ ra ngần này giây ở hai đầu.
+#: Mốc của bộ nghe và mốc của bộ dò âm lượng không khớp tuyệt đối.
+_LE_VUNG_IM = 0.3
+
+
+def loc_cau_trong_vung_im(segments: list[dict],
+                          vung_im: list[tuple[float, float]]
+                          ) -> tuple[list[dict], int]:
+    """Bỏ những câu nằm TRỌN trong một vùng im (mini-spec C29).
+
+    Vì sao cần, dù đã có `loc_lap_lai`: bộ lọc kia chỉ bắt được câu bịa LẶP
+    LẠI. Một câu bịa đứng lẻ giữa quãng im thì lọt. Mà chỗ im thì theo định
+    nghĩa **không có gì để chép** — câu nào hiện ra ở đó đều là bịa.
+
+    Chỉ bỏ khi câu nằm TRỌN trong vùng im, có trừ lề: câu bắt đầu trong chỗ im
+    rồi kéo sang chỗ có tiếng là câu thật bị dò lệch mốc, không được đụng tới.
+    """
+    if not vung_im:
+        return segments, 0
+    ra: list[dict] = []
+    bo = 0
+    for seg in segments:
+        dau = float(seg.get("start", 0) or 0)
+        cuoi = float(seg.get("end", 0) or 0)
+        trong_im = any(v_dau - _LE_VUNG_IM <= dau and cuoi <= v_cuoi + _LE_VUNG_IM
+                       for v_dau, v_cuoi in vung_im)
+        if trong_im:
+            bo += 1
+            logger.warning(
+                f"Bỏ câu ở {dau:.0f}s — nằm trọn trong chỗ im: "
+                f"«{str(seg.get('text', ''))[:60]}»")
+        else:
+            ra.append(seg)
+    return ra, bo
+
+
 def _chuan_hoa_so_sanh(chu: str) -> str:
     """Bỏ dấu câu và chữ hoa để so hai câu có PHẢI CÙNG MỘT CÂU không."""
     import re
@@ -432,6 +468,17 @@ def transcribe_media(source: str, output_dir: str, settings,
     if so_bo:
         say("asr", f"Đã bỏ {so_bo} câu lặp lại liên tiếp — nhiều khả năng là "
                    "chỗ im lặng bị nghe nhầm.")
+
+        # Đã thấy dấu hiệu bịa thì soi tiếp bằng ÂM LƯỢNG (mini-spec C29):
+        # câu nào nằm trọn trong chỗ im thì bỏ, kể cả câu đứng lẻ mà bộ lọc
+        # lặp không bắt được. Chỉ chạy khi đã có dấu hiệu — dò âm lượng tốn
+        # một lượt quét cả tệp, không đáng làm cho mọi lượt chép lời.
+        from autodub.media.cat_tep import tim_vung_lang
+
+        segments, bo_im = loc_cau_trong_vung_im(
+            segments, tim_vung_lang(audio_path))
+        if bo_im:
+            say("asr", f"Đã bỏ thêm {bo_im} câu nằm trong chỗ im.")
     if not segments:
         raise TranscribeError(
             "Không nghe được câu nào — file có thể không có tiếng nói, "

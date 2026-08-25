@@ -8474,6 +8474,73 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C29 — Tự trả lời câu hỏi thay vì bắt người dùng đi nghe (Phase H, 2026-08-25)
+
+Chủ dự án chỉ ra một chuyện đúng: tôi giao cho họ phép kiểm *"nghe phút 33–37
+xem có tiếng nói thật không"* mà **tự tôi chưa làm** — trong khi dữ liệu để
+trả lời gần hết câu đó đã nằm sẵn trong hai ảnh chụp họ gửi.
+
+### Trả lời được bằng mật độ câu, không cần nghe
+
+| Đoạn | Mật độ |
+|---|---|
+| Phút 12 (đang nói bình thường) | 0,9 giây một câu |
+| Phút 12 → 33 (1.028 câu) | 1,2 giây một câu |
+| Phút 33–37 (chỗ nghi bịa) | **35,7 giây một câu** |
+
+Thưa hơn **29 lần**. Điểm quyết định: bộ nghe bật `vad_filter`, tức là **chỉ
+chép những chỗ máy nghe ra có tiếng nói**. Trong 250 giây mà chỉ tìm được 7
+chỗ như thế thì đoạn đó gần như im hoàn toàn.
+
+Bằng chứng rất mạnh, không phải chứng minh — không có tệp trong tay thì không
+nghe được. Nhưng đủ để kết luận bản vá C28 đánh trúng.
+
+### Đừng bắt người dùng đi nghe — để công cụ tự soi
+
+`loc_lap_lai` (C28) chỉ bắt được câu bịa **lặp lại**. Câu bịa đứng lẻ giữa
+quãng im vẫn lọt. Mà chỗ im thì theo định nghĩa **không có gì để chép** — câu
+nào hiện ra ở đó đều là bịa.
+
+Thêm `tim_vung_lang()` (trả về khoảng im, khác `tim_khoang_lang` vốn chỉ trả
+điểm giữa để cắt tệp) và `loc_cau_trong_vung_im()`. Ba luật:
+
+- **Chỉ bỏ khi câu nằm TRỌN trong vùng im.** Câu bắt đầu trong chỗ im rồi kéo
+  sang chỗ có tiếng là câu thật bị dò lệch mốc — không được đụng tới.
+- **Có lề 0,3 giây** ở hai đầu: mốc của bộ nghe và mốc của bộ dò âm lượng
+  không khớp tuyệt đối.
+- **Dò hỏng thì giữ nguyên hết** — thà để lọt câu bịa còn hơn xoá câu thật.
+
+Và chỉ chạy **khi đã có dấu hiệu bịa** (bộ lọc lặp đã bỏ được câu nào đó): dò
+âm lượng tốn một lượt quét cả tệp, không đáng làm cho mọi lượt chép lời.
+
+### Lại một test khoá bằng chuỗi, lại xanh giả
+
+Bộ canh "chỉ dò âm lượng khi có dấu hiệu" viết là: tìm chuỗi `"if so_bo:"`
+trong phần nguồn phía TRƯỚC lời gọi. Dời lời gọi ra ngoài khối `if` → **test
+vẫn xanh**, vì chuỗi đó vẫn nằm phía trên (thuộc khối khác).
+
+Thêm `goi_trong_khoi_if()` vào `tests/doc_ma.py`: hỏi cây cú pháp xem lời gọi
+có nằm TRONG thân của một `If` có nhắc tới biến đó không. Đổi `if so_bo:`
+thành `if True:` để đo lại → **đỏ**. Đây là lần thứ năm trong hai ngày một
+phép kiểm bằng chuỗi cho kết quả sai; cây cú pháp thì không.
+
+### Chứng minh từng luật
+
+Bỏ lề mốc → 1 đỏ. Bỏ câu chỉ CHẠM vào vùng im (không cần nằm trọn) → 2 đỏ.
+Gỡ điều kiện chỉ-dò-khi-có-dấu-hiệu → 1 đỏ.
+
+**1873 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- Vẫn **chưa nghe được tệp của chủ dự án** — kết luận dựa trên mật độ câu, là
+  suy luận từ dữ liệu chứ không phải nghe tận tai.
+- Bộ lọc theo âm lượng **chỉ chạy khi bộ lọc lặp đã bắt được gì đó**. Tệp có
+  đúng một câu bịa đứng lẻ và không có câu lặp nào thì vẫn lọt.
+- Ngưỡng im **-30 dB / 0,6 giây** dùng chung với bộ cắt tệp, chưa hiệu chỉnh
+  riêng cho việc phát hiện bịa.
+- **Chưa chạy thật lần nào** — máy này không có Whisper.
+
 ## C28 — Mô hình BỊA khi gặp quãng im (Phase H, 2026-08-24)
 
 Ảnh chụp thứ hai của chủ dự án, cùng lượt chạy 3 giờ 43:

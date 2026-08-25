@@ -207,3 +207,59 @@ def test_tat_bom_ban_chep_doan_truoc_vao_loi_nhac():
 
     s = _io.open("autodub/speech/asr_whisper_worker.py", encoding="utf-8").read()
     assert "condition_on_previous_text=False" in s
+
+
+# -- Lọc câu bịa bằng ÂM LƯỢNG (mini-spec C29) ------------------------------
+#
+# `loc_lap_lai` chỉ bắt được câu bịa LẶP LẠI. Một câu bịa đứng lẻ giữa quãng
+# im thì lọt. Mà chỗ im thì theo định nghĩa không có gì để chép.
+
+def test_bo_cau_nam_tron_trong_cho_im():
+    ra, bo = tt.loc_cau_trong_vung_im(
+        [{"start": 2100, "end": 2105, "text": "Bịa đứng lẻ"}],
+        [(2000.0, 2200.0)])
+    assert ra == [] and bo == 1
+
+
+def test_cau_BAT_DAU_trong_im_roi_sang_tieng_thi_GIU():
+    """Câu thật bị dò lệch mốc — không được đụng tới."""
+    ra, bo = tt.loc_cau_trong_vung_im(
+        [{"start": 2199, "end": 2260, "text": "Câu thật"}],
+        [(2000.0, 2200.0)])
+    assert len(ra) == 1 and bo == 0
+
+
+def test_le_moc_khong_lam_mat_cau_that():
+    """Mốc bộ nghe và mốc bộ dò âm lượng không khớp tuyệt đối."""
+    ra, bo = tt.loc_cau_trong_vung_im(
+        [{"start": 1999.9, "end": 2000.1, "text": "Sát mép"}],
+        [(2000.0, 2200.0)])
+    assert bo == 1, "lệch 0,1 giây mà đã coi là ngoài vùng im"
+
+
+def test_khong_do_duoc_am_luong_thi_GIU_NGUYEN_het():
+    """Dò hỏng thì thà giữ câu bịa còn hơn xoá câu thật."""
+    mau = [{"start": 0, "end": 1, "text": "gì đó"}]
+    ra, bo = tt.loc_cau_trong_vung_im(mau, [])
+    assert ra == mau and bo == 0
+
+
+def test_chi_do_am_luong_KHI_da_co_dau_hieu_bia():
+    """Dò âm lượng tốn một lượt quét cả tệp — không đáng làm cho mọi lượt.
+
+    Kiểm bằng CÂY CÚ PHÁP: bản đầu tìm chuỗi `"if so_bo:"` ở phần nguồn phía
+    trên lời gọi, mà chuỗi đó vẫn có mặt kể cả khi lời gọi đã bị dời ra ngoài
+    khối — test xanh giả, gỡ ra đo mới lộ (mini-spec C29).
+    """
+    from tests.doc_ma import goi_trong_khoi_if
+
+    assert goi_trong_khoi_if(tt.transcribe_media, "loc_cau_trong_vung_im",
+                             "so_bo"), \
+        "đang dò âm lượng cho cả lượt không có dấu hiệu bịa"
+
+
+def test_noi_ra_da_bo_bao_nhieu_cau():
+    import inspect
+
+    than = inspect.getsource(tt.loc_cau_trong_vung_im)
+    assert "logger.warning" in than, "xoá câu mà không để lại dấu vết"
