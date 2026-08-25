@@ -142,6 +142,59 @@ def tim_thu_muc_bin_cu() -> str:
     return ket_qua or ""
 
 
+def tim_env_cu() -> str:
+    """Tệp ``.env`` của một bản cài cũ cạnh bên, hoặc "".
+
+    Mảnh còn thiếu của V77: venv, models và FFmpeg đã biết tự tìm lại bản cũ,
+    riêng ``.env`` thì chưa — mà đó mới là thứ chứa khoá API, token đăng nhập
+    và mọi đường dẫn người dùng đã trỏ tay. Hệ quả: nâng cấp xong app "quên"
+    hết cài đặt, phải khai báo lại từ đầu dù bộ máy vẫn chạy.
+
+    Chỉ ĐỌC tại chỗ, không chép: lần đầu người dùng bấm Lưu, tệp mới sẽ được
+    ghi ra thư mục bản mới như thường lệ.
+    """
+    key = ("__env__", ".env")
+    with _lock:
+        if key in _cache:
+            return _cache[key] or ""
+
+    ket_qua = None
+    goc = app_root()
+    try:
+        anh_em = sorted(os.scandir(os.path.dirname(goc)), key=lambda e: e.name)
+    except OSError:
+        anh_em = []
+
+    ung_vien: list[tuple[float, str, str]] = []
+    for i, entry in enumerate(anh_em):
+        if i >= _MAX_ANH_EM:
+            break
+        try:
+            if not entry.is_dir() or os.path.samefile(entry.path, goc):
+                continue
+        except OSError:
+            continue
+        tep = os.path.join(entry.path, ".env")
+        try:
+            # Tệp rỗng không phải cài đặt — nhận vào chỉ tổ gây hiểu lầm.
+            if not os.path.isfile(tep) or os.path.getsize(tep) == 0:
+                continue
+            ung_vien.append((os.path.getmtime(tep), entry.path, tep))
+        except OSError:
+            continue
+
+    if ung_vien:
+        # Nhiều bản cũ cạnh nhau thì lấy tệp sửa gần đây nhất.
+        ung_vien.sort(key=lambda x: x[0], reverse=True)
+        _, thu_muc, ket_qua = ung_vien[0]
+        logger.info(f"Dùng lại cài đặt (.env) của bản trước ở thư mục: "
+                    f"{os.path.basename(thu_muc)}")
+
+    with _lock:
+        _cache[key] = ket_qua
+    return ket_qua or ""
+
+
 def tim_venv_cu_bat_ky(ten_venvs) -> str:
     """Thư mục venv (theo tên) của một bản cài cũ cạnh bên, hoặc "".
 

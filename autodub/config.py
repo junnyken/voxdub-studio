@@ -377,7 +377,14 @@ class Settings:
         else:
             # Luôn là tệp .env nằm cạnh ứng dụng (thư mục chứa exe khi đã
             # đóng gói) — không phụ thuộc thư mục người dùng đang đứng.
-            load_dotenv(os.path.join(app_root(), ".env"), override=override)
+            tep = os.path.join(app_root(), ".env")
+            if not os.path.isfile(tep):
+                # Bản mới giải nén cạnh bản cũ: mượn cài đặt của bản cũ thay
+                # vì bắt khai báo lại khoá API và token từ đầu (V91).
+                from autodub.venv_discovery import tim_env_cu
+
+                tep = tim_env_cu() or tep
+            load_dotenv(tep, override=override)
 
         def env(key: str, default: str = "", *aliases: str) -> str:
             for k in (key, *aliases):

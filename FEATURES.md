@@ -206,10 +206,13 @@ chỉ giữ tên/giọng, không giữ câu thoại.
 
 ### 5.1 Nghiêm trọng — ảnh hưởng người dùng thật
 
-- **Nâng cấp là mất sạch engine đã cài.** `.venv-*` và `models/` nằm *trong*
-  thư mục ứng dụng. Giải nén bản mới ra thư mục khác → app báo "chưa cài" dù
-  người dùng đã cài (và mô hình nặng ~1,5 GB). Cách chữa hiện tại là chép tay
-  hai thư mục đó sang. **Đây là thiết kế, chưa sửa.**
+- **Nâng cấp: chỉ cần giải nén CẠNH bản cũ.** `.venv-*`, `models/`, `bin/` và
+  `.env` đều nằm *trong* thư mục ứng dụng, nên bản mới về nguyên tắc là trắng
+  trơn. App tự dò các thư mục **nằm cùng thư mục cha** và dùng lại: engine +
+  model (V77), FFmpeg (V81), và cài đặt/khoá API/token (V91 — chép sang một
+  lần lúc khởi động). Không phải chép tay 1,5 GB.
+  **Điều kiện:** bản mới phải nằm cùng thư mục cha với bản cũ. Giải nén sang ổ
+  đĩa khác thì vẫn phải chép tay, hoặc trỏ đường dẫn trong Cài đặt.
 - **Không có máy Windows nào để kiểm thử.** Test chạy trên Linux; mọi bản
   phát hành đều do người dùng cuối phát hiện lỗi. Cả một chuỗi lỗi
   (V73–V87) đến từ ảnh chụp màn hình của người dùng, không phải từ test.

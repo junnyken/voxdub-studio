@@ -33,7 +33,7 @@ APP_NAME = "VoxDub Studio"
 APP_TAGLINE = "Lồng tiếng video bằng AI"
 logger = setup_logging("autodub_gui.app")
 
-APP_VERSION = "3.8.8"
+APP_VERSION = "3.8.9"
 
 # -- Danh mục trang ----------------------------------------------------
 ROW_HOME, ROW_NEW, ROW_PROJECTS, ROW_BATCH, ROW_DOWNLOAD = 0, 1, 2, 3, 4
@@ -980,12 +980,20 @@ def main() -> int:
     from autodub.utils import app_root as _app_root
     _env_path = os.path.join(_app_root(), ".env")
     _env_example = os.path.join(_app_root(), ".env.example")
-    if not os.path.isfile(_env_path) and os.path.isfile(_env_example):
+    if not os.path.isfile(_env_path):
+        # Ưu tiên cài đặt của bản cũ giải nén cạnh bên hơn là bản mẫu trống:
+        # nâng cấp mà mất khoá API với token đăng nhập thì coi như cài lại từ
+        # đầu (V91). Chép hẳn sang chứ không đọc nhờ — màn hình Cài đặt và
+        # env_store đều ghi vào _env_path, đọc nhờ sẽ khiến lần Lưu đầu tiên
+        # xoá trắng những khoá không hiện trên màn hình.
         import shutil as _shutil
-        try:
-            _shutil.copy(_env_example, _env_path)
-        except OSError:
-            pass
+        from autodub.venv_discovery import tim_env_cu
+        _nguon = tim_env_cu() or (_env_example if os.path.isfile(_env_example) else "")
+        if _nguon:
+            try:
+                _shutil.copy(_nguon, _env_path)
+            except OSError:
+                pass
 
     # Nếu người dùng (hoặc wizard) đã tải FFmpeg về bin/ thì thêm ngay vào PATH
     # để shutil.which("ffmpeg") và preflight tìm thấy ngay trong cùng phiên.

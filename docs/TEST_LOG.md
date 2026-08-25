@@ -11765,3 +11765,34 @@ skip, 0 fail)**; smoke test toàn app exit 0.
 - V63 dùng lại nháp gần nhất, chưa có "hồ sơ cấu hình" đặt tên (vd cấu hình
   cho phim vs cho vlog). Đủ cho việc lặp hằng ngày, chưa đủ cho nhiều loại
   nội dung song song.
+
+## V91 — Nâng cấp không làm mất cài đặt (25/08/2026)
+
+**Vì sao:** V77 dạy app tự tìm lại `.venv-*`/`models/` của bản cũ nằm cạnh
+bên, V81 làm tiếp cho FFmpeg. Riêng `.env` thì bị bỏ quên — mà đó mới là chỗ
+chứa khoá API, token đăng nhập và các đường dẫn người dùng trỏ tay. Hệ quả
+thực tế: nâng cấp xong engine vẫn chạy nhưng app "quên" hết cài đặt.
+
+**Đã làm:**
+- `venv_discovery.tim_env_cu()` — dò `.env` ở các thư mục cạnh bên, bỏ tệp
+  rỗng, bỏ chính thư mục đang chạy, nhiều bản cũ thì lấy bản sửa gần nhất.
+- `app.py main()` — lúc khởi động CHÉP `.env` bản cũ sang, ưu tiên hơn
+  `.env.example`. Cố ý chép chứ không đọc nhờ: `env_store` ghi vào
+  `app_root()/.env`, nên nếu chỉ đọc nhờ thì lần Lưu đầu tiên trên màn hình
+  Cài đặt sẽ xoá trắng những khoá không hiện ra ở đó.
+- `config.py Settings.load()` — đường lui tương tự cho bản chạy dòng lệnh và
+  worker (không đi qua `app.py`).
+
+**Kiểm:** `tests/test_env_ke_thua.py` — 7 test. Đã thử gỡ từng chốt để xác
+nhận test bắt được: (1) nhận cả `.env` rỗng → đỏ; (2) ưu tiên `.env.example`
+hơn bản cũ → đỏ; (3) đọc nhờ thay vì chép → đỏ.
+
+**Chạy thật:** dựng `v3.8.7` (có `.env` + venv + models + bin) cạnh `v3.8.8`
+trống → cả 4 thứ đều được nhận lại, `Settings.load()` đọc đúng `VOX_API_KEY`
+và `WHISPER_MODEL` của bản cũ.
+
+**Giới hạn còn lại:** chỉ dò thư mục CÙNG THƯ MỤC CHA. Giải nén sang ổ đĩa
+khác thì vẫn phải chép tay. Toàn bộ test chạy trên Linux, chưa kiểm trên
+Windows thật.
+
+**Toàn bộ bộ test:** 1933 đạt, 7 bỏ qua.
