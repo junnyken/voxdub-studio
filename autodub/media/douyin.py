@@ -75,6 +75,55 @@ def _extract_video_id(url: str) -> str | None:
     return None
 
 
+def resolve_share_url(url: str) -> tuple[str | None, str]:
+    """Giải liên kết rút gọn: trả `(số video, ĐỊA CHỈ ĐÃ GIẢI)`.
+
+    Vì sao cần cả địa chỉ chứ không chỉ số video (mini-spec C32): địa chỉ mà
+    Douyin trả về mang theo **chữ ký chia sẻ** (`share_sign`, `did`, `iid`,
+    `ts`). Dựng lại một địa chỉ trần từ số video là vứt bỏ chữ ký đó — mở
+    bằng trình duyệt thật thì Douyin coi như một lượt truy cập lạ và đẩy sang
+    một video GỢI Ý khác. Người dùng thật đã nhận đúng lỗi đó:
+    "Douyin redirected to a different video".
+    """
+    vid = _extract_video_id(url)
+    if vid:
+        return vid, url
+    try:
+        resp = requests.get(url, headers={"User-Agent": _UA},
+                            allow_redirects=True, timeout=15, stream=True)
+        cuoi = resp.url
+        candidates = [resp.url] + [r.headers.get("Location", "")
+                                   for r in resp.history]
+        resp.close()
+    except requests.RequestException as exc:
+        logger.warning(f"Short-link resolution failed for {url}: {exc}")
+        return None, url
+    # Chọn ĐÚNG chặng: trang chia sẻ di động `iesdouyin.com/share/video/`,
+    # KHÔNG phải địa chỉ cuối `www.douyin.com/video/`.
+    #
+    # Chuỗi chuyển hướng thật:
+    #   v.douyin.com/XXX  →  iesdouyin.com/share/video/<id>/?…share_sign…
+    #                     →  www.douyin.com/video/<id>?previous_page=…
+    #
+    # Chặng giữa mang chữ ký chia sẻ; chặng cuối là trang desktop, mà trang
+    # đó **tự phát video gợi ý** (xem ghi chú đầu tệp) — mở nó bằng trình
+    # duyệt là bắt nhầm video khác. Bám theo địa chỉ cuối vì "nó đầy đủ nhất"
+    # là đúng cái bẫy mà cả mô-đun này sinh ra để tránh (mini-spec C32).
+    trang_chia_se = ""
+    so_video = None
+    for candidate in candidates:
+        vid = _extract_video_id(candidate)
+        if not vid:
+            continue
+        so_video = so_video or vid
+        if "iesdouyin.com/share/video" in candidate and not trang_chia_se:
+            trang_chia_se = candidate
+    if so_video:
+        return so_video, (trang_chia_se
+                          or f"https://www.iesdouyin.com/share/video/{so_video}/")
+    return None, url
+
+
 def resolve_video_id(url: str) -> str | None:
     """Resolve a Douyin URL (including v.douyin.com short links) to its video ID.
 
@@ -357,16 +406,23 @@ def _ffprobe_duration(path: Path) -> float:
         return 0.0
 
 
-def _download_via_playwright(video_id: str, out_dir: Path, final_path: Path) -> dict:
-    """Fallback: sniff CDN streams from the share page with a headless browser."""
-    share_url = f"https://www.iesdouyin.com/share/video/{video_id}/"
+def _download_via_playwright(video_id: str, out_dir: Path, final_path: Path,
+                             share_url: str = "") -> dict:
+    """Fallback: sniff CDN streams from the share page with a headless browser.
+
+    `share_url` là địa chỉ ĐÃ GIẢI, còn nguyên chữ ký chia sẻ. Thiếu nó thì
+    Douyin đẩy sang video gợi ý — xem `resolve_share_url` (mini-spec C32).
+    """
+    share_url = share_url or f"https://www.iesdouyin.com/share/video/{video_id}/"
     info = _extract_via_playwright(share_url)
 
     # The share page may client-side redirect; verify we stayed on our video.
     if info["video_id"] and info["video_id"] != video_id:
         raise RuntimeError(
-            f"Douyin redirected to a different video (requested {video_id}, "
-            f"got {info['video_id']}). The video may be region-locked or removed."
+            f"Douyin trả về một video KHÁC (xin {video_id}, nhận "
+            f"{info['video_id']}). Video có thể bị khoá theo vùng, đã bị xoá, "
+            "hoặc liên kết chia sẻ đã hết hạn. Cách chắc chắn: mở video bằng "
+            "trình duyệt, tải về máy, rồi dùng nút «Tải tệp lên»."
         )
 
     if info["mode"] == "progressive":
@@ -412,7 +468,7 @@ def download_douyin(
 
     ensure_dir(output_dir)
 
-    video_id = resolve_video_id(url)
+    video_id, share_url = resolve_share_url(url)
     if not video_id:
         raise RuntimeError(
             f"Could not resolve a Douyin video id from {url}. "
@@ -440,7 +496,8 @@ def download_douyin(
 
     # --- Fallback: Playwright stream sniffing (share page, id-verified) ---
     if not downloaded:
-        info = _download_via_playwright(video_id, out_dir, final_path)
+        info = _download_via_playwright(video_id, out_dir, final_path,
+                                        share_url=share_url)
         title = title or info["title"]
 
     duration = _ffprobe_duration(final_path)

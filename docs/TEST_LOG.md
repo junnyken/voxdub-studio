@@ -8474,6 +8474,81 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C32 — Douyin trả về một video KHÁC (Phase H, 2026-08-25)
+
+Chủ dự án cài v3.8.5, dán liên kết, và lỗi **lại đổi** — lần thứ ba, lần nào
+cũng tiến thêm một chặng:
+
+```
+v3.8.3:  ERROR: [generic] '9.76 y@t.rE 11/09…'        (nhận cả đoạn chữ làm địa chỉ)
+v3.8.4:  ERROR: [Douyin] …: Fresh cookies are needed  (gọi nhầm yt-dlp)
+v3.8.5:  Douyin redirected to a different video       (đúng đường, sai trang)
+```
+
+Lần này thông báo là **của chính app**, tức đường tải Douyin riêng đã chạy.
+
+### Chủ dự án gửi liên kết để thử — và thử được thật
+
+Khác mọi lần trước, phần giải liên kết **chạy được từ sandbox này**. Bám theo
+chuỗi chuyển hướng thật:
+
+```
+v.douyin.com/NSY5rdSAVGs/
+  → iesdouyin.com/share/video/7644780389491375333/?…share_sign…   ← trang chia sẻ
+  → www.douyin.com/video/7644780389491375333?previous_page=…      ← trang desktop
+```
+
+`resolve_video_id()` bám hết chuỗi, lấy **số video**, rồi **vứt bỏ địa chỉ**.
+Sau đó `_download_via_playwright()` tự dựng lại một địa chỉ trần từ số đó.
+
+Hai thứ mất theo:
+- **Chữ ký chia sẻ** (`share_sign`, `did`, `iid`, `ts`) — thứ phân biệt một
+  lượt mở từ nút Chia sẻ với một lượt truy cập lạ.
+- Và nếu bám theo địa chỉ CUỐI thì rơi vào **trang desktop**, mà ghi chú ngay
+  đầu `douyin.py` đã nói: *trang đó tự phát video gợi ý, đánh hơi luồng ở đó
+  là bắt nhầm video*. Đúng cái bẫy mà cả mô-đun sinh ra để tránh.
+
+Sửa: `resolve_share_url()` trả về `(số video, ĐỊA CHỈ)` và **chọn đúng chặng
+giữa** — trang chia sẻ di động kèm tham số, không phải chặng cuối.
+
+### Và một phát hiện lớn hơn: đường tải nhanh đã CHẾT ở phía Douyin
+
+Nhân tiện thử luôn đường chính (đọc JSON nhúng trong trang chia sẻ, không cần
+trình duyệt). Nó trả về rỗng. Mở thẳng `window._ROUTER_DATA` của trang ra xem:
+**69 trường, không trường nào có địa chỉ media** — chỉ còn tham số trang, cấu
+hình A/B và số video. Douyin đã chuyển phần dữ liệu video sang tải sau khi
+trang chạy.
+
+Nghĩa là **không phải app hỏng** — trang đã đổi. Từ nay Douyin chỉ còn một
+đường duy nhất: trình duyệt thật. Ai chưa chạy `Cai dat tinh nang Douyin.bat`
+thì không có đường nào cả.
+
+### Giữ nguyên chốt chặn video lệch
+
+Có thể thấy chốt này phiền vì nó chính là thứ báo lỗi. Nhưng bỏ nó đi thì app
+tải nhầm video rồi lồng tiếng lên đó, và người dùng chỉ phát hiện **sau khi
+đã trả tiền**. Giữ, chỉ sửa lời cho nói được việc đi tiếp: tải video về máy
+rồi dùng nút «Tải tệp lên».
+
+### Chứng minh từng luật
+
+Chọn địa chỉ cuối thay vì trang chia sẻ → 3 đỏ. Trình duyệt tự dựng địa chỉ
+trần → 1 đỏ. Bỏ chốt chặn video lệch → 1 đỏ.
+
+**1903 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- **Vẫn chưa tải xong một video Douyin nào.** Phần giải liên kết và chọn trang
+  đã đo thật; phần trình duyệt đánh hơi luồng thì sandbox này không chạy được
+  (chưa cài Chromium, và khâu tải media bị chặn IP từ V73).
+- Đường tải nhanh coi như bỏ. Chưa gỡ khỏi mã vì nếu Douyin đổi lại thì nó
+  chạy tiếp — nhưng đừng trông vào nó.
+- Douyin có thể chặn theo vùng: liên kết mở được từ máy chủ này chưa chắc mở
+  được từ máy người dùng, và ngược lại.
+- Nếu Douyin đổi tiếp cách chống bot thì đường trình duyệt cũng hỏng theo.
+  Cách không phụ thuộc ai vẫn là tải về máy rồi «Tải tệp lên».
+
 ## C31 — Bản vá C30 mới đúng một nửa (Phase H, 2026-08-25)
 
 Chủ dự án cài v3.8.4 rồi dán lại đúng đoạn Douyin đó. **Lỗi đổi hẳn**, và đó

@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-08-24 · phiên bản ứng dụng `3.8.5`
+> Cập nhật: 2026-08-24 · phiên bản ứng dụng `3.8.6`
 
 ---
 
@@ -338,6 +338,6 @@ Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 | `docs/ARCH.md` | Kiến trúc lõi |
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 
-**Quy mô test hiện tại:** 1894 test Python (7 bỏ qua) + 510 test Node
+**Quy mô test hiện tại:** 1903 test Python (7 bỏ qua) + 510 test Node
 (1 bỏ qua). Kỷ luật của dự án: mỗi luật quan trọng đều được **gỡ ra để chứng
 minh test đỏ**, chứ không chỉ chạy cho xanh.
