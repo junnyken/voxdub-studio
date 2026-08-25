@@ -178,7 +178,8 @@ FRIENDLY_ERRORS: list[tuple[str, str, str]] = [
      "Douyin đang đẩy lượt tải sang một video gợi ý. Mở Cài đặt → Nâng cao → "
      "\"Tải video khó\", chọn trình duyệt bạn đang đăng nhập Douyin rồi thử "
      "lại. Không được nữa thì mở video bằng trình duyệt, tải về máy, rồi dùng "
-     "nút \"Tải tệp lên\" — cách này luôn chạy."),
+     "nút \"Tải tệp lên\" — cách này luôn chạy. Nhiều kênh Douyin cũng đăng "
+     "cùng nội dung lên TikTok; link TikTok hoặc Bilibili thì tải thẳng được."),
     ("fresh cookies", "Trang Douyin đòi cookie",
      "Chạy một lần tệp \"Cai dat tinh nang Douyin.bat\" nằm cạnh ứng dụng — "
      "sau đó app dùng đường tải riêng cho Douyin, không cần cookie. Nếu vẫn "

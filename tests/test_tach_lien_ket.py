@@ -161,3 +161,54 @@ def test_loi_doi_cookie_co_loi_soan_san():
     tieu_de, cach_chua = soan
     assert "cookie" in tieu_de.lower()
     assert "Douyin.bat" in cach_chua, "phải chỉ đúng tệp cài có thật trong app"
+
+
+# -- Sáu nền tảng chủ dự án chọn thay Douyin (mini-spec C34) ----------------
+#
+# Chủ dự án chốt: bỏ Douyin, dùng Bilibili / TikTok / Xiaohongshu / Weibo /
+# Ixigua. Cả sáu đều có bộ tải trong yt-dlp và app KHÔNG chặn nền tảng nào —
+# nhưng phần dễ hỏng là ĐOẠN CHIA SẺ: Bilibili, TikTok và Xiaohongshu đều
+# chia sẻ dạng "chữ + liên kết + chữ" y như Douyin.
+
+_CHIA_SE = [
+    ("bilibili", "【一个人的乐队《海阔天空》】 "
+     "https://www.bilibili.com/video/BV1or8e6TEte/?share_source=copy_web",
+     "https://www.bilibili.com/video/BV1or8e6TEte/?share_source=copy_web"),
+    ("b23 rút gọn", "这个视频太赞了 https://b23.tv/xY9kLm2 分享自bilibili",
+     "https://b23.tv/xY9kLm2"),
+    ("tiktok", "Xem nè https://vt.tiktok.com/ZSj8kQm4x/ hay lắm",
+     "https://vt.tiktok.com/ZSj8kQm4x/"),
+    ("xiaohongshu", "77 复制本条信息 "
+     "https://www.xiaohongshu.com/explore/6a34a873000000001702d7cb 打开【小红书】",
+     "https://www.xiaohongshu.com/explore/6a34a873000000001702d7cb"),
+    ("weibo", "https://weibo.com/tv/show/1034:5123456789",
+     "https://weibo.com/tv/show/1034:5123456789"),
+    ("ixigua", "https://www.ixigua.com/7123456789012345678",
+     "https://www.ixigua.com/7123456789012345678"),
+]
+
+
+@pytest.mark.parametrize("ten,doan,mong", _CHIA_SE, ids=[c[0] for c in _CHIA_SE])
+def test_tach_dung_lien_ket_cua_sau_nen_tang(ten, doan, mong):
+    assert tach_lien_ket(doan) == mong
+
+
+@pytest.mark.parametrize("ten,doan,_mong", _CHIA_SE, ids=[c[0] for c in _CHIA_SE])
+def test_ca_sau_deu_duoc_coi_la_LIEN_KET(ten, doan, _mong):
+    assert is_url(doan) is True
+
+
+@pytest.mark.parametrize("ten,doan,_mong", _CHIA_SE, ids=[c[0] for c in _CHIA_SE])
+def test_khong_nen_tang_nao_bi_app_CHAN(ten, doan, _mong):
+    """App cố ý không có danh sách nền tảng cho phép — chốt chặn duy nhất là
+    danh sách phát YouTube. Đừng để nó bắt nhầm site khác."""
+    from autodub.media.downloader import ensure_single_video_url
+
+    ensure_single_video_url(normalize_url(tach_lien_ket(doan)))
+
+
+def test_chu_TRUNG_dinh_duoi_lien_ket_khong_bi_nuot_vao():
+    """Xiaohongshu dán 打开【小红书】 ngay sau liên kết, không có khoảng trắng
+    ở một số bản."""
+    assert tach_lien_ket("https://www.xiaohongshu.com/explore/abc123，打开") \
+        == "https://www.xiaohongshu.com/explore/abc123"

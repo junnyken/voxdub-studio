@@ -8474,6 +8474,54 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C34 — Bỏ Douyin, khoá lại sáu nền tảng thay thế (Phase H, 2026-08-25)
+
+Chủ dự án chốt: **bỏ Douyin**, dùng Bilibili / TikTok / Xiaohongshu / Weibo /
+Ixigua / (Douyu, Huya, Sohu, PearVideo, Meipai).
+
+### Không gỡ mã Douyin
+
+Đường cookie (C33) vẫn có cơ hội, và gỡ đi là mất luôn một lựa chọn mà chủ dự
+án có thể cần lại. Chỉ sửa lời soạn: khi Douyin hỏng thì **chỉ luôn sang nền
+tảng khác** — nhiều kênh Douyin đăng cùng nội dung lên TikTok, và link TikTok
+hoặc Bilibili thì tải thẳng được. Báo lỗi mà không nói đường đi tiếp là để
+người dùng bế tắc.
+
+### Phần dễ hỏng không phải bộ tải, mà là ĐOẠN CHIA SẺ
+
+App **không có danh sách nền tảng cho phép** — mọi site yt-dlp hỗ trợ đều đi
+qua như nhau, chốt chặn duy nhất là danh sách phát YouTube. Nên phần cần khoá
+lại là thứ đã hỏng với Douyin: **Bilibili, TikTok và Xiaohongshu đều chia sẻ
+dạng "chữ + liên kết + chữ"** y hệt.
+
+Đã khoá bằng test cho cả sáu: tách đúng liên kết · nhận ra là LIÊN KẾT chứ
+không phải đường dẫn tệp · và không nền tảng nào bị chốt chặn danh sách phát
+bắt nhầm. Thêm ca Xiaohongshu dán 「打开【小红书】」 dính ngay sau liên kết.
+
+### Những gì đo được và KHÔNG đo được từ đây
+
+| Nền tảng | Đo được gì |
+|---|---|
+| Bilibili | **Không đo được** — IP sandbox bị chặn, trang thường cũng trả 412 |
+| Xiaohongshu | Bộ tải chạy, nhưng ba bài lấy mẫu đều là bài ẢNH nên "No video formats" — không kết luận được |
+| Ixigua / Weibo | Trang mở được (200/302), chưa tìm được liên kết video mẫu để thử |
+| Douyin | Đóng, đã đo kỹ ở C33 |
+
+Nói rõ giới hạn: tôi xác nhận được **bộ tải tồn tại** và **đoạn chia sẻ được
+xử lý đúng**, nhưng **không xác nhận được là tải xong** trên bất kỳ nền tảng
+Trung nào — sandbox này bị chặn hoặc thiếu mẫu. Chỗ đó chỉ máy chủ dự án trả
+lời được.
+
+**1926 passed, 7 skipped (Python) · smoke 18 trang.**
+
+### Remaining Limits
+
+- Chưa tải xong video nào từ sáu nền tảng trên — xem bảng trên.
+- Bilibili có liên kết rút gọn `b23.tv`; tách đúng nhưng chưa thử giải thật.
+- Xiaohongshu phần lớn là bài ảnh; app chỉ xử lý video, bài ảnh sẽ báo "không
+  có định dạng video" — chưa có lời soạn riêng cho ca đó.
+- iQiyi/Youku có bộ tải nhưng thường vướng bản quyền và khoá vùng; chưa thử.
+
 ## C33 — Douyin đã đóng mọi cửa ẩn danh (Phase H, 2026-08-25)
 
 Chủ dự án cài Chromium xong, chạy v3.8.6, vẫn hỏng — và lộ ra chi tiết quyết
