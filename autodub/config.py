@@ -342,6 +342,12 @@ class Settings:
     #: người dùng không hề chọn.
     translate_mode: str = "server"
 
+    #: Hỏi duyệt chi phí trước khi tiêu Vox (D1e). BẬT mặc định: biết giá
+    #: trước khi trả là thứ mục đó sinh ra để làm. Người dùng chạy nhiều video
+    #: liên tiếp tắt được ngay trong hộp thoại — xử lý hàng loạt vốn không
+    #: hỏi, nên cờ này chỉ áp cho trình hướng dẫn.
+    hoi_truoc_khi_tieu_vox: bool = True
+
     # Gộp mẩu vụn thành câu TRƯỚC bước dịch (mini-spec V97). Bộ nghe cắt theo
     # khoảng lặng 500ms nên một câu liền mạch có thể vỡ thành hàng chục mẩu
     # một-hai chữ; máy chủ tính tiền theo SỐ DÒNG nên mỗi mẩu là một lần trả
@@ -539,6 +545,8 @@ class Settings:
                 env_int("TRANSLATE_BATCH_SIZE", "40"))),
             translate_local_enabled=env("TRANSLATE_LOCAL_ENABLED", "false")
                                     .strip().lower() not in ("0", "false", "no"),
+            hoi_truoc_khi_tieu_vox=env("HOI_TRUOC_KHI_TIEU_VOX", "true")
+                                   .strip().lower() not in ("0", "false", "no"),
             translate_mode=_one_of(env("TRANSLATE_MODE", "").strip().lower(),
                                    ("server", "offline", "auto"),
                                    # Chưa khai TRANSLATE_MODE: giữ nguyên
@@ -677,13 +685,19 @@ class Settings:
         if self.diarization_venv_python:
             return self.diarization_venv_python
         exe = "Scripts/python.exe" if os.name == "nt" else "bin/python"
-        return os.path.join(app_root(), ".venv-diar", *exe.split("/"))
+        mac_dinh = os.path.join(app_root(), ".venv-diar", *exe.split("/"))
+        if os.path.isfile(mac_dinh):
+            return mac_dinh
+        return self._ban_cu(".venv-diar", "diarization", False) or mac_dinh
 
     def diarization_model_dir_path(self) -> str:
         """Thư mục cache model diarization (pyannote pipeline)."""
         if self.diarization_model_dir:
             return self.diarization_model_dir
-        return os.path.join(app_root(), "models", "diarization")
+        mac_dinh = os.path.join(app_root(), "models", "diarization")
+        if os.path.isfile(os.path.join(mac_dinh, "installed_ok.json")):
+            return mac_dinh
+        return self._ban_cu(".venv-diar", "diarization", True) or mac_dinh
 
     def diarization_configured(self) -> bool:
         """venv diarization và dấu hiệu cài đặt xong đều có mặt hay chưa —
@@ -698,7 +712,10 @@ class Settings:
         if self.lipsync_venv_python:
             return self.lipsync_venv_python
         exe = "Scripts/python.exe" if os.name == "nt" else "bin/python"
-        return os.path.join(app_root(), ".venv-lipsync", *exe.split("/"))
+        mac_dinh = os.path.join(app_root(), ".venv-lipsync", *exe.split("/"))
+        if os.path.isfile(mac_dinh):
+            return mac_dinh
+        return self._ban_cu(".venv-lipsync", "lipsync", False) or mac_dinh
 
     def lipsync_repo_dir_path(self) -> str:
         """Mã nguồn MuseTalk đã vendor (xem scripts/setup_lipsync.py)."""
@@ -708,7 +725,10 @@ class Settings:
         """Thư mục cache model MuseTalk (weights ~5-6GB)."""
         if self.lipsync_model_dir:
             return self.lipsync_model_dir
-        return os.path.join(app_root(), "models", "lipsync")
+        mac_dinh = os.path.join(app_root(), "models", "lipsync")
+        if os.path.isfile(os.path.join(mac_dinh, "installed_ok.json")):
+            return mac_dinh
+        return self._ban_cu(".venv-lipsync", "lipsync", True) or mac_dinh
 
     def lipsync_configured(self) -> bool:
         """venv + mã nguồn + weights lip-sync đều có mặt hay chưa — pipeline
@@ -786,13 +806,24 @@ class Settings:
                                                 "installed_ok.json")))
 
     def translate_local_venv_python_path(self) -> str:
-        """Trình thông dịch Python của venv dành riêng cho dịch local (V6)."""
+        """Trình thông dịch Python của venv dành riêng cho dịch local (V6).
+
+        Có dò bản cài cũ cạnh bên như Whisper/VieNeu (D1f): thiếu chỗ này thì
+        nâng cấp xong app báo "chưa cài bộ dịch ngoại tuyến" dù người dùng vừa
+        cài hôm qua, rồi lặng lẽ rơi về dịch tay.
+        """
         exe = "Scripts/python.exe" if os.name == "nt" else "bin/python"
-        return os.path.join(app_root(), ".venv-mt", *exe.split("/"))
+        mac_dinh = os.path.join(app_root(), ".venv-mt", *exe.split("/"))
+        if os.path.isfile(mac_dinh):
+            return mac_dinh
+        return self._ban_cu(".venv-mt", "translate-local", False) or mac_dinh
 
     def translate_local_model_dir_path(self) -> str:
         """Thư mục chứa model dịch local (NLLB-200 distilled, ctranslate2)."""
-        return os.path.join(app_root(), "models", "translate-local")
+        mac_dinh = os.path.join(app_root(), "models", "translate-local")
+        if os.path.isfile(os.path.join(mac_dinh, "installed_ok.json")):
+            return mac_dinh
+        return self._ban_cu(".venv-mt", "translate-local", True) or mac_dinh
 
     def translate_local_configured(self) -> bool:
         """venv dịch local và dấu hiệu cài đặt xong đều có mặt hay chưa."""
@@ -801,9 +832,25 @@ class Settings:
                     self.translate_local_model_dir_path(), "installed_ok.json")))
 
     def ocr_venv_python_path(self) -> str:
-        """Trình thông dịch Python của venv dành riêng cho quét chữ tự động (V5)."""
+        """Trình thông dịch Python của venv dành riêng cho quét chữ tự động (V5).
+
+        Dò bản cũ cạnh bên bằng `tim_venv_cu_bat_ky` chứ KHÔNG phải `_ban_cu`
+        (D1f): OCR không có bước tải model riêng nên cũng không có
+        `installed_ok.json` để đối chiếu — sự tồn tại của venv chính là dấu
+        hiệu, đúng như `ocr_configured()` vẫn kiểm.
+        """
         exe = "Scripts/python.exe" if os.name == "nt" else "bin/python"
-        return os.path.join(app_root(), ".venv-ocr", *exe.split("/"))
+        mac_dinh = os.path.join(app_root(), ".venv-ocr", *exe.split("/"))
+        if os.path.isfile(mac_dinh):
+            return mac_dinh
+        from autodub.venv_discovery import tim_venv_cu_bat_ky
+
+        thu_muc = tim_venv_cu_bat_ky((".venv-ocr",))
+        if thu_muc:
+            cu = os.path.join(thu_muc, *exe.split("/"))
+            if os.path.isfile(cu):
+                return cu
+        return mac_dinh
 
     def ocr_configured(self) -> bool:
         """venv OCR đã cài và có marker hay chưa (RapidOCR tự mang sẵn model

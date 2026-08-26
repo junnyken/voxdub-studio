@@ -1106,11 +1106,24 @@ class NewProjectPage(BasePage):
         message += ("\n\nPhần nghe-chép chạy trên máy bạn nên tới đây chưa "
                     "tốn Vox nào. Bấm Hủy là dừng hẳn, không mất gì.")
 
-        dong_y, _ = ConfirmDialog.ask(
+        dong_y, khong_hoi_lai = ConfirmDialog.ask(
             self, "Duyệt chi phí trước khi chạy", message,
             kind="warning", confirm_label=f"Chạy tiếp ({vox:,} Vox)",
             cancel_label="Hủy",
-            detail=f"Thư mục dự án: {result.work_dir}")
+            detail=f"Thư mục dự án: {result.work_dir}",
+            checkbox_label="Các video sau tự xác nhận, đừng hỏi lại",
+            checkbox_checked=False)
+        if dong_y and khong_hoi_lai:
+            # Chỉ ghi khi người dùng ĐỒNG Ý — tích ô rồi bấm Hủy là đổi ý về
+            # video này, không phải cho phép tiêu tiền mọi video sau.
+            from autodub_gui.env_store import write_env
+
+            try:
+                write_env({"HOI_TRUOC_KHI_TIEU_VOX": "false"})
+                TOASTS.info("Từ giờ chạy thẳng, không hỏi duyệt chi phí nữa. "
+                            "Bật lại ở Cài đặt khi cần.")
+            except OSError as e:
+                TOASTS.warn(f"Chưa lưu được lựa chọn đó ({e}) — lần sau vẫn hỏi.")
         if not dong_y:
             self.pending_banner.set_text(
                 "Đã dừng trước khi tốn Vox. Bản nghe-chép vẫn nằm trong thư "

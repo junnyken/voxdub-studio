@@ -108,8 +108,28 @@ def step_smoke(hf_token: str) -> None:
         "from pyannote.audio import Pipeline\n"
         "params = inspect.signature(Pipeline.from_pretrained).parameters\n"
         "kw = 'use_auth_token' if 'use_auth_token' in params else 'token'\n"
-        "Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', "
+        "pl = Pipeline.from_pretrained('pyannote/speaker-diarization-3.1', "
         f"**{{kw: {hf_token!r}}})\n"
+        # CHẠY THẬT trên 2 giây âm thanh tự dựng, không chỉ nạp model.
+        #
+        # Vì sao: bản trước chỉ `from_pretrained(...)` rồi in OK. Nạp model
+        # KHÔNG chạm tới đường giải mã âm thanh, mà đó mới là chỗ hỏng thật:
+        # pyannote 4.x giải mã bằng torchcodec, torchcodec đòi FFmpeg
+        # "full-shared" có DLL. Máy người dùng cài xong thấy "smoke test PASS"
+        # rồi mọi lượt chạy đều chết vì thiếu `libtorchcodec_core*.dll`
+        # (26/08/2026). Smoke test chứng minh quá ít thì bằng không có.
+        "import math, struct, tempfile, wave\n"
+        "d = tempfile.mktemp(suffix='.wav')\n"
+        "w = wave.open(d, 'wb'); w.setnchannels(1); w.setsampwidth(2)\n"
+        "w.setframerate(16000)\n"
+        "w.writeframes(b''.join(struct.pack('<h', int(6000*math.sin(i/12)))\n"
+        "                       for i in range(32000)))\n"
+        "w.close()\n"
+        "try:\n"
+        "    pl(d)\n"
+        "except Exception as e:\n"
+        "    print('SMOKE_DECODE_FAIL:', type(e).__name__, str(e)[:400])\n"
+        "    sys.exit(3)\n"
         "print('OK')\n"
     )
     result = subprocess.run([VENV_PY, "-c", gen], capture_output=True,
@@ -126,6 +146,15 @@ def step_smoke(hf_token: str) -> None:
             if "Cannot access gated repo" in dong or "is restricted" in dong:
                 goi_y = dong.strip()
                 break
+        if "SMOKE_DECODE_FAIL" in (result.stdout or ""):
+            raise SystemExit(
+                "!! Model tải về được nhưng KHÔNG giải mã nổi âm thanh — "
+                "diarization sẽ hỏng ở mọi lượt chạy.\n"
+                "Thường là thiếu DLL của torchcodec (cần bản FFmpeg "
+                "'full-shared'). Bản VoxDub từ v3.10.5 tự nạp sóng âm nên "
+                "không cần torchcodec — nếu bạn đang dùng bản cũ hơn thì "
+                "nâng cấp là hết.\n"
+                f"{result.stdout}\n{(result.stderr or '')[-500:]}")
         raise SystemExit(
             "!! smoke test thất bại. Nếu là lỗi quyền truy cập thì vào đúng "
             f"trang model bên dưới bấm 'Agree and access repository':\n  {goi_y}"

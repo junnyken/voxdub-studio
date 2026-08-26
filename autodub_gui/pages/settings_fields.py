@@ -344,6 +344,13 @@ FIELDS: tuple[Field, ...] = (
     # Câu chữ CỐ Ý không viết "miễn phí": chạy ngoại tuyến chỉ bỏ được phần
     # phí dịch (2 Vox/dòng), giá nền của lượt xử lý (10 Vox/dòng) vẫn tính.
     # Viết "miễn phí" ở đây là tái tạo đúng lớp lỗi #5 mà mục này chống.
+    Field("HOI_TRUOC_KHI_TIEU_VOX", CHECK,
+          "Hỏi duyệt chi phí trước khi chạy", TAB_TRANSLATE,
+          "Dịch tự động", "true",
+          "Sau bước nghe-chép (chạy trên máy bạn, chưa tốn gì), ứng dụng hiện "
+          "số Vox của video rồi chờ bạn bấm. Tắt đi thì chạy thẳng — hợp khi "
+          "làm nhiều video liên tiếp. Xử lý hàng loạt vốn đã chạy thẳng, "
+          "không phụ thuộc ô này."),
     Field("TRANSLATE_MODE", COMBO,
           "Dịch tự động bằng đường nào", TAB_TRANSLATE,
           "Dịch tự động", "server",

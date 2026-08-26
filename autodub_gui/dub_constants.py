@@ -73,7 +73,11 @@ BG_MODES: list[tuple[str, str]] = [
     # sửa (data/ai_music.wav) — chọn mục này KHÔNG tự sinh nhạc, chỉ dùng
     # bản đã sinh sẵn (chưa sinh -> im lặng, giống các chế độ khác khi
     # thiếu file nguồn, xem `editor.resolve_existing_background()`).
-    ("Nhạc nền AI (ElevenLabs)", "ai_music"),
+    # Nhãn PHẢI nói rõ "sinh sau ở Trình chỉnh sửa": nhạc AI chỉ tồn tại khi
+    # người dùng đã bấm sinh trong Trình chỉnh sửa, mà việc đó chỉ làm được
+    # SAU khi có một lượt chạy. Nhãn cũ ("Nhạc nền AI (ElevenLabs)") hứa một
+    # thứ mà lượt đầu chắc chắn không có, và video ra im lặng không báo gì.
+    ("Nhạc nền AI — phải sinh trước ở Trình chỉnh sửa", "ai_music"),
 ]
 
 SUBTITLE_MODES: list[tuple[str, str]] = [

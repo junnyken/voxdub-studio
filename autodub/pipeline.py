@@ -597,8 +597,24 @@ class DubPipeline:
         if dich_ngoai_tuyen:
             logger.info("Bạn chọn dịch ngoại tuyến — không tính phí dịch cho "
                         "lượt này (giá nền của lượt xử lý vẫn tính).")
-
         khong_tinh_phi_dich = khong_can_dich or dich_ngoai_tuyen
+        # Ghi lại đường dịch đã dùng để CHỐT GIÁ. Giá chốt một lần rồi giữ
+        # nguyên qua mọi lượt chạy tiếp của cùng thư mục dự án; nếu lượt sau
+        # đổi sang máy chủ thì phần dịch bị trừ NGOÀI khoản đã chốt — người
+        # dùng trả hai lần cho một video (thấy thật trong nhật ký người dùng
+        # 26/8/2026: chốt 250 Vox theo đường ngoại tuyến, rồi bị trừ thêm
+        # 276 Vox cho lượt dịch qua máy chủ).
+        moc_duong_dich = data_path(work_dir, "duong_dich_da_chot.json")
+        if not os.path.isfile(moc_duong_dich):
+            try:
+                with open(moc_duong_dich, "w", encoding="utf-8") as f:
+                    json.dump({"khong_tinh_phi_dich": bool(khong_tinh_phi_dich),
+                               "che_do": getattr(settings, "translate_mode",
+                                                 "server")}, f)
+            except OSError as e:
+                logger.warning(f"Không ghi được dấu đường dịch ({e}) — lượt "
+                               "chạy tiếp sẽ không kiểm được chuyện trùng phí.")
+
 
         if khong_can_dich:
             logger.warning(
@@ -619,7 +635,7 @@ class DubPipeline:
             except OSError as e:
                 logger.warning(f"Không ghi được dấu đã duyệt giá ({e}) — "
                                "lần chạy tiếp sẽ hỏi lại.")
-        if req.defer_export:
+        if req.defer_export and getattr(settings, "hoi_truoc_khi_tieu_vox", True):
             cho_duyet = self._billing.cong_xem_truoc(
                 segments, work_dir, video_duration_s,
                 khong_can_dich=khong_tinh_phi_dich, da_duyet=da_duyet)
@@ -1507,6 +1523,32 @@ class DubPipeline:
             logger.info("Chưa cấu hình máy chủ dịch — chuyển sang dịch tay")
             return None
 
+        # --- Chặn trả tiền hai lần (D1g) ----------------------------------
+        # Giá của video được CHỐT một lần sau ASR và không đổi nữa. Nếu lượt
+        # đó chốt theo đường ngoại tuyến (không kê phí dịch) mà lượt chạy sau
+        # lại gọi máy chủ, phần dịch bị trừ NGOÀI khoản đã chốt — người dùng
+        # trả hai lần cho cùng một video. Thấy thật trong nhật ký người dùng
+        # 26/8/2026: chốt 250 Vox, rồi bị trừ thêm 276 Vox.
+        if work_dir:
+            moc = data_path(work_dir, "duong_dich_da_chot.json")
+            try:
+                with open(moc, encoding="utf-8") as f:
+                    da_chot = json.load(f)
+            except (OSError, ValueError):
+                da_chot = {}
+            if da_chot.get("khong_tinh_phi_dich"):
+                logger.error(
+                    "Giá của video này đã chốt theo đường dịch NGOẠI TUYẾN "
+                    "(không kê phí dịch). Gọi máy chủ dịch lúc này sẽ bị trừ "
+                    "thêm tiền NGOÀI khoản đã chốt — tức trả hai lần cho một "
+                    "video, nên dừng lại ở đây.\n"
+                    "Chọn một trong hai: đặt lại 'Luôn ngoại tuyến' trong "
+                    "Cài đặt rồi chạy tiếp, hoặc tạo dự án mới để chốt giá "
+                    "lại theo đường máy chủ.")
+                rep.emit("translate", "error",
+                         detail="giá đã chốt theo đường ngoại tuyến")
+                return None
+
         from autodub.saas_client import (
             DeviceBlockedError, InsufficientCreditError, MaintenanceError,
             OfflineError, SaasError)
@@ -1740,6 +1782,26 @@ class DubPipeline:
                 f"field (ids: {missing[:10]}{'...' if len(missing) > 10 else ''})"
             )
 
+        # THIẾU câu so với bản gốc = mất nội dung. Trước đây chỗ này chỉ ghi
+        # một dòng cảnh báo rồi dùng luôn tệp thiếu — video ra thiếu hẳn phần
+        # lớn lời thoại mà không ai biết, vì cảnh báo trôi trong nhật ký
+        # (lỗi thật, chủ dự án báo 26/8/2026: "rất nhiều câu nhưng dịch rất
+        # ít nên nó bị thiếu"). Hay gặp nhất khi dịch tay: dán bản dịch do
+        # một AI khác gộp dòng lại, hoặc dịch mới được nửa chừng.
+        #
+        # Dừng hẳn chứ không tự vá: ta không biết câu nào bị bỏ, nối đại là
+        # đoán mò trên nội dung của người dùng.
+        if len(segments) < len(original_segments):
+            thieu = len(original_segments) - len(segments)
+            raise ValueError(
+                f"Bản dịch chỉ có {len(segments)} câu trong khi video có "
+                f"{len(original_segments)} câu — thiếu {thieu} câu, video xuất "
+                "ra sẽ mất phần lời thoại đó.\n\n"
+                f"Mở {path} và bổ sung đủ câu (giữ nguyên mọi trường của "
+                "transcript_original.json, chỉ THÊM bản dịch), hoặc xoá tệp "
+                "đó đi rồi chạy lại để dịch lại từ đầu.\n\n"
+                "Thường gặp khi nhờ một AI khác dịch: nhiều mô hình tự gộp "
+                "dòng lại cho gọn, làm hụt số câu.")
         if len(segments) != len(original_segments):
             logger.warning(
                 f"Translated transcript has {len(segments)} segments but the "
@@ -1933,6 +1995,34 @@ class DubPipeline:
             rep.emit("separate", "done", detail=f"duck {bg_duck_db:+.1f} dB")
             return audio_path, bg_duck_db
 
+        if bg_mode == "ai_music":
+            # Nhạc AI (V37) được SINH Ở TRÌNH CHỈNH SỬA, sau khi đã có một
+            # lượt chạy — nên ở lượt đầu tệp này chưa tồn tại và video ra
+            # KHÔNG có nhạc nền. Trước đây nhánh này rơi thẳng xuống dưới,
+            # nhật ký ghi "--bg-mode=none" dù người dùng không hề chọn none,
+            # và họ chỉ phát hiện khi mở video ra thấy trống trơn (lỗi thật,
+            # chủ dự án báo 26/8/2026).
+            ai_music = data_path(work_dir, "ai_music.wav")
+            if os.path.exists(ai_music):
+                logger.info("STEP 2.5: dùng nhạc nền AI đã sinh sẵn "
+                            f"({ai_music})")
+                rep.emit("separate", "done", detail="nhạc nền AI")
+                return ai_music, bg_duck_db
+            logger.warning(
+                "Bạn chọn 'Nhạc nền AI' nhưng dự án này CHƯA có nhạc AI nào "
+                "được sinh — lượt chạy này sẽ KHÔNG có nhạc nền, chỉ có lời "
+                "thoại. Nhạc AI sinh ở Trình chỉnh sửa (khối 'Nhạc nền & hiệu "
+                "ứng AI') sau khi chạy xong, rồi xuất lại video. Muốn giữ nhạc "
+                "nền GỐC của video thì chọn 'Tách giọng gốc, giữ nguyên nhạc "
+                "nền' hoặc 'Giảm nhỏ tiếng gốc'.")
+            rep.emit("separate", "skip", detail="chưa có nhạc AI")
+            return None, 0.0
+
+        if bg_mode != "none":
+            # Chế độ lạ: nói đúng tên nó ra thay vì im lặng coi như "none".
+            logger.warning(
+                f"Không hiểu chế độ nhạc nền {bg_mode!r} — chạy như 'Bỏ hết "
+                "âm thanh gốc', video sẽ chỉ có lời thoại.")
         logger.info("STEP 2.5 skipped: --bg-mode=none, dubbed audio uses silent base")
         rep.emit("separate", "skip")
         return None, 0.0

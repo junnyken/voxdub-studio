@@ -24,6 +24,14 @@ import json
 import re
 import sys
 
+# Windows mặc định cho tiến trình con dùng bảng mã cp1252 khi ghi ra ống —
+# in một chữ Việt có dấu là chết ngay giữa chừng với UnicodeEncodeError, và
+# tiến trình cha chỉ thấy "worker kết thúc bất thường". Lỗi thật, xảy ra với
+# người dùng 26/8/2026: chữ "Đ" làm hỏng cả lượt dịch ngoại tuyến.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+
 # mini-spec V21 (docs/PLAN.md, Phase E) — bug thật tìm ra + cô lập nguyên
 # nhân ở V11 (docs/TEST_LOG.md): khi 1 segment ASR chứa NHIỀU câu (Whisper
 # VAD không tách ở đó — vd 2 câu liền không có khoảng lặng đủ dài), model

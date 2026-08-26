@@ -88,6 +88,53 @@ def _token_kwarg(load_fn) -> str:
     return "use_auth_token" if "use_auth_token" in params else "token"
 
 
+def _nguon_am_thanh(duong: str):
+    """Đọc WAV thành sóng âm để pyannote KHỎI phải tự giải mã.
+
+    Lỗi thật, người dùng gặp 26/08/2026 — cài xong, smoke test báo PASS, mà
+    mọi lượt chạy đều chết:
+
+        Could not load libtorchcodec ...
+        FileNotFoundError: Could not find module 'libtorchcodec_core9.dll'
+
+    pyannote 4.x giải mã âm thanh bằng `torchcodec`, và torchcodec đòi bản
+    FFmpeg "full-shared" có DLL trên Windows. App chỉ mang theo `ffmpeg.exe`
+    (đủ cho mọi việc khác), nên diarization hỏng 100% dù đã cài đúng.
+
+    Đưa thẳng sóng âm vào thì pyannote không cần giải mã gì cả — bỏ qua hẳn
+    cả torchcodec lẫn chuyện phiên bản FFmpeg. Đầu vào luôn là WAV do chính
+    app trích ra, nên đọc bằng `wave` của thư viện chuẩn là đủ.
+
+    Đọc trượt (WAV lạ, 24-bit, float) thì trả lại ĐƯỜNG DẪN như cũ: có thể
+    chạy được trên máy có torchcodec lành lặn, còn hơn dừng hẳn.
+    """
+    try:
+        import wave
+
+        import numpy as np
+        import torch
+
+        with wave.open(duong, "rb") as f:
+            so_kenh = f.getnchannels()
+            do_rong = f.getsampwidth()
+            sr = f.getframerate()
+            raw = f.readframes(f.getnframes())
+        if do_rong != 2:
+            raise ValueError(f"WAV {do_rong * 8}-bit, không phải 16-bit")
+
+        x = np.frombuffer(raw, dtype="<i2").astype("float32") / 32768.0
+        if so_kenh > 1:
+            # pyannote làm việc trên một kênh — trộn xuống mono thay vì bỏ
+            # bớt kênh, để không mất người nói chỉ có ở kênh kia.
+            x = x.reshape(-1, so_kenh).mean(axis=1)
+        song = torch.from_numpy(np.ascontiguousarray(x).reshape(1, -1))
+        return {"waveform": song, "sample_rate": sr}
+    except Exception as e:  # noqa: BLE001 — mọi lỗi đọc đều rơi về đường cũ
+        print(json.dumps({"info": f"không nạp thẳng được sóng âm ({e}) — "
+                                  "để pyannote tự giải mã"}), flush=True)
+        return duong
+
+
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
@@ -183,7 +230,7 @@ def main() -> None:
                   flush=True)
         if supports_flag:
             hint["return_embeddings"] = True
-        result = pipeline(args.audio, **hint)
+        result = pipeline(_nguon_am_thanh(args.audio), **hint)
 
         if hasattr(result, "speaker_diarization"):          # pyannote 4.x
             diarization = result.speaker_diarization

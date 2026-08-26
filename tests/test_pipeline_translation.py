@@ -69,8 +69,25 @@ def test_non_array_raises(pipeline, target_vi, tmp_path):
         pipeline._load_translation(path, SEGMENTS, target_vi)
 
 
-def test_count_mismatch_warns_but_loads(pipeline, target_vi, tmp_path):
+def test_thieu_cau_thi_dung_han(pipeline, target_vi, tmp_path):
+    """ĐỔI HÀNH VI có chủ đích (26/08/2026): bản dịch ÍT câu hơn bản gốc là
+    mất nội dung, không được lặng lẽ dùng.
+
+    Test này trước đây tên `test_count_mismatch_warns_but_loads` và khẳng
+    định điều ngược lại — chỉ ghi cảnh báo rồi nạp tệp thiếu. Người dùng thật
+    báo hậu quả: *"rất nhiều câu nhưng dịch rất ít nên nó bị thiếu"*, video
+    xuất ra mất hẳn phần lời thoại và cảnh báo thì trôi trong nhật ký.
+    """
     translated = [{**SEGMENTS[0], "text_vi": "vi"}]
     path = _write(tmp_path, translated)
+    with pytest.raises(ValueError, match="thiếu"):
+        pipeline._load_translation(path, SEGMENTS, target_vi)
+
+
+def test_thua_cau_van_nap_chi_canh_bao(pipeline, target_vi, tmp_path):
+    """Tách một câu dài thành hai là sửa tay hợp lệ — không chặn."""
+    translated = [{**s, "text_vi": "vi"} for s in SEGMENTS]
+    translated.append({**SEGMENTS[-1], "id": 99, "text_vi": "vi"})
+    path = _write(tmp_path, translated)
     result = pipeline._load_translation(path, SEGMENTS, target_vi)
-    assert len(result) == 1
+    assert len(result) == 3

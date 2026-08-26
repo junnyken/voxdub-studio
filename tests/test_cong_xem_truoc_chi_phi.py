@@ -186,3 +186,22 @@ def test_giao_dien_co_nhanh_xu_ly_cost_pending():
     assert '"cost_pending"' in nguon, "giao diện không xử lý trạng thái mới"
     assert "chi_phi_da_duyet = True" in nguon, \
         "bấm chạy tiếp mà không mang theo dấu đã duyệt — sẽ hỏi lại vô tận"
+
+
+def test_tat_hoi_duyet_thi_chay_thang():
+    """Người dùng chạy nhiều video liên tiếp tắt được cổng hỏi (D1e)."""
+    than = _than_run_impl()
+    assert "hoi_truoc_khi_tieu_vox" in than, \
+        "không có đường tắt cổng hỏi — người làm hàng loạt phải bấm mỗi lượt"
+    i = than.index("hoi_truoc_khi_tieu_vox")
+    assert than.index("cong_xem_truoc") > i, \
+        "cờ tắt phải được xét TRƯỚC khi gọi hỏi giá"
+
+
+def test_chi_ghi_khong_hoi_lai_khi_nguoi_dung_dong_y():
+    """Tích ô rồi bấm Hủy là đổi ý về video NÀY, không phải cho phép tiêu
+    tiền mọi video sau."""
+    nguon = open("autodub_gui/pages/new_project_page.py", encoding="utf-8").read()
+    assert "if dong_y and khong_hoi_lai:" in nguon, (
+        "ghi cờ mà không xét người dùng có bấm đồng ý hay không")
+    assert 'write_env({"HOI_TRUOC_KHI_TIEU_VOX": "false"})' in nguon

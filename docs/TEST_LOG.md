@@ -12101,3 +12101,73 @@ Phân giọng đưa **toàn bộ tệp vào một lượt** (`pipeline(args.audi
 chia khúc — nên trong cùng một video, chuyển cảnh hay đối đáp qua lại không
 làm mất dấu người nói. Nhãn KHÔNG ổn định giữa các video khác nhau; đó là
 việc của Hồ sơ nhân vật (V57).
+
+## D1f/D1g — Bảy lỗi từ MỘT lượt chạy thật của người dùng (26/08/2026)
+
+Người dùng chạy thử một video YouTube hai người đối thoại rồi gửi
+`transcript_original.json`, bản dịch và toàn bộ nhật ký. Một lượt chạy đó lộ
+ra nhiều lỗi hơn cả buổi tôi tự rà.
+
+### 1. Worker in tiếng Việt chết vì bảng mã (gốc của "dịch bị thiếu")
+
+    UnicodeEncodeError: 'charmap' codec can't encode character 'Đ'
+
+`Đ` là chữ **Đ**. `translate_local_worker.py` in JSON `ensure_ascii=False`
+mà không đặt UTF-8; Windows cho tiến trình con dùng cp1252 → chết giữa chừng,
+cha chỉ thấy "worker kết thúc bất thường" rồi chuyển sang dịch tay.
+
+Quét cả 7 worker: **3 thiếu** (`translate_local`, `lipsync`, `text_regions`),
+4 cái kia có — quy ước bị bỏ sót chứ không phải thiết kế. Vá cả ba, thêm
+`tests/test_worker_utf8.py`.
+
+### 2. Phân giọng hỏng 100% vì torchcodec
+
+    Could not load libtorchcodec ... libtorchcodec_core9.dll
+
+pyannote 4.x giải mã âm thanh bằng `torchcodec`, thứ này đòi bản FFmpeg
+"full-shared" có DLL trên Windows; app chỉ mang `ffmpeg.exe`.
+
+Sửa: `_nguon_am_thanh()` tự đọc WAV bằng thư viện chuẩn rồi đưa thẳng
+`{"waveform", "sample_rate"}` cho pyannote — bỏ qua hẳn torchcodec. Nhiều kênh
+thì TRỘN xuống mono (bỏ bớt kênh là mất người nói chỉ có ở kênh kia). Đọc
+trượt thì trả lại đường dẫn như cũ, có ghi dấu vết.
+
+### 3. Smoke test chứng nhận một cài đặt hỏng
+
+Bộ cài in `smoke test PASS` trong khi diarization hỏng mọi lượt — vì nó chỉ
+`Pipeline.from_pretrained(...)`, KHÔNG chạm tới đường giải mã. Nay chạy thật
+trên 2 giây âm thanh tự dựng, và báo lỗi đúng chuyện giải mã thay vì đổ tội
+cho token/agreement.
+
+### 4. Trả tiền HAI LẦN cho một video (do chính bản D1 của tôi)
+
+    14:17  chốt 250 Vox theo đường ngoại tuyến (không kê phí dịch)
+    14:21  dịch qua VoxDub Cloud — trừ thêm 276 Vox
+
+Giá chốt một lần rồi giữ nguyên; lượt chạy sau đổi sang máy chủ thì phần dịch
+bị trừ NGOÀI khoản đã chốt. Người dùng được báo 250, mất 526.
+
+Sửa: ghi `duong_dich_da_chot.json` lúc chốt giá; trước khi gọi máy chủ dịch,
+thấy giá đã chốt theo đường ngoại tuyến thì DỪNG kèm hai cách chữa. Thư mục
+cũ không có dấu thì không chặn oan.
+
+### 5-7. Đã ghi ở D1e (nhạc nền im lặng, bản dịch thiếu câu, engine không dò
+bản cũ) — nhật ký lần này xác nhận cả ba đúng như chẩn đoán.
+
+**Bài học:** ba lỗi đầu đều là "cài đặt báo thành công, chạy thật thì hỏng".
+Không có lượt chạy thật của người dùng thì không cái nào lộ ra.
+
+**Lỗi của chính tôi trong lúc viết test đợt này:** (1) test "đặt mã hoá trước
+lệnh in" so vị trí chuỗi, báo đỏ oan cho 3 worker vốn đúng — `print(` trong
+thân hàm định nghĩa sớm không có nghĩa là chạy sớm; viết lại bằng AST. (2)
+cửa sổ tìm bắt nhầm lần xuất hiện đầu của `SMOKE_DECODE_FAIL` (trong đoạn mã
+sinh ra) thay vì chỗ báo lỗi cho người dùng.
+
+**Hai lỗi của tôi do bộ canh sẵn có bắt được ngay khi chạy toàn bộ:**
+1. `test_ten_khong_ton_tai` — tôi đặt khối ghi `duong_dich_da_chot.json`
+   TRƯỚC dòng định nghĩa `khong_tinh_phi_dich`. Python chỉ kêu khi dòng đó
+   chạy, mà đó là nhánh ít đi qua nhất; bộ canh quét tên bắt được ở tầng mã.
+2. `test_count_mismatch_warns_but_loads` — test CŨ khẳng định đúng hành vi
+   tôi vừa cố ý đổi (thiếu câu thì cảnh báo rồi nạp). Không sửa mã cho test
+   xanh: đổi test theo ý định mới, tách thành hai (thiếu → dừng, thừa → nạp),
+   và ghi rõ trong docstring vì sao đổi.
