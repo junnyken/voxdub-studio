@@ -64,6 +64,7 @@ _INSTALLER_FILES = (
     "Cai dat tinh nang Douyin",
     "Cai dat FFmpeg",              # V82
     "Cai dat tach nhac nen",       # V86 — tên tệp .bat, cố ý không dấu
+    "Cai dat tach giong",          # 26/8 — tách giọng theo người nói
 )
 
 

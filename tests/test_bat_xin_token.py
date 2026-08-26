@@ -2,7 +2,7 @@
 
 Chuyện thật 26/8/2026: người dùng bấm «Cai dat tach giong theo nguoi noi.bat»
 ba lần, ba lần nhận cùng một câu *"Thiếu HuggingFace access token… xem hướng
-dẫn ở đầu file này (docstring)"*, rồi «Cai dat that bai».
+dẫn ở đầu file này (docstring)"*, rồi báo cài đặt thất bại.
 
 Hai chỗ hỏng chồng nhau:
 
