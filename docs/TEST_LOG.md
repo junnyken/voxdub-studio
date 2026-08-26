@@ -8474,6 +8474,69 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C37 — Nhập video + phụ đề tiếng Việt sẵn thành dự án (Phase H, 2026-08-26)
+
+Chủ dự án hỏi hai câu, và hoá ra là **một câu**:
+
+- *"lấy giọng đọc .srt cho ra tiếng Việt ghép vào trong chỉnh sửa được không"*
+- *"ở chỗ chỉnh sửa tôi có thể lấy video từ file… hay chỉ chỉnh sửa được video
+  làm trên tool này"*
+
+Kiểm bằng mã trước khi trả lời: `load_work_dir()` đòi một thư mục có sẵn
+`transcript_vi.json`, nên Trình chỉnh sửa **chỉ mở được dự án do app tạo**. Và
+app đọc được `.srt` (`parse_subtitle`) lẫn ghi được `.srt` (`generate_srt`),
+nhưng hai việc đó nằm ở hai đầu khác nhau — không ai nối chúng lại.
+
+Nghĩa là cả hai câu thiếu **cùng một mảnh**: biến (video, phụ đề) thành thư
+mục dự án đúng khuôn. Sinh giọng từng câu, ghép tiếng theo mốc, xuất video đều
+đã chạy được từ lâu.
+
+### Ba loại rác của phụ đề thật, xử ngay lúc nhập
+
+Không để bộ đọc gánh, vì tới đó thì đã muộn:
+
+1. **Câu bị cắt làm đôi** cho vừa dòng — đọc thẳng từng dòng thì giọng ngắt
+   cụt giữa câu. Gộp bằng `gop_cau` (C27), và **nói ra đã gộp bao nhiêu**.
+2. **Mốc chồng nhau** (hay gặp ở phụ đề tải từ mạng) — kéo mốc kết thúc của
+   dòng trước về sát dòng sau, giữ nguyên thì hai câu đọc đè lên nhau.
+3. **Dòng rỗng, mốc lùi, khối sai khuôn** — bỏ, nhưng ĐẾM và nói ra. Bỏ im
+   lặng thì người dùng tưởng phụ đề của mình bị mất chữ.
+
+### Hai quyết định
+
+**Không chép video.** Chỉ ghi đường dẫn vào `source_video.json`, đúng cách
+pipeline vẫn làm với tệp ngoài thư mục dự án. Chép một tệp 2 GB chỉ để mở ra
+sửa là việc vô ích.
+
+**Phụ đề đã là tiếng Việt thì nó vừa là bản gốc vừa là bản đích** (`text` =
+`text_vi`). Không dịch, không gọi máy chủ, **không tốn Vox** — giọng VieNeu
+offline lo phần còn lại. Phụ đề tiếng nước ngoài là chặng sau, theo đúng thứ
+tự chủ dự án chốt.
+
+### Tests (+14)
+
+Phép thử thật sự của cả chặng là **chính hàm mở dự án của Editor**
+(`load_work_dir`) mở được thư mục vừa nhập, thấy đủ câu và tìm ra video nguồn
+— không phải một assert về JSON.
+
+Còn lại: đủ sáu trường bắt buộc · gốc = đích · gộp câu bị cắt đôi (và tắt được)
+· nắn mốc chồng · bỏ dòng rỗng/mốc lùi có đếm · không còn dòng nào thì nói rõ
+định dạng cần dùng · **không chép video** · thiếu tệp thì nói thiếu cái gì ·
+trang có nút và nút nối đúng hàm · nhập xong **mở luôn** dự án · **bấm Huỷ
+giữa chừng không để lại thư mục rỗng**.
+
+**2077 Python.**
+
+### Còn tồn
+
+- **Chưa chạy thật lần nào.** Cần một video + `.srt` tiếng Việt thật, bấm
+  «Đọc lại tất cả» rồi «Xuất video» — hai nút đã có sẵn, nhưng đường mới chưa
+  ai đi qua.
+- Câu tiếng Việt đọc ra thường dài hơn khoảng trống trong phụ đề. Bộ ghép có
+  ép tốc độ, nhưng chưa có trần và chưa báo câu nào bị ép quá tay.
+- Phụ đề tiếng nước ngoài: chặng sau.
+
+
 ## C36 — Ba lỗi từ một lượt chạy thật (Phase H, 2026-08-26)
 
 Chủ dự án chạy một video thật rồi gửi ảnh chụp. Ba thứ hỏng, không liên quan

@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (QFileDialog, QHBoxLayout, QLabel, QScrollArea,
 from autodub_gui import tokens
 from autodub_gui.pages import BasePage
 from autodub_gui.ui.buttons import GhostButton, PrimaryButton
+from autodub_gui.ui.toast import TOASTS
 from autodub_gui.ui.cards import Card
 from autodub_gui.ui.style import clear_background
 from autodub_gui.ui.empty import EmptyState, LoadingState
@@ -72,6 +73,16 @@ class EditorLauncherPage(BasePage):
         scroll.setWidget(self._list_body)
         root.addWidget(scroll, 1)
 
+        # Cửa vào cho video KHÔNG do app này tạo ra (chặng 1, 26/8/2026).
+        # Trước đây Trình chỉnh sửa chỉ mở được dự án do chính app dựng, nên
+        # người có sẵn video + phụ đề tiếng Việt không có đường nào vào.
+        btn_nhap = PrimaryButton("Mở video + phụ đề tiếng Việt...")
+        btn_nhap.setToolTip(
+            "Chọn một video và một tệp .srt/.vtt tiếng Việt. App dựng thành "
+            "dự án để bạn sửa lời, chọn giọng đọc rồi xuất video — không cần "
+            "chạy lại bước nghe và bước dịch.")
+        btn_nhap.clicked.connect(self._nhap_video_phu_de)
+
         # Nút mở thư mục tùy chọn
         btn_open = GhostButton("Mở thư mục dự án...")
         btn_open.clicked.connect(self._browse_folder)
@@ -79,6 +90,7 @@ class EditorLauncherPage(BasePage):
         clear_background(btn_wrap)
         btn_row = QHBoxLayout(btn_wrap)
         btn_row.setContentsMargins(0, 0, 0, 0)
+        btn_row.addWidget(btn_nhap)
         btn_row.addWidget(btn_open)
         btn_row.addStretch()
         root.addWidget(btn_wrap)
@@ -132,6 +144,49 @@ class EditorLauncherPage(BasePage):
     def _resume_current(self) -> None:
         if self._current_project_dir:
             self.open_requested.emit(self._current_project_dir)
+
+    def _nhap_video_phu_de(self) -> None:
+        """Dựng dự án từ một video và một tệp phụ đề tiếng Việt có sẵn.
+
+        Chạy thẳng trên luồng giao diện là CÓ CHỦ Ý: việc này chỉ đọc một tệp
+        văn bản và ghi hai tệp nhỏ — không mạng, không engine nặng, không có
+        gì để chờ. Luật "không gọi mạng trên luồng giao diện" (C7) không áp
+        cho việc đọc một tệp `.srt`.
+        """
+        import os
+
+        from autodub.nhap_phu_de import LoiNhap, nhap_du_an
+
+        video, _ = QFileDialog.getOpenFileName(
+            self, "Chọn video cần lồng tiếng", "",
+            "Video (*.mp4 *.mov *.mkv *.avi *.webm);;Tất cả (*.*)")
+        if not video:
+            return
+        phu_de, _ = QFileDialog.getOpenFileName(
+            self, "Chọn phụ đề tiếng Việt (.srt hoặc .vtt)", "",
+            "Phụ đề (*.srt *.vtt);;Tất cả (*.*)")
+        if not phu_de:
+            return
+
+        settings = self._settings_provider()
+        goc = os.path.join(str(getattr(settings, "output_dir", "") or "."), "VN")
+        try:
+            ket = nhap_du_an(video, phu_de, goc)
+        except LoiNhap as e:
+            TOASTS.error(str(e))
+            return
+        except Exception as e:  # noqa: BLE001 — lỗi lạ vẫn phải tới người dùng
+            TOASTS.error(f"Không nhập được phụ đề: {e}")
+            return
+
+        # In cảnh báo TRƯỚC khi mở, và in từng dòng: đây là những chỗ app đã
+        # tự nắn hoặc bỏ, người dùng có quyền biết trước khi nghe thành phẩm.
+        for dong in ket.canh_bao:
+            TOASTS.warn(dong)
+        TOASTS.success(
+            f"Đã nhập {ket.so_cau} câu. Sửa lời nếu cần, rồi bấm «Đọc lại "
+            "tất cả» để tạo giọng.")
+        self.open_requested.emit(ket.thu_muc)
 
     def _browse_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(
