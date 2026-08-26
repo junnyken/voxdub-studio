@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-08-26 · phiên bản ứng dụng `3.9.1`
+> Cập nhật: 2026-08-26 · phiên bản ứng dụng `3.10.0`
 
 ---
 
@@ -116,6 +116,14 @@ vùng.
   khởi động). Quy trình nâng cấp rút còn: giải nén cạnh bản cũ, mở lên.
   **Điều kiện:** phải cùng thư mục cha. Sang ổ đĩa khác thì vẫn phải chép tay
   hoặc trỏ đường dẫn trong Cài đặt.
+
+- **Ba đường dịch, người dùng chọn thẳng** (D1). `TRANSLATE_MODE`:
+  `server` (chất lượng AI, có phí dịch) · `offline` (NLLB trên máy, **không
+  phí dịch nhưng KHÔNG miễn phí cả lượt** — giá nền 10 Vox/dòng vẫn tính,
+  tiết kiệm ~17%) · `auto` (ưu tiên máy chủ, mất mạng thì rơi ngoại tuyến kèm
+  báo rõ). Chọn `offline` thì **không giữ chỗ tiền dịch**, và chưa cài NLLB
+  thì báo lỗi chứ không lặng lẽ quay về máy chủ. Trước D1 đường ngoại tuyến
+  không thể chạm tới vì nó bị treo vào `is_configured()`.
 
 ### 3.2 Trình chỉnh sửa
 
@@ -267,14 +275,6 @@ chỉ giữ tên/giọng, không giữ câu thoại.
 
 ### 5.2 Đã biết, chưa sửa
 
-- **Đường dịch miễn phí đã thành không thể chạm tới.** `translate_local`
-  (NLLB chạy trên máy, 0 Vox) chỉ chạy khi `is_configured()` sai. Từ 22/8/2026
-  địa chỉ máy chủ được **nhúng thẳng vào `.exe`** để sửa lỗi bản offline câm —
-  hệ quả kèm theo: `is_configured()` từ nay LUÔN đúng, nên ô "Dịch tự động
-  ngoại tuyến" trong Cài đặt vẫn hiện nhưng **vô hiệu trên mọi bản phát hành**.
-  Câu mô tả của ô đó có nói rõ điều kiện, nên không phải lời hứa sai — nhưng
-  người dùng không có cách nào bật được nó nữa. Sửa đúng cách là cho nó thành
-  lựa chọn ba nhánh (máy chủ / ngoại tuyến / tự chọn) thay vì đường lui.
 - **Dịch cục bộ (NLLB) có thể bỏ sót câu** khi bản chép lời nhiễu — phát hiện
   thật, chưa sửa.
 - **~190/204 mã ngôn ngữ FLORES chưa kiểm chứng chất lượng** — có chủ đích,
@@ -383,9 +383,6 @@ Xếp theo mức sẵn sàng, không phải theo mức hấp dẫn:
 Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 
 **Việc kỹ thuật đã rõ hình:**
-- Cho "Dịch tự động ngoại tuyến" thành lựa chọn ba nhánh (máy chủ / ngoại
-  tuyến / tự chọn). Hiện đường miễn phí không thể chạm tới — xem §5.2. Đây là
-  việc đáng tiền nhất còn lại.
 - Nối `character_name` vào giao diện (cần đổi cấu trúc hồ sơ nhân vật để giữ
   câu thoại theo người nói).
 - Hiện tiến độ lượt chạy trên máy chủ.
@@ -394,7 +391,8 @@ Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 
 **Đã giải quyết, đừng đề xuất lại:** tách `.venv-*`/`models/` ra khỏi thư mục
 ứng dụng — không cần nữa, vì app đã tự dò bản cũ nằm cùng thư mục cha (§3.1).
-Xem trước chi phí và gộp câu trước khi tính tiền cũng đã làm (V97).
+Xem trước chi phí và gộp câu trước khi tính tiền cũng đã làm (V97);
+ba đường dịch đã làm (D1).
 
 **Việc cần quyết định của con người trước:**
 - Có thu thập thêm dữ liệu sử dụng không (đã hỏi, chủ dự án chọn giữ nguyên
@@ -414,7 +412,7 @@ Xem trước chi phí và gộp câu trước khi tính tiền cũng đã làm (
 | `docs/ARCH.md` | Kiến trúc lõi |
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 
-**Quy mô test tại thời điểm cập nhật tệp này:** 1970 test Python (7 bỏ qua)
+**Quy mô test tại thời điểm cập nhật tệp này:** 1980 test Python (7 bỏ qua)
 + 511 test Node (510 đạt, 0 hỏng). Con số này tăng gần như mỗi đợt — dùng nó
 để hình dung quy mô, đừng dùng làm mốc đối chiếu.
 

@@ -323,6 +323,25 @@ class Settings:
     # Dịch thuật (do BA duyệt câu chữ cuối cùng, theo BA⇄DEV convention).
     translate_local_enabled: bool = True
 
+    #: mini-spec D1 — người dùng CHỌN đường dịch, không suy ra từ hoàn cảnh.
+    #:
+    #: "server"  luôn gọi máy chủ (chất lượng AI, tốn phí dịch)
+    #: "offline" luôn NLLB trên máy (không tốn phí dịch; chưa cài thì BÁO LỖI,
+    #:           không lặng lẽ quay về máy chủ rồi trừ tiền)
+    #: "auto"    ưu tiên máy chủ, mất mạng thì rơi về NLLB
+    #:
+    #: Vì sao cần một cờ riêng: trước đây đường ngoại tuyến chỉ chạy khi
+    #: `is_configured()` sai. Từ 22/8/2026 địa chỉ máy chủ được nhúng thẳng
+    #: vào .exe (sửa lỗi "bản offline câm") nên `is_configured()` LUÔN đúng —
+    #: đường miễn phí thành không thể chạm tới, dù ô cài đặt vẫn hiện. Sửa
+    #: bằng cách thêm lựa chọn tường minh Ở TRÊN, không đụng vào bản vá đó.
+    #:
+    #: Mặc định "server" = đúng hành vi hiện tại của mọi bản đã phát hành.
+    #: Không mặc định "auto" vì rơi nhánh im lặng sang một engine ĐÃ BIẾT là
+    #: hay bỏ sót câu (xem FEATURES.md §5.2) là đổi chất lượng bản dịch mà
+    #: người dùng không hề chọn.
+    translate_mode: str = "server"
+
     # Gộp mẩu vụn thành câu TRƯỚC bước dịch (mini-spec V97). Bộ nghe cắt theo
     # khoảng lặng 500ms nên một câu liền mạch có thể vỡ thành hàng chục mẩu
     # một-hai chữ; máy chủ tính tiền theo SỐ DÒNG nên mỗi mẩu là một lần trả
@@ -520,6 +539,16 @@ class Settings:
                 env_int("TRANSLATE_BATCH_SIZE", "40"))),
             translate_local_enabled=env("TRANSLATE_LOCAL_ENABLED", "false")
                                     .strip().lower() not in ("0", "false", "no"),
+            translate_mode=_one_of(env("TRANSLATE_MODE", "").strip().lower(),
+                                   ("server", "offline", "auto"),
+                                   # Chưa khai TRANSLATE_MODE: giữ nguyên
+                                   # hành vi cũ của máy đó. Máy nào đã bật cờ
+                                   # ngoại tuyến cũ thì hiểu là muốn "auto" —
+                                   # đó đúng là thứ cờ ấy hứa (dùng ngoại
+                                   # tuyến khi không gọi máy chủ được).
+                                   "auto" if env("TRANSLATE_LOCAL_ENABLED", "false")
+                                   .strip().lower() not in ("0", "false", "no")
+                                   else "server"),
             gop_cau_truoc_khi_dich=env("GOP_CAU_TRUOC_KHI_DICH", "true")
                                     .strip().lower() not in ("0", "false", "no"),
             cloud_render_enabled=env("CLOUD_RENDER_ENABLED", "false")

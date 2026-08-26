@@ -581,6 +581,25 @@ class DubPipeline:
         from autodub.languages import cung_ngon_ngu
 
         khong_can_dich = cung_ngon_ngu(req.source_lang or "", target.key)
+
+        # --- Chọn ngoại tuyến thì KHÔNG giữ chỗ tiền dịch (mini-spec D1) ---
+        # Máy chủ trừ đúng số ước tính lúc giữ chỗ và KHÔNG hoàn phần chưa
+        # dùng (xem hold.service.js: `chargedVox: hold.estimatedVox`). Nên nếu
+        # vẫn kê phần dịch tự động vào hold trong khi bản dịch do máy người
+        # dùng làm, họ trả tiền cho một việc không hề chạy — và không đòi lại
+        # được. Đây là chỗ dễ bỏ sót nhất của tính năng này.
+        #
+        # Chỉ "offline" mới chắc chắn không gọi máy chủ. "auto" thì vẫn ưu
+        # tiên máy chủ nên vẫn phải giữ chỗ đủ; rơi nhánh giữa chừng chỉ làm
+        # phần đã giữ không dùng tới, đúng như mọi lượt dịch hỏng khác.
+        dich_ngoai_tuyen = (getattr(settings, "translate_mode", "server")
+                            == "offline")
+        if dich_ngoai_tuyen:
+            logger.info("Bạn chọn dịch ngoại tuyến — không tính phí dịch cho "
+                        "lượt này (giá nền của lượt xử lý vẫn tính).")
+
+        khong_tinh_phi_dich = khong_can_dich or dich_ngoai_tuyen
+
         if khong_can_dich:
             logger.warning(
                 f"Nguồn và đích đều là {target.name} — bỏ qua bước dịch, "
@@ -603,14 +622,14 @@ class DubPipeline:
         if req.defer_export:
             cho_duyet = self._billing.cong_xem_truoc(
                 segments, work_dir, video_duration_s,
-                khong_can_dich=khong_can_dich, da_duyet=da_duyet)
+                khong_can_dich=khong_tinh_phi_dich, da_duyet=da_duyet)
             if cho_duyet is not None:
                 bg_future.result()   # kết quả đã cache — chạy tiếp dùng ngay
                 return cho_duyet
 
         blocked = self._setup_hold(segments, target, work_dir,
                                    video_duration_s,
-                                   khong_can_dich=khong_can_dich)
+                                   khong_can_dich=khong_tinh_phi_dich)
         if blocked is not None:
             bg_future.result()   # kết quả đã cache — lần chạy lại dùng ngay
             return blocked
@@ -1431,6 +1450,43 @@ class DubPipeline:
             return None
 
         from autodub.saas_client import is_configured
+
+        che_do = getattr(settings, "translate_mode", "server")
+
+        # --- Người dùng CHỌN ngoại tuyến (mini-spec D1) -------------------
+        # Đặt TRƯỚC mọi phép hỏi `is_configured()`: cả bug này sinh ra từ chỗ
+        # đường ngoại tuyến bị treo vào hoàn cảnh thay vì vào ý muốn.
+        #
+        # Chưa cài NLLB thì BÁO LỖI chứ không quay về máy chủ. Rơi ngầm sang
+        # đường tốn tiền khi người dùng vừa chọn đường miễn phí là đúng kiểu
+        # sai đã có tên trong dự án này (FEATURES.md §6, lớp lỗi #5).
+        if che_do == "offline" and is_configured():
+            from autodub.text.translate_local import (
+                LocalTranslateError, is_available, translate_segments_local)
+
+            if not is_available(settings, source_lang):
+                thieu = ("chưa cài bộ dịch ngoại tuyến"
+                         if not settings.translate_local_configured()
+                         else f"bộ dịch ngoại tuyến không hỗ trợ {source_lang}")
+                logger.error(
+                    f"Bạn đang chọn dịch ngoại tuyến nhưng {thieu}. KHÔNG tự "
+                    "chuyển sang máy chủ để không tính phí ngoài ý bạn — hãy "
+                    "chạy scripts/setup_translate_local.py, hoặc đổi sang "
+                    "'Luôn qua máy chủ' trong Cài đặt.")
+                rep.emit("translate", "error", detail=thieu)
+                return None
+            rep.emit("translate", "start", detail="Ngoại tuyến (trên máy bạn)")
+            try:
+                return translate_segments_local(
+                    segments, target, source_lang, settings, rep,
+                    cancel_event=self._cancel_event)
+            except LocalTranslateError as e:
+                # Vẫn KHÔNG rơi sang máy chủ — người dùng chọn ngoại tuyến.
+                logger.warning(f"Dịch ngoại tuyến lỗi ({e}) — chuyển sang "
+                               "dịch tay, không gọi máy chủ.")
+                rep.emit("translate", "error", detail=str(e))
+                return None
+
         if not is_configured():
             # Không có máy chủ — path C (mini-spec V6, docs/PLAN.md): dịch
             # local/offline nếu người dùng đã bật VÀ đã tải model. is_configured()
@@ -1502,6 +1558,35 @@ class DubPipeline:
             rep.emit("translate", "error", detail="")
             raise
         except OfflineError as e:
+            # Chế độ "auto" (mini-spec D1): mất mạng thì rơi về NLLB trên máy
+            # thay vì dừng hẳn — đó chính là thứ người chọn "auto" xin.
+            # Nói RÕ đã rơi nhánh: bản dịch từ đây là của engine khác, chất
+            # lượng khác, và không tốn phí dịch.
+            if che_do == "auto":
+                from autodub.text.translate_local import (
+                    LocalTranslateError, is_available, translate_segments_local)
+
+                if is_available(settings, source_lang):
+                    logger.warning(
+                        f"Mất kết nối máy chủ ({e}) — bạn đang để chế độ Tự "
+                        "động nên chuyển sang dịch ngoại tuyến trên máy. Bản "
+                        "dịch phần này do bộ dịch trên máy làm, chất lượng "
+                        "thấp hơn và không tốn phí dịch.")
+                    rep.emit("translate", "start",
+                             detail="Ngoại tuyến (mất mạng, tự chuyển)")
+                    try:
+                        return translate_segments_local(
+                            segments, target, source_lang, settings, rep,
+                            cancel_event=self._cancel_event)
+                    except LocalTranslateError as e2:
+                        logger.warning(f"Dịch ngoại tuyến cũng lỗi ({e2}) — "
+                                       "chuyển sang dịch tay")
+                        rep.emit("translate", "error", detail=str(e2))
+                        return None
+                logger.warning(
+                    f"Mất kết nối máy chủ ({e}) và máy chưa cài bộ dịch ngoại "
+                    "tuyến nên không có đường lui — dừng lại.")
+
             # Fail-closed: mất mạng thì dừng hẳn với lời báo rõ ràng. Sổ tạm
             # còn nguyên nên chạy lại chỉ dịch nốt phần chưa xong.
             logger.error(f"Không kết nối được máy chủ VoxDub: {e}")

@@ -11887,3 +11887,53 @@ thử nhét bừa một tệp vào danh sách miễn trừ với lý do qua loa 
 
 **Không phát hành bản mới:** thay đổi chỉ nằm ở mô tả trong mã và test, không
 đụng thứ người dùng thấy. Tooltip đúng đã nằm trong v3.9.1.
+
+## D1 — Trả lại quyền chọn đường dịch ngoại tuyến (26/08/2026)
+
+**Vì sao:** `translate_local` (NLLB trên máy) chỉ chạy khi `is_configured()`
+sai. Từ 22/8/2026 địa chỉ máy chủ được nhúng thẳng vào `.exe` để sửa lỗi "bản
+offline câm" — hệ quả phụ không cố ý: `is_configured()` LUÔN đúng trên mọi bản
+phát hành, nên nhánh ngoại tuyến không bao giờ được chọn nữa dù ô cài đặt vẫn
+hiện. Bug loại "vô hiệu âm thầm".
+
+**Hai chỗ bản đặc tả gốc sai/thiếu, đã sửa trước khi làm:**
+
+1. **"Miễn phí" là sai.** Chạy ngoại tuyến chỉ bỏ được phí dịch (2 Vox/dòng);
+   giá nền lượt xử lý (10 Vox/dòng) vẫn tính. Tiết kiệm 17%, không phải 100%.
+   Dán nhãn "0 Vox" lên đó chính là lớp lỗi #5. Nhãn nay ghi "không phí dịch".
+2. **Thiếu hẳn phần tính tiền.** `create_hold` tính phí dịch theo
+   `settings.translate_enabled`, không biết gì về chế độ. Mà máy chủ trừ đúng
+   số ước tính lúc giữ chỗ và KHÔNG hoàn phần chưa dùng (`hold.service.js`:
+   `chargedVox: hold.estimatedVox`). Làm theo đặc tả gốc thì người chọn ngoại
+   tuyến vẫn bị trừ tiền dịch cho việc máy họ tự làm — 29.700 VNĐ với tệp
+   1.485 dòng. Nay cờ đi vào CẢ cổng xem trước giá lẫn lúc giữ chỗ.
+
+**Đã làm:**
+- `Settings.translate_mode`: `server` | `offline` | `auto`. Mặc định `server`
+  = đúng hành vi hiện tại; máy nào đã bật cờ ngoại tuyến cũ thì chuyển thành
+  `auto`. Không mặc định `auto` cho mọi người: rơi nhánh im lặng sang engine
+  đã biết là hay bỏ sót câu là đổi chất lượng mà người dùng không hề chọn.
+- `_auto_translate`: nhánh `offline` đặt TRƯỚC mọi phép hỏi `is_configured()`.
+  Chưa cài → báo lỗi rõ, không quay về máy chủ. Lỗi giữa chừng cũng không quay
+  về máy chủ. `auto` bắt `OfflineError` rồi rơi về NLLB kèm cảnh báo; `server`
+  vẫn dừng hẳn như cũ.
+- Ô Cài đặt: công tắc 2 trạng thái → 3 lựa chọn, mỗi lựa chọn nói rõ có phí
+  hay không, kèm cảnh báo chất lượng.
+- Lời báo rơi nhánh đi qua `logger.warning` nên hiện trong bảng nhật ký chạy
+  (`GuiLogHandler`) — cùng chỗ mọi sự kiện quan trọng khác vẫn hiện.
+
+**Guardrail đã giữ:** bản vá 22/8 (nhúng địa chỉ máy chủ) không bị đụng tới;
+có test canh riêng cho việc đó.
+
+**Kiểm:** `tests/test_duong_dich_nguoi_dung_chon.py` — 10 test. Đã gỡ từng
+chốt: quay lại suy từ `is_configured()` → 3 đỏ (gồm đúng bài chống tái phát);
+ngoại tuyến chưa cài mà lặng lẽ về máy chủ → đỏ; quên truyền cờ vào cổng xem
+trước giá → đỏ; nhãn hứa "miễn phí" → đỏ.
+
+**Hai lỗi của chính tôi do bộ canh sẵn có bắt được:** viết `options` ngược thứ
+tự (dự án dùng `(nhãn, giá trị)`) nên ô sẽ lưu nhầm cả câu tiếng Việt làm giá
+trị; và bỏ `TRANSLATE_LOCAL_ENABLED` khỏi giao diện mà quên dọn `.env.example`.
+
+**CHƯA làm được — cần máy của chủ dự án:** live verification 3 nhánh với NLLB
+thật. Máy chạy test không có NLLB (cần cài ~620 MB), và toàn bộ test chạy trên
+Linux. Chưa nhánh nào được chạy thật một lượt nào.

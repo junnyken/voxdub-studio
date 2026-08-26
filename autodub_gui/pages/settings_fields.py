@@ -325,18 +325,27 @@ FIELDS: tuple[Field, ...] = (
           "Lô nhỏ hơn thì chậm hơn một chút nhưng mạch dịch bám ngữ cảnh sát "
           "hơn. Không ảnh hưởng số Vox — tính theo câu, không theo lượt gửi.",
           minimum=1, maximum=100, step=5, decimals=0),
-    # V6 (docs/PLAN.md): chỉ có tác dụng khi CHƯA cấu hình máy chủ (is_
-    # configured()==False) — máy chủ luôn được ưu tiên trước khi tới path
-    # này. Cần chạy scripts/setup_translate_local.py trước (tải model
-    # ~620 MB) mới bật thật sự dùng được.
-    Field("TRANSLATE_LOCAL_ENABLED", CHECK,
-          "Dịch tự động ngoại tuyến (không cần máy chủ)", TAB_TRANSLATE,
-          "Dịch tự động", "true",
-          "Chỉ có tác dụng khi KHÔNG cấu hình máy chủ dịch. Dịch bằng model "
-          "chạy ngay trên máy (cần tải ~620 MB một lần qua "
-          "scripts/setup_translate_local.py), không tốn Vox, không cần "
-          "mạng — nhưng chất lượng thấp hơn dịch tay hoặc máy chủ (dịch "
-          "một lượt, không có ngữ cảnh video)."),
+    # D1: ô này trước là công tắc hai trạng thái và chỉ có tác dụng khi CHƯA
+    # cấu hình máy chủ. Từ 22/8/2026 địa chỉ máy chủ nhúng thẳng vào .exe nên
+    # điều kiện đó không bao giờ đúng nữa — công tắc còn đó mà bấm không ăn
+    # thua gì. Nay là ba lựa chọn tường minh, người dùng chọn thẳng.
+    #
+    # Câu chữ CỐ Ý không viết "miễn phí": chạy ngoại tuyến chỉ bỏ được phần
+    # phí dịch (2 Vox/dòng), giá nền của lượt xử lý (10 Vox/dòng) vẫn tính.
+    # Viết "miễn phí" ở đây là tái tạo đúng lớp lỗi #5 mà mục này chống.
+    Field("TRANSLATE_MODE", COMBO,
+          "Dịch tự động bằng đường nào", TAB_TRANSLATE,
+          "Dịch tự động", "server",
+          "Ngoại tuyến bỏ được phí dịch (2 Vox mỗi dòng) nhưng KHÔNG miễn phí "
+          "cả lượt — giá nền xử lý vẫn tính. Đổi lại, bản dịch do model chạy "
+          "trên máy làm nên chất lượng thấp hơn máy chủ và đã ghi nhận có thể "
+          "bỏ sót câu khi bản chép lời nhiễu. Muốn dùng phải cài một lần "
+          "~620 MB bằng scripts/setup_translate_local.py.",
+          options=[
+              ("Luôn qua máy chủ — chất lượng AI, có phí dịch", "server"),
+              ("Luôn ngoại tuyến — không phí dịch, cần đã cài", "offline"),
+              ("Tự động — ưu tiên máy chủ, mất mạng thì ngoại tuyến", "auto"),
+          ]),
 
     # V97: tiền tính theo SỐ DÒNG, mà bộ nghe cắt theo khoảng lặng 500ms nên
     # một câu liền mạch có thể vỡ thành hàng chục mẩu một-hai chữ — mỗi mẩu là
