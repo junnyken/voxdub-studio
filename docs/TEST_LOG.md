@@ -11937,3 +11937,46 @@ trị; và bỏ `TRANSLATE_LOCAL_ENABLED` khỏi giao diện mà quên dọn `.e
 **CHƯA làm được — cần máy của chủ dự án:** live verification 3 nhánh với NLLB
 thật. Máy chạy test không có NLLB (cần cài ~620 MB), và toàn bộ test chạy trên
 Linux. Chưa nhánh nào được chạy thật một lượt nào.
+
+## D1b — Năm script cài đặt chưa bao giờ có trong bản phát hành (26/08/2026)
+
+**Chủ dự án tìm ra bằng ảnh chụp thư mục**, ngay sau khi tôi bảo chạy
+`scripts/setup_translate_local.py`: mở `VoxDub-Studio-v3.10.0-win64/scripts/`
+chỉ thấy 6 tệp `setup_*`, không có tệp đó. Tôi vừa hướng dẫn một việc không
+thể làm được.
+
+**Gốc rễ:** danh sách đóng gói trong `build_exe.py` là danh sách GÕ TAY sáu
+tên, và đã lệch khỏi mã từ lâu. Năm script được app bảo người dùng chạy nhưng
+chưa bao giờ nằm trong bản tải nào:
+
+| Script | App nhắc ở đâu | Tính năng chết theo |
+|---|---|---|
+| `setup_translate_local.py` | 5 chỗ | Dịch ngoại tuyến (cả D1 vừa làm) |
+| `setup_diarization.py` | 8 chỗ | Phân biệt người nói |
+| `setup_lipsync.py` | 9 chỗ | Khớp khẩu hình |
+| `setup_ocr.py` | 1 chỗ | Nhận diện vùng chữ |
+| `setup_voices.py` | trang Trợ giúp | Ghi danh giọng |
+
+Không một dòng lỗi nào: app bảo "chạy scripts/setup_X.py", người dùng mở thư
+mục ra không thấy, và tính năng coi như không tồn tại.
+
+**Đây là lớp lỗi #3 tái diễn** (FEATURES.md §6) — cùng cơ chế đã khiến
+`asr_whisper_worker.py` không được đóng gói và chép lời trong bản `.exe` chưa
+từng chạy được lần nào (V80). Bài học đã ghi ở đó mà vẫn tái phát ở một danh
+sách khác: **suy ra, đừng gõ tay.**
+
+**Đã làm:**
+- `build_exe.scripts_can_dong_goi()` — lấy tất cả `scripts/setup_*.py` cộng
+  `_python_ho_tro.py`. 6 tệp → 13 tệp. Tách thành hàm riêng để test soi được
+  mà không phải chạy cả bản build.
+- `tests/test_script_cai_dat_duoc_dong_goi.py` — quét mọi chuỗi
+  `scripts/setup_*.py` trong `autodub/` và `autodub_gui/`, đòi từng tệp phải
+  (1) có thật trong kho và (2) nằm trong danh sách đóng gói. Kèm chốt cấm
+  quay lại gõ tay.
+
+**Kiểm:** dựng lại đúng danh sách gõ tay 6 tên của bản cũ → 2 test đỏ, trong
+đó có đúng bài bắt được `setup_translate_local.py` bị thiếu.
+
+**Bài học riêng cho tôi:** D1 tôi làm xong, test xanh, tag phát hành — nhưng
+tính năng vẫn không dùng được vì bộ cài của nó không có trong gói. Test logic
+xanh không nói gì về việc thứ đó có tới tay người dùng hay không.

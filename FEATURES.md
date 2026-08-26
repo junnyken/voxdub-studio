@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-08-26 · phiên bản ứng dụng `3.10.0`
+> Cập nhật: 2026-08-26 · phiên bản ứng dụng `3.10.1`
 
 ---
 
@@ -311,7 +311,12 @@ các vùng này phải tính tới chúng.
    một tuần. Nay có luật: mọi `except` phải có dấu vết hoặc lý do viết ngay
    tại chỗ.
 2. **Engine nặng import trong tiến trình chính** — xem §2. Bốn lần.
-3. **Tệp worker không được đóng gói.** `asr_whisper_worker.py` chưa bao giờ
+3. **Tệp cần thiết không được đóng gói.** (Đã tái diễn 26/8/2026 ở một
+   danh sách khác: `build_exe.py` gõ tay 6 tên script cài đặt, trong khi app
+   bảo người dùng chạy 11 tên — nên dịch ngoại tuyến, phân biệt người nói,
+   lipsync, OCR và ghi danh giọng **chưa bao giờ cài được từ bản tải nào**.
+   Nay danh sách được suy ra từ thư mục, có test canh.)
+   Lần đầu: `asr_whisper_worker.py` chưa bao giờ
    nằm trong danh sách đóng gói → chép lời trong bản `.exe` **chưa từng chạy
    được lần nào**, sâu hơn cả hai lần chẩn đoán trước đó. Nay có test quét
    toàn bộ.

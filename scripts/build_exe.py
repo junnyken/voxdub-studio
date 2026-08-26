@@ -133,19 +133,37 @@ def step_pyinstaller() -> None:
         raise SystemExit(f"!! PyInstaller xong nhưng không thấy {exe}")
 
 
+def scripts_can_dong_goi() -> list[str]:
+    """Mọi script cài đặt phải có trong bản phát hành.
+
+    Trước đây đây là một danh sách gõ tay sáu tên. Nó lệch — và lệch im lặng:
+    `setup_translate_local.py` (dịch ngoại tuyến), `setup_diarization.py`
+    (phân biệt người nói), `setup_lipsync.py`, `setup_ocr.py`,
+    `setup_voices.py` đều được app bảo người dùng chạy nhưng **chưa bao giờ
+    nằm trong bản tải nào**. Người dùng mở thư mục `scripts/` ra, không thấy
+    tệp, và tính năng đó coi như không tồn tại — không có một dòng lỗi nào.
+
+    Đây đúng lớp lỗi #3 của dự án (FEATURES.md §6): danh sách đóng gói gõ tay
+    thì sớm muộn cũng lệch khỏi mã. Cách chữa giống V80: **suy ra**, đừng gõ.
+    Lấy tất cả `setup_*.py` cộng module dùng chung — vài KB mỗi tệp, rẻ hơn
+    nhiều so với một tính năng chết âm thầm.
+    """
+    thu_muc = os.path.join(PROJECT_ROOT, "scripts")
+    ra = sorted(f for f in os.listdir(thu_muc)
+                if f.startswith("setup_") and f.endswith(".py"))
+    # Module dùng chung của các script trên — quên chép là bản đóng gói chết
+    # ngay dòng import (V80).
+    ra.append("_python_ho_tro.py")
+    return ra
+
+
 def step_assemble() -> None:
     log("lắp ráp thư mục phân phối...")
 
-    # Script cài phần mở rộng (giọng đọc, ASR tiếng Trung, Douyin) chạy trên
-    # máy người dùng — exe chỉ chứa phần lõi.
+    # Script cài phần mở rộng chạy trên máy người dùng — exe chỉ chứa lõi.
     scripts_dst = os.path.join(DIST_DIR, "scripts")
     os.makedirs(scripts_dst, exist_ok=True)
-    for script in ("setup_vieneu.py", "setup_paraformer.py",
-                   "setup_whisper.py", "setup_douyin.py", "setup_ffmpeg.py",
-                   "setup_demucs.py",
-                   # Module dùng chung của 3 script trên — quên chép là bản
-                   # đóng gói chết ngay dòng import (V80).
-                   "_python_ho_tro.py"):
+    for script in scripts_can_dong_goi():
         shutil.copy2(os.path.join(PROJECT_ROOT, "scripts", script),
                      scripts_dst)
 
