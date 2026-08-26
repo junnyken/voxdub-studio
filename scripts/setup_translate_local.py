@@ -1,6 +1,16 @@
-"""Cài đặt dịch local/offline (mini-spec V6, xem docs/PLAN.md) — path C bên
-cạnh dịch tay và dịch qua máy chủ. Chỉ có tác dụng khi bật
-TRANSLATE_LOCAL_ENABLED=true trong .env VÀ không có máy chủ nào cấu hình.
+"""Cài đặt dịch ngoại tuyến (mini-spec V6) — đường thứ ba bên cạnh dịch tay
+và dịch qua máy chủ.
+
+Cài xong thì chọn đường này trong Cài đặt → Dịch thuật → "Dịch tự động bằng
+đường nào" (hoặc đặt TRANSLATE_MODE=offline trong .env).
+
+Câu này trước ghi "chỉ có tác dụng khi bật TRANSLATE_LOCAL_ENABLED=true VÀ
+không có máy chủ nào cấu hình" — đúng tới trước D1 (26/8/2026). Từ D1 người
+dùng CHỌN thẳng đường dịch, nên đường ngoại tuyến chạy được cả khi đã có tài
+khoản. Khoá cũ vẫn được đọc để chuyển tiếp máy đã cấu hình từ trước.
+
+Lưu ý về tiền: chạy ngoại tuyến bỏ được phí dịch (2 Vox mỗi dòng) nhưng
+KHÔNG miễn phí cả lượt — giá nền xử lý vẫn tính.
 
 Chạy 1 lần:  py scripts/setup_translate_local.py
 
@@ -108,8 +118,8 @@ def main() -> None:
     step_venv()
     step_install()
     step_model()
-    log("XONG — bật TRANSLATE_LOCAL_ENABLED=true trong .env để dùng "
-        "(chỉ có tác dụng khi KHÔNG cấu hình máy chủ dịch).")
+    log("XONG — vào Cài đặt → Dịch thuật, chọn \"Luôn ngoại tuyến\" "
+        "để dùng. Bỏ được phí dịch 2 Vox mỗi dòng; giá nền xử lý vẫn tính.")
 
 
 if __name__ == "__main__":

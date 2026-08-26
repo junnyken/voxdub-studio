@@ -11980,3 +11980,30 @@ sách khác: **suy ra, đừng gõ tay.**
 **Bài học riêng cho tôi:** D1 tôi làm xong, test xanh, tag phát hành — nhưng
 tính năng vẫn không dùng được vì bộ cài của nó không có trong gói. Test logic
 xanh không nói gì về việc thứ đó có tới tay người dùng hay không.
+
+## D1c — Mở gói ra kiểm, và câu chữ trong chính bộ cài (26/08/2026)
+
+**Đã mở tệp zip phát hành v3.10.1 ra kiểm thật** thay vì tin bản build:
+`scripts/` có 14 mục (12 bộ cài + `_python_ho_tro.py` + `python_tag.txt`),
+`setup_translate_local.py` 4.888 byte. Đối chiếu băm với tệp trong kho: khác
+nhau đúng phần xuống dòng CRLF do Windows nén, bỏ CR đi thì giống hệt.
+
+**Một cảnh báo giả của chính tôi:** lượt kiểm đầu báo "0 tệp — VẪN THIẾU". Đó
+là lỗi bộ lọc của tôi (`'/scripts/' in tên`, trong khi đường dẫn trong zip
+không có dấu `/` đứng đầu), không phải lỗi bản build.
+
+**Lỗi thật tìm được khi mở ra đọc:** chính `setup_translate_local.py` vẫn ghi
+*"Chỉ có tác dụng khi bật TRANSLATE_LOCAL_ENABLED=true trong .env VÀ không có
+máy chủ nào cấu hình"* — đúng tới trước D1, sai từ D1. Dòng báo khi cài xong
+cũng vậy. Người dùng cài xong đọc đúng câu bảo họ không dùng được.
+
+Lớp lỗi #5 lần nữa, và ở chỗ khó chịu nhất: trong tệp mà tôi vừa bảo họ chạy.
+
+**Đã làm:** viết lại phần mô tả và dòng kết của bộ cài — chỉ sang Cài đặt →
+Dịch thuật → "Luôn ngoại tuyến", ghi rõ khoá mới `TRANSLATE_MODE=offline`,
+nói rõ khoá cũ vẫn được đọc để chuyển tiếp, và nói rõ chuyện tiền (bỏ được
+phí dịch 2 Vox/dòng, giá nền vẫn tính).
+
+**Cách làm mới tự đặt cho mình:** trước khi bảo người dùng chạy một tệp trong
+bản phát hành, phải mở gói ra xem tệp đó có thật và đọc nội dung nó — test
+logic xanh không nói gì về việc thứ đó có tới tay người dùng hay không.
