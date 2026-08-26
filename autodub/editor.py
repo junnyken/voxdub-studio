@@ -63,6 +63,67 @@ def _find_source_video(work_dir: str) -> str | None:
     return source_video_path(work_dir)
 
 
+def ghi_bao_cao_chat_luong(work_dir: str, target, segments: list[dict],
+                           timing_report, settings=None) -> str:
+    """Ghi `quality_report.json` sau khi ghép lại từ Trình chỉnh sửa.
+
+    Vì sao cần (tìm ra 26/8/2026): bước ghép ở đây **đã đo** câu nào bị nén
+    tốc độ, câu nào còn chồng tiếng, dời bao nhiêu — rồi **vứt kết quả đi**
+    (kết quả bị gán vào một biến bỏ đi). Đường lồng tiếng chính
+    thì ghi ra tệp và trang Báo cáo chất lượng hiện đủ từng câu kèm chữ; ai
+    đi đường Trình chỉnh sửa thì không thấy gì cả.
+
+    Đúng chỗ này quan trọng với đường mới "Mở video + phụ đề tiếng Việt":
+    toàn bộ luồng đó nằm trong Trình chỉnh sửa, nên trước bản vá này người
+    dùng KHÔNG có cách nào biết câu nào bị đọc nhanh hay chồng tiếng.
+
+    **Không đặt thêm trần nào.** Trần nén đã có sẵn từ trước
+    (`timing_max_atempo`, mặc định 1.1) và engine đã tôn trọng nó — thứ
+    thiếu là báo cho người dùng, không phải một con số mới.
+
+    Giữ nguyên các phần của báo cáo cũ mà lượt ghép này không tính lại (trace
+    rà soát bản dịch, chất lượng tách nhạc nền…) — ghi đè cả tệp là xoá mất
+    dữ liệu của lượt chạy gốc.
+    """
+    import json as _json
+
+    from autodub.pipeline import DubPipeline
+
+    duong = data_path(work_dir, "quality_report.json", create_dir=True)
+    try:
+        moi = DubPipeline._build_quality_report(
+            target, segments, timing_report, settings)
+    except Exception as e:  # noqa: BLE001 — báo cáo hỏng không được giết lượt ghép
+        logger.warning(
+            f"Không dựng được báo cáo chất lượng ({e}) — video vẫn ghép "
+            "bình thường, chỉ thiếu bảng câu bị đọc nhanh/chồng tiếng.")
+        return ""
+
+    cu: dict = {}
+    if os.path.exists(duong):
+        try:
+            with open(duong, encoding="utf-8") as f:
+                doc = _json.load(f)
+            if isinstance(doc, dict):
+                cu = doc
+        except (ValueError, OSError) as e:
+            logger.warning(f"Báo cáo chất lượng cũ không đọc được ({e}) — ghi bản mới")
+
+    # Đè bằng số liệu mới, NHƯNG giá trị rỗng thì không đè: lượt ghép lại
+    # không chạy rà soát bản dịch nên `translate_review` của nó là `[]` —
+    # để nó đè lên trace thật của lượt chạy gốc là xoá dữ liệu.
+    for khoa, gia_tri in moi.items():
+        if gia_tri or khoa not in cu:
+            cu[khoa] = gia_tri
+    try:
+        with open(duong, "w", encoding="utf-8") as f:
+            _json.dump(cu, f, ensure_ascii=False, indent=2)
+    except OSError as e:
+        logger.warning(f"Không ghi được báo cáo chất lượng ({e})")
+        return ""
+    return duong
+
+
 def load_render_opts(work_dir: str) -> dict:
     """Read persisted subtitle/blur choices, or an empty dict."""
     path = data_path(work_dir, RENDER_OPTS_NAME)
@@ -752,11 +813,12 @@ def rebuild_output(
         dst = data_path(work_dir,
                         f"segments_speed{speed:.2f}".replace(".", "_"))
         merge_dir = slow_segments(segments, merge_dir, dst, speed)
+    timing_report = None
     if settings.soft_timing_fit:
         # Cùng cơ chế với pipeline: dồn trễ vào khoảng lặng, không đổi tốc độ
         # đọc từng câu.
         from autodub.media.timing import apply_soft_timing
-        merge_dir, _timing = apply_soft_timing(
+        merge_dir, timing_report = apply_soft_timing(
             segments, merge_dir, data_path(work_dir, "segments_timed"),
             settings)
     for s in segments:
@@ -777,6 +839,7 @@ def rebuild_output(
         segments, merge_dir, merged_audio_path, total_duration,
         background_path=background_path, background_gain_db=background_gain_db,
         duck_voice_db=settings.bg_duck_voice_db)
+    ghi_bao_cao_chat_luong(work_dir, target, segments, timing_report, settings)
     emit("merge_audio", "done", detail=merged_audio_path)
 
     check()

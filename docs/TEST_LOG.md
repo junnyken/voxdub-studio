@@ -8474,6 +8474,67 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C38 — Đo rồi vứt đi: báo cáo chất lượng mất khi ghép lại từ Editor (Phase H, 2026-08-26)
+
+Chủ dự án gửi bản đề bài **E1**: *"đo thật, đặt trần ép tốc độ đọc"*, kèm dặn
+rất đúng là **không được bịa số trần** mà phải đo trước.
+
+Rà trước khi gõ dòng nào, và **cả hai tiền đề của bản đề bài đều sai**:
+
+| Bản đề bài nói | Thực tế trong mã |
+|---|---|
+| "chưa có trần ép tốc độ" | **đã có**: `timing_max_atempo`, mặc định **1.1** |
+| "chưa đo tỷ lệ ép" | **đã đo từng câu**: `TimingReport.details` có `atempo`, `shift_s`, `overlap_prev_s` |
+| "chưa báo câu nào bị ép" | trang **Báo cáo chất lượng** hiện đủ *"đọc nhanh ×1.08"*, *"chồng tiếng 0.42s"* kèm chữ của câu |
+
+Nên việc đúng KHÔNG phải dựng tầng đo mới. Việc đúng nằm ở một dòng:
+
+    merge_dir, _timing = apply_soft_timing(...)
+
+**Đo xong rồi vứt đi.** Đường lồng tiếng chính ghi kết quả ra
+`quality_report.json`; đường ghép lại từ Trình chỉnh sửa thì không. Ai đi
+đường đó — bao gồm **toàn bộ luồng "Mở video + phụ đề tiếng Việt" (C37)** —
+không có cách nào biết câu nào bị đọc nhanh hay còn chồng tiếng.
+
+### Không thêm trần nào
+
+Trần đã có và engine đã tôn trọng nó. Thêm một con số nữa chỉ tạo hai nguồn sự
+thật. Thứ thiếu là **báo cho người dùng**, không phải một ngưỡng mới — và đây
+đúng là điều bản đề bài lo (đừng bịa số), chỉ khác chỗ: số không cần bịa vì đã
+có sẵn.
+
+### Hai lỗi trong chính bản vá, do test của nó bắt
+
+1. **Xoá mất dữ liệu của lượt chạy gốc.** `cu.update(moi)` — mà lượt ghép lại
+   không chạy rà soát bản dịch nên `translate_review` của nó là `[]`, đè lên
+   trace thật. Nay giá trị rỗng không được đè lên dữ liệu đã có.
+2. **Chốt đọc-mã đỏ oan.** Docstring của chính hàm mới trích lại dòng mã CŨ
+   làm ví dụ, nên phép kiểm "không còn `_timing = apply_soft_timing`" khớp
+   phải câu chú thích. Đúng bẫy C8, lần này ở dạng tự gài.
+
+### Tests (+6)
+
+Ghép lại để lại báo cáo · báo cáo chỉ rõ **từng câu kèm chữ và mức đọc nhanh**
+(cảnh báo chung thì người dùng không sửa được gì) · video sạch thì danh sách
+rỗng · **giữ phần của lượt chạy gốc** · báo cáo hỏng **không giết lượt ghép**
+(mất tiện nghi, không mất việc) · và chốt gốc: đường ghép không được vứt kết
+quả đo đi nữa.
+
+**2083 Python.**
+
+### Còn tồn — phần E1 chưa làm được và vì sao
+
+- **Chưa chạy thật.** Cần một video + `.srt` tiếng Việt thật, bấm «Đọc lại tất
+  cả» rồi mở trang Báo cáo chất lượng. Tôi không có video của chủ dự án, không
+  có giọng VieNeu trên máy này, và không bấm được giao diện Windows.
+- **Chưa chốt lại trần 1.1.** Đúng tinh thần bản đề bài: chưa có số liệu thật
+  thì không đổi. Con số 1.1 hiện có là mặc định cũ, chưa ai đo lại trên phụ đề
+  tiếng Việt thật — nhưng nó là **trần đang chạy**, không phải số tôi vừa bịa.
+- Nếu số liệu thật cho thấy đa số câu tiếng Việt dài hơn chỗ trống phụ đề gốc
+  thì đó là vấn đề gốc rễ khác (giãn nhẹ toàn video), cần mini-spec riêng —
+  đúng như bản đề bài đã lường trước.
+
+
 ## C37 — Nhập video + phụ đề tiếng Việt sẵn thành dự án (Phase H, 2026-08-26)
 
 Chủ dự án hỏi hai câu, và hoá ra là **một câu**:
