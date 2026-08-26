@@ -221,6 +221,26 @@ GOP_DICH_TOI_DA_GIAY = 7.0
 GOP_DICH_TOI_DA_CHU = 84
 
 
+def _ai_noi(seg: dict) -> tuple:
+    """Khoá nhận diện "ai đang nói" của một mẩu, để không gộp nhầm hai người.
+
+    PHẢI đọc đúng tên trường mà tầng phân giọng thật sự ghi ra:
+
+    - ``speaker_label`` — do ``diarization.assign_speakers()`` gán cho từng
+      mẩu ASR theo % chồng lấn thời gian. Đây mới là nhãn người nói.
+    - ``voice`` — do ``apply_segment_voices()`` gán sau đó. Hai mẩu khác giọng
+      thì dù cùng nhãn cũng không được nối, vì nối xong chỉ đọc được một giọng.
+    - ``speaker`` — tên trường của tầng diarization THÔ (trước khi gán sang
+      mẩu ASR); giữ lại cho chắc.
+
+    Bản đầu của `gop_de_dich` chỉ so ``speaker``, mà mẩu ASR KHÔNG hề có
+    trường đó — nên hai bên đều `None`, so ra bằng nhau, và câu của hai người
+    khác nhau bị nối làm một dòng rồi đọc bằng một giọng. Test lúc ấy vẫn
+    xanh vì nó cũng dựng dữ liệu giả bằng đúng tên trường sai.
+    """
+    return (seg.get("speaker_label"), seg.get("voice"), seg.get("speaker"))
+
+
 def gop_de_dich(segments: list[dict],
                 toi_da_giay: float = GOP_DICH_TOI_DA_GIAY,
                 toi_da_chu: int = GOP_DICH_TOI_DA_CHU) -> list[dict]:
@@ -252,7 +272,7 @@ def gop_de_dich(segments: list[dict],
 
         if ra:
             truoc_do = ra[-1]
-            cung_nguoi = seg.get("speaker") == truoc_do.get("speaker")
+            cung_nguoi = _ai_noi(seg) == _ai_noi(truoc_do)
             if cung_nguoi and not _nen_cat(truoc_do, chu, dau, cuoi,
                                            toi_da_giay, toi_da_chu):
                 truoc_do["text"] = f"{truoc_do['text']} {chu}".strip()

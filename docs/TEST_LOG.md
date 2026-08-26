@@ -12040,3 +12040,64 @@ không trùng nhau, và mọi `.bat` phải có `cd /d "%~dp0"` — thiếu dòn
 
 **Bộ canh chính tả của kho bắt lỗi của tôi:** tôi viết tiếng Việt không dấu
 trong một dòng chú thích; `test_vi_diacritics` đỏ ngay.
+
+## D1e — Rà Cài đặt trước khi phát hành: 5 lỗi, 1 nghiêm trọng (26/08/2026)
+
+Chủ dự án yêu cầu rà lại Cài đặt và các tính năng, sửa bug rồi mới phát hành.
+Rà có hệ thống thay vì vá từng chỗ tình cờ thấy.
+
+### Lỗi NGHIÊM TRỌNG — gộp câu nối nhầm hai người nói
+
+`gop_de_dich()` (V97, làm hôm qua) so trường `speaker` để biết có được nối hai
+mẩu hay không. Nhưng `diarization.assign_speakers()` ghi nhãn người nói vào
+**`speaker_label`**, không phải `speaker`. Hai bên đều `None`, so ra bằng
+nhau → **câu của hai người khác nhau bị nối thành một dòng**, và một dòng thì
+chỉ đọc được một giọng.
+
+Trúng đúng ca người dùng đang định chạy: video hai người đối thoại, gộp câu
+bật mặc định.
+
+**Test cũ vẫn xanh** vì nó dựng dữ liệu giả bằng đúng tên trường sai đó. Một
+bộ canh dùng sai tên trường thì không canh gì cả — đây là bài học đắt nhất
+của đợt này.
+
+Sửa: `_ai_noi(seg)` đọc `speaker_label` + `voice` + `speaker`. Thêm chốt buộc
+tên trường phải khớp tầng phân giọng thật (đọc thẳng `diarization.py`), và
+chốt không nối hai mẩu đã gán giọng khác nhau. Gỡ ra → 2 đỏ.
+
+### Bốn lỗi câu chữ nói sai về tiền và về đường chạy (lớp lỗi #5)
+
+1. Nhãn bước 3 **`QLabel("VoxDub Cloud")` viết chết** — người dùng chọn ngoại
+   tuyến ở trang Dịch thuật, sang bước 3 vẫn thấy VoxDub Cloud.
+2. Bảng tóm tắt bước 5 ghi cứng **"12 Vox/câu"** — ngoại tuyến thật ra 10.
+3. Dòng giải thích bước Chạy dịch cũng ghi cứng bộ số 10/12/20.
+4. Gợi ý ô "Dịch tự động" trong Cài đặt cũng vậy.
+
+Sửa KHÔNG phải vá bốn chuỗi: thêm `autodub_gui/gia.py` — MỘT chỗ tính giá,
+lấy **bảng giá thật từ máy chủ** (`app_config()["pricing"]`) nên đổi giá bên
+máy chủ là app hiện đúng ngay. Chỉ đọc bản đã nhớ đệm, cố ý không gọi mạng:
+hàm chạy trên luồng giao diện lúc dựng nhãn.
+
+Bộ canh mới `tests/test_gia_khong_go_thang.py` cấm gõ giá mỗi câu vào câu chữ
+giao diện — **nó lập tức bắt được ba chỗ do chính tôi vừa viết sáng nay**.
+
+### Thiếu ô: số người nói
+
+`speaker_count` có trong cấu hình từ V65b nhưng **chưa từng có ô nào trong
+giao diện** — chỉ đặt được bằng cách tự mở `.env`. Mà đây là thứ người dùng
+biết chắc (họ xem video rồi) còn máy thì phải đoán, và số người dùng khai
+được ưu tiên hơn mọi suy đoán. Đã thêm ô vào Cài đặt → Cơ bản.
+
+### Hai chỗ nghi mà KHÔNG phải lỗi
+
+- 5 ô cài đặt "app không đọc": kiểm ra đều có đọc, qua `env_dir`/`env_multiline`
+  mà biểu thức tìm của tôi bỏ sót. Không có ô chết.
+- 23 khoá không có ô giao diện: hầu hết là đường dẫn engine và tinh chỉnh
+  nâng cao — ẩn là đúng.
+
+### Đã xác nhận đúng (câu hỏi của chủ dự án)
+
+Phân giọng đưa **toàn bộ tệp vào một lượt** (`pipeline(args.audio)`), không
+chia khúc — nên trong cùng một video, chuyển cảnh hay đối đáp qua lại không
+làm mất dấu người nói. Nhãn KHÔNG ổn định giữa các video khác nhau; đó là
+việc của Hồ sơ nhân vật (V57).

@@ -19,12 +19,19 @@ from autodub.transcribe_tool import (GOP_DICH_TOI_DA_CHU, GOP_DICH_TOI_DA_GIAY,
 
 
 def _mau(*bo) -> list[dict]:
-    """(id, start, end, text[, speaker]) → danh sách segment."""
+    """(id, start, end, text[, người nói]) → danh sách segment.
+
+    Dùng ĐÚNG tên trường mà `diarization.assign_speakers()` ghi ra
+    (`speaker_label`). Bản đầu của tệp này dựng dữ liệu giả bằng trường
+    `speaker` — một tên không hề tồn tại trên mẩu ASR — nên test xanh trong
+    khi mã thật gộp nhầm hai người thành một dòng. Bài học: dữ liệu giả sai
+    tên trường là test không kiểm gì cả.
+    """
     ra = []
     for x in bo:
         seg = {"id": x[0], "start": x[1], "end": x[2], "text": x[3]}
         if len(x) > 4:
-            seg["speaker"] = x[4]
+            seg["speaker_label"] = x[4]
         ra.append(seg)
     return ra
 
@@ -51,7 +58,7 @@ def test_khong_gop_qua_hai_nguoi_noi():
                 (3, 1.6, 2.2, "Tôi khỏe", "B"))
     ra = gop_de_dich(segs)
     assert len(ra) == 2
-    assert ra[0]["speaker"] == "A" and ra[1]["speaker"] == "B"
+    assert ra[0]["speaker_label"] == "A" and ra[1]["speaker_label"] == "B"
     assert ra[1]["text"] == "Tôi khỏe"
 
 
@@ -111,3 +118,33 @@ def test_tiet_kiem_that_tren_du_lieu_vun():
             for i in range(300)]
     truoc, sau = len(segs), len(gop_de_dich(segs))
     assert sau < truoc / 2, f"gộp xong vẫn còn {sau}/{truoc} dòng"
+
+
+def test_ten_truong_nguoi_noi_khop_tang_phan_giong_that():
+    """Chốt chống lặp lại lỗi gốc: `gop_de_dich` phải đọc đúng tên trường mà
+    `assign_speakers()` ghi ra. Sai tên là gộp nhầm hai người, và test dùng
+    dữ liệu giả cùng tên sai sẽ không bắt được."""
+    import ast
+
+    nguon = open("autodub/speech/diarization.py", encoding="utf-8").read()
+    assert 'seg["speaker_label"] = best_speaker' in nguon, \
+        "tầng phân giọng đổi tên trường — cập nhật _ai_noi cho khớp"
+
+    tt = open("autodub/transcribe_tool.py", encoding="utf-8").read()
+    for nut in ast.walk(ast.parse(tt)):
+        if isinstance(nut, ast.FunctionDef) and nut.name == "_ai_noi":
+            than = ast.get_source_segment(tt, nut) or ""
+            break
+    else:
+        raise AssertionError("không còn hàm _ai_noi")
+    assert "speaker_label" in than, "hàm gộp không đọc nhãn người nói thật"
+    assert "voice" in than, "hai mẩu khác giọng vẫn có thể bị nối làm một"
+
+
+def test_khong_gop_hai_mau_khac_giong_du_cung_nhan():
+    """Giọng đã gán khác nhau thì nối lại chỉ đọc được một giọng."""
+    segs = [{"id": 1, "start": 0.0, "end": 0.8, "text": "Xin",
+             "speaker_label": "A", "voice": "Giọng 1"},
+            {"id": 2, "start": 0.9, "end": 1.5, "text": "chào",
+             "speaker_label": "A", "voice": "Giọng 2"}]
+    assert len(gop_de_dich(segs)) == 2

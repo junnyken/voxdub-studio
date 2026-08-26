@@ -115,6 +115,15 @@ FIELDS: tuple[Field, ...] = (
           "giọng đọc riêng. Cần cài thêm một lần (py "
           "scripts/setup_diarization.py) — chưa cài thì bật cũng không có "
           "tác dụng, video vẫn đọc bằng 1 giọng như trước."),
+    # `speaker_count` có trong cấu hình từ V65b nhưng CHƯA TỪNG có ô nào
+    # trong giao diện — chỉ đặt được bằng cách tự mở .env ra sửa. Mà đây là
+    # thứ người dùng biết chắc còn máy thì phải đoán: họ đã xem video rồi.
+    Field("SPEAKER_COUNT", NUMBER, "Số người nói trong video",
+          TAB_BASIC, "Nghe và chép lời video gốc", "0",
+          "Để 0 thì ứng dụng tự đoán. Biết chắc video có mấy người thì điền "
+          "vào — bạn xem video rồi, máy thì không, nên số bạn khai luôn được "
+          "ưu tiên. Chỉ có tác dụng khi đã bật tách giọng theo người nói.",
+          minimum=0, maximum=10, step=1, decimals=0),
     Field("EMOTION_VOICE_ENABLED", CHECK, "Tự đổi giọng điệu theo cảm xúc",
           TAB_VOICE, "Phong cách", "false",
           "Câu cảm thán/nghiêm túc được đọc khác câu bình thường thay vì "
@@ -318,8 +327,10 @@ FIELDS: tuple[Field, ...] = (
     # được phần lớn, nhưng người làm kênh biết rõ hơn máy.
     Field("TRANSLATE_ENABLED", CHECK, "Bật dịch tự động", TAB_TRANSLATE,
           "Dịch tự động", "true",
-          "Bật: máy chủ dịch toàn bộ, 12 Vox mỗi câu thoại. Tắt: ứng dụng "
-          "dừng ở bước dịch và hướng dẫn bạn dịch tay, còn 10 Vox mỗi câu."),
+          "Bật: ứng dụng tự dịch bằng đường bạn chọn ở ô dưới. Qua máy chủ "
+          "thì có phí dịch cộng thêm mỗi câu; ngoại tuyến thì không. Tắt: "
+          "ứng dụng dừng ở bước dịch và hướng dẫn bạn dịch tay. Số Vox chính "
+          "xác luôn hiện ở bảng duyệt chi phí trước khi trừ ví."),
     Field("TRANSLATE_BATCH_SIZE", NUMBER, "Số câu mỗi lượt gửi", TAB_TRANSLATE,
           "Dịch tự động", "40",
           "Lô nhỏ hơn thì chậm hơn một chút nhưng mạch dịch bám ngữ cảnh sát "
@@ -336,8 +347,9 @@ FIELDS: tuple[Field, ...] = (
     Field("TRANSLATE_MODE", COMBO,
           "Dịch tự động bằng đường nào", TAB_TRANSLATE,
           "Dịch tự động", "server",
-          "Ngoại tuyến bỏ được phí dịch (2 Vox mỗi dòng) nhưng KHÔNG miễn phí "
-          "cả lượt — giá nền xử lý vẫn tính. Đổi lại, bản dịch do model chạy "
+          "Ngoại tuyến bỏ được phần phí dịch cộng thêm nhưng KHÔNG miễn phí "
+          "cả lượt — giá nền xử lý vẫn tính; số Vox chính xác hiện ở bảng "
+          "duyệt chi phí trước khi chạy. Đổi lại, bản dịch do model chạy "
           "trên máy làm nên chất lượng thấp hơn máy chủ và đã ghi nhận có thể "
           "bỏ sót câu khi bản chép lời nhiễu. Muốn dùng phải cài một lần "
           "~620 MB bằng scripts/setup_translate_local.py.",

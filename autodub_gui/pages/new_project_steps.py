@@ -397,10 +397,16 @@ class TranslateStep(_StepPanel):
 
         # Hai lựa chọn quyết định giá của video — lưu lại vào Cài đặt khi
         # bấm chạy để các video sau dùng luôn, khỏi chọn lại.
-        self.auto_translate = QCheckBox("Dịch tự động qua máy chủ VoxDub")
+        self.auto_translate = QCheckBox("Dịch tự động")
+        # Giá hỏi bảng giá thật, không gõ số vào câu chữ (D1e).
+        from autodub_gui import gia as _gia
+
+        _nen, _them, _ = _gia.bang_gia()
         self.auto_translate.setToolTip(
-            "Bật: máy chủ dịch toàn bộ, 12 Vox mỗi câu thoại. Tắt: ứng dụng "
-            "dừng ở bước dịch và hướng dẫn bạn dịch tay, còn 10 Vox mỗi câu.")
+            "Bật: ứng dụng tự dịch bằng đường bạn chọn ở ô \"Dịch bằng\" bên "
+            f"dưới — qua máy chủ thì {_nen + _them} Vox một câu thoại, ngoại "
+            f"tuyến thì {_nen}. Tắt: ứng dụng dừng ở bước dịch và hướng dẫn "
+            f"bạn dịch tay, cũng {_nen}.")
         self.auto_translate.setChecked(True)
         self.auto_translate.toggled.connect(self._on_auto_translate)
         self.body.addWidget(self.auto_translate)
@@ -419,8 +425,8 @@ class TranslateStep(_StepPanel):
             "Quyết định giọng văn của bản dịch, ví dụ trang trọng hay đời thường.")
         self.engine_row = LabeledWidget(
             "Dịch bằng", self._engine_view(),
-            "Máy chủ VoxDub tự chọn mô hình tốt nhất — bạn không phải cấu "
-            "hình gì.")
+            "Đường dịch đang chọn. Đổi ở trang Dịch thuật, mục \"Dịch tự "
+            "động bằng đường nào\".")
         self.note = LabeledLineEdit(
             "Ghi chú thêm cho người dịch",
             "ví dụ: giữ tên nhân vật Hán Việt, xưng hô mình với các bạn",
@@ -443,9 +449,25 @@ class TranslateStep(_StepPanel):
         self.body.addWidget(self.manual_note)
         self.finish()
 
-    @staticmethod
-    def _engine_view() -> QLabel:
-        view = QLabel("VoxDub Cloud")
+    #: Nhãn cho từng đường dịch (mini-spec D1). Trước đây ô này viết chết
+    #: "VoxDub Cloud" — đúng khi máy chủ là đường tự động DUY NHẤT, sai kể từ
+    #: D1 khi người dùng chọn được ngoại tuyến: họ chọn ngoại tuyến ở trang
+    #: Dịch thuật rồi sang đây vẫn thấy chữ "VoxDub Cloud", không biết tin
+    #: cái nào. Lỗi thật, chủ dự án phát hiện bằng ảnh chụp 26/8/2026.
+    NHAN_DUONG_DICH = {
+        "server": "VoxDub Cloud — có phí dịch",
+        "offline": "Ngoại tuyến, trên máy bạn — không phí dịch",
+        "auto": "Tự động — ưu tiên VoxDub Cloud, mất mạng thì ngoại tuyến",
+    }
+
+    def set_translate_mode(self, che_do: str) -> None:
+        """Cập nhật nhãn theo đường dịch người dùng đã chọn trong Cài đặt."""
+        self._engine_label.setText(
+            self.NHAN_DUONG_DICH.get(che_do, self.NHAN_DUONG_DICH["server"]))
+
+    def _engine_view(self) -> QLabel:
+        view = QLabel(self.NHAN_DUONG_DICH["server"])
+        self._engine_label = view
         view.setStyleSheet(
             f"color: {tokens.TEXT_PRIMARY}; font-size: {tokens.FS_BODY}px; "
             f"font-weight: 600; background: {tokens.BG_INPUT}; "
@@ -732,9 +754,15 @@ class RunStep(_StepPanel):
             f"padding: 10px 12px;")
         self.body.addWidget(LabeledWidget("Tóm tắt lựa chọn", self.summary))
 
+        # Không gõ thẳng con số vào câu này (D1e): giá thay đổi theo đường
+        # dịch đang chọn, và máy chủ đổi được bảng giá lúc chạy.
+        from autodub_gui import gia as _gia
+
+        _nen, _them, _meta = _gia.bang_gia()
         note = QLabel(
             "Giá của video chốt ngay sau bước nghe-chép, theo số câu thoại "
-            "(10 Vox/câu, 12 nếu bật dịch tự động, +20 cho gói tiêu đề + mô "
+            f"({_nen} Vox/câu, {_nen + _them} nếu dịch tự động qua máy chủ, "
+            f"vẫn {_nen} nếu dịch ngoại tuyến, +{_meta} cho gói tiêu đề + mô "
             "tả) và không đổi nữa — ứng dụng báo tổng Vox trước khi trừ ví.")
         note.setWordWrap(True)
         note.setStyleSheet(

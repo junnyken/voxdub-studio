@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from autodub.media.subtitle import PRESET_CHOICES
 from autodub.pipeline import DubRequest, DubResult
 from autodub_gui import dub_constants as consts
+from autodub_gui import gia
 from autodub_gui import icons, tokens
 from autodub_gui.pages import BasePage
 from autodub_gui.pages.new_project_steps import (
@@ -291,6 +292,10 @@ class NewProjectPage(BasePage):
         self._refresh_footer()
         if index == 2:
             self.step_translate.set_source_language(self._source_lang_label())
+            # Đường dịch đọc lại mỗi lần vào bước này — người dùng có thể vừa
+            # đổi ở trang Dịch thuật rồi quay sang đây (mini-spec D1).
+            self.step_translate.set_translate_mode(
+                getattr(self._settings_provider(), "translate_mode", "server"))
         if index == _RUN_INDEX:
             self.step_run.set_summary(self._summary_rows())
 
@@ -433,6 +438,18 @@ class NewProjectPage(BasePage):
         return next((label for label, key in consts.SOURCE_LANGS
                      if key == code), code)
 
+    def _mo_ta_cach_dich(self, data: dict) -> str:
+        """Câu mô tả cách dịch KÈM giá đúng của đường đang chọn (D1e)."""
+        st = self._settings_provider()
+        gia_cau = gia.moi_cau(st, bool(data["auto_translate"]))
+        if not data["auto_translate"]:
+            return f"dịch tay có hướng dẫn ({gia_cau} Vox/câu)"
+        ten = {"offline": "tự động, ngoại tuyến trên máy bạn",
+               "auto": "tự động (ưu tiên máy chủ)"}.get(
+                   getattr(st, "translate_mode", "server"),
+                   "tự động qua máy chủ")
+        return f"{ten} ({gia_cau} Vox/câu)"
+
     def _summary_rows(self) -> list[tuple[str, str]]:
         """Bảng tóm tắt hiện ở bước cuối, viết bằng lời thường."""
         data = self.values()
@@ -449,15 +466,16 @@ class NewProjectPage(BasePage):
              label_of(consts.DUB_TARGETS, data.get("target_key", "vi"))),
             ("Độ chính xác khi nghe",
              label_of(consts.WHISPER_MODELS, data["whisper_model"])),
-            ("Cách dịch",
-             "tự động (12 Vox/câu)" if data["auto_translate"]
-             else "dịch tay có hướng dẫn (10 Vox/câu)"),
+            # Giá hỏi `gia.moi_cau` chứ không gõ thẳng: dịch ngoại tuyến
+            # không có phần cộng thêm, mà bảng này từng ghi cứng 12 (D1e).
+            ("Cách dịch", self._mo_ta_cach_dich(data)),
             ("Phong cách dịch",
              label_of([(a, b) for a, b, _c in consts.TRANSLATE_STYLES],
                       data["translate_style"])
              if data["auto_translate"] else "—"),
             ("Tiêu đề + mô tả đăng bài",
-             "có (+20 Vox)" if data["generate_metadata"] else "không"),
+             f"có (+{gia.gia_goi_dang_bai()} Vox)"
+             if data["generate_metadata"] else "không"),
             ("Giọng đọc",
              f"{data['voice'] or 'theo cài đặt chung'} · "
              f"tốc độ {data['voice_speed']:.2f}x"),
