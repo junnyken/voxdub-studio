@@ -137,6 +137,10 @@ def step_pyinstaller() -> None:
 #: script đó vẫn có `.bat`, chỉ là câu mô tả chung chung — cố ý: thà một tệp
 #: mô tả sơ sài còn hơn người dùng mở thư mục ra và kết luận tính năng không
 #: tồn tại (đúng chuyện đã xảy ra 26/8/2026 với tách giọng người nói).
+#: Script cần token HuggingFace: `.bat` phải hỏi rồi truyền vào, không thì
+#: đúp chuột lần nào cũng dừng ở đúng chỗ "thiếu token".
+CAN_HF_TOKEN = {"setup_diarization.py"}
+
 MO_TA_SETUP = {
     "setup_translate_local.py": (
         "Cai dat dich ngoai tuyen",
@@ -173,13 +177,36 @@ def _bat_cho(script: str) -> str:
         script, (f"Cai dat {script[6:-3].replace('_', ' ')}",
                  "Script cai dat phan mo rong cho VoxDub Studio.", ""))
     canh_bao = f"echo  {dong2}\n" if dong2 else ""
+    # Script nào cần token thì .bat phải HỎI rồi truyền vào. Không hỏi thì
+    # đúp chuột chỉ có một kết cục: script báo thiếu token rồi thoát, lần nào
+    # cũng vậy — người dùng không có đường nào đi tiếp ngoài mở dòng lệnh
+    # (gặp thật 26/8/2026 với tách giọng theo người nói).
+    hoi_token = script in CAN_HF_TOKEN
+    them = " --hf-token %HFTOKEN%" if hoi_token else ""
     chay = " || ".join(
-        [f"py -3.{v} scripts\\{script} 2>nul" for v in (12, 11, 10)]
-        + [f"py scripts\\{script}", f"python scripts\\{script}"])
+        [f"py -3.{v} scripts\\{script}{them} 2>nul" for v in (12, 11, 10)]
+        + [f"py scripts\\{script}{them}",
+           f"python scripts\\{script}{them}"])
+    xin_token = (
+        'echo.\n'
+        'echo  Buoc 1: tao tai khoan mien phi tai https://huggingface.co/join\n'
+        'echo  Buoc 2: bam "Agree and access repository" o ca ba trang:\n'
+        'echo     https://huggingface.co/pyannote/speaker-diarization-3.1\n'
+        'echo     https://huggingface.co/pyannote/segmentation-3.0\n'
+        'echo     https://huggingface.co/pyannote/speaker-diarization-community-1\n'
+        'echo  Buoc 3: tao token tai https://huggingface.co/settings/tokens\n'
+        'echo.\n'
+        'set /p HFTOKEN=Dan token roi bam Enter: \n'
+        'if "%HFTOKEN%"=="" (\n'
+        '    echo  !! Chua co token thi khong cai duoc. Dung lai.\n'
+        '    pause\n'
+        '    exit /b 1\n'
+        ')\n') if hoi_token else ''
     return (f'@echo off\nchcp 65001 >nul\ntitle {tieu_de} cho VoxDub Studio\n'
             f'echo.\necho  {dong1}\n{canh_bao}'
             'echo  Yeu cau: da cai Python 3.10-3.12 '
             '(xem HUONG_DAN_CAI_DAT.md, Buoc 2).\n'
+            f'{xin_token}'
             f'echo.\ncd /d "%~dp0"\n{chay}\n'
             'if errorlevel 1 (\n'
             '    echo.\n'

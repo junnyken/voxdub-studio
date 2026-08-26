@@ -86,10 +86,30 @@ def step_smoke(hf_token: str) -> None:
         log("smoke test đã đạt — bỏ qua")
         return
     if not hf_token:
+        # In HẲN các bước ra đây. Bảo người dùng "xem docstring ở đầu file
+        # này" là bảo họ mở một tệp .py ra đọc — với người bấm .bat thì đó
+        # không phải hướng dẫn, đó là ngõ cụt (gặp thật 26/8/2026).
         raise SystemExit(
-            "!! Thiếu HuggingFace access token — bắt buộc để dùng model "
-            "diarization. Xem hướng dẫn ở đầu file này (docstring), rồi "
-            "chạy lại: py scripts/setup_diarization.py --hf-token hf_xxx")
+            "!! Thiếu HuggingFace access token — pyannote khoá model, không "
+            "có cách nào tải nếu chưa có token.\n"
+            "\n"
+            "Làm ba bước sau, mỗi bước một lần duy nhất:\n"
+            "\n"
+            "  1. Tạo tài khoản miễn phí: https://huggingface.co/join\n"
+            "  2. Bấm «Agree and access repository» ở CẢ HAI trang dưới đây\n"
+            "     (khác nhau tuỳ bản pyannote pip cài về — cứ bấm cả hai):\n"
+            "       https://huggingface.co/pyannote/speaker-diarization-3.1\n"
+            "       https://huggingface.co/pyannote/segmentation-3.0\n"
+            "       https://huggingface.co/pyannote/speaker-diarization-community-1\n"
+            "  3. Tạo token (quyền đọc là đủ):\n"
+            "       https://huggingface.co/settings/tokens\n"
+            "\n"
+            "Rồi chạy lại, dán token vào chỗ hf_xxx:\n"
+            "\n"
+            "    py scripts/setup_diarization.py --hf-token hf_xxx\n"
+            "\n"
+            "Bỏ qua bước 2 thì token hợp lệ vẫn bị từ chối (lỗi 403) — đó là "
+            "luật của pyannote, không phải của VoxDub.")
 
     log("nạp thử model diarization thật (cần mạng, có thể mất vài phút "
         "lần đầu) ...")
