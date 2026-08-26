@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-08-24 · phiên bản ứng dụng `3.8.8`
+> Cập nhật: 2026-08-26 · phiên bản ứng dụng `3.9.1`
 
 ---
 
@@ -40,10 +40,10 @@ hay chưa:
 
 | Phần | Công nghệ | Vai trò |
 |---|---|---|
-| `autodub/` | Python ≥3.10, ~55.000 dòng | Lõi xử lý: tải, tách tiếng, chép lời, dịch, tạo giọng, ghép video |
-| `autodub_gui/` | PySide6 (Qt) | Giao diện máy tính, 17 trang |
-| `control_server/` | Node 20, Fastify 5, MongoDB | Máy chủ: ví Vox, cổng gọi mô hình AI, thống kê, quản trị |
-| `website/` | React 18, Vite, Tailwind | Trang bán hàng + trang quản trị |
+| `autodub/` | Python ≥3.10, ~28.000 dòng | Lõi xử lý: tải, tách tiếng, chép lời, dịch, tạo giọng, ghép video |
+| `autodub_gui/` | PySide6 (Qt), ~30.000 dòng | Giao diện máy tính, **18 trang** |
+| `control_server/` | Node 20, Fastify 5, MongoDB, ~12.000 dòng | Máy chủ: ví Vox, cổng gọi mô hình AI, thống kê, quản trị |
+| `website/` | React 18, Vite, Tailwind, ~7.000 dòng | Trang bán hàng + trang quản trị |
 
 **Một quy tắc kiến trúc quan trọng nhất, hay bị vi phạm nhất:** mọi engine AI
 nặng (Whisper, Demucs, VieNeu, NLLB, diarization, lipsync) **không** nằm
@@ -65,9 +65,18 @@ xảy ra trên Windows đều không được test tự động.**
 
 ### 3.1 Lồng tiếng video (luồng chính, 8 bước)
 
-1. **Tải video** — YouTube, TikTok, Facebook, Douyin, Bilibili… qua `yt-dlp`;
-   hoặc chọn tệp trên máy. Có xử lý riêng cho Douyin và cho link YouTube
-   dính playlist.
+1. **Tải video** — qua `yt-dlp`, hoặc chọn tệp trên máy. Có xử lý riêng cho
+   link YouTube dính playlist (thiếu `noplaylist` từng làm hỏng MỌI lượt tải
+   link dạng Mix) và cho chữ chia sẻ dán nguyên cả câu tiếng Trung (tự bóc
+   lấy địa chỉ trong đó).
+
+   **Nền tảng — nói thẳng mức độ chắc chắn:**
+
+   | Nền tảng | Thực tế |
+   |---|---|
+   | YouTube, TikTok, Facebook | Chạy được, dùng thường xuyên |
+   | **Douyin** | **Đã đóng mọi cửa ẩn danh** (C33): trang chia sẻ không còn địa chỉ video, `iteminfo` trả rỗng, `detail` trả 403. Chỉ còn đường **cookie của chính người dùng**; không có cookie thì báo hỏng thay vì thử vô ích. Đã đo tay nhiều đường, không phải suy đoán. |
+   | Bilibili và các nền tảng Trung khác | **Chưa từng kiểm chứng** — máy chạy thử bị chặn ở tầng địa chỉ mạng (HTTP 412 ngay cả khi mở trang thường), nên không kết luận được gì. |
 2. **Tách âm thanh** khỏi video.
 3. **Tách nhạc nền khỏi giọng nói** (Demucs) — chạy trên máy hoặc trên máy
    chủ (50 Vox/lượt). Nhờ bước này bản lồng tiếng vẫn còn nhạc gốc.
@@ -89,6 +98,8 @@ Bồ Đào Nha, Pháp, Đức.
 **Ngôn ngữ nguồn nhận diện (16):** en, vi, zh, ko, ja, th, id + các biến thể
 vùng.
 
+**Ba thứ thêm gần đây, đều đụng tới tiền hoặc công sức người dùng:**
+
 - **Chi phí hiện ra TRƯỚC khi chạy** (V97). Sau bước nghe-chép (chạy trên máy,
   miễn phí) app hỏi "video này tốn bao nhiêu Vox, ví còn bao nhiêu" rồi mới
   chạy tiếp. Trước đó số Vox chỉ hiện ở bảng tổng kết — tức là sau khi đã trừ.
@@ -98,6 +109,13 @@ vùng.
   chục mẩu một-hai chữ. Đo trên dữ liệu vụn mô phỏng: còn 18% số dòng. Hạn
   mức 7 giây/84 chữ để dòng gộp vẫn làm phụ đề đọc được; không gộp qua hai
   người nói. Tắt được bằng `GOP_CAU_TRUOC_KHI_DICH`.
+- **Nâng cấp không mất gì đã cài** (V77/V81/V96). `.venv-*`, `models/`, `bin/`
+  và `.env` đều nằm *trong* thư mục ứng dụng, nên bản mới về nguyên tắc là
+  trắng trơn. App tự dò các thư mục **nằm cùng thư mục cha** và dùng lại:
+  engine + model, FFmpeg, và cài đặt/khoá API/token (chép sang một lần lúc
+  khởi động). Quy trình nâng cấp rút còn: giải nén cạnh bản cũ, mở lên.
+  **Điều kiện:** phải cùng thư mục cha. Sang ổ đĩa khác thì vẫn phải chép tay
+  hoặc trỏ đường dẫn trong Cài đặt.
 
 ### 3.2 Trình chỉnh sửa
 
@@ -109,15 +127,42 @@ lại cả video.
 
 | Công cụ | Việc nó làm |
 |---|---|
-| **Chép lời** | Liên kết/video/mp3 → văn bản + `.srt`/`.vtt`/`.json`, có mốc thời gian. Chọn nhiều tệp một lượt. **Ghi kết quả dần** (tệp dài không sợ mất) và **cắt tệp dài** ngay trong app. |
+| **Chép lời** | Liên kết/video/mp3 → văn bản + `.srt`/`.vtt`/`.json`, có mốc thời gian. Chọn nhiều tệp một lượt. Xem §3.4 — đây là phần được mài nhiều nhất gần đây. |
 | **Dịch phụ đề** | Dịch một tệp `.srt`/`.vtt` rời |
 | **Tải xuống** | Chỉ tải video về, không lồng tiếng |
 | **Xử lý hàng loạt** | Lồng tiếng nhiều video một lượt, có thử lại và ghi nhật ký hỏng |
 | **Hồ sơ nhân vật** | Giữ cùng một giọng cho cùng một nhân vật qua nhiều tập phim |
 | **Báo cáo chất lượng** | Thống kê độ tin cậy ASR, cảnh báo câu chồng tiếng, câu đọc quá nhanh |
-| **Ảnh sản phẩm** | Dựng bối cảnh mới cho ảnh sản phẩm — xem §3.5 |
+| **Ảnh sản phẩm** | Dựng bối cảnh mới cho ảnh sản phẩm — xem §3.6 |
 
-### 3.4 Cổng trợ lý AI (9 tác vụ)
+### 3.4 Chép lời tệp dài — phần được mài nhiều nhất gần đây
+
+Sinh ra từ một việc thật: một tệp giảng bài `.m4a` dài **3 giờ 43 phút**
+(206 MB). Bốn thứ được thêm vì tệp đó, và tất cả đều chạy trên máy người dùng
+nên **không tốn Vox**:
+
+- **Tự chia tệp dài.** Quá `PHUT_TU_CAT` (45 phút) thì tự cắt thành nhiều
+  đoạn, **cắt bám vào khoảng lặng** (dò trong ±90 giây quanh mốc) để không
+  chặt ngang câu. Cắt bằng chép luồng (`-c copy`) nên gần như tức thì và
+  không mất chất lượng. Mỗi đoạn mang mốc bắt đầu thật trong tên tệp, kết quả
+  được **dời mốc thời gian về đúng vị trí trong tệp gốc** rồi ghép lại thành
+  một bản duy nhất — người dùng không phải tự ghép.
+- **Ghi kết quả dần** ra `<tên>.dang_chay.txt`, đẩy xuống đĩa theo từng câu.
+  Dừng giữa chừng (tắt máy, lỗi) vẫn còn nguyên phần đã nghe.
+- **Lọc câu bịa.** Whisper ở quãng im hay đọc ra câu mẫu kiểu "hãy đăng ký
+  kênh". Hai lớp: gộp các câu **lặp lại liên tiếp** (≥3 lần giống hệt), và
+  **bỏ câu nằm trọn trong vùng im lặng**. Gốc rễ đã sửa ở tầng dưới:
+  `condition_on_previous_text=False` — chính tham số mặc định này đẩy mô hình
+  vào vòng lặp tự nhắc lại.
+- **Gộp câu cho tệp `.txt`.** Bộ nghe cắt theo khoảng lặng 500ms nên bản chép
+  ra có thể toàn dòng một-hai chữ. Nút "Gộp câu cho .txt…" đọc lại tệp đã
+  xuất và nối thành câu đọc được — **không đè lên tệp gốc**, ghi ra
+  `..._da_gop.txt`. Đo trên tệp 8.123 dòng: xong dưới 1 giây, còn 18% số dòng.
+
+**Chưa làm:** phân biệt người nói (diarization) trong công cụ chép lời độc
+lập — chủ dự án chủ động bỏ qua ("chỉ cần ra được text là đủ").
+
+### 3.5 Cổng trợ lý AI (9 tác vụ)
 
 Một cửa duy nhất cho mọi việc cần mô hình ngôn ngữ. **App gửi tên tác vụ,
 không gửi câu lệnh** — toàn bộ câu chữ hướng dẫn mô hình nằm trên máy chủ,
@@ -133,13 +178,13 @@ nên sửa chúng hoặc đổi mô hình không cần phát hành lại bản `
 | `tighten_line` | Rút gọn câu dịch cho vừa thời lượng | 2 Vox |
 | `packaging_check` | Kiểm ảnh dựng có còn đúng sản phẩm không | 3 Vox |
 | `scene_continuity` | Các cảnh trong video có nhìn liền mạch không (cảnh báo, không chặn) | 4 Vox |
-| `scene_script` | Gợi ý câu dẫn và nhịp cho từng cảnh | 3 Vox |
+| `scene_script` | Gợi ý câu dẫn và nhịp cho từng cảnh | 3 Vox (**8 Vox** nếu kèm xem ảnh) |
 
 Có **bốn lớp chặn chi phí**: danh sách tác vụ đóng (tên lạ bị chặn ở tầng
 schema, trước cả xác thực) → trần ký tự → hạn mức ngày mỗi máy → nhớ đệm
 theo nội dung (bấm lại cùng câu hỏi thì 0 đồng).
 
-### 3.5 Ảnh sản phẩm + cổng tuân thủ (mới nhất, chưa mở)
+### 3.6 Ảnh sản phẩm + cổng tuân thủ (mới nhất, chưa mở)
 
 Sinh ra từ một án phạt thật: tài khoản TikTok Shop của chủ dự án bị **hủy
 quyền thương mại điện tử + trừ 1000 điểm** ngày 19/8/2026 vì "quảng bá sản
@@ -164,7 +209,7 @@ tích ảnh không muốn đưa vào. Danh sách chỉ hiện ảnh đăng bán 
 không lặng lẽ bỏ ảnh đó ra (xuất thiếu một cảnh mà không ai biết thì tệ hơn).
 Video ra luôn mang nhãn "AI-generated" ở cảnh đầu, không có tuỳ chọn tắt.
 
-### 3.6 Máy chủ và quản trị
+### 3.7 Máy chủ và quản trị
 
 - **Ví Vox**: nạp bằng mã kích hoạt hoặc thanh toán PayOS; có cơ chế *giữ
   tiền* (hold) để không tính tiền hai lần khi thử lại; có đối soát.
@@ -177,7 +222,7 @@ Video ra luôn mang nhãn "AI-generated" ở cảnh đầu, không có tuỳ ch�
 - **Chế độ dựng trên máy chủ**: đẩy cả lượt lồng tiếng lên máy chủ chạy
   (150 Vox/phút video, 250 nếu có tách nhạc nền).
 
-### 3.7 Dòng lệnh (không cần giao diện)
+### 3.8 Dòng lệnh (không cần giao diện)
 
 `voxdub dub` · `batch` · `cloud` · `translate` · `watch` (theo dõi một thư
 mục, có video mới thì tự xử lý).
@@ -216,19 +261,20 @@ chỉ giữ tên/giọng, không giữ câu thoại.
 
 ### 5.1 Nghiêm trọng — ảnh hưởng người dùng thật
 
-- **Nâng cấp: chỉ cần giải nén CẠNH bản cũ.** `.venv-*`, `models/`, `bin/` và
-  `.env` đều nằm *trong* thư mục ứng dụng, nên bản mới về nguyên tắc là trắng
-  trơn. App tự dò các thư mục **nằm cùng thư mục cha** và dùng lại: engine +
-  model (V77), FFmpeg (V81), và cài đặt/khoá API/token (V96 — chép sang một
-  lần lúc khởi động). Không phải chép tay 1,5 GB.
-  **Điều kiện:** bản mới phải nằm cùng thư mục cha với bản cũ. Giải nén sang ổ
-  đĩa khác thì vẫn phải chép tay, hoặc trỏ đường dẫn trong Cài đặt.
 - **Không có máy Windows nào để kiểm thử.** Test chạy trên Linux; mọi bản
   phát hành đều do người dùng cuối phát hiện lỗi. Cả một chuỗi lỗi
   (V73–V87) đến từ ảnh chụp màn hình của người dùng, không phải từ test.
 
 ### 5.2 Đã biết, chưa sửa
 
+- **Đường dịch miễn phí đã thành không thể chạm tới.** `translate_local`
+  (NLLB chạy trên máy, 0 Vox) chỉ chạy khi `is_configured()` sai. Từ 22/8/2026
+  địa chỉ máy chủ được **nhúng thẳng vào `.exe`** để sửa lỗi bản offline câm —
+  hệ quả kèm theo: `is_configured()` từ nay LUÔN đúng, nên ô "Dịch tự động
+  ngoại tuyến" trong Cài đặt vẫn hiện nhưng **vô hiệu trên mọi bản phát hành**.
+  Câu mô tả của ô đó có nói rõ điều kiện, nên không phải lời hứa sai — nhưng
+  người dùng không có cách nào bật được nó nữa. Sửa đúng cách là cho nó thành
+  lựa chọn ba nhánh (máy chủ / ngoại tuyến / tự chọn) thay vì đường lui.
 - **Dịch cục bộ (NLLB) có thể bỏ sót câu** khi bản chép lời nhiễu — phát hiện
   thật, chưa sửa.
 - **~190/204 mã ngôn ngữ FLORES chưa kiểm chứng chất lượng** — có chủ đích,
@@ -254,9 +300,9 @@ chỉ giữ tên/giọng, không giữ câu thoại.
 
 ---
 
-## 6. Bốn lớp lỗi đã lặp lại — đọc trước khi đề xuất
+## 6. Năm lớp lỗi đã lặp lại — đọc trước khi đề xuất
 
-Dự án này có **bốn cơ chế lỗi đã tái diễn nhiều lần**. Đề xuất nào đụng vào
+Dự án này có **năm cơ chế lỗi đã tái diễn nhiều lần**. Đề xuất nào đụng vào
 các vùng này phải tính tới chúng.
 
 1. **`except Exception` không kèm log = lỗi sống nhiều tháng.** Trình cài đặt
@@ -273,6 +319,17 @@ các vùng này phải tính tới chúng.
    tự động*, không phải `main`. Bẫy này sập hai lần, lần hai xảy ra dù tài
    liệu đã cảnh báo. Nay việc sinh nhánh nằm trong chính lệnh deploy, kèm bộ
    dò lệch và một job CI.
+
+5. **Câu chữ nói về TIỀN đi lệch khỏi mã.** Nút "Gợi ý từ nội dung video"
+   ghi *"chạy ngay trên máy, không tốn Vox"* — đúng ở V88 (đo bằng luật), SAI
+   từ V89 khi đường hỏi máy chủ (**2 Vox/lượt**) được thêm vào. Truy ngược thì
+   thấy **mô tả đầu tệp `music_suggest.py` cũng sai y hệt**: người viết giao
+   diện đọc mô tả ấy, tin nó, chép sang tooltip. Hứa miễn phí rồi trừ tiền là
+   kiểu sai tệ nhất về câu chữ — người dùng không có cách nào biết mình vừa
+   mất tiền cho tới khi nhìn ví. Nay có bộ canh cấp lớp: tệp nào gọi
+   `get_client()` (tiêu được Vox) mà mô tả có hứa miễn phí thì **phải nói luôn
+   giá của đường tốn tiền**; miễn trừ phải kèm lý do viết ra, và có test canh
+   chính danh sách miễn trừ đó.
 
 **Bài học chung của dự án:** tài liệu không sửa được lỗi con người — phải
 biến quy tắc thành thứ máy tự kiểm. Nhưng **một bộ canh kêu nhầm sẽ bị tắt
@@ -326,12 +383,18 @@ Xếp theo mức sẵn sàng, không phải theo mức hấp dẫn:
 Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 
 **Việc kỹ thuật đã rõ hình:**
-- Tách `.venv-*` và `models/` ra khỏi thư mục ứng dụng để nâng cấp không mất
-  engine — sửa được lớp phiền toái lớn nhất của người dùng.
+- Cho "Dịch tự động ngoại tuyến" thành lựa chọn ba nhánh (máy chủ / ngoại
+  tuyến / tự chọn). Hiện đường miễn phí không thể chạm tới — xem §5.2. Đây là
+  việc đáng tiền nhất còn lại.
 - Nối `character_name` vào giao diện (cần đổi cấu trúc hồ sơ nhân vật để giữ
   câu thoại theo người nói).
 - Hiện tiến độ lượt chạy trên máy chủ.
-- Nút Dừng cho hai thao tác còn thiếu trong Trình chỉnh sửa.
+- Nút Dừng cho hai thao tác còn thiếu trong Trình chỉnh sửa, và cho OCR
+  (hiện hết giờ sau 60 giây, không huỷ ngang được).
+
+**Đã giải quyết, đừng đề xuất lại:** tách `.venv-*`/`models/` ra khỏi thư mục
+ứng dụng — không cần nữa, vì app đã tự dò bản cũ nằm cùng thư mục cha (§3.1).
+Xem trước chi phí và gộp câu trước khi tính tiền cũng đã làm (V97).
 
 **Việc cần quyết định của con người trước:**
 - Có thu thập thêm dữ liệu sử dụng không (đã hỏi, chủ dự án chọn giữ nguyên
@@ -351,6 +414,13 @@ Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 | `docs/ARCH.md` | Kiến trúc lõi |
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 
-**Quy mô test hiện tại:** 1926 test Python (7 bỏ qua) + 510 test Node
-(1 bỏ qua). Kỷ luật của dự án: mỗi luật quan trọng đều được **gỡ ra để chứng
+**Quy mô test tại thời điểm cập nhật tệp này:** 1970 test Python (7 bỏ qua)
++ 511 test Node (510 đạt, 0 hỏng). Con số này tăng gần như mỗi đợt — dùng nó
+để hình dung quy mô, đừng dùng làm mốc đối chiếu.
+
+⚠️ **Một cái bẫy khi tự đếm:** máy chạy test thiếu thư viện hệ thống của Qt
+thì một loạt tệp test giao diện bị bỏ qua **ngay ở tầng nạp module** —
+`pytest` báo xanh với con số thấp hơn mà không kêu một tiếng. Có lần báo
+"1790 đạt" trong khi số thật là 1954. Thấy tổng số tụt thì nghi môi trường
+trước khi nghi mã. Kỷ luật của dự án: mỗi luật quan trọng đều được **gỡ ra để chứng
 minh test đỏ**, chứ không chỉ chạy cho xanh.
