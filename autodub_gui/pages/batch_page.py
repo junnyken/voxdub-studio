@@ -842,6 +842,13 @@ class BatchPage(BasePage):
         self._worker.cancel()
         self.btn_stop.setEnabled(False)
         self.btn_stop.setText("Đang dừng…")
+        # Nói rõ vì sao chưa dừng ngay. Lệnh dừng chỉ có hiệu lực GIỮA các
+        # bước — bước đang chạy (nghe-chép, tách nhạc nền) là một lượt gọi
+        # dài, không cắt ngang được. Nút đổi chữ thành "Đang dừng…" rồi nằm
+        # im mười phút thì người dùng kết luận app treo (gặp thật 26/8/2026).
+        TOASTS.info(
+            "Sẽ dừng ngay khi xong bước đang chạy. Bước nghe-chép hoặc tách "
+            "nhạc nền có thể mất vài phút — đây không phải app treo.")
 
     def _set_running(self, running: bool) -> None:
         self.btn_start.setEnabled(not running and bool(self._items))

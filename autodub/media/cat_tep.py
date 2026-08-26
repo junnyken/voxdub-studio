@@ -21,7 +21,9 @@ import os
 import re
 import subprocess
 
-from autodub.ffmpeg_deps import bao_dam_co_ffmpeg, duong_dan_ffmpeg
+from autodub.ffmpeg_deps import (
+    bao_dam_co_ffmpeg, duong_dan_ffmpeg, duong_dan_ffprobe,
+)
 from autodub.utils import setup_logging
 
 logger = setup_logging("autodub.media.cat_tep")
@@ -43,7 +45,13 @@ def _mmss_ten(giay: int) -> str:
 
 def do_dai_giay(duong_dan: str) -> float:
     """Độ dài tệp, tính bằng giây. Trả 0.0 nếu không đọc được."""
-    ffprobe = duong_dan_ffmpeg().replace("ffmpeg", "ffprobe")
+    ffprobe = duong_dan_ffprobe()
+    if not ffprobe:
+        logger.warning(
+            "Không thấy ffprobe — không đo được độ dài tệp, nên tệp dài sẽ "
+            "KHÔNG được cắt nhỏ trước khi nghe. Chạy «Cai dat FFmpeg "
+            "(bat buoc).bat» để có đủ cả ffmpeg lẫn ffprobe.")
+        return 0.0
     try:
         chay = subprocess.run(
             [ffprobe, "-v", "error", "-show_entries", "format=duration",

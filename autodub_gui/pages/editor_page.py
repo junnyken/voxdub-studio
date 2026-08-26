@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from autodub_gui import icons, tokens, waveform
+from autodub_gui.qt_song import con_song
 from autodub_gui.pages import BasePage
 from autodub_gui.pages.editor_export import VoiceAndExportMixin
 from autodub_gui.pages.editor_commands import (
@@ -550,6 +551,19 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
             video_path, duration_s, self._work_dir, parent=self)
         worker.ready.connect(self.timeline.set_thumbnails)
         worker.finished.connect(worker.deleteLater)
+
+        # Buông tham chiếu NGAY khi worker xong. `deleteLater` huỷ đối tượng
+        # C++, còn biến Python thì không tự rỗng — giữ lại rồi gọi
+        # `isRunning()` lúc đóng app là ném RuntimeError của shiboken và app
+        # hiện hộp "gặp lỗi không mong muốn" đúng lúc thoát (26/8/2026).
+        #
+        # Chỉ xoá nếu vẫn đang trỏ vào CHÍNH worker này: video khác đã thay
+        # worker mới thì đừng xoá nhầm của người ta.
+        def _quen(w=worker) -> None:
+            if self._thumb_worker is w:
+                self._thumb_worker = None
+
+        worker.finished.connect(_quen)
         self._thumb_worker = worker
         worker.start()
 
@@ -1149,11 +1163,11 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
                        self._preview_seg_worker,
                        self._export_subs_file_worker,
                        self._export_audio_worker):
-            if worker is not None and worker.isRunning():
+            if con_song(worker) and worker.isRunning():
                 worker.cancel()
                 worker.wait(5000)
         # Worker thumbnail chỉ chạy ffmpeg ngắn — hủy rồi chờ nhanh.
-        if self._thumb_worker is not None and self._thumb_worker.isRunning():
+        if con_song(self._thumb_worker) and self._thumb_worker.isRunning():
             self._thumb_worker.cancel()
             self._thumb_worker.wait(2000)
 
@@ -1165,8 +1179,8 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
         self.save_now()
         self.player.cleanup()
         self._preview.cleanup()
-        if self._wave_worker is not None and self._wave_worker.isRunning():
+        if con_song(self._wave_worker) and self._wave_worker.isRunning():
             self._wave_worker.wait(2000)
         for worker in self._wave_workers:
-            if worker.isRunning():
+            if con_song(worker) and worker.isRunning():
                 worker.wait(2000)

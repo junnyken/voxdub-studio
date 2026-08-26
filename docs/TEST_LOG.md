@@ -8474,6 +8474,65 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C36 — Ba lỗi từ một lượt chạy thật (Phase H, 2026-08-26)
+
+Chủ dự án chạy một video thật rồi gửi ảnh chụp. Ba thứ hỏng, không liên quan
+nhau về mã nhưng dính nhau về hậu quả.
+
+### 1. Tìm ffprobe bằng cách đổi chữ trong đường dẫn
+
+    ffprobe = duong_dan_ffmpeg().replace("ffmpeg", "ffprobe")
+
+`str.replace` đổi **mọi** chỗ khớp. `C:\ffmpeg\bin\ffmpeg.exe` — đường dẫn
+rất thường gặp — thành `C:\ffprobe\bin\ffprobe.exe`, một thư mục không tồn
+tại.
+
+Nhìn từ người dùng thì đây **không phải một câu lỗi, mà là máy đứng**: không
+đo được độ dài → tệp dài không được cắt nhỏ → bộ nghe chạy thẳng vào cả tệp,
+thanh tiến trình nằm im ở 24%. Trong nhật ký chỉ có một dòng cảnh báo hiền
+lành *"Không đọc được độ dài «…"*.
+
+Nay có `duong_dan_ffprobe()` riêng: hỏi PATH trước, rồi đổi **đúng tên tệp**
+trong cùng thư mục, rồi mới tới `bin/` cạnh app. Không thấy thì nói thẳng hậu
+quả (*"tệp dài sẽ KHÔNG được cắt nhỏ"*) kèm tên tệp `.bat` phải chạy.
+
+### 2. Bấm Dừng rồi nút nằm im, người dùng tưởng treo
+
+Lệnh dừng chỉ có hiệu lực **giữa các bước**; bước đang chạy (nghe-chép, tách
+nhạc nền) là một lượt gọi dài không cắt ngang được. Nút đổi chữ thành "Đang
+dừng…" rồi im mười phút thì kết luận duy nhất người dùng rút ra là app treo.
+Nay nói thẳng: *"Sẽ dừng ngay khi xong bước đang chạy… đây không phải app
+treo."*
+
+### 3. Đóng app thì hiện hộp "Ứng dụng gặp lỗi không mong muốn"
+
+    RuntimeError: libshiboken: Internal C++ object
+    (TimelineThumbnailWorker) already deleted.
+
+`worker.finished.connect(worker.deleteLater)` huỷ đối tượng C++, nhưng biến
+Python vẫn trỏ vào cái vỏ. Lúc đóng app, `shutdown()` gọi `isRunning()` lên nó
+→ nổ. Thời điểm tệ nhất để mất niềm tin: người dùng vừa làm xong việc, bấm
+thoát, và nhận một hộp lỗi đỏ.
+
+Sửa hai lớp: **buông tham chiếu ngay khi worker xong** (gốc, và chỉ buông nếu
+vẫn đang trỏ vào chính worker đó — video khác đã thay worker mới thì đừng xoá
+nhầm), và `con_song()` hỏi shiboken trước mọi lượt gọi trong dọn dẹp (lưới an
+toàn). Trang khác đã có sẵn cách xử này từ trước; `editor_page` là chỗ chưa
+theo.
+
+### Tests (+9)
+
+ffprobe (4): thư mục cũng tên «ffmpeg» vẫn ra đúng tệp · không có ffprobe cạnh
+ffmpeg thì trả rỗng chứ không đoán bừa · ưu tiên PATH hệ thống · thiếu ffprobe
+thì cảnh báo nói rõ **hậu quả** và tên tệp cài đặt.
+
+Đóng app (5): đối tượng sống/None/đã huỷ ở tầng C++ · mọi lượt `isRunning()`
+trong dọn dẹp phải qua `con_song` · worker thumbnail phải buông tham chiếu khi
+xong.
+
+Bỏ `con_song` ở một chỗ để đo → đỏ. **2063 Python.**
+
+
 ## C35 — Tệp cài đặt không thể chạy được bằng cách đúp chuột (Phase H, 2026-08-26)
 
 Chủ dự án bấm «Cai dat tach giong theo nguoi noi.bat» ba lần, ba lần nhận cùng

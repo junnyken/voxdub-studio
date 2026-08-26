@@ -47,6 +47,36 @@ def duong_dan_ffmpeg() -> str:
     return ""
 
 
+def duong_dan_ffprobe() -> str:
+    """Đường dẫn ffprobe dùng được, hoặc "" nếu máy chưa có.
+
+    Vì sao phải có hàm riêng thay vì đổi chữ trong đường dẫn ffmpeg: cách cũ
+    làm `duong_dan_ffmpeg().replace("ffmpeg", "ffprobe")`, mà `str.replace`
+    đổi **mọi** chỗ khớp. Đường dẫn rất hay gặp `C:\ffmpeg\bin\ffmpeg.exe`
+    thành `C:\ffprobe\bin\ffprobe.exe` — một thư mục không tồn tại.
+
+    Hậu quả nhìn từ người dùng không phải một câu lỗi, mà là **máy đứng**:
+    không đọc được độ dài thì tệp dài không được cắt nhỏ, và bộ nghe chạy
+    thẳng vào tệp ba tiếng (gặp thật 26/8/2026, thanh tiến trình nằm im ở 24%).
+
+    Đổi ĐÚNG tên tệp, giữ nguyên thư mục.
+    """
+    tim = shutil.which("ffprobe")
+    if tim:
+        return tim
+    goc = duong_dan_ffmpeg()
+    if goc:
+        thu_muc, ten = os.path.split(goc)
+        ung_vien = os.path.join(thu_muc, ten.replace("ffmpeg", "ffprobe", 1))
+        if os.path.isfile(ung_vien):
+            return ung_vien
+    for ten in ("ffprobe.exe", "ffprobe"):
+        cuc_bo = os.path.join(app_root(), "bin", ten)
+        if os.path.isfile(cuc_bo):
+            return cuc_bo
+    return ""
+
+
 def co_ffmpeg() -> bool:
     return bool(duong_dan_ffmpeg())
 
