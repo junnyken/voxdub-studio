@@ -4,14 +4,21 @@ Người dùng hỏi: "app có tự nhận định và chọn nhạc phù hợp 
 V37 sinh được nhạc AI nhưng bắt người dùng tự nghĩ ra mô tả ("nhạc vui tươi,
 tempo nhanh") — mà nghĩ ra một mô tả tốt chính là phần khó.
 
-Cách làm ở đây CỐ Ý không dùng AI:
+HAI đường, không phải một — đọc kỹ trước khi sửa câu chữ nào nói về giá:
 
-- Máy chủ chỉ có 4 endpoint cố định (dịch, viết bài, nhạc, hiệu ứng); không có
-  đường hỏi tự do nào. Thêm endpoint mới là việc của phía server, không làm
-  trong bản này.
-- Mọi tín hiệu cần thiết ĐÃ nằm sẵn trong transcript: nhịp nói, độ dài câu,
-  dấu chấm hỏi/chấm than, từ khoá chủ đề. Suy từ số đo thì tức thì, chạy
-  offline, không tốn Vox, và **giải thích được**.
+1. **Đo bằng luật** (V88, `goi_y_nhac`): suy từ số đo có sẵn trong transcript
+   — nhịp nói, độ dài câu, dấu chấm hỏi/chấm than, từ khoá chủ đề. Tức thì,
+   chạy offline, KHÔNG tốn Vox, và **giải thích được**.
+2. **Hỏi trợ lý trên máy chủ** (V89, `goi_y_nhac_thong_minh`): hiểu nội dung
+   thật, nhưng **trừ 2 Vox mỗi lượt**.
+
+Đường 2 là mặc định khi có tài khoản; đường 1 là thứ duy nhất chạy được lúc
+không mạng, không tài khoản, hoặc quá ít lời thoại để hỏi cho ra hồn.
+
+Đoạn này từng viết "cách làm ở đây CỐ Ý không dùng AI ... không tốn Vox" —
+đúng ở V88, SAI kể từ V89 khi đường máy chủ được thêm vào chính tệp này.
+Câu chữ cũ đó là thứ đã đẻ ra bug tooltip "không tốn Vox" trên nút bấm
+(sửa 25/8/2026, xem `tests/test_cau_chu_ve_tien.py`).
 
 Mỗi gợi ý luôn kèm LÝ DO bằng con số thật ("nói nhanh 4,2 chữ/giây"), để người
 dùng tự đánh giá thay vì tin một cái nhãn từ trên trời rơi xuống. Đây cũng là

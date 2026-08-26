@@ -11854,3 +11854,36 @@ chữ nhất 63 — đều trong hạn mức phụ đề.
 
 **Chưa kiểm:** chưa chạy thật đầu-cuối trên máy Windows với video thật; hộp
 thoại duyệt giá chưa được bấm bằng tay lần nào.
+
+## V98 — Vá LỚP "hứa miễn phí rồi trừ tiền" (26/08/2026)
+
+**Vì sao:** bản vá 25/8 (`3c7dd2d`) sửa đúng một tooltip. Nhưng đi ngược lên
+thì thấy nút ấy sai được là vì **mô tả đầu tệp `music_suggest.py` cũng sai y
+hệt**: viết ở V88 ("cách làm ở đây CỐ Ý không dùng AI… chạy offline, không tốn
+Vox"), rồi V89 thêm đường hỏi trợ lý trên máy chủ vào CHÍNH tệp đó (dòng
+218–220, `get_client().assist(...)`, trừ 2 Vox) mà không ai sửa lại câu mô tả.
+Người viết giao diện đọc mô tả ấy, tin nó, chép nguyên ý sang tooltip. Vá một
+tooltip mà để nguyên nguồn thì lỗi sẽ mọc lại ở chỗ khác.
+
+**Đã làm:**
+- Viết lại mô tả đầu `autodub/media/music_suggest.py`: nói rõ HAI đường —
+  đo bằng luật (V88, offline, 0 Vox) và hỏi máy chủ (V89, **2 Vox mỗi lượt**),
+  đường nào là mặc định, đường nào là lối lui. Ghi lại luôn câu chữ cũ đã đẻ
+  ra bug để lần sau ai đọc cũng thấy.
+- Bộ canh cấp LỚP trong `tests/test_cau_chu_ve_tien.py`: quét mọi tệp có gọi
+  `get_client(` (tức tiêu được Vox); tệp nào mô tả đầu tệp có hứa miễn phí thì
+  phải nói luôn giá của đường tốn tiền. Không cấm chữ "miễn phí" — cấm hứa
+  một nửa sự thật.
+- Danh sách miễn trừ phải kèm lý do viết ra, và có test canh chính danh sách
+  đó (trỏ tệp có thật + lý do đủ dài).
+
+**Quét được gì:** 3 tệp tiêu được Vox có hứa miễn phí trong mô tả.
+`translate_review.py` và `music_suggest.py` (sau khi sửa) đều nói rõ giá;
+`credit_widget.py` miễn trừ có lý do — chữ "miễn phí" ở đó đã kèm điều kiện
+ngay trong câu (chỉ khi máy chủ tắt hệ thống credit, widget tự ẩn luôn).
+
+**Kiểm:** đã dựng lại đúng bug gốc (trả mô tả về câu chữ V88) → 2 test đỏ; và
+thử nhét bừa một tệp vào danh sách miễn trừ với lý do qua loa → đỏ.
+
+**Không phát hành bản mới:** thay đổi chỉ nằm ở mô tả trong mã và test, không
+đụng thứ người dùng thấy. Tooltip đúng đã nằm trong v3.9.1.
