@@ -61,3 +61,29 @@ def test_cau_bao_thieu_token_noi_ro_cac_buoc():
     assert "settings/tokens" in khoi, "không chỉ chỗ tạo token"
     assert "docstring" not in khoi, (
         "vẫn bảo người dùng mở tệp .py ra đọc — đó là ngõ cụt")
+
+
+def test_tai_lieu_cai_dat_chi_du_ba_trang_gated():
+    """Khách chỉ đọc tài liệu, không đọc mã.
+
+    Trước 26/8 tài liệu ghi "bấm Agree ở các trang model pyannote" mà không
+    nói là trang NÀO — khách không có cách nào biết, và token đúng vẫn 403.
+    """
+    nguon = open(os.path.join(GOC, "scripts", "build_exe.py"),
+                 encoding="utf-8").read()
+    guide = nguon.split("GUIDE_MD = ", 1)[1]
+    for repo in ("speaker-diarization-3.1", "segmentation-3.0",
+                 "speaker-diarization-community-1"):
+        assert repo in guide, f"tài liệu thiếu trang {repo}"
+    assert "huggingface.co/settings/tokens" in guide
+
+
+def test_tai_lieu_va_bat_khong_noi_khac_nhau():
+    """Tài liệu từng hứa ".bat sẽ hỏi token" trong khi .bat không hề hỏi."""
+    nguon = open(os.path.join(GOC, "scripts", "build_exe.py"),
+                 encoding="utf-8").read()
+    guide = nguon.split("GUIDE_MD = ", 1)[1]
+    hua = "hỏi token" in guide
+    lam = "set /p HFTOKEN" in _build_exe()._bat_cho("setup_diarization.py")
+    assert hua == lam, (
+        "tài liệu và tệp .bat nói khác nhau về chuyện có hỏi token hay không")

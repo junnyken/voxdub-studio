@@ -8474,6 +8474,54 @@ chặn chi phí + nhớ đệm, bộ đo có tự kiểm, bảng theo dõi. **Ch
 lại vẫn là chưa có nhà cung cấp cho vai `assist`** — chưa lượt gọi thật nào đi
 qua đây.
 
+## C35 — Tệp cài đặt không thể chạy được bằng cách đúp chuột (Phase H, 2026-08-26)
+
+Chủ dự án bấm «Cai dat tach giong theo nguoi noi.bat» ba lần, ba lần nhận cùng
+một câu *"Thiếu HuggingFace access token… xem hướng dẫn ở đầu file này
+(docstring)"*, rồi *"Cai dat that bai"*.
+
+Rồi hỏi đúng câu đáng hỏi: **"máy khác tải về cài thì có được hướng dẫn không,
+sợ khách không biết"**. Câu trả lời lúc đó là KHÔNG — và đó mới là vấn đề thật:
+mỗi khách cài tính năng này đều sẽ kẹt y hệt, không có đường nào đi tiếp.
+
+### Ba chỗ hỏng chồng nhau
+
+**1. `.bat` chạy script không tham số.** Không có đường nào truyền token, nên
+đúp chuột bao nhiêu lần cũng dừng đúng chỗ đó — mãi mãi. Nay `.bat` hỏi token,
+bỏ trống thì dừng sớm và nói rõ, có thì truyền vào `--hf-token`. Chỉ script nào
+cần mới hỏi (`CAN_HF_TOKEN`) — hỏi thừa là dạy người dùng bấm bừa.
+
+**2. Câu lỗi bảo mở tệp `.py` ra đọc docstring.** Với người bấm `.bat` thì đó
+không phải hướng dẫn, đó là ngõ cụt. Nay in hẳn ba bước kèm địa chỉ.
+
+**3. Tài liệu HỨA thứ mã không làm.** `HUONG_DAN_CAI_DAT.md` ghi sẵn "*rồi chạy
+tệp .bat (nó sẽ hỏi token)*" — trong khi `.bat` chưa từng hỏi. Tài liệu viết
+trước, mã không theo kịp, và không ai đối chiếu. Nay có test bắt đúng chuyện
+đó: tài liệu nói "hỏi token" thì `.bat` phải thật sự hỏi.
+
+Tài liệu cũng chỉ ghi "bấm Agree ở **các trang** model pyannote" mà không nói
+trang nào — khách không có cách nào biết, và token đúng vẫn 403. Nay liệt kê
+đủ ba địa chỉ.
+
+### Tests (+7)
+
+`.bat` hỏi token và truyền vào · bỏ trống thì dừng sớm · chỉ dẫn đủ ba trang
+gated · script khác **không** bị hỏi thừa · câu lỗi nói rõ các bước và không
+còn nhắc "docstring" · tài liệu liệt kê đủ ba trang + chỗ tạo token · **tài
+liệu và `.bat` không được nói khác nhau**.
+
+Gỡ phần hỏi token ra để đo → 3 đỏ.
+
+### Một lỗi của chính tôi trong lượt này
+
+Commit đầu đẩy đi **kèm một test đỏ**. Không phải vì không chạy test — mà vì
+chạy `pytest | tail -2`: đường ống nuốt mã thoát, `&&` phía sau thấy `tail`
+thành công nên commit vẫn chạy. Đúng lớp lỗi "công cụ báo sai mà không ai
+kiểm" mà dự án này vá suốt. Từ đó chạy `pytest > tệp; echo $?` rồi mới đọc.
+
+**2054 Python.**
+
+
 ## C34 — Bỏ Douyin, khoá lại sáu nền tảng thay thế (Phase H, 2026-08-25)
 
 Chủ dự án chốt: **bỏ Douyin**, dùng Bilibili / TikTok / Xiaohongshu / Weibo /

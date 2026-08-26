@@ -594,10 +594,22 @@ Video kết quả nằm trong thư mục `output` cạnh VoxDub.exe.
 - **Video có nhiều người nói:** đúp chuột
   **`Cai dat tach giong theo nguoi noi.bat`**, rồi bật ô "Tự tách giọng theo
   người nói" trong Cài đặt. App tự nhận ra có mấy người và gán mỗi người một
-  giọng riêng. **Nặng ~1-2 GB, và phải có tài khoản HuggingFace**: lập tài
-  khoản miễn phí, bấm "Agree and access repository" ở các trang model
-  pyannote, tạo access token, rồi chạy tệp .bat (nó sẽ hỏi token).
-  Không cài thì video nhiều người vẫn chạy — chỉ là dùng chung một giọng.
+  giọng riêng. **Nặng ~1-2 GB, và phải có tài khoản HuggingFace.** Ba bước,
+  mỗi bước một lần duy nhất:
+
+    1. Lập tài khoản miễn phí: <https://huggingface.co/join>
+    2. Bấm **"Agree and access repository"** ở **cả ba** trang dưới đây (danh
+       sách khác nhau tuỳ bản pyannote máy bạn cài về — cứ bấm cả ba):
+       - <https://huggingface.co/pyannote/speaker-diarization-3.1>
+       - <https://huggingface.co/pyannote/segmentation-3.0>
+       - <https://huggingface.co/pyannote/speaker-diarization-community-1>
+    3. Tạo access token (quyền đọc là đủ):
+       <https://huggingface.co/settings/tokens>
+
+  Rồi chạy tệp .bat — nó sẽ hỏi token, dán vào là xong. **Bỏ bước 2 thì token
+  đúng vẫn bị từ chối (lỗi 403)** — đó là luật của pyannote, không phải của
+  VoxDub. Không cài thì video nhiều người vẫn chạy, chỉ là dùng chung một
+  giọng.
 - **Tải video Douyin:** đúp chuột **`Cai dat tinh nang Douyin.bat`** (cài
   thư viện + Chromium, ~210 MB, một lần). YouTube và link trực tiếp không
   cần bước này.
