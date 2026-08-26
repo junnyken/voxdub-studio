@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-08-26 · phiên bản ứng dụng `3.10.2`
+> Cập nhật: 2026-08-26 · phiên bản ứng dụng `3.10.3`
 
 ---
 

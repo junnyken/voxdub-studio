@@ -89,3 +89,64 @@ def test_danh_sach_duoc_suy_ra_chu_khong_go_tay():
     # (`_python_ho_tro.py`, không khớp mẫu setup_*).
     go_tay = re.findall(r'"(setup_[a-z_]+\.py)"', than)
     assert not go_tay, f"vẫn còn tên gõ thẳng trong danh sách: {go_tay}"
+
+
+# --- Tầng thứ hai: có tệp .py thôi chưa đủ ------------------------------
+#
+# 26/8/2026, ngay sau khi vá phần trên: chủ dự án mở thư mục bản v3.10.2 ra,
+# thấy 6 tệp cài đặt đúp-chuột mà không tệp nào nói về tách giọng người nói
+# hay dịch ngoại tuyến, rồi hỏi "hình như nó chưa có hả ta". Tệp `.py` đã
+# nằm trong `scripts/` — nhưng người dùng không đọc thư mục `scripts/`, họ
+# đọc mấy tệp đúp-chuột-là-chạy ở thư mục gốc.
+#
+# Danh sách `.bat` cũng là một danh sách gõ tay, và cũng đã bỏ quên hai lần
+# trước: FFmpeg (V82) và Demucs (V86). Ba lần cùng một cơ chế.
+
+
+@pytest.fixture(scope="module")
+def bat_se_sinh():
+    spec = importlib.util.spec_from_file_location(
+        "_be2", os.path.join(REPO, "scripts", "build_exe.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_moi_script_cai_dat_deu_co_tep_bat(bat_se_sinh, se_dong_goi):
+    """Người dùng không mở thư mục scripts/ ra đọc — họ nhìn mấy tệp .bat ở
+    thư mục gốc. Thiếu .bat = tính năng coi như không tồn tại."""
+    noi_dung = "\n".join(c for _t, c in bat_se_sinh.cac_bat_can_sinh())
+    thieu = []
+    for script in se_dong_goi:
+        if not script.startswith("setup_"):
+            continue
+        if script in bat_se_sinh.KHONG_SINH_BAT:
+            continue
+        if script not in noi_dung:
+            thieu.append(script)
+    assert not thieu, (
+        f"script cài đặt không có tệp .bat để đúp chuột: {thieu}")
+
+
+def test_bo_qua_bat_phai_kem_ly_do(bat_se_sinh):
+    """Danh sách bỏ qua không lý do là cách làm bộ canh im lặng."""
+    for ten, ly_do in bat_se_sinh.KHONG_SINH_BAT.items():
+        assert os.path.isfile(os.path.join(REPO, "scripts", ten)), ten
+        assert len(ly_do) > 30, f"lý do bỏ qua quá sơ sài: {ten}"
+
+
+def test_ten_tep_bat_khong_dau_va_khong_trung(bat_se_sinh):
+    """Tên tệp có dấu tiếng Việt hay trùng nhau đều là rắc rối trên Windows."""
+    ten = [t for t, _c in bat_se_sinh.cac_bat_can_sinh()]
+    assert len(ten) == len(set(ten)), f"tên .bat bị trùng: {ten}"
+    for t in ten:
+        assert t.isascii(), f"tên .bat có ký tự ngoài ASCII: {t!r}"
+        assert t.endswith(".bat")
+
+
+def test_bat_chay_tu_thu_muc_goc_app(bat_se_sinh):
+    """Thiếu `cd /d "%~dp0"` thì đúp chuột từ nơi khác là sai đường dẫn —
+    đúng lỗi chủ dự án gặp khi tự gõ tay (scripts\scripts\...)."""
+    for ten, noi in bat_se_sinh.cac_bat_can_sinh():
+        assert 'cd /d "%~dp0"' in noi, f"{ten} không tự về thư mục gốc app"
+        assert "scripts\\setup_" in noi or "scripts\\" in noi, ten

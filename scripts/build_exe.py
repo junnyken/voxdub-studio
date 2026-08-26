@@ -133,6 +133,87 @@ def step_pyinstaller() -> None:
         raise SystemExit(f"!! PyInstaller xong nhưng không thấy {exe}")
 
 
+#: Tiêu đề và mô tả cho các `.bat` SINH TỰ ĐỘNG. Thiếu tên trong bảng thì
+#: script đó vẫn có `.bat`, chỉ là câu mô tả chung chung — cố ý: thà một tệp
+#: mô tả sơ sài còn hơn người dùng mở thư mục ra và kết luận tính năng không
+#: tồn tại (đúng chuyện đã xảy ra 26/8/2026 với tách giọng người nói).
+MO_TA_SETUP = {
+    "setup_translate_local.py": (
+        "Cai dat dich ngoai tuyen",
+        "Bo dich chay tren may bao (~620 MB), khong can mang khi dich.",
+        "Bo duoc phi dich 2 Vox moi dong; gia nen xu ly van tinh."),
+    "setup_diarization.py": (
+        "Cai dat tach giong theo nguoi noi",
+        "Tu nhan ra video co may nguoi noi, moi nguoi mot giong doc rieng.",
+        "NANG (~1-2 GB) va CAN tai khoan HuggingFace + token."),
+    "setup_lipsync.py": (
+        "Cai dat khop khau hinh",
+        "Chinh mieng nhan vat khop voi giong doc moi.",
+        "Nang, can GPU de chay cho ra hon."),
+    "setup_ocr.py": (
+        "Cai dat nhan dien vung chu",
+        "Tu tim vung phu de chay san tren hinh de che di.",
+        ""),
+    "setup_voices.py": (
+        "Cai dat thu vien giong mau",
+        "Tai bo giong mau de nghe thu va ghi danh giong.",
+        ""),
+}
+
+#: Script chỉ dùng khi phát triển — không sinh `.bat`, kèm lý do.
+KHONG_SINH_BAT = {
+    "setup_lipsync_poc.py": "bản thử nghiệm của setup_lipsync.py, không dành "
+                            "cho người dùng cuối",
+}
+
+
+def _bat_cho(script: str) -> str:
+    """Nội dung một tệp `.bat` đúp-chuột-là-chạy cho một script cài đặt."""
+    tieu_de, dong1, dong2 = MO_TA_SETUP.get(
+        script, (f"Cai dat {script[6:-3].replace('_', ' ')}",
+                 "Script cai dat phan mo rong cho VoxDub Studio.", ""))
+    canh_bao = f"echo  {dong2}\n" if dong2 else ""
+    chay = " || ".join(
+        [f"py -3.{v} scripts\\{script} 2>nul" for v in (12, 11, 10)]
+        + [f"py scripts\\{script}", f"python scripts\\{script}"])
+    return (f'@echo off\nchcp 65001 >nul\ntitle {tieu_de} cho VoxDub Studio\n'
+            f'echo.\necho  {dong1}\n{canh_bao}'
+            'echo  Yeu cau: da cai Python 3.10-3.12 '
+            '(xem HUONG_DAN_CAI_DAT.md, Buoc 2).\n'
+            f'echo.\ncd /d "%~dp0"\n{chay}\n'
+            'if errorlevel 1 (\n'
+            '    echo.\n'
+            '    echo  !! Cai dat that bai. Kiem tra da cai Python chua: '
+            'py --version\n'
+            '    echo     Xem muc "Xu ly loi" trong HUONG_DAN_CAI_DAT.md\n'
+            ')\necho.\npause\n')
+
+
+def cac_bat_can_sinh() -> list[tuple[str, str]]:
+    """`(tên tệp .bat, nội dung)` cho MỌI script cài đặt được đóng gói.
+
+    Sáu tệp đầu giữ nguyên câu chữ viết tay (có số liệu cụ thể, đáng giữ);
+    phần còn lại sinh từ khuôn. Điều bắt buộc là **không script nào bị bỏ
+    quên** — danh sách gõ tay đã bỏ quên FFmpeg (V82), Demucs (V86), rồi cả
+    năm script mới (26/8/2026). Ba lần cùng một cơ chế là đủ để thôi gõ tay.
+    """
+    ra = [("Cai dat giong VieNeu.bat", SETUP_VIENEU_BAT),
+          ("Cai dat Whisper ASR.bat", SETUP_WHISPER_BAT),
+          ("Cai dat ASR tieng Trung (Paraformer).bat", SETUP_PARAFORMER_BAT),
+          ("Cai dat tinh nang Douyin.bat", SETUP_DOUYIN_BAT),
+          ("Cai dat FFmpeg (bat buoc).bat", SETUP_FFMPEG_BAT),
+          ("Cai dat tach nhac nen (Demucs).bat", SETUP_DEMUCS_BAT)]
+    da_co = {"setup_vieneu.py", "setup_whisper.py", "setup_paraformer.py",
+             "setup_douyin.py", "setup_ffmpeg.py", "setup_demucs.py"}
+    for script in scripts_can_dong_goi():
+        if (not script.startswith("setup_") or script in da_co
+                or script in KHONG_SINH_BAT):
+            continue
+        ten = MO_TA_SETUP.get(script, (f"Cai dat {script[6:-3]}",))[0]
+        ra.append((f"{ten}.bat", _bat_cho(script)))
+    return ra
+
+
 def scripts_can_dong_goi() -> list[str]:
     """Mọi script cài đặt phải có trong bản phát hành.
 
@@ -174,19 +255,7 @@ def step_assemble() -> None:
         f.write(f"{sys.version_info[0]}.{sys.version_info[1]}\n")
 
     # .bat để người dùng đúp chuột là cài — không cần biết dòng lệnh.
-    for name, content in (
-            ("Cai dat giong VieNeu.bat", SETUP_VIENEU_BAT),
-            ("Cai dat Whisper ASR.bat", SETUP_WHISPER_BAT),
-            ("Cai dat ASR tieng Trung (Paraformer).bat", SETUP_PARAFORMER_BAT),
-            ("Cai dat tinh nang Douyin.bat", SETUP_DOUYIN_BAT),
-            # V82 — FFmpeg là thành phần BẮT BUỘC nhưng lại là thứ duy nhất
-            # không có tệp .bat để đúp chuột. Người dùng mở thư mục ra, thấy
-            # 4 tệp .bat không tệp nào nói về FFmpeg, rồi phải tự đi tìm.
-            ("Cai dat FFmpeg (bat buoc).bat", SETUP_FFMPEG_BAT),
-            # V86 — không có tệp này thì bước "Tách nhạc nền" KHÔNG BAO GIỜ
-            # chạy được trên bản đóng gói: torch/demucs cố ý không đóng gói,
-            # mà chưa từng có script nào tạo .venv-gpu.
-            ("Cai dat tach nhac nen (Demucs).bat", SETUP_DEMUCS_BAT)):
+    for name, content in cac_bat_can_sinh():
         with open(os.path.join(DIST_DIR, name), "w", encoding="utf-8") as f:
             f.write(content)
 
@@ -491,6 +560,17 @@ Video kết quả nằm trong thư mục `output` cạnh VoxDub.exe.
 
 ## Tùy chọn
 
+- **Dịch không cần máy chủ:** đúp chuột **`Cai dat dich ngoai tuyen.bat`**
+  (~620 MB, chạy CPU). Cài xong vào Cài đặt → Dịch thuật → "Dịch tự động bằng
+  đường nào" → **Luôn ngoại tuyến**. Bỏ được phí dịch 2 Vox mỗi dòng; giá nền
+  xử lý vẫn tính. Chất lượng thấp hơn dịch qua máy chủ.
+- **Video có nhiều người nói:** đúp chuột
+  **`Cai dat tach giong theo nguoi noi.bat`**, rồi bật ô "Tự tách giọng theo
+  người nói" trong Cài đặt. App tự nhận ra có mấy người và gán mỗi người một
+  giọng riêng. **Nặng ~1-2 GB, và phải có tài khoản HuggingFace**: lập tài
+  khoản miễn phí, bấm "Agree and access repository" ở các trang model
+  pyannote, tạo access token, rồi chạy tệp .bat (nó sẽ hỏi token).
+  Không cài thì video nhiều người vẫn chạy — chỉ là dùng chung một giọng.
 - **Tải video Douyin:** đúp chuột **`Cai dat tinh nang Douyin.bat`** (cài
   thư viện + Chromium, ~210 MB, một lần). YouTube và link trực tiếp không
   cần bước này.
@@ -531,6 +611,10 @@ VoxDub Studio/
 ├── Cai dat giong VieNeu.bat            ← Bước 3 (giọng đọc, bắt buộc)
 ├── Cai dat ASR tieng Trung (Paraformer).bat ← tùy chọn, nghe tiếng Trung chuẩn hơn
 ├── Cai dat tinh nang Douyin.bat        ← tùy chọn, tải video Douyin
+├── Cai dat dich ngoai tuyen.bat        ← tùy chọn, dịch không cần máy chủ
+├── Cai dat tach giong theo nguoi noi.bat ← tùy chọn, video nhiều người nói
+├── Cai dat khop khau hinh.bat          ← tùy chọn, chỉnh miệng khớp giọng
+├── (và vài tệp Cai dat ... .bat khác — mỗi phần mở rộng một tệp)
 ├── scripts/
 ├── libs/                  ← thư viện Douyin (sau khi cài, nếu dùng)
 ├── models/vieneu/         ← model VieNeu (sau Bước 3)

@@ -12007,3 +12007,36 @@ phí dịch 2 Vox/dòng, giá nền vẫn tính).
 **Cách làm mới tự đặt cho mình:** trước khi bảo người dùng chạy một tệp trong
 bản phát hành, phải mở gói ra xem tệp đó có thật và đọc nội dung nó — test
 logic xanh không nói gì về việc thứ đó có tới tay người dùng hay không.
+
+## D1d — Có tệp .py chưa đủ: người dùng nhìn tệp .bat (26/08/2026)
+
+**Chủ dự án hỏi ngay sau bản vá trước:** mở thư mục v3.10.2 ra, thấy 6 tệp cài
+đặt đúp-chuột, không tệp nào nói về tách giọng người nói hay dịch ngoại tuyến
+— *"hình như nó chưa có hả ta"*. Tệp `.py` đã nằm trong `scripts/` rồi, nhưng
+**người dùng không mở `scripts/` ra đọc**; họ nhìn mấy tệp đúp-chuột-là-chạy ở
+thư mục gốc.
+
+**Gốc rễ:** danh sách `.bat` trong `build_exe.py` cũng là danh sách GÕ TAY —
+tầng thứ hai của đúng lỗi vừa vá. Và ghi chú trong chính đoạn mã cho thấy nó
+đã bỏ quên hai lần trước: FFmpeg (V82) và Demucs (V86). Đây là lần thứ ba.
+
+**Đã làm:**
+- `build_exe.cac_bat_can_sinh()` — sinh `.bat` cho MỌI script cài đặt được
+  đóng gói. Sáu tệp cũ giữ nguyên câu chữ viết tay (có số liệu cụ thể, đáng
+  giữ), phần còn lại sinh từ khuôn với bảng mô tả `MO_TA_SETUP`; script không
+  có trong bảng vẫn được sinh `.bat`, chỉ là câu mô tả chung chung — cố ý:
+  thà mô tả sơ sài còn hơn người dùng kết luận tính năng không tồn tại.
+  6 → 11 tệp.
+- `KHONG_SINH_BAT` (chỉ `setup_lipsync_poc.py`) kèm lý do viết ra, có test canh.
+- `HUONG_DAN_CAI_DAT.md` trong gói: thêm mục cho dịch ngoại tuyến và tách
+  giọng, kèm cảnh báo TRƯỚC rằng tách giọng cần tài khoản HuggingFace + token
+  và nặng 1-2 GB — để người dùng biết trước khi bấm, không phải đọc giữa chừng.
+
+**Kiểm:** 4 chốt mới. Dựng lại danh sách `.bat` gõ tay 6 tên → đỏ. Kèm chốt
+tên tệp phải ASCII (dấu tiếng Việt trong tên tệp là rắc rối trên Windows),
+không trùng nhau, và mọi `.bat` phải có `cd /d "%~dp0"` — thiếu dòng đó thì
+đúp chuột từ nơi khác là sai đường dẫn, đúng lỗi chủ dự án gặp khi tự gõ tay
+(`scripts\scripts\...`).
+
+**Bộ canh chính tả của kho bắt lỗi của tôi:** tôi viết tiếng Việt không dấu
+trong một dòng chú thích; `test_vi_diacritics` đỏ ngay.
