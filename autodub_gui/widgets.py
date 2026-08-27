@@ -23,6 +23,7 @@ STEP_LABELS = {
     "extract": "Tách âm thanh",
     "separate": "Tách nhạc nền",
     "asr": "Nghe lời thoại gốc",
+    "diarize": "Tách giọng người nói",
     "translate": "Dịch sang tiếng Việt",
     "tts": "Tạo giọng đọc",
     "merge_audio": "Ghép âm thanh",

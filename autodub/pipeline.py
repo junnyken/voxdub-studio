@@ -1136,13 +1136,25 @@ class DubPipeline:
         dub, chỉ rơi về đúng hành vi 1-giọng-toàn-video như trước V26.
         """
         settings = self.settings
+        rep = self._reporter
+        # C43 — hiện thành MỘT BƯỚC trên tiến trình. Trước đây việc này chỉ
+        # ghi vào nhật ký, nên người dùng nhìn danh sách bước không thấy gì về
+        # người nói và tưởng app không có khả năng đó (chủ dự án hỏi thẳng
+        # 27/8/2026: "video của tôi chỉ có đúng 2 giọng đọc, hình như nó
+        # không có chỗ nhận định được").
         if not settings.diarization_enabled:
+            rep.emit("diarize", "skip", detail="đang tắt trong Cài đặt")
+            logger.info(
+                "Tách giọng theo người nói đang TẮT — cả video dùng 1 giọng. "
+                "Bật ở Cài đặt → Cơ bản nếu video có nhiều người nói.")
             return
         if not settings.diarization_configured():
+            rep.emit("diarize", "skip", detail="chưa cài bộ tách giọng")
             logger.info(
                 "Diarization đang bật nhưng chưa cài (.venv-diar) — dùng 1 "
                 "giọng cho toàn video. Cài qua scripts/setup_diarization.py.")
             return
+        rep.emit("diarize", "start")
 
         from autodub.speech.diarization import (
             DiarizationError, assign_speakers, diarize,
@@ -1180,6 +1192,7 @@ class DubPipeline:
                 seg["speaker_label"] for seg in segments
                 if seg.get("speaker_label")})
             if not speaker_labels:
+                rep.emit("diarize", "done", detail="1 người nói")
                 logger.info("Diarization: không tách được người nói nào "
                            "(video có thể chỉ 1 người nói) — giữ 1 giọng.")
                 return
@@ -1226,11 +1239,20 @@ class DubPipeline:
 
             apply_segment_voices(segments, voice_map)
             gendered = sum(1 for lbl in speaker_labels if genders.get(lbl))
+            # Con số này là thứ người dùng cần thấy NGAY trên tiến trình:
+            # nhận đúng 2 người hay xé nhầm thành 5 thì biết liền, không phải
+            # lục nhật ký.
+            rep.emit("diarize", "done",
+                     detail=f"{len(speaker_labels)} người nói")
             logger.info(
                 f"Diarization: {len(speaker_labels)} người nói phát hiện "
                 f"được, {gendered} người gán giọng theo giới tính ước lượng, "
                 f"{len(speaker_labels) - gendered} người dùng round-robin.")
         except DiarizationError as e:
+            # Hỏng thì phải HIỆN RA. Lỗi thiếu DLL torchcodec (26/8/2026) chỉ
+            # nằm trong nhật ký, nên người dùng chạy xong thấy một giọng mà
+            # không biết vì sao — tưởng app không làm được việc này.
+            rep.emit("diarize", "error", detail=str(e)[:120])
             logger.warning(
                 f"Diarization lỗi ({e}) — dùng 1 giọng cho toàn video như "
                 "bình thường (không ảnh hưởng phần còn lại của lượt dub).")

@@ -556,6 +556,31 @@ class VoiceStep(_StepPanel):
         self._override.add_widget(self.picker)
         self.body.addWidget(self._override)
 
+        # --- Nhiều người nói (C43) ---------------------------------------
+        # Trước đây trình hướng dẫn KHÔNG có một chữ nào về người nói: ô số
+        # người nói nằm tận trong Cài đặt, còn việc tách giọng chỉ ghi vào
+        # nhật ký. Người dùng đi hết sáu bước, thấy đúng một ô "Giọng đọc",
+        # rồi kết luận app không làm được video nhiều người (chủ dự án hỏi
+        # thẳng 27/8/2026). Ô ở đây KHÔNG thay ô trong Cài đặt — nó chỉ đọc
+        # và ghi cùng một khoá, đặt đúng chỗ người dùng đang nghĩ tới nó.
+        self.nhieu_nguoi = CollapsibleSection("Video có nhiều người nói?")
+        self.so_nguoi = LabeledSlider(
+            "Số người nói trong video", 0, 10, 1,
+            "Để 0 thì ứng dụng tự đoán. Biết chắc có mấy người thì điền vào — "
+            "bạn xem video rồi, máy thì không, nên số bạn khai được ưu tiên. "
+            "Chỉ có tác dụng khi đã bật tách giọng ở Cài đặt.",
+            "", decimals=0)
+        self.so_nguoi.set_value(0)
+        self.so_nguoi.changed.connect(lambda _v: self.changed.emit())
+        self.nhieu_nguoi.add_widget(self.so_nguoi)
+        self.nhan_tach_giong = QLabel("")
+        self.nhan_tach_giong.setWordWrap(True)
+        self.nhan_tach_giong.setStyleSheet(
+            f"color: {tokens.TEXT_MUTED}; font-size: {tokens.FS_META}px; "
+            f"background: transparent;")
+        self.nhieu_nguoi.add_widget(self.nhan_tach_giong)
+        self.body.addWidget(self.nhieu_nguoi)
+
         self.speed = LabeledSlider(
             "Tốc độ đọc", 0.5, 2.0, 0.05,
             "1.00 là tốc độ tự nhiên. Tăng lên khi câu tiếng Việt dài hơn câu "
@@ -708,7 +733,17 @@ class VoiceStep(_StepPanel):
             "skip_video": self.audio_only.isChecked(),
             "lipsync": (self.lipsync.isChecked()
                        if self._lipsync_available else False),
+            # C43 — 0 nghĩa là "để máy tự đoán", đúng quy ước của
+            # Settings.speaker_count.
+            "speaker_count": int(self.so_nguoi.value()),
         }
+
+    def dat_trang_thai_tach_giong(self, bat: bool, da_cai: bool) -> None:
+        """Cập nhật câu mô tả theo trạng thái THẬT của máy."""
+        self.nhan_tach_giong.setText(_nhan_trang_thai_tach_giong(bat, da_cai))
+
+    def dat_so_nguoi(self, so: int) -> None:
+        self.so_nguoi.set_value(max(0, int(so or 0)))
 
     def load(self, data: dict) -> None:
         from autodub.languages import get_target
@@ -735,6 +770,24 @@ class VoiceStep(_StepPanel):
         if self._lipsync_available:
             self.lipsync.setChecked(bool(data.get("lipsync", False)))
         self._refresh_default_label()
+
+
+
+def _nhan_trang_thai_tach_giong(bat: bool, da_cai: bool) -> str:
+    """Câu nói thật trạng thái tách giọng, đặt ngay cạnh ô số người nói.
+
+    Ba trạng thái, ba câu khác nhau — gộp làm một câu chung là người dùng
+    không biết mình đang ở đâu.
+    """
+    if not da_cai:
+        return ("Chưa cài bộ tách giọng — cả video sẽ đọc bằng MỘT giọng. "
+                "Chạy «Cai dat tach giong theo nguoi noi.bat» trong thư mục "
+                "ứng dụng để bật.")
+    if not bat:
+        return ("Đã cài nhưng đang TẮT — cả video sẽ đọc bằng một giọng. "
+                "Bật ở Cài đặt → Cơ bản → «Tự tách giọng theo người nói».")
+    return ("Đang bật: ứng dụng tự nhận ra có mấy người nói và gán mỗi người "
+            "một giọng riêng. Số người phát hiện được sẽ hiện ở bước Chạy dịch.")
 
 
 class RunStep(_StepPanel):

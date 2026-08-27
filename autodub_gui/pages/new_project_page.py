@@ -292,6 +292,12 @@ class NewProjectPage(BasePage):
         self._refresh_footer()
         if index == 2:
             self.step_translate.set_source_language(self._source_lang_label())
+        if index == 3:
+            st = self._settings_provider()
+            self.step_voice.dat_so_nguoi(getattr(st, "speaker_count", 0))
+            self.step_voice.dat_trang_thai_tach_giong(
+                bool(getattr(st, "diarization_enabled", False)),
+                bool(st.diarization_configured()))
             # Đường dịch đọc lại mỗi lần vào bước này — người dùng có thể vừa
             # đổi ở trang Dịch thuật rồi quay sang đây (mini-spec D1).
             self.step_translate.set_translate_mode(
@@ -799,6 +805,9 @@ class NewProjectPage(BasePage):
             changes["whisper_model"] = data["whisper_model"]
         if data["voice"]:
             changes["vieneu_voice"] = data["voice"]
+        # C43 — số người nói khai ở bước 4. Pipeline đọc từ Settings
+        # (`speaker_count`), không đọc từ DubRequest, nên phải áp vào đây.
+        changes["speaker_count"] = int(data.get("speaker_count") or 0)
         self._persist_pricing_choices(settings, data)
         return replace(settings, **changes)
 
@@ -812,6 +821,9 @@ class NewProjectPage(BasePage):
             updates["GENERATE_METADATA"] = bool_to_env(data["generate_metadata"])
         if bool(data["cloud_render"]) != settings.cloud_render_enabled:
             updates["CLOUD_RENDER_ENABLED"] = bool_to_env(data["cloud_render"])
+        so_nguoi = int(data.get("speaker_count") or 0)
+        if so_nguoi != int(getattr(settings, "speaker_count", 0) or 0):
+            updates["SPEAKER_COUNT"] = str(so_nguoi)
         if not updates:
             return
         try:

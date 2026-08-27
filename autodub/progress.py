@@ -17,6 +17,7 @@ STEPS = (
     "extract",      # extract original audio
     "separate",     # Demucs vocal separation / ducking
     "asr",          # speech-to-text
+    "diarize",      # tách giọng theo người nói (C43) — TUỲ CHỌN, bỏ qua khi tắt
     "translate",    # load translation (or stop with hint)
     "tts",          # per-segment synthesis
     "merge_audio",  # slow-down / fit / mix with background

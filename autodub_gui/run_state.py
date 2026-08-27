@@ -35,6 +35,7 @@ STEP_LABELS: dict[str, str] = {
     "extract": "Đang tách âm thanh…",
     "separate": "Đang tách nhạc nền…",
     "asr": "Đang nghe lời thoại gốc…",
+    "diarize": "Đang tách giọng theo người nói…",
     "translate": "Đang dịch sang tiếng Việt…",
     "tts": "Đang tạo giọng đọc…",
     "merge_audio": "Đang ghép âm thanh…",

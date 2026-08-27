@@ -12615,3 +12615,47 @@ kiểm trước khi nói.
 Không in ra dòng tổng kết nào. KHÔNG coi đó là xanh — chạy lại: 2121 đạt, 7
 bỏ qua, 0 đỏ. Hiện tượng này đã ghi trong FEATURES.md §5.2 (nghi Qt dọn luồng
 lúc thoát), vẫn chưa tái hiện được theo ý muốn.
+
+## C43 — Tách giọng người nói: có tính năng nhưng không ai nhìn thấy (27/08/2026)
+
+Chủ dự án chạy thật v3.12.0 rồi hỏi: *"trong video của tôi chỉ có đúng 2 giọng
+đọc, hình như nó không có chỗ nhận định được"*.
+
+Kiểm mã thì đúng, hai chỗ hụt:
+
+1. Trình hướng dẫn sáu bước KHÔNG có một chữ nào về người nói. Ô «Số người
+   nói» thêm hôm trước nằm tận trong Cài đặt → Cơ bản — không ai nghĩ tới lúc
+   đang tạo dự án.
+2. `_apply_diarization` chỉ ghi `logger.info`, không hiện thành bước nào trên
+   danh sách tiến trình. Người dùng nhìn 9 bước, không bước nào nói về người
+   nói, nên kết luận app không làm được video nhiều người.
+
+Tính năng CÓ. Hậu quả của việc không hiện ra y hệt như không có.
+
+### Đã làm
+
+- Thêm bước `diarize` («Tách giọng người nói») vào `STEPS`, ngay sau `asr`.
+  Báo đủ BỐN kết cục: đang tắt · chưa cài · xong kèm SỐ NGƯỜI · lỗi kèm lý do.
+  Nhánh lỗi quan trọng nhất: lỗi thiếu DLL torchcodec hôm 26/08 chỉ nằm trong
+  nhật ký, nên người dùng chạy xong thấy một giọng mà không biết vì sao.
+- Thêm mục «Video có nhiều người nói?» vào bước 4 (Giọng đọc & phụ đề), cạnh
+  đúng chỗ người dùng đang nghĩ tới nó. Kèm câu nói THẬT trạng thái máy: chưa
+  cài → chỉ tên tệp .bat; đã cài mà tắt → chỉ chỗ bật; đang bật → nói rõ sẽ
+  gán mỗi người một giọng. Ba trạng thái ba câu khác nhau, có test canh.
+- Số người khai ở bước 4 đi vào `Settings.speaker_count` của lượt chạy VÀ được
+  ghi lại để lần sau khỏi khai lại.
+
+### Bộ canh sẵn có bắt lỗi của tôi
+
+`test_step_labels_match_core_pipeline_steps` đỏ: có BẢNG NHÃN THỨ HAI trong
+`run_state.py` (dạng «Đang…») mà tôi bỏ sót. Thêm bước mới phải sửa cả hai
+bảng — đúng loại lệch mà test đó tồn tại để chặn.
+
+### Ba bản vá được xác nhận bằng lượt chạy thật (lần đầu)
+
+Ảnh chụp của chủ dự án cho thấy: cảnh báo «chọn nhạc nền của tôi mà chưa có
+tệp» hiện đúng (C42); ô «Dịch bằng» hiện «Tự động — ưu tiên VoxDub Cloud»
+thay vì chuỗi viết chết (C39); bảng tóm tắt ghi 12 Vox/câu theo đúng đường
+dịch đang chọn (D1e). Trước đó cả ba chỉ được chứng minh ở tầng mã.
+
+2132 Python đạt, 7 bỏ qua.
