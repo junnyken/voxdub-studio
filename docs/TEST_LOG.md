@@ -12498,3 +12498,58 @@ chú thích ở đầu tệp rồi kết luận sai thứ tự. Lần thứ BA t
 đúng lỗi dò-chuỗi-thô. Sửa bằng `_lenh()` — bỏ chú thích trước khi so.
 
 2095 Python đạt, 7 bỏ qua.
+
+## C41 — Lượt soát lại bản dịch hỏng 12 ngày, và thuật ngữ cố định không ai kiểm (27/08/2026)
+
+Chủ dự án hỏi ô «Ngữ cảnh / Cách xưng hô / Thuật ngữ cố định» có thật sự làm
+bản dịch hiểu đúng không. Đọc mã ra hai chuyện, một trong đó là lỗi nặng.
+
+### Lỗi: máy chủ từ chối lý do mà app gửi — hỏng suốt 12 ngày
+
+Nhật ký người dùng 26/08:
+
+    Soát lại bản dịch: 1 câu cần sửa (1 câu untranslated)
+    Soát lại bản dịch lỗi (body/items/0/reason must be equal to one of the
+    allowed values) — giữ bản lượt đầu
+
+Lược đồ máy chủ (`ai.js:507`) chỉ nhận `['cjk', 'over_budget', 'too_short']`.
+App thêm lý do `untranslated` ngày **15/08/2026** để vá đúng chuyện "đôi khi
+dịch thiếu hội thoại" (lưới `cjk` cũ chỉ bắt được khi nguồn là tiếng Trung),
+nhưng không ai thêm vào lược đồ. Hậu quả: hễ có câu chưa dịch là **CẢ LƯỢT**
+soát lại bị từ chối, app giữ nguyên bản đầu — đúng lỗi bản vá đó định sửa.
+
+Hai phía nằm ở hai ngôn ngữ, hai kho triển khai; không có gì buộc chúng khớp
+ngoài trí nhớ. Nay có `tests/test_ly_do_soat_lai_khop_may_chu.py` đọc thẳng
+`_flag()` bằng AST và lược đồ trong `ai.js`, đòi tập lý do phải khớp NHAU hai
+chiều.
+
+Nhãn hiển thị cũng thiếu `untranslated` — nên nhật ký in ra chữ tiếng Anh
+trần, đúng như người dùng thấy. Đã thêm nhãn tiếng Việt.
+
+### Thêm: kiểm lại thuật ngữ cố định thay vì chỉ nhắc
+
+Cả bốn ô ngữ cảnh ĐỀU được gửi lên, và thuật ngữ còn kèm chữ **MANDATORY**.
+Nhưng không ai kiểm lại xem mô hình có tuân — người dùng khai xong chỉ biết
+tin. `_sai_thuat_ngu()` so trên máy (0 Vox): câu gốc có từ trong danh sách mà
+bản dịch không dùng đúng bản dịch đã khai → cờ `glossary`, đi chung đường
+dịch lại với các lý do sẵn có. So không phân biệt hoa thường (bản dịch hay
+viết hoa đầu câu — cờ vì chữ hoa là cờ nhầm).
+
+Chạy thử bằng đúng ví dụ trong ảnh người dùng (`显卡 = card đồ họa`,
+`翻车 = toang`): tuân đúng → qua; dịch thành "card màn hình" → bị cờ; "Toang
+rồi." viết hoa → qua; câu không chứa từ nào → qua.
+
+### Lỗ hổng trong chính bộ canh của tôi, tự tìm ra bằng đột biến
+
+Đột biến "quên truyền thuật ngữ vào lúc quét" KHÔNG làm test nào đỏ — vì mọi
+test đều gọi thẳng `_flag(..., tn)`, không đi qua `review_translations`. Đã
+thêm chốt soi chỗ nối bằng AST; đo lại thì đỏ.
+
+Một đột biến khác cũng không đỏ, nhưng đó là lỗi phép đo của tôi: tôi sửa
+dòng so sánh trong khi `dich` đã được hạ chữ thường từ dòng trên. Sửa đúng
+dòng thì đỏ.
+
+2111 Python đạt, 7 bỏ qua · 511 Node (510 đạt, 0 hỏng).
+
+**Cần deploy máy chủ:** thay đổi lược đồ `reason` chỉ có tác dụng sau khi
+`control_server` được triển khai lại.

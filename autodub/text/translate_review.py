@@ -66,7 +66,50 @@ def _append_trace(trace_out: list[dict] | None, segments: list[dict],
         })
 
 
-def _flag(seg: dict, text_field: str, cps: float) -> str | None:
+def doc_thuat_ngu(chu: str) -> list[tuple[str, str]]:
+    """Đọc ô «Thuật ngữ cố định» thành các cặp (từ gốc, bản dịch bắt buộc).
+
+    Khuôn người dùng gõ, đúng như gợi ý trong giao diện::
+
+        显卡 = card đồ họa
+        翻车 = toang
+
+    Bỏ dòng trống, dòng không có dấu «=», và dòng thiếu một trong hai vế.
+    """
+    cap: list[tuple[str, str]] = []
+    for dong in (chu or "").splitlines():
+        if "=" not in dong:
+            continue
+        goc, _, dich = dong.partition("=")
+        goc, dich = goc.strip(), dich.strip()
+        if goc and dich:
+            cap.append((goc, dich))
+    return cap
+
+
+def _sai_thuat_ngu(seg: dict, text_field: str,
+                   thuat_ngu: list[tuple[str, str]]) -> bool:
+    """Câu gốc có từ trong danh sách mà bản dịch không dùng đúng bản dịch đó.
+
+    Vì sao cần: ô «Thuật ngữ cố định» được gửi lên kèm chữ **MANDATORY**
+    trong lời nhắc, nhưng KHÔNG ai kiểm lại xem mô hình có tuân hay không —
+    người dùng khai xong chỉ biết tin. Phép kiểm này chạy hoàn toàn trên máy,
+    không tốn Vox; chỉ câu SAI mới được gửi đi dịch lại.
+
+    So không phân biệt hoa thường, vì bản dịch hay viết hoa đầu câu.
+    """
+    if not thuat_ngu:
+        return False
+    goc = str(seg.get("text", ""))
+    dich = str(seg.get(text_field, "")).lower()
+    for tu_goc, tu_dich in thuat_ngu:
+        if tu_goc.lower() in goc.lower() and tu_dich.lower() not in dich:
+            return True
+    return False
+
+
+def _flag(seg: dict, text_field: str, cps: float,
+          thuat_ngu: list[tuple[str, str]] | None = None) -> str | None:
     """Lý do nghi vấn của một câu, hoặc None nếu ổn."""
     text = str(seg.get(text_field, "")).strip()
     if not text:
@@ -90,6 +133,8 @@ def _flag(seg: dict, text_field: str, cps: float) -> str | None:
         return "over_budget"
     if src and len(text) < len(src) * _MIN_SOURCE_RATIO and len(src) > 20:
         return "too_short"
+    if _sai_thuat_ngu(seg, text_field, thuat_ngu or []):
+        return "glossary"
     return None
 
 
@@ -113,7 +158,9 @@ def review_translations(
         return segments
 
     cps = effective_cps(settings)
-    flagged = [(i, _flag(s, target.text_field, cps)) for i, s in enumerate(segments)]
+    thuat_ngu = doc_thuat_ngu(getattr(settings, "translate_glossary", ""))
+    flagged = [(i, _flag(s, target.text_field, cps, thuat_ngu))
+               for i, s in enumerate(segments)]
     flagged = [(i, r) for i, r in flagged if r]
     if not flagged:
         logger.info("Soát lại bản dịch: mọi câu đều đạt")
@@ -125,7 +172,11 @@ def review_translations(
     # Nhãn tiếng Việt cho Nhật ký GUI (log kỹ thuật xem code/console).
     labels = {"over_budget": "hơi dài so với chỗ trống",
               "cjk": "còn sót chữ Trung",
-              "too_short": "nghi dịch sót ý"}
+              "too_short": "nghi dịch sót ý",
+              # Thiếu hai nhãn này thì nhật ký in ra chữ tiếng Anh trần —
+              # thấy thật trong nhật ký người dùng: "1 câu untranslated".
+              "untranslated": "còn nguyên văn bản gốc",
+              "glossary": "không dùng thuật ngữ bạn đã khai"}
     breakdown = ", ".join(f"{v} câu {labels.get(k, k)}" for k, v in by_reason.items())
 
     if len(flagged) > len(segments) * _MAX_REVIEW_FRACTION:

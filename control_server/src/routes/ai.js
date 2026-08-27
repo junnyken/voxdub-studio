@@ -504,7 +504,18 @@ module.exports = async function aiRoutes(fastify) {
               required: ['id', 'reason', 'text', 'current'],
               properties: {
                 id: { type: 'integer' },
-                reason: { type: 'string', enum: ['cjk', 'over_budget', 'too_short'] },
+                // 'untranslated' được app thêm 15/08/2026 (câu dịch còn
+                // NGUYÊN VĂN bản gốc — lưới `cjk` chỉ bắt được khi nguồn là
+                // tiếng Trung) nhưng KHÔNG ai thêm vào đây. Hậu quả: mỗi khi
+                // có câu như vậy, cả lượt soát lại bị từ chối
+                // ("reason must be equal to one of the allowed values") và
+                // app lặng lẽ giữ bản đầu — đúng lỗi bản vá đó định sửa.
+                // Hỏng suốt 12 ngày, lộ ra trong nhật ký người dùng 26/08.
+                // Thêm mới PHẢI sửa cả hai phía; có test đối chiếu
+                // (tests/test_ly_do_soat_lai_khop_may_chu.py).
+                reason: { type: 'string',
+                          enum: ['cjk', 'untranslated', 'over_budget',
+                                 'too_short', 'glossary'] },
                 text: { type: 'string', maxLength: 800 },
                 current: { type: 'string', maxLength: 1200 },
                 duration: { type: 'number' },
