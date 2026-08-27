@@ -12402,3 +12402,57 @@ sinh ra) thay vì chỗ báo lỗi cho người dùng.
    tôi vừa cố ý đổi (thiếu câu thì cảnh báo rồi nạp). Không sửa mã cho test
    xanh: đổi test theo ý định mới, tách thành hai (thiếu → dừng, thừa → nạp),
    và ghi rõ trong docstring vì sao đổi.
+
+## C39 — Trình chỉnh sửa: đường ra, và dự án nhập vào bị rỗng thông tin (27/08/2026)
+
+Chủ dự án dùng thật tính năng nhập (C37, làm tối hôm trước, chưa ai chạy) rồi
+báo hai chuyện.
+
+### 1. Không có đường quay lại
+
+*"hình như nó không thể nhấn quay lại về trước được"*
+
+`EditorPage.close_requested` đã khai, và `app.py` đã nối nó về trang Dự án —
+nhưng **không nút nào phát tín hiệu đó**. Dây nối sẵn, thiếu đúng cái công
+tắc. Thanh trên cùng chỉ có logo, tên dự án, chỉ báo lưu, nút Xuất video; khi
+thanh bên của app ẩn đi thì không còn đường nào ra.
+
+Sửa: thêm `IconButton` mũi tên trái ở đầu thanh, nối thẳng vào tín hiệu sẵn có.
+
+### 2. Thời lượng 00:00, không đọc được dạng sóng, ngôn ngữ không rõ
+
+`nhap_du_an()` chỉ ghi phụ đề + `source_video.json`. Không đo độ dài, không
+trích âm thanh, không ghi ngôn ngữ. Nên Trình chỉnh sửa hiện đúng những gì
+không có: thời lượng 00:00, «Không đọc được dạng sóng của tệp âm thanh này»,
+«Ngôn ngữ gốc: không rõ», thư mục 5 KB.
+
+Sửa: đo độ dài bằng `probe_duration_s`, dựng `report.json` tối thiểu (nơi
+trang Dự án và Trình chỉnh sửa đọc thời lượng ra), trích `original_audio.wav`
+cho dạng sóng. Trích trượt thì CẢNH BÁO chứ không chặn việc nhập.
+
+Cố ý KHÔNG bịa `processing_time_seconds` hay số Vox vào báo cáo — dự án nhập
+vào chưa từng chạy, ghi số đó là nói dối về việc chưa xảy ra. Có test canh.
+
+**Chạy thật:** dựng video 8 giây + .srt 2 câu → đo đúng 8,0 giây, trích ra
+`original_audio.wav` 256 KB, ghi `source_language: vi`.
+
+### Rà cả Trình chỉnh sửa như chủ dự án yêu cầu
+
+- 21 nút, **0 nút chưa nối** hành động.
+- Mọi tín hiệu của bảng đều có nơi nghe: **0 tín hiệu mồ côi**.
+- Quét tín hiệu khai-mà-không-ai-phát: chỉ `close_requested` là thật.
+
+**Ba báo động giả của phép quét, đã kiểm tay trước khi báo:** `open_subtitle`,
+`open_youtube`, `open_other` bị chấm là "chết" vì chúng được phát qua BIẾN
+VÒNG LẶP (`signal.emit` trong vòng `for text, signal in (...)`), phép dò theo
+tên không thấy. Kiểm tay thì cả bốn nút "Mở nhanh" đều nối đủ. Lần quét đầu
+còn báo 54 chỗ — do khuôn thật là `.connect(self.x.emit)` KHÔNG có dấu ngoặc,
+mà phép dò lại đòi `.emit(`.
+
+### Môi trường máy chạy test lại mất gói hệ thống
+
+Giữa phiên, `libGL`, `libxkbcommon`, `libfontconfig`, `libglib` và cả `ffmpeg`
+biến mất — lần thứ N (xem project_voidmix_workspace_mat_goi_he_thong). Chốt
+chặn môi trường của kho làm đúng việc: **từ chối chạy test** kèm câu chỉ thẳng
+`scripts/cai_moi_truong_test.sh`, thay vì báo xanh giả với số thấp hơn. Sau
+khi cài lại: 2089 đạt (so với 2047 của lượt trước khi thiếu Qt).

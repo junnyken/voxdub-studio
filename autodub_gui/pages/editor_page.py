@@ -34,7 +34,7 @@ from autodub_gui.pages.editor_panels import (
 )
 from autodub_gui.run_state import REGISTRY, ActiveJob
 from autodub_gui.system_open import open_file, open_folder
-from autodub_gui.ui.buttons import PrimaryButton
+from autodub_gui.ui.buttons import IconButton, PrimaryButton
 from autodub_gui.ui.modal import ConfirmDialog, confirm_discard
 from autodub_gui.ui.progress import SaveIndicator
 from autodub_gui.ui.style import clear_background, panel_background
@@ -133,6 +133,17 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
         row.setContentsMargins(tokens.SP_4, 0, tokens.SP_4, 0)
         row.setSpacing(tokens.SP_3)
 
+        # Nút quay lại (C39). Tín hiệu `close_requested` đã được khai và đã
+        # được `app.py` nối về trang Dự án từ lâu — nhưng CHƯA CÓ NÚT NÀO
+        # phát nó ra. Người dùng mở Trình chỉnh sửa xong là kẹt, nhất là khi
+        # thanh bên của app bị ẩn (lỗi thật, chủ dự án báo 26/8/2026: "hình
+        # như nó không thể nhấn quay lại về trước được").
+        #
+        # Dây đã nối sẵn, chỉ thiếu đúng cái công tắc — nên chỗ sửa là ở đây,
+        # không phải dựng thêm đường điều hướng mới.
+        self.btn_back = IconButton(icons.chevron_left(), "Quay lại danh sách dự án")
+        self.btn_back.clicked.connect(self.close_requested.emit)
+
         logo = QLabel()
         logo.setPixmap(icons.app_logo(24))
         clear_background(logo)
@@ -147,6 +158,7 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
             f"QLineEdit {{ background: transparent; border: none; "
             f"color: {tokens.TEXT_PRIMARY}; font-size: {tokens.FS_CARD_TITLE}px; "
             f"font-weight: 600; padding: 0; }}")
+        row.addWidget(self.btn_back)
         row.addWidget(logo)
         row.addWidget(caption)
         row.addWidget(self.name_edit, 1)

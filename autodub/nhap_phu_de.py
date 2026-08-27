@@ -193,6 +193,43 @@ def nhap_du_an(video_path: str, phu_de_path: str, thu_muc_goc: str, *,
         json.dump({"file_path": os.path.abspath(video_path)}, f,
                   ensure_ascii=False, indent=2)
 
+    # --- Đo và trích những thứ Trình chỉnh sửa cần (C39) ----------------
+    # Bản đầu chỉ ghi phụ đề + đường dẫn video, nên dự án mở ra hiện «Thời
+    # lượng 00:00», «Không đọc được dạng sóng của tệp âm thanh này» và
+    # «Ngôn ngữ gốc: không rõ» — lỗi thật, chủ dự án báo ngay lượt dùng đầu
+    # tiên (26/8/2026). Ba mảnh dưới đây là thứ đọc ra được từ chính video
+    # đã có đường dẫn, không cần hỏi thêm người dùng câu nào.
+    from autodub.media.video import probe_duration_s
+
+    do_dai = probe_duration_s(video_path) or 0.0
+    if not do_dai:
+        canh_bao.append(
+            "Không đo được độ dài video — Trình chỉnh sửa sẽ hiện thời lượng "
+            "00:00. Không ảnh hưởng việc sửa hay xuất video.")
+
+    # `report.json` là nơi trang Dự án và Trình chỉnh sửa đọc thời lượng ra
+    # (xem autodub_gui/projects.py::_duration_of). Dự án nhập vào chưa từng
+    # chạy nên chưa có tệp này — dựng bản tối thiểu, chỉ những trường đọc
+    # được thật, KHÔNG bịa số đã xử lý hay số Vox.
+    with open(data_path(thu_muc, "report.json"), "w", encoding="utf-8") as f:
+        json.dump({"total_original_duration": round(do_dai, 3),
+                   "total_segments": len(cau),
+                   "source_language": target.key,
+                   "nhap_tu_phu_de": True}, f, ensure_ascii=False, indent=2)
+
+    # Âm thanh gốc: Trình chỉnh sửa vẽ dạng sóng từ tệp này. Không có nó thì
+    # dải sóng trống trơn kèm dòng "Không đọc được dạng sóng".
+    try:
+        from autodub.media.audio import extract_audio
+
+        extract_audio(video_path, data_path(thu_muc, "original_audio.wav"))
+    except Exception as e:  # noqa: BLE001 — thiếu dạng sóng KHÔNG chặn việc sửa
+        logger.warning("Không trích được âm thanh gốc (%s) — dự án vẫn dùng "
+                       "được, chỉ thiếu dạng sóng trên thanh thời gian.", e)
+        canh_bao.append(
+            "Không trích được âm thanh gốc nên thanh thời gian sẽ không có "
+            "dạng sóng. Mọi thứ khác vẫn dùng bình thường.")
+
     logger.info("Đã nhập %d câu từ «%s» vào %s",
                 len(cau), os.path.basename(phu_de_path), thu_muc)
     return KetQuaNhap(thu_muc=thu_muc, so_cau=len(cau), canh_bao=canh_bao)
