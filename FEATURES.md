@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-08-26 · phiên bản ứng dụng `3.12.0`
+> Cập nhật: 2026-08-27 · phiên bản ứng dụng `3.12.0`
 
 ---
 
@@ -124,6 +124,16 @@ vùng.
   báo rõ). Chọn `offline` thì **không giữ chỗ tiền dịch**, và chưa cài NLLB
   thì báo lỗi chứ không lặng lẽ quay về máy chủ. Trước D1 đường ngoại tuyến
   không thể chạm tới vì nó bị treo vào `is_configured()`.
+
+- **Nhạc nền của bạn** (C42). Trình chỉnh sửa → Nhạc nền → *Chọn tệp nhạc của
+  tôi…* nhận mp3/wav/m4a/aac/flac/ogg/opus/wma; app tự chuyển sang WAV 44.1kHz
+  trong thư mục dự án, tự cắt hoặc đệm im lặng cho khớp độ dài video, và giảm
+  nhỏ theo mức *Giảm tiếng gốc* khi có lời thoại. Chọn tệp là ô *Cách xử lý*
+  tự chuyển sang «Nhạc nền của tôi».
+  **Chưa có:** lớp âm thanh đặt tự do trên thanh thời gian (kéo thả nhiều đoạn
+  vào các mốc khác nhau) — cố ý để đợt sau, vì phải dựng lại thanh thời gian.
+  Cũng không có xoay/nghiêng/cắt khung hình: đây là công cụ lồng tiếng, không
+  phải trình dựng phim.
 
 ### 3.2 Trình chỉnh sửa
 
