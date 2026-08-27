@@ -28,6 +28,22 @@ GOI=(
   ffmpeg
 )
 
+# `--neu-thieu`: không có gì thiếu thì THOÁT NGAY, không đụng apt.
+#
+# Vì sao cần: máy workspace giữ lại `/home/coder` (đĩa riêng) nhưng dựng lại
+# `/usr` từ image mỗi lần khởi động — nên các gói này biến mất đều đặn, không
+# phải do ai xoá. Chốt chặn trong `tests/test_kiem_moi_truong.py` đã ngăn được
+# chuyện nguy hiểm (báo xanh giả), nhưng vẫn tốn một vòng "chạy test → đọc lỗi
+# → chạy script → chạy lại test" mỗi phiên. Cờ này cho `scripts/chay_test.sh`
+# tự chữa mà không làm chậm lượt chạy khi máy đang lành.
+if [ "${1:-}" = "--neu-thieu" ]; then
+  if QT_QPA_PLATFORM=offscreen python3 -c "from PySide6.QtWidgets import QWidget" \
+       >/dev/null 2>&1 && command -v ffmpeg >/dev/null 2>&1; then
+    exit 0
+  fi
+  echo "Thiếu thư viện hệ thống (máy workspace dựng lại /usr mỗi phiên) — cài lại…"
+fi
+
 if ! command -v apt-get >/dev/null 2>&1; then
   echo "Máy này không dùng apt — tự cài tương đương: ${GOI[*]}" >&2
   exit 1

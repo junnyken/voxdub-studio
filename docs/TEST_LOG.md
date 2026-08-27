@@ -12456,3 +12456,45 @@ biến mất — lần thứ N (xem project_voidmix_workspace_mat_goi_he_thong).
 chặn môi trường của kho làm đúng việc: **từ chối chạy test** kèm câu chỉ thẳng
 `scripts/cai_moi_truong_test.sh`, thay vì báo xanh giả với số thấp hơn. Sau
 khi cài lại: 2089 đạt (so với 2047 của lượt trước khi thiếu Qt).
+
+## C40 — Máy chạy test mất gói hệ thống: chỉnh tới đâu là hợp lý (27/08/2026)
+
+**Gốc rễ, đo được:** `/home/coder` nằm trên đĩa riêng (`/dev/vda1`) nên được
+giữ lại; `/usr` thuộc image container nên **dựng lại sạch mỗi lần workspace
+khởi động**. Không ai xoá cả — đó là cách workspace hoạt động. Vì vậy
+`libGL`, `libxkbcommon`, `libfontconfig`, `libglib`, `ffmpeg` biến mất đều
+đặn (21/08, 26/08, 27/08).
+
+**Điều KHÔNG cần sửa:** chốt chặn `tests/test_kiem_moi_truong.py` đã ngăn
+đúng thứ nguy hiểm — bộ test từ chối chạy kèm câu chỉ thẳng script cài, thay
+vì báo xanh với số thấp hơn. Phần đó làm đúng việc, giữ nguyên.
+
+**Đã thêm:** `scripts/chay_test.sh` — tự gọi bộ cài ở chế độ `--neu-thieu`
+rồi chạy pytest. Máy lành thì phép kiểm mất **0,24 giây** (đo thật, có test
+canh mốc 3 giây); máy vừa mất gói thì tự cài rồi chạy tiếp. Bỏ được vòng
+"chạy test → đọc lỗi → chạy script → chạy lại" mỗi phiên.
+
+**Giới hạn đã biết, ghi ra chứ không giấu:** `--neu-thieu` phát hiện bằng
+cách thử nạp Qt và tìm ffmpeg rồi gọi `apt-get install`. Nếu tệp bị xoá TAY
+mà sổ apt vẫn ghi "đã cài" thì lệnh cài không làm gì (cần `--reinstall`).
+Phép thử của tôi rơi đúng vào ca đó nên chỉ chứng minh được phần PHÁT HIỆN,
+chưa chứng minh phần CHỮA. Ở tình huống thật — container dựng lại — sổ apt
+cũng mới nên không gặp.
+
+**Việc còn lại nằm ngoài kho mã:** cách chữa dứt điểm là thêm 18 gói này vào
+image hoặc script khởi động của template Coder (`/etc/profile.d/` đang được
+template cấp mỗi lần khởi động, cùng cơ chế). Đó là thao tác của người quản
+trị workspace, không phải việc lập trình.
+
+**Đính chính một câu tôi nói sai với chủ dự án:** tôi bảo con số test nhảy
+2047 → 2089 là do "thiếu Qt nên test giao diện bị bỏ qua". SAI. Kiểm lại:
+các commit tối trước khai lần lượt 2052 → 2054 → 2063 → 2077 → 2083, cộng
+test mới của hôm nay. Đó là test được THÊM VÀO, không có gì bị bỏ qua. Cái
+bẫy báo-xanh-giả có thật nhưng không phải lần này.
+
+**Lỗi của tôi khi viết test đợt này:** hai test đầu so vị trí chuỗi trên
+nguyên văn tệp shell, bắt trúng chữ "pytest" và "--neu-thieu" nằm trong phần
+chú thích ở đầu tệp rồi kết luận sai thứ tự. Lần thứ BA trong một ngày mắc
+đúng lỗi dò-chuỗi-thô. Sửa bằng `_lenh()` — bỏ chú thích trước khi so.
+
+2095 Python đạt, 7 bỏ qua.
