@@ -263,6 +263,8 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
         self.voice_panel.changed.connect(self._save_render_opts)
         self.background_panel = BackgroundPanel()
         self.background_panel.changed.connect(self._save_render_opts)
+        self.background_panel.chon_nhac_requested.connect(self._chon_nhac_rieng)
+        self.background_panel.xoa_nhac_requested.connect(self._xoa_nhac_rieng)
         self.music_sfx_panel = MusicSfxPanel()
         self.music_sfx_panel.music_requested.connect(self._on_music_requested)
         self.music_sfx_panel.music_suggest_requested.connect(
@@ -640,6 +642,7 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
         self.background_panel.duck.set_value(
             float(opts.get("bg_duck_db", DEFAULT_DUCK_DB)))
         self.background_panel.set_separated(self._has_separated_audio())
+        self._cap_nhat_nhan_nhac_rieng()
         # Nhạc nền/SFX AI (mini-spec V37) chỉ dùng được ở chế độ SaaS — ẩn
         # hoàn toàn khi chưa cấu hình, cùng nguyên tắc is_configured() là
         # cổng duy nhất xuyên suốt dự án (không rải điều kiện tương đương).
@@ -692,6 +695,46 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
                 suggestion.voice.name, suggestion.reason_text)
         else:
             self.voice_panel.set_ai_suggestion("", "")
+
+    def _cap_nhat_nhan_nhac_rieng(self) -> None:
+        from autodub.media.nhac_nen_rieng import duong_nhac_nen
+
+        self.background_panel.set_nhac_rieng(
+            bool(self._work_dir and duong_nhac_nen(self._work_dir)))
+
+    def _chon_nhac_rieng(self) -> None:
+        """Chọn một tệp nhạc trên máy làm nhạc nền của dự án (C42)."""
+        from PySide6.QtWidgets import QFileDialog
+
+        from autodub.media.nhac_nen_rieng import (DUOI_NHAN, LoiNhacNen,
+                                                  dat_nhac_nen)
+
+        if not self._work_dir:
+            TOASTS.warn("Chưa mở dự án nào.")
+            return
+        loc = "Tệp âm thanh (" + " ".join(f"*{d}" for d in DUOI_NHAN) + ")"
+        duong, _ = QFileDialog.getOpenFileName(
+            self, "Chọn tệp nhạc nền", "", loc)
+        if not duong:
+            return
+        try:
+            dat_nhac_nen(self._work_dir, duong)
+        except LoiNhacNen as e:
+            ConfirmDialog.show_error(self, "Không dùng được tệp nhạc này", str(e))
+            return
+        # Chọn tệp xong thì chuyển luôn ô Cách xử lý — người dùng vừa nói rõ
+        # ý định, bắt họ đi tìm thêm một ô nữa là thừa.
+        self.background_panel.mode.set_key("tep_rieng")
+        self._cap_nhat_nhan_nhac_rieng()
+        self._save_render_opts()
+        TOASTS.info("Đã đặt nhạc nền. Bấm Xuất video để ghép vào phim.")
+
+    def _xoa_nhac_rieng(self) -> None:
+        from autodub.media.nhac_nen_rieng import xoa_nhac_nen
+
+        if self._work_dir and xoa_nhac_nen(self._work_dir):
+            TOASTS.info("Đã bỏ tệp nhạc. Chọn lại Cách xử lý nếu cần.")
+        self._cap_nhat_nhan_nhac_rieng()
 
     def _has_separated_audio(self) -> bool:
         from autodub.workdir import data_path

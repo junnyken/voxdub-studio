@@ -626,6 +626,14 @@ def resolve_existing_background(
             if os.path.exists(original):
                 return original, bg_duck_db
         return None, bg_duck_db
+    if bg_mode == "tep_rieng":
+        from autodub.media.nhac_nen_rieng import duong_nhac_nen
+
+        rieng = duong_nhac_nen(work_dir)
+        if rieng:
+            return rieng, bg_duck_db
+        logger.warning("nhac_nen_rieng.wav missing — rebuild will use a silent base")
+        return None, 0.0
     if bg_mode == "ai_music":
         ai_music = data_path(work_dir, "ai_music.wav")
         if os.path.exists(ai_music):

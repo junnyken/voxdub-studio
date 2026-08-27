@@ -1995,6 +1995,24 @@ class DubPipeline:
             rep.emit("separate", "done", detail=f"duck {bg_duck_db:+.1f} dB")
             return audio_path, bg_duck_db
 
+        if bg_mode == "tep_rieng":
+            # Nhạc nền do người dùng tự chọn (C42). Bộ trộn tự đệm/cắt cho
+            # khớp độ dài video, nên chỉ cần trỏ đúng tệp.
+            from autodub.media.nhac_nen_rieng import duong_nhac_nen
+
+            rieng = duong_nhac_nen(work_dir)
+            if rieng:
+                logger.info("STEP 2.5: dùng nhạc nền bạn đã chọn (%s)", rieng)
+                rep.emit("separate", "done", detail="nhạc nền của bạn")
+                return rieng, bg_duck_db
+            logger.warning(
+                "Bạn chọn «nhạc nền của tôi» nhưng dự án này chưa có tệp nhạc "
+                "nào — lượt chạy này sẽ KHÔNG có nhạc nền. Vào Trình chỉnh sửa "
+                "→ Nhạc nền để chọn tệp, hoặc đổi sang «Tách giọng gốc, giữ "
+                "nguyên nhạc nền».")
+            rep.emit("separate", "skip", detail="chưa chọn tệp nhạc")
+            return None, 0.0
+
         if bg_mode == "ai_music":
             # Nhạc AI (V37) được SINH Ở TRÌNH CHỈNH SỬA, sau khi đã có một
             # lượt chạy — nên ở lượt đầu tệp này chưa tồn tại và video ra

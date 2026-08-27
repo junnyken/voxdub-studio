@@ -78,6 +78,9 @@ BG_MODES: list[tuple[str, str]] = [
     # SAU khi có một lượt chạy. Nhãn cũ ("Nhạc nền AI (ElevenLabs)") hứa một
     # thứ mà lượt đầu chắc chắn không có, và video ra im lặng không báo gì.
     ("Nhạc nền AI — phải sinh trước ở Trình chỉnh sửa", "ai_music"),
+    # C42 — nhạc nền do người dùng tự chọn. Nhãn nói rõ phải chọn tệp trước,
+    # cùng lý do với nhạc AI: chọn chế độ mà chưa có tệp thì video ra im lặng.
+    ("Nhạc nền của tôi — chọn tệp ở Trình chỉnh sửa", "tep_rieng"),
 ]
 
 SUBTITLE_MODES: list[tuple[str, str]] = [

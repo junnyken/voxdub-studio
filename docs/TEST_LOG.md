@@ -12553,3 +12553,65 @@ dòng thì đỏ.
 
 **Cần deploy máy chủ:** thay đổi lược đồ `reason` chỉ có tác dụng sau khi
 `control_server` được triển khai lại.
+
+## C42 — Nhạc nền do người dùng tự chọn, học từ ElevenLabs (27/08/2026)
+
+Chủ dự án nhìn thanh thời gian rồi hỏi: *"ở đây tôi muốn kéo thêm âm thanh
+này kia vô được không"*. Kiểm mã: **không** — thanh thời gian chỉ kéo được câu
+thoại sẵn có (dời, co giãn hai đầu); `setAcceptDrops` chỉ có ở trang chọn
+video và Xử lý hàng loạt. Cũng không có xoay/nghiêng/cắt khung hình.
+
+### Đọc tài liệu ElevenLabs Dubbing Studio để học
+
+Họ có: thanh thời gian BA lớp (lời thoại · lồng tiếng riêng · hiệu ứng),
+**Upload Audio** cho track nhạc/nền không có tiếng nói, gộp clip bằng cách kéo
+hai đầu chạm nhau, lịch sử clip, chế độ Fixed/Dynamic cho độ dài, tự nhận tối
+đa 32 người nói kể cả khi nói chồng.
+
+Họ giới hạn **45 phút / 1 GB** trong Studio — tệp giảng bài 3h43 của chủ dự án
+không đưa vào được, gấp năm lần hạn mức.
+
+### Mượn gì, KHÔNG mượn gì
+
+Chủ dự án chọn: làm nhạc nền cả video trước, lớp đặt tự do tính sau.
+
+- Mượn: cho tải tệp nhạc của người dùng lên. Bước trộn nhạc nền của VoxDub
+  vốn đã nhận một tệp bất kỳ rồi `apad`/`atrim` cho khớp độ dài — nên chỉ cần
+  chuyển tệp thành WAV chuẩn trong thư mục dự án và thêm chế độ trỏ vào đó.
+- KHÔNG mượn lớp âm thanh đặt tự do: việc lớn hơn nhiều, đúng ra là dựng lại
+  thanh thời gian.
+- KHÔNG mượn chế độ Dynamic (độ dài chạy theo chữ): câu dài ra sẽ đẩy lệch
+  dây chuyền các câu sau, mà VoxDub khớp chặt theo mốc thời gian gốc.
+
+### Đã làm
+
+`autodub/media/nhac_nen_rieng.py` — `dat_nhac_nen` chuyển tệp sang WAV
+44.1kHz stereo trong thư mục dự án (chuyển chứ không dùng thẳng tệp gốc: bước
+trộn chạy lại mỗi lần xuất, và tệp gốc có thể bị xoá/đổi chỗ giữa hai lần).
+Đổi tên ở bước cuối để hỏng giữa chừng thì bản cũ còn nguyên.
+
+Chế độ `bg_mode="tep_rieng"` nối vào CẢ HAI đường xuất: lượt chạy đầu
+(`pipeline._resolve_background`) và xuất lại từ Trình chỉnh sửa
+(`editor.resolve_existing_background`) — thiếu một đường là nhạc biến mất ở
+lần xuất thứ hai. Chọn chế độ mà chưa có tệp thì CẢNH BÁO rõ, không im lặng
+như lỗi nhạc AI trước đó.
+
+Nút đặt trong `BackgroundPanel` chứ KHÔNG trong `MusicSfxPanel`: panel kia bị
+ẩn hoàn toàn khi chưa cấu hình máy chủ (nhạc AI cần máy chủ), mà chọn tệp trên
+máy thì không cần gì. Có test canh đúng vị trí đó.
+
+**Chạy thật:** mp3 220Hz 5 giây → WAV 44100Hz 2 kênh 5,0 giây; chọn tệp khác
+thì đè lên; tệp `.txt` báo rõ danh sách đuôi nhận được; tệp không tồn tại báo
+đúng đường dẫn.
+
+### Chuyện tôi suýt đề xuất nhưng đã có sẵn
+
+Nghi nút "Đọc lại" phí công đọc lại cả 23 câu. Kiểm ra: chỉ đọc lại câu vừa
+sửa; đổi giọng cả video mới đọc hết và có hỏi xác nhận. Lần thứ N trong ngày
+kiểm trước khi nói.
+
+### Lượt chạy test đầu kết thúc bằng core dump
+
+Không in ra dòng tổng kết nào. KHÔNG coi đó là xanh — chạy lại: 2121 đạt, 7
+bỏ qua, 0 đỏ. Hiện tượng này đã ghi trong FEATURES.md §5.2 (nghi Qt dọn luồng
+lúc thoát), vẫn chưa tái hiện được theo ý muốn.

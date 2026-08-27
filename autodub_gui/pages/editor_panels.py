@@ -972,6 +972,11 @@ class BackgroundPanel(CollapsibleSection):
     """Xử lý nhạc nền của dự án."""
 
     changed = Signal()
+    #: C42 — người dùng chọn tệp nhạc của chính mình. Đặt Ở ĐÂY chứ không ở
+    #: `MusicSfxPanel`: panel kia bị ẩn hoàn toàn khi chưa cấu hình máy chủ
+    #: (nhạc AI cần máy chủ), mà chọn tệp trên máy thì đâu cần gì.
+    chon_nhac_requested = Signal()
+    xoa_nhac_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__("Nhạc nền", expanded=True, parent=parent)
@@ -991,6 +996,39 @@ class BackgroundPanel(CollapsibleSection):
             f"color: {tokens.TEXT_MUTED}; font-size: {tokens.FS_META}px; "
             f"background: transparent;")
         self.add_widget(self.status)
+
+        # Hàng nút chọn/bỏ tệp nhạc riêng (C42).
+        hang = QHBoxLayout()
+        self.btn_chon_nhac = GhostButton("Chọn tệp nhạc của tôi…")
+        self.btn_chon_nhac.setToolTip(
+            "Chọn một tệp mp3/wav trên máy làm nhạc nền. Ứng dụng tự cắt hoặc "
+            "đệm im lặng cho khớp độ dài video, và giảm nhỏ theo mức bên trên "
+            "khi có lời thoại.")
+        self.btn_chon_nhac.clicked.connect(self.chon_nhac_requested.emit)
+        self.btn_xoa_nhac = GhostButton("Bỏ nhạc đã chọn")
+        self.btn_xoa_nhac.clicked.connect(self.xoa_nhac_requested.emit)
+        self.btn_xoa_nhac.setVisible(False)
+        hang.addWidget(self.btn_chon_nhac)
+        hang.addWidget(self.btn_xoa_nhac)
+        hang.addStretch()
+        self.add_layout(hang)
+
+        self.nhan_nhac = QLabel("")
+        self.nhan_nhac.setWordWrap(True)
+        self.nhan_nhac.setStyleSheet(
+            f"color: {tokens.TEXT_MUTED}; font-size: {tokens.FS_META}px; "
+            f"background: transparent;")
+        self.add_widget(self.nhan_nhac)
+
+    def set_nhac_rieng(self, co: bool) -> None:
+        """Cho biết dự án đã có tệp nhạc riêng hay chưa."""
+        self.btn_xoa_nhac.setVisible(co)
+        self.nhan_nhac.setText(
+            "Đã có tệp nhạc của bạn. Chọn «Nhạc nền của tôi» ở ô Cách xử lý "
+            "rồi Xuất video để dùng."
+            if co else
+            "Chưa chọn tệp nào. Chọn «Nhạc nền của tôi» mà chưa có tệp thì "
+            "video sẽ không có nhạc nền.")
 
     def set_separated(self, available: bool) -> None:
         """Cho biết dự án đã có bản nhạc nền tách sẵn hay chưa."""
