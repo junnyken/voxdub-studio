@@ -42,7 +42,17 @@ def _union(a: dict, b: dict) -> dict:
     x2 = max(a["x"] + a["w"], b["x"] + b["w"])
     y2 = max(a["y"] + a["h"], b["y"] + b["h"])
     return {"x": x1, "y": y1, "w": x2 - x1, "h": y2 - y1,
-            "confidence": max(a.get("confidence", 0), b.get("confidence", 0))}
+            "confidence": max(a.get("confidence", 0), b.get("confidence", 0)),
+            # C50: gộp cả DANH SÁCH khung hình đã nhìn thấy vùng này — mất nó
+            # là mất luôn thông tin "chữ xuất hiện lúc nào".
+            "_anh": _tap_anh(a) | _tap_anh(b)}
+
+
+def _tap_anh(box: dict) -> set:
+    """Tập chỉ số khung hình mà box này đến từ đó."""
+    if "_anh" in box:
+        return set(box["_anh"])
+    return {box["anh"]} if "anh" in box else set()
 
 
 def merge_regions(boxes: list[dict]) -> list[dict]:
@@ -53,7 +63,11 @@ def merge_regions(boxes: list[dict]) -> list[dict]:
     ~10 dòng chữ mỗi frame là trần thực tế): lặp gộp cặp có IoU cao nhất
     tới khi không còn cặp nào vượt ngưỡng.
     """
-    regions = [dict(b) for b in boxes]
+    regions = []
+    for b in boxes:
+        r = dict(b)
+        r["_anh"] = _tap_anh(b)
+        regions.append(r)
     changed = True
     while changed and len(regions) > 1:
         changed = False
@@ -76,9 +90,13 @@ def _pad(region: dict) -> dict:
     y = max(0.0, region["y"] - pad_h / 2)
     w = min(1.0 - x, region["w"] + pad_w)
     h = min(1.0 - y, region["h"] + pad_h)
-    return {"x": round(x, 4), "y": round(y, 4),
-            "w": round(w, 4), "h": round(h, 4),
-            "confidence": round(region.get("confidence", 0), 3)}
+    ra = {"x": round(x, 4), "y": round(y, 4),
+          "w": round(w, 4), "h": round(h, 4),
+          "confidence": round(region.get("confidence", 0), 3)}
+    for khoa in ("t_start", "t_end"):
+        if region.get(khoa) is not None:
+            ra[khoa] = round(float(region[khoa]), 2)
+    return ra
 
 
 _engine = None  # RapidOCR instance, nạp lười — chỉ dùng ở đường in-process
@@ -111,7 +129,7 @@ def _detect_in_process(image_paths: list[str]) -> list[dict]:
         return []
 
     boxes: list[dict] = []
-    for image_path in image_paths:
+    for chi_so_anh, image_path in enumerate(image_paths):
         try:
             with Image.open(image_path) as im:
                 width, height = im.size
@@ -133,6 +151,7 @@ def _detect_in_process(image_paths: list[str]) -> list[dict]:
             x1, x2 = min(xs), max(xs)
             y1, y2 = min(ys), max(ys)
             boxes.append({
+                "anh": chi_so_anh,   # C50 — xem chú thích ở worker
                 "x": x1 / width, "y": y1 / height,
                 "w": (x2 - x1) / width, "h": (y2 - y1) / height,
                 "confidence": float(confidence),
@@ -233,8 +252,51 @@ def _chay_co_the_huy(cmd: list[str], han_gio: float, cancel_event):
             raise subprocess.TimeoutExpired(cmd, han_gio)
 
 
+def gan_khoang_thoi_gian(regions: list[dict], moc: list[float]) -> list[dict]:
+    """Suy khoảng thời gian che cho từng vùng, từ các khung hình đã thấy nó.
+
+    Vì sao (mini-spec C50): bộ lọc xuất video đã hỗ trợ ``t_start``/``t_end``
+    từ lâu (``media/subtitle.py`` sinh ``enable='between(t,..)'``) nhưng lượt
+    quét chưa bao giờ điền — nên MỌI vùng đều che suốt cả video. Với video
+    dài, một dòng chữ chỉ hiện ở phút thứ 3 sẽ làm mờ luôn 40 phút còn lại.
+
+    Vùng xuất hiện ở TẤT CẢ khung hình đã quét thì coi như chữ tĩnh (watermark,
+    tên kênh) → che suốt, không gắn mốc: vừa đúng, vừa nhẹ cho ffmpeg.
+
+    Vùng xuất hiện rời rạc thì mỗi chuỗi khung liền nhau thành một khoảng, nới
+    ra nửa bước lấy mẫu mỗi phía — chữ có thể đã hiện trước và tắt sau cái
+    khung ta chụp được.
+    """
+    if not moc or len(moc) < 2:
+        return [dict(r) for r in regions]
+    buoc = (max(moc) - min(moc)) / (len(moc) - 1)
+    nua = buoc / 2
+    ra = []
+    for r in regions:
+        anh = sorted(_tap_anh(r))
+        if not anh or len(anh) >= len(moc):
+            ra.append({k: v for k, v in r.items() if k != "_anh"})
+            continue
+        # Cắt thành các chuỗi khung liền nhau.
+        chuoi, hien_tai = [], [anh[0]]
+        for i in anh[1:]:
+            if i == hien_tai[-1] + 1:
+                hien_tai.append(i)
+            else:
+                chuoi.append(hien_tai)
+                hien_tai = [i]
+        chuoi.append(hien_tai)
+        for c in chuoi:
+            moi = {k: v for k, v in r.items() if k != "_anh"}
+            moi["t_start"] = max(0.0, moc[c[0]] - nua)
+            moi["t_end"] = moc[c[-1]] + nua
+            ra.append(moi)
+    return ra
+
+
 def detect_text_regions(image_paths: list[str], settings=None,
-                        cancel_event=None) -> list[dict]:
+                        cancel_event=None,
+                        moc_thoi_gian: list[float] | None = None) -> list[dict]:
     """Quét nhiều frame đại diện, gộp kết quả, trả về rectangle sẵn dùng
     trực tiếp cho ``blur_regions`` (cùng format style_dialog.py đã dùng).
 
@@ -254,4 +316,6 @@ def detect_text_regions(image_paths: list[str], settings=None,
     if not all_boxes:
         return []
     merged = merge_regions(all_boxes)
+    if moc_thoi_gian:
+        merged = gan_khoang_thoi_gian(merged, moc_thoi_gian)
     return [_pad(r) for r in merged]

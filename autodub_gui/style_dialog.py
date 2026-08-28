@@ -108,18 +108,37 @@ class _OcrWorker(QThread):
     failed = Signal(str)
     tien_do = Signal(int, int)   # (khung đã lấy, tổng khung)
 
-    #: Số khung hình lấy mẫu, rải đều theo thời lượng.
+    #: Số khung lấy mẫu TỐI THIỂU (video ngắn) và TỐI ĐA (video dài).
     SO_KHUNG = 5
+    SO_KHUNG_TOI_DA = 24
+    #: Cứ chừng này giây thì lấy thêm một khung.
+    GIAY_MOI_KHUNG = 120.0
 
     def __init__(self, video_path: str, settings, parent=None):
         super().__init__(parent)
         self._video = video_path
         self._settings = settings
         self._huy = threading.Event()
+        self.so_khung_da_quet = 0
 
     def dung(self) -> None:
         """Người dùng bấm Dừng — worker tự dọn và thoát êm."""
         self._huy.set()
+
+    @classmethod
+    def so_khung_can(cls, dai_giay: float) -> int:
+        """Số khung cần quét cho video dài ``dai_giay``.
+
+        mini-spec C50 — 5 khung cho video 40 phút là lấy mẫu quá thưa: chữ chỉ
+        hiện vài phút giữa video gần như chắc chắn lọt. Cứ ~2 phút một khung,
+        chặn trên 24 khung để lượt quét không kéo dài vô tận (24 khung ≈ dưới
+        10 phút quét trên máy chậm, còn hạn giờ đã tính theo số khung).
+        """
+        if dai_giay <= 0:
+            return cls.SO_KHUNG
+        import math
+        theo_dai = math.ceil(dai_giay / cls.GIAY_MOI_KHUNG)
+        return max(cls.SO_KHUNG, min(cls.SO_KHUNG_TOI_DA, theo_dai))
 
     def _moc_lay_mau(self) -> list[float]:
         """Mốc thời gian rải ĐỀU theo thời lượng thật của video.
@@ -136,7 +155,7 @@ class _OcrWorker(QThread):
             return [1.0, 5.0, 15.0]     # không đọc được thời lượng: giữ nếp cũ
         # Bỏ 2% đầu/cuối: khung đầu hay là màn đen, khung cuối hay là credit.
         dau, cuoi = dai * 0.02, dai * 0.98
-        n = self.SO_KHUNG
+        n = self.so_khung_can(dai)
         if n == 1:
             return [dai / 2]
         buoc = (cuoi - dau) / (n - 1)
@@ -147,7 +166,9 @@ class _OcrWorker(QThread):
             from autodub.media.text_regions import detect_text_regions
 
             moc = self._moc_lay_mau()
+            self._moc_da_dung = moc
             paths = []
+            moc_lay_duoc = []
             for i, at in enumerate(moc):
                 if self._huy.is_set():
                     self.ready.emit([])
@@ -159,12 +180,15 @@ class _OcrWorker(QThread):
                     paths.append(out)
                 except Exception:  # noqa: BLE001 — thiếu 1 mẫu không sao
                     continue
+                moc_lay_duoc.append(at)
                 self.tien_do.emit(i + 1, len(moc))
             if not paths:
                 self.failed.emit("Không trích được frame nào từ video")
                 return
             regions = detect_text_regions(paths, settings=self._settings,
-                                          cancel_event=self._huy)
+                                          cancel_event=self._huy,
+                                          moc_thoi_gian=moc_lay_duoc)
+            self.so_khung_da_quet = len(moc_lay_duoc)
             self.ready.emit(regions)
         except Exception as e:  # noqa: BLE001
             self.failed.emit(str(e))
@@ -819,9 +843,14 @@ class StyleDialog(QDialog):
         # Cộng dồn vào vùng đã có (không xoá vùng người dùng đã tự vẽ tay).
         merged = self.canvas.normalized_regions() + regions
         self.canvas.set_rects_from_normalized(merged)
+        so_khung = getattr(self._ocr_worker, "so_khung_da_quet", 0)
+        co_moc = sum(1 for r in regions if r.get("t_start") is not None)
+        phan_theo_doan = (f", trong đó {co_moc} vùng chỉ che đúng đoạn có chữ"
+                          if co_moc else "")
         TOASTS.success(
-            f"Đã đề xuất {len(regions)} vùng chữ — xem lại và xoá vùng nào "
-            "không cần bằng nút Xoá vùng cuối/Xoá hết.")
+            f"Đã quét {so_khung} khung rải đều cả video và đề xuất "
+            f"{len(regions)} vùng chữ{phan_theo_doan} — xem lại và xoá vùng "
+            "nào không cần bằng nút Xoá vùng cuối/Xoá hết.")
 
     def _on_ocr_failed(self, message: str) -> None:
         from autodub_gui.ui.toast import TOASTS

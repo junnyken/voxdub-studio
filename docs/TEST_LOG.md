@@ -13242,3 +13242,64 @@ mà không nối cờ thì bấm Dừng chẳng làm gì, một nút giả còn 
   đã ghi, cần mô hình khác hẳn.
 - Không gỡ mã lip-sync: đóng băng thì rẻ, gỡ thì mất một lựa chọn có thể cần
   lại (cùng lý lẽ C34 đã dùng với Douyin).
+
+## C50 — Che chữ trên video DÀI: quét dày hơn, và che đúng đoạn (28/08/2026)
+
+Chủ dự án hỏi tiếp ngay sau C49: *"nó không che được cũng khó nếu gặp video
+dài"*. Đúng — C49 mới sửa chỗ **lấy mẫu 15 giây đầu**, còn hai chỗ nữa vẫn làm
+video dài gần như vô dụng.
+
+### Chỗ thứ nhất: 5 khung cho 40 phút là quá thưa
+
+Nay số khung **tính theo thời lượng**: cứ ~2 phút một khung, tối thiểu 5, trần
+24 (video 10 tiếng không quét cả buổi). Video 40 phút → 20 khung thay vì 5.
+
+### Chỗ thứ hai — nặng hơn: quét dày lên thì che THỪA nhiều hơn
+
+Đây mới là chỗ then chốt, và nó chống lại chỗ thứ nhất: mỗi vùng tìm được đều
+che **suốt cả video**. Quét dày hơn = tìm ra nhiều vùng hơn = **bôi mờ nhiều
+phần khung hình hơn, suốt 40 phút**. Sửa một mình chỗ thứ nhất là làm mọi thứ
+tệ đi.
+
+Hoá ra năng lực cần thiết **đã có sẵn mà chưa ai dùng**: `media/subtitle.py`
+sinh `enable='between(t,...)'` cho vùng có `t_start`/`t_end` — có từ lâu, nhưng
+lượt quét chưa bao giờ điền hai trường đó.
+
+Nay:
+
+- Worker OCR gắn **chỉ số khung hình** vào từng box (`anh`), đường in-process
+  cũng vậy — sửa một trong hai đường là đúng lớp lỗi #2.
+- `merge_regions()` gộp vùng chồng lấn thì gộp cả **tập khung đã nhìn thấy** nó.
+- `gan_khoang_thoi_gian()` suy ra khoảng che:
+  - thấy ở **mọi** khung → chữ tĩnh (watermark, tên kênh) → che suốt, không gắn
+    mốc (vừa đúng vừa nhẹ cho ffmpeg);
+  - thấy rời rạc → mỗi **chuỗi khung liền nhau** thành một khoảng, nới nửa bước
+    lấy mẫu mỗi phía (chữ có thể đã hiện trước và tắt sau đúng khung ta chụp);
+  - hiện hai lần cách nhau → ra **hai khoảng**, không gộp thành một dải dài che
+    oan quãng giữa.
+
+Thử tay trên ví dụ 40 phút: watermark góc phải → che suốt; dải phụ đề chỉ thấy
+ở khung 2-3 → `t_start 870s, t_end 1998s` thay vì che trọn 2280 giây.
+
+### Một cái bẫy nhỏ suýt nuốt mất kết quả
+
+`_pad()` dựng dict MỚI ở bước cuối — quên chép `t_start`/`t_end` sang là mất
+sạch mốc thời gian vừa tính, mà không có gì kêu. Có test riêng canh đúng chuyện
+đó.
+
+### Câu báo cho người dùng cũng đổi
+
+Trước: «Đã đề xuất 7 vùng chữ». Nay: «Đã quét 20 khung rải đều cả video và đề
+xuất 7 vùng chữ, trong đó 3 vùng chỉ che đúng đoạn có chữ» — nói cả công sức
+bỏ ra lẫn thứ vừa nhận được.
+
+6 test mới (tổng 13 trong `test_quet_chu_dung_duoc.py`). 2224 Python đạt.
+
+### Còn lại, nói thẳng
+
+- Lấy mẫu ~2 phút/khung vẫn **có thể lọt** chữ chỉ hiện 30 giây. Muốn chắc chắn
+  phải quét từng khung — đắt gấp hàng trăm lần, không đáng cho một tính năng
+  phụ. Người dùng vẫn vẽ tay được như trước.
+- Vẫn là **làm mờ**, không xoá thật.
+- **Chưa chạy thật trên video dài nào** — mọi bằng chứng ở đây là test và một
+  ví dụ tính tay. Cần một lượt chạy thật của chủ dự án trên phim 40 phút.

@@ -37,7 +37,7 @@ def main() -> None:
 
     engine = RapidOCR()
     boxes = []
-    for path in args.images:
+    for chi_so_anh, path in enumerate(args.images):
         try:
             with Image.open(path) as im:
                 width, height = im.size
@@ -55,6 +55,9 @@ def main() -> None:
             x1, x2 = min(xs), max(xs)
             y1, y2 = min(ys), max(ys)
             boxes.append({
+                # C50: box thuộc KHUNG HÌNH nào — để phía app biết chữ đó xuất
+                # hiện ở khoảng thời gian nào, thay vì che cả video.
+                "anh": chi_so_anh,
                 "x": x1 / width, "y": y1 / height,
                 "w": (x2 - x1) / width, "h": (y2 - y1) / height,
                 "confidence": float(confidence),
