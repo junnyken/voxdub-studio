@@ -12965,9 +12965,13 @@ sẽ im lặng bỏ qua ngôn ngữ máy nghe ra, rồi ghi «from auto to Vietn
   đường dẫn, tiến trình con), **không** bắt được lỗi thiếu tệp trong gói — lớp
   lỗi #3 vẫn do bộ canh đóng gói riêng lo. Muốn đóng nốt thì cần một entry dòng
   lệnh trong bản build, đó là mini-spec riêng.
-- Chưa chạy trên runner Windows lần nào (workflow vừa viết, chạy ở lượt push
-  này). Nếu `choco install ffmpeg` hay việc tải model `tiny` trục trặc trên
-  runner thì sẽ lộ ra ngay lượt đầu.
+- **[ĐÃ CHẠY THẬT 28/08]** Lượt đầu ĐỎ vì bảng mã (xem mục ngay dưới). Lượt
+  thứ hai, trên runner `windows-latest`: nghe được **23 câu**, ngôn ngữ máy
+  nghe ra **en-US (99%)**, lời nhắc dịch có tên ngôn ngữ + luật đọc hiểu nguồn.
+  Đây là **bằng chứng tự động đầu tiên của dự án trên Windows**, và là bằng
+  chứng Windows đầu tiên cho phần A của C44. (Cùng video ra 23 câu ở Windows và
+  8 câu ở Linux — cách cắt câu khác nhau giữa hai máy, không phải lỗi, nhưng
+  đáng ghi lại làm manh mối nếu sau này có ai so số câu giữa hai nền tảng.)
 - Lượt chạy dừng ở bước dịch, nên **không** kiểm tạo giọng, ghép video, phụ đề.
   Mở rộng thì tốn thời gian runner và cần VieNeu — cân nhắc riêng.
 
