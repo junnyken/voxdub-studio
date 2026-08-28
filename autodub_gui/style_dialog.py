@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import threading
 
 from PySide6.QtCore import QPoint, QRect, QRectF, Qt, QThread, Signal
 from PySide6.QtGui import (QColor, QFont, QPainter,
@@ -97,39 +98,73 @@ class _FrameWorker(QThread):
 
 
 class _OcrWorker(QThread):
-    """Quét chữ tự động (mini-spec V5, docs/PLAN.md) trong luồng nền — trích
-    3 frame đại diện (đầu/giữa/cuối) rồi chạy OCR, không chặn UI thread."""
+    """Quét chữ tự động (mini-spec V5) trong luồng nền — trích vài khung hình
+    rải đều theo thời lượng rồi chạy OCR, không chặn UI thread.
+
+    C49: mốc lấy mẫu tính theo thời lượng THẬT, có đường huỷ, có báo tiến độ.
+    """
 
     ready = Signal(list)   # list[dict] rectangle chuẩn hoá 0..1
     failed = Signal(str)
+    tien_do = Signal(int, int)   # (khung đã lấy, tổng khung)
+
+    #: Số khung hình lấy mẫu, rải đều theo thời lượng.
+    SO_KHUNG = 5
 
     def __init__(self, video_path: str, settings, parent=None):
         super().__init__(parent)
         self._video = video_path
         self._settings = settings
+        self._huy = threading.Event()
+
+    def dung(self) -> None:
+        """Người dùng bấm Dừng — worker tự dọn và thoát êm."""
+        self._huy.set()
+
+    def _moc_lay_mau(self) -> list[float]:
+        """Mốc thời gian rải ĐỀU theo thời lượng thật của video.
+
+        mini-spec C49 — trước đây ba mốc viết chết 1s/5s/15s: video 40 phút
+        chỉ được quét đúng 15 giây ĐẦU, nên chữ cháy xuất hiện từ phút thứ hai
+        trở đi là không bao giờ thấy. Chính chú thích trong mã cũ cũng thừa
+        nhận đó là "ước lượng thô".
+        """
+        from autodub.media.video import probe_duration_s
+
+        dai = probe_duration_s(self._video) or 0.0
+        if dai <= 0:
+            return [1.0, 5.0, 15.0]     # không đọc được thời lượng: giữ nếp cũ
+        # Bỏ 2% đầu/cuối: khung đầu hay là màn đen, khung cuối hay là credit.
+        dau, cuoi = dai * 0.02, dai * 0.98
+        n = self.SO_KHUNG
+        if n == 1:
+            return [dai / 2]
+        buoc = (cuoi - dau) / (n - 1)
+        return [round(dau + buoc * i, 2) for i in range(n)]
 
     def run(self) -> None:
         try:
             from autodub.media.text_regions import detect_text_regions
 
+            moc = self._moc_lay_mau()
             paths = []
-            for i, at in enumerate((1.0, None, None)):
+            for i, at in enumerate(moc):
+                if self._huy.is_set():
+                    self.ready.emit([])
+                    return
                 out = os.path.join(
                     tempfile.gettempdir(), f"autodub_ocr_scan_{i}.png")
                 try:
-                    if at is None:
-                        # Frame giữa/cuối ước lượng thô bằng cách nhích mốc
-                        # thời gian — đủ dùng cho việc lấy mẫu, không cần
-                        # biết chính xác thời lượng video.
-                        at = 5.0 if i == 1 else 15.0
                     extract_frame(self._video, out, at_seconds=at)
                     paths.append(out)
                 except Exception:  # noqa: BLE001 — thiếu 1 mẫu không sao
                     continue
+                self.tien_do.emit(i + 1, len(moc))
             if not paths:
                 self.failed.emit("Không trích được frame nào từ video")
                 return
-            regions = detect_text_regions(paths, settings=self._settings)
+            regions = detect_text_regions(paths, settings=self._settings,
+                                          cancel_event=self._huy)
             self.ready.emit(regions)
         except Exception as e:  # noqa: BLE001
             self.failed.emit(str(e))
@@ -456,10 +491,19 @@ class StyleDialog(QDialog):
             ocr_row = QHBoxLayout()
             self.btn_ocr_scan = QPushButton("Quét chữ tự động")
             self.btn_ocr_scan.setToolTip(
-                "Quét 3 khung hình đại diện để tự đề xuất vùng che chữ — "
-                "bạn vẫn xác nhận/sửa/xoá được sau khi quét.")
+                f"Quét {_OcrWorker.SO_KHUNG} khung hình rải đều cả video để "
+                "tự đề xuất vùng che chữ — bạn vẫn xác nhận/sửa/xoá được sau "
+                "khi quét.")
             self.btn_ocr_scan.clicked.connect(self._start_ocr_scan)
             ocr_row.addWidget(self.btn_ocr_scan)
+            # C49: quét video dài mất hàng chục giây — không có đường dừng thì
+            # người dùng chỉ còn cách tắt cả hộp thoại và mất mọi vùng đã vẽ.
+            self.btn_ocr_stop = QPushButton("Dừng")
+            self.btn_ocr_stop.setToolTip("Dừng lượt quét đang chạy — "
+                                         "các vùng đã vẽ tay vẫn giữ nguyên.")
+            self.btn_ocr_stop.clicked.connect(self._stop_ocr_scan)
+            self.btn_ocr_stop.setVisible(False)
+            ocr_row.addWidget(self.btn_ocr_stop)
             ocr_row.addStretch()
             left.addLayout(ocr_row)
 
@@ -736,17 +780,39 @@ class StyleDialog(QDialog):
             settings = Settings.load()
         except Exception:  # noqa: BLE001 — cấu hình hỏng vẫn quét được (in-process)
             settings = None
+        self.btn_ocr_stop.setVisible(True)
         worker = _OcrWorker(self._video_path, settings, parent=self)
         worker.ready.connect(self._on_ocr_ready)
         worker.failed.connect(self._on_ocr_failed)
+        worker.tien_do.connect(self._on_ocr_tien_do)
         self._ocr_worker = worker
         worker.start()
+
+    def _on_ocr_tien_do(self, da: int, tong: int) -> None:
+        self.btn_ocr_scan.setText(f"Đang quét… {da}/{tong}")
+
+    def _stop_ocr_scan(self) -> None:
+        worker = getattr(self, "_ocr_worker", None)
+        if worker is not None:
+            worker.dung()
+        self.btn_ocr_stop.setEnabled(False)
+        self.btn_ocr_scan.setText("Đang dừng…")
+
+    def _ket_thuc_quet(self) -> None:
+        """Trả nút về trạng thái nghỉ — dùng chung cho mọi đường kết thúc."""
+        self.btn_ocr_scan.setEnabled(True)
+        self.btn_ocr_scan.setText("Quét chữ tự động")
+        self.btn_ocr_stop.setVisible(False)
+        self.btn_ocr_stop.setEnabled(True)
 
     def _on_ocr_ready(self, regions: list[dict]) -> None:
         from autodub_gui.ui.toast import TOASTS
 
-        self.btn_ocr_scan.setEnabled(True)
-        self.btn_ocr_scan.setText("Quét chữ tự động")
+        da_dung = not self.btn_ocr_stop.isEnabled()
+        self._ket_thuc_quet()
+        if da_dung:
+            TOASTS.info("Đã dừng quét. Các vùng bạn vẽ tay vẫn còn nguyên.")
+            return
         if not regions:
             TOASTS.info("Không phát hiện chữ overlay nào trong video này.")
             return
@@ -760,8 +826,7 @@ class StyleDialog(QDialog):
     def _on_ocr_failed(self, message: str) -> None:
         from autodub_gui.ui.toast import TOASTS
 
-        self.btn_ocr_scan.setEnabled(True)
-        self.btn_ocr_scan.setText("Quét chữ tự động")
+        self._ket_thuc_quet()
         TOASTS.warn(f"Quét chữ tự động không chạy được ({message}). "
                     "Bạn vẫn khoanh vùng tay được như bình thường.")
 

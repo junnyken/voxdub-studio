@@ -61,22 +61,26 @@ def test_co_dung_lay_tu_reporter_chu_khong_bia_ra():
     assert "reporter.cancel_event if reporter is not None else None" in src
 
 
-def test_quet_ocr_khong_co_nut_dung_nen_khong_can_co():
-    """Ghi lại một quyết định, để lần sau không ai tưởng đây là việc bỏ sót.
+def test_quet_ocr_nay_da_co_nut_dung_VA_da_noi_co_huy():
+    """Bộ canh cũ ghi quyết định «hộp thoại chưa có nút Dừng nên chưa cần cờ
+    huỷ», kèm câu chỉ rõ khi nào phải xem lại: *"Hộp thoại nay CÓ nút Dừng —
+    lúc này mới đáng nối cờ xuống detect_text_regions()"*. C49 làm đúng việc
+    đó, nên bộ canh đổi vai: từ nay canh cho HAI thứ đi cùng nhau.
 
-    `detect_text_regions()` dùng `subprocess.run(..., timeout=60)`. Không nối
-    cờ Dừng vào đó vì hộp thoại gọi nó (`_OcrWorker`) KHÔNG có nút Dừng —
-    thêm tham số chỉ tạo ra mã chết. Chặn cứng 60 giây là giới hạn thật.
+    Có nút mà không nối cờ thì bấm Dừng chẳng làm gì (nút giả) — còn tệ hơn
+    không có nút.
     """
     ocr = open(os.path.join(REPO, "autodub", "media", "text_regions.py"),
                encoding="utf-8").read()
-    assert "timeout=60" in ocr, "mất trần thời gian thì mới là vấn đề thật"
+    assert "timeout=60" not in ocr, (
+        "mốc 60 giây cứng là hạn của MỘT khung hình — quét nhiều khung sẽ hết "
+        "giờ oan, mà lời báo lại đổ cho 'worker không chạy được'")
+    assert "def _han_gio" in ocr, "phải có hạn giờ tính theo số khung"
+    assert "cancel_event" in ocr
 
     dialog = open(os.path.join(REPO, "autodub_gui", "style_dialog.py"),
                   encoding="utf-8").read()
-    i = dialog.find("class _OcrWorker")
-    assert i > 0
-    khuc = dialog[i:i + 1200]
-    assert "def cancel" not in khuc, (
-        "Hộp thoại nay CÓ nút Dừng — lúc này mới đáng nối cờ xuống "
-        "detect_text_regions()")
+    assert "btn_ocr_stop" in dialog, "mất nút Dừng thì cờ huỷ thành mã chết"
+    assert "def dung" in dialog, "worker phải có đường dừng"
+    assert "cancel_event=self._huy" in dialog, (
+        "hộp thoại có nút Dừng mà không chuyển cờ xuống lõi — nút giả")

@@ -140,7 +140,20 @@ def _detect_in_process(image_paths: list[str]) -> list[dict]:
     return boxes
 
 
-def _detect_via_subprocess(image_paths: list[str], settings) -> list[dict] | None:
+#: Giây cho MỖI khung hình, cộng phần dư để nạp model lần đầu. Mốc 60 giây
+#: cứng trước đây (mini-spec C49) là con số của một khung hình duy nhất: quét
+#: 3 khung trên máy chậm là hết giờ oan, mà lời báo lại nói "worker không chạy
+#: được" — sai hẳn nguyên nhân.
+GIAY_MOI_KHUNG = 25.0
+GIAY_DU_NAP_MODEL = 40.0
+
+
+def _han_gio(so_khung: int) -> float:
+    return GIAY_DU_NAP_MODEL + GIAY_MOI_KHUNG * max(1, so_khung)
+
+
+def _detect_via_subprocess(image_paths: list[str], settings,
+                           cancel_event=None) -> list[dict] | None:
     """Đường chính: chạy OCR trong .venv-ocr cô lập (đúng convention của dự
     án — mọi engine nặng chạy subprocess riêng, xem docs/ARCH.md). Trả về
     None (không phải []) khi subprocess không dùng được, để caller biết mà
@@ -158,9 +171,23 @@ def _detect_via_subprocess(image_paths: list[str], settings) -> list[dict] | Non
           bundled_file("autodub", "media", "text_regions_worker.py")]
     for path in image_paths:
         cmd += ["--image", path]
+    han = _han_gio(len(image_paths))
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    except (OSError, subprocess.TimeoutExpired) as e:
+        if cancel_event is None:
+            proc = subprocess.run(cmd, capture_output=True, text=True,
+                                  timeout=han)
+        else:
+            # Có đường huỷ thì KHÔNG dùng subprocess.run: nó chặn cứng tới khi
+            # xong hoặc hết giờ, bấm Dừng không có tác dụng gì (C49).
+            proc = _chay_co_the_huy(cmd, han, cancel_event)
+            if proc is None:
+                logger.info("Người dùng dừng lượt quét chữ")
+                return []
+    except subprocess.TimeoutExpired:
+        logger.warning("Worker OCR quá %.0f giây cho %d khung hình — bỏ qua",
+                       han, len(image_paths))
+        return None
+    except OSError as e:
         logger.warning(f"Worker OCR không chạy được ({e}) — thử in-process")
         return None
     if proc.returncode != 0:
@@ -178,7 +205,36 @@ def _detect_via_subprocess(image_paths: list[str], settings) -> list[dict] | Non
     return data.get("boxes") or []
 
 
-def detect_text_regions(image_paths: list[str], settings=None) -> list[dict]:
+def _chay_co_the_huy(cmd: list[str], han_gio: float, cancel_event):
+    """Chạy worker, cứ 0,2 giây ngó xem người dùng có bấm Dừng chưa.
+
+    Trả về ``CompletedProcess`` khi xong, ``None`` khi bị huỷ; ném
+    ``TimeoutExpired`` khi quá hạn — cùng hợp đồng với ``subprocess.run``.
+    """
+    import subprocess
+    import time
+
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+    het_han = time.monotonic() + han_gio
+    while True:
+        try:
+            out, err = proc.communicate(timeout=0.2)
+            return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+        except subprocess.TimeoutExpired:
+            pass
+        if cancel_event.is_set():
+            proc.kill()
+            proc.communicate()
+            return None
+        if time.monotonic() > het_han:
+            proc.kill()
+            proc.communicate()
+            raise subprocess.TimeoutExpired(cmd, han_gio)
+
+
+def detect_text_regions(image_paths: list[str], settings=None,
+                        cancel_event=None) -> list[dict]:
     """Quét nhiều frame đại diện, gộp kết quả, trả về rectangle sẵn dùng
     trực tiếp cho ``blur_regions`` (cùng format style_dialog.py đã dùng).
 
@@ -189,7 +245,10 @@ def detect_text_regions(image_paths: list[str], settings=None) -> list[dict]:
     Trả về rỗng nếu không phát hiện chữ nào — KHÔNG tự bật tính năng blur
     khi video sạch (guardrail 4, mini-spec V5).
     """
-    all_boxes = _detect_via_subprocess(image_paths, settings) if settings else None
+    all_boxes = (_detect_via_subprocess(image_paths, settings, cancel_event)
+                 if settings else None)
+    if cancel_event is not None and cancel_event.is_set():
+        return []
     if all_boxes is None:
         all_boxes = _detect_in_process(image_paths)
     if not all_boxes:

@@ -300,8 +300,9 @@ chỉ giữ tên/giọng, không giữ câu thoại.
   giao diện có cảnh báo, nhưng đừng coi là "hỗ trợ 204 ngôn ngữ".
 - **Trình chỉnh sửa chưa có nút Dừng** cho hai thao tác dài (làm mới phụ đề,
   ghép video).
-- **Nhận diện vùng chữ (OCR)** vẫn gọi tiến trình con trần, hết giờ sau 60
-  giây, không huỷ ngang được.
+- **Nhận diện vùng chữ (OCR)** nay dừng ngang được, hết giờ tính theo số
+  khung, và lấy mẫu rải đều cả video (C49). Vẫn chỉ **làm mờ**, không xoá
+  chữ thật — muốn xoá thật cần mô hình inpainting khác hẳn.
 - **Chế độ dựng trên máy chủ chưa hiện tiến độ** — người dùng chỉ thấy một
   dòng "Đang chờ máy chủ xử lý…".
 - Một lượt chạy test đầy đủ **thỉnh thoảng kết thúc bằng core dump lúc dọn

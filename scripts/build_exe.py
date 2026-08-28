@@ -141,6 +141,12 @@ def step_pyinstaller() -> None:
 #: đúp chuột lần nào cũng dừng ở đúng chỗ "thiếu token".
 CAN_HF_TOKEN = {"setup_diarization.py"}
 
+#: Script cài NẶNG và có giới hạn thật đáng biết trước: `.bat` phải HỎI xác
+#: nhận. Người dùng đọc một dòng "nặng, cần GPU" rồi tải 4 GB về mới vỡ lẽ là
+#: tính năng chỉ chạy được video 12 giây — đó là lỗi câu chữ, không phải lỗi
+#: của họ (mini-spec C48).
+CAN_XAC_NHAN = {"setup_lipsync.py"}
+
 MO_TA_SETUP = {
     "setup_translate_local.py": (
         "Cai dat dich ngoai tuyen",
@@ -150,10 +156,17 @@ MO_TA_SETUP = {
         "Cai dat tach giong theo nguoi noi",
         "Tu nhan ra video co may nguoi noi, moi nguoi mot giong doc rieng.",
         "NANG (~1-2 GB) va CAN tai khoan HuggingFace + token."),
+    # Số liệu ĐO THẬT, xem docs/TEST_LOG.md mục V32a/V32b. Nói trước để người
+    # dùng quyết định trước khi tải 4 GB, thay vì sau.
     "setup_lipsync.py": (
-        "Cai dat khop khau hinh",
+        "Cai dat khop khau hinh (THU NGHIEM)",
         "Chinh mieng nhan vat khop voi giong doc moi.",
-        "Nang, can GPU de chay cho ra hon."),
+        ("CHUA ON DINH - doc ky truoc khi cai:",
+         "  * Chi chay duoc video ngan {gioi_han_giay} giay do lai.",
+         "  * Rat cham: do that 794 giay xu ly cho 10,7 giay video (~74 lan).",
+         "  * BAT BUOC card NVIDIA. May dung card Intel/AMD se dung ngay.",
+         "  * Ton khoang 4 GB dung luong (rieng mot ban PyTorch cu).",
+         "  * Chat luong khau hinh CHUA duoc danh gia lan nao.")),
     "setup_ocr.py": (
         "Cai dat nhan dien vung chu",
         "Tu tim vung phu de chay san tren hinh de che di.",
@@ -171,12 +184,33 @@ KHONG_SINH_BAT = {
 }
 
 
+def _gioi_han_lipsync() -> str:
+    """Trần độ dài video của khớp khẩu hình, ĐỌC TỪ MÃ.
+
+    Viết số vào câu chữ rồi ai đó nới trần trong `config.py` là câu chữ thành
+    lời hứa sai — lớp lỗi #5 của dự án. Đọc thẳng từ nguồn sự thật.
+    """
+    import re
+    cfg = open(os.path.join(PROJECT_ROOT, "autodub", "config.py"),
+               encoding="utf-8").read()
+    m = re.search(r"lipsync_max_duration_s: float = ([\d.]+)", cfg)
+    return str(int(float(m.group(1)))) if m else "12"
+
+
 def _bat_cho(script: str) -> str:
     """Nội dung một tệp `.bat` đúp-chuột-là-chạy cho một script cài đặt."""
     tieu_de, dong1, dong2 = MO_TA_SETUP.get(
         script, (f"Cai dat {script[6:-3].replace('_', ' ')}",
                  "Script cai dat phan mo rong cho VoxDub Studio.", ""))
-    canh_bao = f"echo  {dong2}\n" if dong2 else ""
+    # `dong2` nhận cả chuỗi lẫn nhiều dòng — tính năng có nhiều giới hạn thật
+    # thì phải nói đủ, gói vào một câu là nói thiếu.
+    if isinstance(dong2, (list, tuple)):
+        dong_canh_bao = [d for d in dong2 if d]
+    else:
+        dong_canh_bao = [dong2] if dong2 else []
+    dong_canh_bao = [d.format(gioi_han_giay=_gioi_han_lipsync())
+                     for d in dong_canh_bao]
+    canh_bao = "".join(f"echo  {d}\n" for d in dong_canh_bao)
     # Script nào cần token thì .bat phải HỎI rồi truyền vào. Không hỏi thì
     # đúp chuột chỉ có một kết cục: script báo thiếu token rồi thoát, lần nào
     # cũng vậy — người dùng không có đường nào đi tiếp ngoài mở dòng lệnh
@@ -202,11 +236,19 @@ def _bat_cho(script: str) -> str:
         '    pause\n'
         '    exit /b 1\n'
         ')\n') if hoi_token else ''
+    xac_nhan = (
+        'echo.\n'
+        'set /p DONGY=Van muon cai? Go CO roi bam Enter: \n'
+        'if /I not "%DONGY%"=="CO" (\n'
+        '    echo  Da huy. Khong tai gi ve may.\n'
+        '    pause\n'
+        '    exit /b 0\n'
+        ')\n') if script in CAN_XAC_NHAN else ''
     return (f'@echo off\nchcp 65001 >nul\ntitle {tieu_de} cho VoxDub Studio\n'
             f'echo.\necho  {dong1}\n{canh_bao}'
             'echo  Yeu cau: da cai Python 3.10-3.12 '
             '(xem HUONG_DAN_CAI_DAT.md, Buoc 2).\n'
-            f'{xin_token}'
+            f'{xin_token}{xac_nhan}'
             f'echo.\ncd /d "%~dp0"\n{chay}\n'
             'if errorlevel 1 (\n'
             '    echo.\n'

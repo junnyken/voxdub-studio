@@ -13159,3 +13159,86 @@ bước nghe). Cắt 3 phần rồi ghép: cũng khớp từng byte; phá phần
    «bộ canh kêu nhầm sẽ bị tắt trong tuần đầu».
 
 2200 Python đạt / 7 bỏ qua.
+
+## C48 + C49 — Hai tính năng phụ: một cái nói thật, một cái làm nốt (28/08/2026)
+
+Chủ dự án hỏi khớp khẩu hình và che chữ gốc có cần thiết không, đã ổn định
+chưa. Rà bằng chứng thì hai tính năng ở hai tình trạng ngược nhau.
+
+### Ảnh chụp thư mục nói một điều quan trọng
+
+Không có `.venv-lipsync`. Tức khớp khẩu hình **chưa từng cài được** trên máy
+đó — đúng như thiết kế: `setup_lipsync.py` dừng ngay bước 1 nếu không có card
+NVIDIA thật, mà máy đó dùng card Intel. Nhưng `vendor/` (mã MuseTalk) thì có,
+nghĩa là đã từng chạy thử script. Vậy 17,8 GB không phải do lip-sync.
+
+### C48 — tệp .bat khớp khẩu hình nói đúng một câu, và thiếu tất cả phần còn lại
+
+Bản v3.14.1 ghi: *«Nang, can GPU de chay cho ra hon»*. Trong khi số liệu THẬT
+đã nằm sẵn trong TEST_LOG từ V32a/V32b:
+
+- chỉ chạy được video **≤ 12 giây** (`lipsync_max_duration_s`), và **100% khung
+  hình phải có mặt** (`lipsync_max_no_face_ratio=0.0`);
+- **794 giây xử lý cho 10,7 giây video** — 74 lần thời gian thật;
+- VRAM đỉnh 96% trên card 4 GB;
+- mới chạy **1/3 mẫu** bắt buộc, dùng video mẫu của MuseTalk chứ chưa phải
+  video VoxDub thật, và **chưa ai chấm chất lượng bằng mắt lần nào**;
+- tốn khoảng **4 GB** (một bản PyTorch 2.0.1+cu118 riêng).
+
+Người đọc câu «nặng, cần GPU» sẽ tải 4 GB rồi mới vỡ lẽ. Đây là lớp lỗi #5 ở
+dạng nhẹ: câu chữ không SAI, chỉ nói thiếu đúng những thứ quyết định có nên cài
+hay không.
+
+Nay `.bat` nói đủ năm giới hạn trên, tiêu đề mang chữ **THU NGHIEM**, và **hỏi
+xác nhận** («Go CO roi bam Enter») trước khi tải — đúp chuột nhầm không được
+kéo về 4 GB. Chỉ tệp này bị hỏi: hỏi ở mọi tệp thì thành phiền, rồi ai cũng gõ
+CO theo quán tính, có test canh chuyện đó.
+
+Trần «12 giây» trong câu chữ **đọc thẳng từ `config.py`**, không gõ tay — ai nới
+trần mà quên sửa lời thì câu chữ thành lời hứa sai.
+
+### C49 — che chữ gốc: nhẹ, đúng nhu cầu, nhưng làm nửa chừng
+
+Ngược hẳn lip-sync: OCR dùng `rapidocr-onnxruntime` — **không cần torch, không
+cần GPU**, model kèm sẵn trong gói. Gỡ `.venv-ocr` chẳng tiết kiệm bao nhiêu.
+Và nó đúng nhu cầu nội dung Trung/Douyin (chữ cháy sẵn trên hình).
+
+Ba chỗ hỏng, sửa cả ba:
+
+1. **Chỉ quét 15 giây đầu.** Ba mốc lấy mẫu viết chết 1s/5s/15s — video 40 phút
+   thì chữ xuất hiện từ phút thứ hai trở đi không bao giờ thấy. Chính chú thích
+   trong mã cũ cũng gọi đó là «ước lượng thô». Nay lấy **5 khung rải đều theo
+   thời lượng thật**, bỏ 2% đầu/cuối (khung đầu hay là màn đen, khung cuối hay
+   là credit). Đọc không được thời lượng thì giữ nếp cũ.
+2. **Không dừng được.** Quét video dài mất hàng chục giây, muốn thoát chỉ còn
+   cách tắt cả hộp thoại — mất luôn mọi vùng đã vẽ tay. Nay có nút **Dừng**;
+   `subprocess.run` (chặn cứng) đổi sang `Popen` + ngó cờ huỷ mỗi 0,2 giây, có
+   giết tiến trình con thật chứ không chỉ bỏ kết quả.
+3. **Hết giờ 60 giây cứng** cho cả lượt bất kể quét mấy khung, và khi hết giờ
+   thì lời báo nói «worker không chạy được» — sai hẳn nguyên nhân. Nay hạn
+   tính theo số khung (40 giây nạp model + 25 giây/khung) và câu báo nói đúng
+   là quá giờ.
+
+Kèm báo tiến độ «Đang quét… 3/5» — trước đó nút chỉ đứng im chữ «Đang quét...».
+
+### Bộ canh cũ làm đúng việc của nó
+
+`test_quet_ocr_khong_co_nut_dung_nen_khong_can_co` đỏ. Đó là test một phiên
+trước viết để GHI LẠI quyết định «chưa có nút Dừng nên chưa nối cờ huỷ», kèm
+câu chỉ rõ khi nào phải xem lại: *«Hộp thoại nay CÓ nút Dừng — lúc này mới đáng
+nối cờ xuống detect_text_regions()»*. C49 làm đúng việc đó nên nó đỏ đúng lúc.
+
+Đổi vai nó thay vì xoá: từ nay canh cho **nút và cờ huỷ đi cùng nhau** — có nút
+mà không nối cờ thì bấm Dừng chẳng làm gì, một nút giả còn tệ hơn không có nút.
+
+`tests/test_bat_khop_khau_hinh_noi_that.py` (11 test) +
+`tests/test_quet_chu_dung_duoc.py` (7 test).
+
+2218 Python đạt / 7 bỏ qua.
+
+### Chưa làm, có chủ đích
+
+- Che chữ vẫn là **làm mờ**, không phải xoá thật (inpaint) — đúng giới hạn V5
+  đã ghi, cần mô hình khác hẳn.
+- Không gỡ mã lip-sync: đóng băng thì rẻ, gỡ thì mất một lựa chọn có thể cần
+  lại (cùng lý lẽ C34 đã dùng với Douyin).
