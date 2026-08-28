@@ -12890,3 +12890,85 @@ hiện tượng FEATURES §5.2 ghi là «chưa tái hiện được»). Chạy l
 không làm hỏng kết quả nào, nhưng nay có thêm một mốc thời gian cho manh mối.
 
 2155 Python đạt / 7 bỏ qua, 527 Node đạt / 1 bỏ qua.
+
+## C45 — Cổng kiểm trước phát hành: chạy thật một lượt, trên Windows (28/08/2026)
+
+Phần A của C44 (ngôn ngữ nguồn là thứ máy NGHE THẤY) tới lúc này chỉ có bằng
+chứng ở tầng mã. Mà đúng loại lỗi đó chỉ lộ ra khi chạy thật: bản vá quan trọng
+nhất của C44 là chỗ `faster-whisper` ném `ValueError` với mã ngôn ngữ rỗng —
+không một test đơn vị nào chạm tới vì test không nạp mô hình thật.
+
+Và đây là điểm yếu số 1 của dự án (FEATURES §5.1): CI đóng gói xong là **phát
+hành thẳng**, không ai chạy thử cái vừa đóng gói.
+
+### Đã làm
+
+`scripts/kiem_chay_that.py` — chạy MỘT lượt dub thật rồi soi bằng chứng trên
+đĩa. Cố ý dừng ở bước **dịch tay**: không gọi máy chủ, không tốn Vox (một cổng
+kiểm mà tiêu tiền mỗi lần phát hành thì sẽ bị tắt trong tuần đầu). Bốn thứ nó
+soi, mỗi thứ ứng với một lỗi THẬT đã xảy ra:
+
+| Soi gì | Lỗi thật tương ứng |
+|---|---|
+| `is not a valid language code` trong nhật ký | C44: bước nghe chết vì ngôn ngữ rỗng |
+| `.asr_lang` có mã ngôn ngữ + độ tin cậy | C44: mã ngôn ngữ chỉ vào nhật ký rồi vứt |
+| `TRANSLATE_PENDING.txt` không chứa `transcript from  to` | C44: khoảng trắng thay cho tên ngôn ngữ |
+| lời nhắc có khối `READING THE SOURCE` | C44: luật đọc hiểu nguồn có tới tay người dịch tay không |
+
+Nối vào hai chỗ: `release.yml` **giữa bước đóng gói và bước phát hành** (hỏng
+thì không phát hành), và `test.yml` như một job `windows-latest` chạy trên mỗi
+push vào `main` — biết ở đúng commit gây ra lỗi, thay vì đợi tới lượt phát hành
+mới lòi ra. `tests/test_cong_kiem_truoc_phat_hanh.py` (10 test) canh cho chính
+cổng kiểm không bị gỡ, không bị đẩy xuống sau bước phát hành, không bị
+`continue-on-error` biến thành đèn trang trí, và vẫn chạy bằng «tự nhận ngôn
+ngữ» chứ không phải ngôn ngữ chọn sẵn.
+
+### Chạy thật, và hai lượt đột biến
+
+Chạy tại chỗ trên `tap01_clip.mp4`: nghe được 8 câu, **ngôn ngữ máy nghe ra
+en-US (99%)**, lời nhắc dịch có tên ngôn ngữ và có luật đọc hiểu nguồn. Đây là
+**bằng chứng đầu-cuối đầu tiên cho phần A của C44** — trước đó chỉ có test đơn
+vị. (Trên Linux, đường in-process — đúng đường mà lỗi `ValueError` nằm.)
+
+Đột biến để kiểm chính cổng kiểm:
+
+1. Gỡ bản vá «rỗng → None» → đỏ đúng chỗ, nói đúng tệp phải sửa.
+2. Chặn nhánh «điền ngôn ngữ máy nghe ra» → đỏ, **nhưng nói sai lý do**.
+
+### Lỗi trong chính bản vá C44, do đột biến 2 soi ra
+
+Đột biến 2 làm marker `.asr_lang` thành `" 1.000"` (ngôn ngữ rỗng + độ tin cậy),
+và `_doc_moc_ngon_ngu()` đọc `split()[0]` ra **`"1.000"` như thể đó là một mã
+ngôn ngữ**. Lượt chạy tiếp sẽ mang con số đó đi khắp nơi, và lời nhắc dịch sẽ
+ghi «from 1.000 to Vietnamese».
+
+Không có ngôn ngữ thì đừng ghi độ tin cậy (ghi rỗng), và lúc đọc phải kiểm hình
+dạng mã ngôn ngữ chứ không tin bừa chữ đầu tiên. Có test canh riêng cho bốn
+kiểu rác: `" 1.000"`, `"0.900"`, `"?? 0.5"`, `"-"`.
+
+Cổng kiểm cũng được sửa để nói đúng lý do thay vì đổ tại độ tin cậy — **một bộ
+canh nói sai nguyên nhân đẩy người sửa đi nhầm đường, gần như tệ ngang việc
+không có bộ canh**.
+
+### Một lỗ hổng nữa của C44, phát hiện khi soạn kịch bản chạy thử
+
+Dòng lệnh nhận `--source-lang auto`, còn giao diện gửi chuỗi RỖNG. C44 chỉ xử
+lý chuỗi rỗng, nên đường dòng lệnh (và cả bộ canh này, nếu tôi không nhận ra)
+sẽ im lặng bỏ qua ngôn ngữ máy nghe ra, rồi ghi «from auto to Vietnamese».
+`resolve_source_lang()` nay quy `"auto"` về rỗng — một mối cho mọi đường vào.
+
+### Giới hạn còn lại
+
+- Cổng kiểm chạy `python -m autodub.cli` **từ mã nguồn**, không phải từ bản
+  `.exe` — bản đóng gói không có entry dòng lệnh (`autodub.spec` chỉ dựng
+  `VoxDub.exe` là GUI). Nó bắt được lỗi Windows của luồng chạy thật (bảng mã,
+  đường dẫn, tiến trình con), **không** bắt được lỗi thiếu tệp trong gói — lớp
+  lỗi #3 vẫn do bộ canh đóng gói riêng lo. Muốn đóng nốt thì cần một entry dòng
+  lệnh trong bản build, đó là mini-spec riêng.
+- Chưa chạy trên runner Windows lần nào (workflow vừa viết, chạy ở lượt push
+  này). Nếu `choco install ffmpeg` hay việc tải model `tiny` trục trặc trên
+  runner thì sẽ lộ ra ngay lượt đầu.
+- Lượt chạy dừng ở bước dịch, nên **không** kiểm tạo giọng, ghép video, phụ đề.
+  Mở rộng thì tốn thời gian runner và cần VieNeu — cân nhắc riêng.
+
+2167 Python đạt / 7 bỏ qua.

@@ -255,3 +255,26 @@ def test_nguong_tin_cay_nam_trong_ma_va_du_cao():
     m = re.search(r"if khong_can_dich and nguon_do_tin_cay < ([\d.]+):", src)
     assert m, "rào chắn độ tin cậy đã bị gỡ khỏi pipeline"
     assert float(m.group(1)) >= 0.8
+
+
+def test_auto_va_rong_la_MOT_thu():
+    """GUI gửi chuỗi rỗng, dòng lệnh nhận `--source-lang auto` — hai cách viết
+    của cùng một ý. Không quy về một mối thì nhánh điền-ngôn-ngữ-máy-nghe-ra
+    của C44 bỏ qua hẳn đường dòng lệnh."""
+    from autodub.languages import resolve_source_lang
+    for viet in ("auto", "AUTO", " auto ", ""):
+        assert resolve_source_lang(viet) == "", viet
+    assert resolve_source_lang("zh-CN") == "zh-CN"
+    assert resolve_source_lang("en") == "en-US"
+
+
+def test_moc_khong_bao_gio_bien_do_tin_cay_thanh_ten_ngon_ngu(tmp_path):
+    """Lỗi do chính bộ canh chạy-thật soi ra (C45): nguồn rỗng mà vẫn ghi độ tin
+    cậy thì marker thành " 1.000", và đọc lại ra "1.000" NHƯ THỂ đó là một
+    ngôn ngữ — rồi lời nhắc dịch sẽ ghi "from 1.000 to Vietnamese"."""
+    marker = tmp_path / ".asr_lang"
+    for rac in (" 1.000", "0.900", "?? 0.5", "-"):
+        marker.write_text(rac, encoding="utf-8")
+        assert DubPipeline._doc_moc_ngon_ngu(str(marker)) == "", rac
+    marker.write_text("en-US 0.987", encoding="utf-8")
+    assert DubPipeline._doc_moc_ngon_ngu(str(marker)) == "en-US"

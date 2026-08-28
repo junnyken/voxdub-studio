@@ -77,6 +77,43 @@ jobs:
   #
   # Job này KHÔNG chặn merge (không bật branch protection) — nó chỉ làm cho
   # tình trạng "nhánh deploy tụt lại" trở nên NHÌN THẤY ĐƯỢC ngay trên mỗi
+  # mini-spec C45 — lượt chạy THẬT trên Windows, sớm chứ không đợi tới lúc phát
+  # hành. `release.yml` đã có cổng chặn cùng kịch bản này, nhưng phát hiện lỗi
+  # lúc bấm phát hành là muộn: bản build hỏng, tag đã đẩy, phải dọn. Chạy ở đây
+  # thì biết ngay ở commit gây ra nó.
+  #
+  # Vì sao phải là Windows chứ không phải ubuntu: toàn bộ người dùng dùng
+  # Windows, và ba lỗi thật gần đây chỉ lộ ra ở đó — bảng mã cp1258 giết worker
+  # in tiếng Việt (D1f), thiếu DLL torchcodec (C43), và faster-whisper ném
+  # ValueError với ngôn ngữ rỗng (C44).
+  chay-that-windows:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cài dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Bảo đảm có ffmpeg
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg -y --no-progress
+          }
+          ffmpeg -version | Select-Object -First 1
+
+      - name: Một lượt dub thật, dừng ở bước dịch
+        env:
+          WHISPER_MODEL: tiny
+        run: python scripts/kiem_chay_that.py --video tap01_clip.mp4 --timeout 1800
+
   # lần push, thay vì chỉ lộ ra lúc deploy xong mà không ai hay.
   deploy-branch-drift:
     if: github.ref == 'refs/heads/main'

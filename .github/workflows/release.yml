@@ -45,6 +45,27 @@ jobs:
           $ver = "${{ github.ref_name }}"
           Compress-Archive -Path dist/VoxDub/* -DestinationPath "VoxDub-Studio-$ver-win64.zip"
 
+      # mini-spec C45 — CỔNG KIỂM TRƯỚC KHI PHÁT HÀNH.
+      #
+      # Trước đây CI đóng gói xong là phát hành thẳng: không ai chạy thử cái vừa
+      # đóng gói. Điểm yếu số 1 của dự án (FEATURES §5.1) là không có máy Windows
+      # nào kiểm thử, nên chuỗi V73–V87 và C29–C43 đều do người dùng cuối phát
+      # hiện. Bước này chạy MỘT LƯỢT DUB THẬT trên chính runner Windows: đọc
+      # video, nghe bằng Whisper với "tự nhận ngôn ngữ", rồi dừng ở bước dịch
+      # tay (không gọi máy chủ, không tốn Vox). Hỏng thì KHÔNG phát hành.
+      - name: Bảo đảm có ffmpeg cho lượt chạy thật
+        shell: pwsh
+        run: |
+          if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+            choco install ffmpeg -y --no-progress
+          }
+          ffmpeg -version | Select-Object -First 1
+
+      - name: Kiểm bằng MỘT LƯỢT CHẠY THẬT (chặn phát hành nếu hỏng)
+        env:
+          WHISPER_MODEL: tiny   # kiểm ĐƯỜNG CHẠY, không chấm chất lượng nghe
+        run: python scripts/kiem_chay_that.py --video tap01_clip.mp4 --timeout 1800
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:

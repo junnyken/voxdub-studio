@@ -285,9 +285,12 @@ chỉ giữ tên/giọng, không giữ câu thoại.
 
 ### 5.1 Nghiêm trọng — ảnh hưởng người dùng thật
 
-- **Không có máy Windows nào để kiểm thử.** Test chạy trên Linux; mọi bản
-  phát hành đều do người dùng cuối phát hiện lỗi. Cả một chuỗi lỗi
-  (V73–V87) đến từ ảnh chụp màn hình của người dùng, không phải từ test.
+- **Không có máy Windows nào để kiểm thử tay.** Test chạy trên Linux; cả một
+  chuỗi lỗi (V73–V87) đến từ ảnh chụp màn hình của người dùng, không phải từ
+  test. **Đỡ hơn từ 28/08 (C45)**: CI chạy MỘT lượt dub thật trên runner
+  Windows ở mỗi push vào `main` và chặn phát hành nếu hỏng — nhưng lượt đó
+  chạy từ mã nguồn và dừng ở bước dịch, nên tạo giọng, ghép video và bản
+  `.exe` đóng gói vẫn chưa có ai chạy thử tự động.
 
 ### 5.2 Đã biết, chưa sửa
 

@@ -137,7 +137,17 @@ WHISPER_LANG_MAP = {
 
 
 def resolve_source_lang(lang: str) -> str:
-    """Normalize a source-language shorthand to a BCP-47 locale."""
+    """Normalize a source-language shorthand to a BCP-47 locale.
+
+    mini-spec C44 — ``"auto"`` quy về chuỗi RỖNG, vì hai chuỗi đó nghĩa y hệt
+    nhau ("để máy tự nhận") nhưng giao diện gửi chuỗi rỗng còn dòng lệnh nhận
+    ``--source-lang auto``. Không quy về một mối thì nhánh "điền ngôn ngữ máy
+    nghe ra" của C44 im lặng bỏ qua đường dòng lệnh, và lời nhắc dịch ghi
+    nguyên chữ "from auto to Vietnamese".
+    """
+    lang = (lang or "").strip()
+    if lang.lower() == "auto":
+        return ""
     return SOURCE_LANG_MAP.get(lang, lang)
 
 #: Mã nguồn (BCP-47) → khoá đích tương ứng.

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -147,6 +148,11 @@ class DubResult:
     status: str
     work_dir: str
     report: dict = field(default_factory=dict)
+
+
+#: Hình dạng một mã ngôn ngữ hợp lệ ("en", "en-US", "zh-CN"). Dùng để không
+#: nhận nhầm rác trong marker làm tên ngôn ngữ (mini-spec C45).
+_LA_MA_NGON_NGU = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?$")
 
 
 class DubPipeline:
@@ -543,7 +549,11 @@ class DubPipeline:
                 # "<mã> <độ tin cậy>" — lượt chạy tiếp phải quyết y hệt lượt
                 # đầu (nhất là quyết định bỏ hẳn khâu dịch). Marker cũ chỉ có
                 # mã thì đọc ra độ tin cậy 0 = "không biết", tức không dám bỏ.
-                f.write(f"{lang_code} {nguon_do_tin_cay:.3f}")
+                #
+                # Không có mã ngôn ngữ (bộ nghe không nhận ra được) thì ghi
+                # RỖNG: ghi " 0.900" sẽ khiến lượt sau đọc ra "0.900" như thể
+                # đó là tên một ngôn ngữ — lỗi tự bộ canh chạy thật soi ra.
+                f.write(f"{lang_code} {nguon_do_tin_cay:.3f}" if lang_code else "")
             generate_srt(segments, data_path(work_dir, "transcript_original.srt"),
                          text_field="text", lang_key=lang_code.split("-")[0].lower())
             logger.info(f"Nghe xong: video có {len(segments)} câu thoại")
@@ -1775,9 +1785,12 @@ class DubPipeline:
         """
         try:
             with open(lang_marker_path, encoding="utf-8") as f:
-                return f.read().strip().split()[0]
-        except (OSError, IndexError):
+                phan = f.read().strip().split()
+        except OSError:
             return ""
+        if not phan or not _LA_MA_NGON_NGU.match(phan[0]):
+            return ""
+        return phan[0]
 
     @staticmethod
     def _doc_moc_tin_cay(lang_marker_path: str) -> float:
