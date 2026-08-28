@@ -12659,3 +12659,138 @@ thay vì chuỗi viết chết (C39); bảng tóm tắt ghi 12 Vox/câu theo đ�
 dịch đang chọn (D1e). Trước đó cả ba chỉ được chứng minh ở tầng mã.
 
 2132 Python đạt, 7 bỏ qua.
+
+## C44 — Ngôn ngữ nguồn: thứ máy NGHE THẤY, không phải thứ người dùng KHAI (28/08/2026)
+
+Chủ dự án chọn hướng "nâng chất lượng đọc hiểu nguồn tiếng Anh/tiếng Trung"
+(một trong hai gap đã chốt ngày 16/08). Rà trước khi viết luật thì lộ ra: cái
+hỏng không nằm ở luật dịch, mà ở chỗ **máy chủ không biết video nói tiếng gì**.
+
+### Ba lỗ hổng, cùng một gốc
+
+1. **Lời nhắc dịch có một khoảng trắng thay cho tên ngôn ngữ.** Bật «Để ứng
+   dụng tự nhận ra ngôn ngữ» thì `source_lang` rỗng đi suốt pipeline. Đo bằng
+   cách dựng thẳng lời nhắc: `Your task is to translate an ASR transcript
+   from  to Vietnamese.` Mặc định `default: 'zh-CN'` của Fastify KHÔNG cứu
+   được, vì `saas_client.py` LUÔN đặt field `sourceLang` (mặc định của lược
+   đồ chỉ áp khi field VẮNG MẶT, không áp cho chuỗi rỗng).
+2. **Bước nghe in-process chết ngay khi bật tự nhận ngôn ngữ.**
+   `_transcribe_whisper` truyền `language=""` xuống faster-whisper, trong khi
+   `Tokenizer.__init__` chỉ tự nhận dạng khi tham số là `None` — chuỗi rỗng
+   ném thẳng `ValueError: '' is not a valid language code`. Đường subprocess
+   đã quy rỗng về `None` từ lâu (`asr_whisper_worker.py`), đường in-process
+   thì chưa: **đúng lớp lỗi #2 của dự án — sửa một trong hai đường**. Trúng ai:
+   người chạy từ mã nguồn, và mọi mẻ từ 2 video trở lên (`BatchWorker` truyền
+   `whisper_cache` nên đi đường in-process).
+3. **Whisper LUÔN trả mã ngôn ngữ nó nhận ra — không ai đọc.**
+   `transcriber.py` in ra Nhật ký rồi vứt. Hệ quả dây chuyền: dịch ngoại tuyến
+   báo «không hỗ trợ ngôn ngữ nguồn ''» (kiểm: `flores_code('')` → `None`), và
+   phép so nguồn-trùng-đích (C22) luôn trả `False` — **video tiếng Việt chạy
+   bằng tự nhận ngôn ngữ vẫn bị tính tiền dịch Việt→Việt**, đúng khoản tiền mà
+   C22 sinh ra để chặn.
+
+### Đã làm — phần A: nguồn thật
+
+- `transcribe()` nhận `detected_out` (dict) và điền `{"language", "prob"}` ở
+  **cả ba** đường: subprocess, in-process, Paraformer. Không truyền thì mọi
+  caller cũ y như cũ.
+- `_transcribe_whisper` quy `""`/`"auto"` về `None` trước khi gọi mô hình.
+- `pipeline.py` chốt ngôn ngữ **sau** bước nghe: người dùng chọn tay thì tôn
+  trọng lựa chọn đó (chính nó đã lái bộ nghe), để máy tự nhận thì lấy mã máy
+  nghe ra. Từ đó ngôn ngữ này đi vào: marker `.asr_lang`, SRT gốc, phép so
+  nguồn-trùng-đích, lượt dịch máy chủ, lời nhắc dịch tay, và trường
+  `source_language` của báo cáo.
+- Chạy tiếp một dự án đã nghe xong bằng «tự nhận»: lấy lại ngôn ngữ từ marker
+  thay vì rơi về rỗng, và **không** bắt nghe lại cả video chỉ vì lần này để
+  máy tự nhận (guardrail đổi-ngôn-ngữ của V40 giữ nguyên cho ca đổi thật).
+- Dòng trạng thái bước nghe hiện «… · nguồn: tiếng Anh». Số câu vẫn là token
+  đầu tiên vì `widgets.py` cắt chuỗi theo dấu cách đầu để hiện «Số câu thoại»
+  — đổi thứ tự là hỏng chỗ khác.
+
+### Đã làm — phần B: luật đọc hiểu nguồn
+
+Toàn bộ luật chất lượng của lời nhắc trước nay gắn với ngôn ngữ **đích**
+(`LANGUAGE_RULES`). Nhưng bẫy dịch sai không nằm ở đích: câu tiếng Trung rụng
+chủ ngữ hay câu tiếng Anh dùng «you» chung chung thì dịch sang ngôn ngữ nào
+cũng sai như nhau. Thêm khối `READING THE SOURCE`:
+
+- **Chung cho mọi nguồn**: đây là bản chép lời của MÁY, không phải văn bản
+  sạch — có nghe nhầm, thiếu dấu câu, câu bị cắt ngang qua ranh giới đoạn.
+  Gặp câu vô nghĩa thì phục dựng ý từ các câu quanh nó, không dịch nguyên văn
+  chỗ vô nghĩa và không bịa thêm chữ để lấp.
+- **Nguồn tiếng Trung**: chủ ngữ ẩn (phải truy ra AI đang nói về AI), không
+  có thì/số nhiều (thì nằm ở 了/过/着 và trạng từ), xưng hô họ hàng dùng cho
+  người dưng (哥/姐/叔), thành ngữ dịch nghĩa chứ không dịch chữ, đơn vị số
+  lớn 万/亿 (dịch sai là sai **số liệu**, không phải sai văn phong), lượng từ
+  không mang nghĩa, và **lỗi đồng âm của bộ nghe** (的/得/地, 在/再, 他/她/它).
+- **Nguồn tiếng Anh**: «you» một người / nhiều người / chung chung — chọn sai
+  là đổi hẳn người nghe trong tiếng Việt; cụm động từ và thành ngữ; mỉa mai
+  và nói giảm; đại từ trỏ ngược qua nhiều đoạn; «twenty twenty-four» là năm
+  2024, «a couple» ≈ 2, đơn vị Anh giữ nguyên đơn vị Anh; lỗi đồng âm
+  their/there/they're, to/too/two.
+- Ngôn ngữ chưa có bộ riêng **chỉ** nhận phần chung — không giả vờ biết bẫy
+  ngữ pháp của ngôn ngữ đó (cùng nguyên tắc `_GENERIC_RULES` của V15).
+- Mã nguồn giờ hiện thành TÊN («Chinese (Mandarin)»), rỗng thành «an
+  unidentified language (infer it from the transcript itself)» — nói thẳng
+  với mô hình là chưa biết còn hơn để một khoảng trắng.
+
+Đường **dịch tay/ngoại tuyến** (D1) nhận bản gọn hơn của cùng bộ luật: người
+dùng phải tự dán khối này vào ChatGPT/Gemini, prompt dài quá thì họ cắt bớt.
+
+### Giá phải trả (đo, không đoán)
+
+Lời nhắc hệ thống tăng ~693 token (nguồn Trung) / ~759 token (nguồn Anh) mỗi
+lượt gọi, trên nền 2.562 token đã đo ngày 18/08 — tức khoảng +27%. Mỗi lô 40
+câu mới tốn thêm chừng ấy **một lần**, nên trên một video 3 giờ (~50 lô) là
+cỡ 35 nghìn token đầu vào. Giá Vox tính theo câu nên khoản này là chi phí của
+máy chủ, không đội giá người dùng.
+
+### Bộ canh
+
+`tests/test_source_comprehension.py` (23 test) + `control_server/tests/
+source-comprehension.test.js` (12 test). Đáng nói nhất là test canh **danh
+sách ngôn ngữ giữa hai đường dịch**: thêm ngôn ngữ nguồn ở máy chủ mà quên
+đường dịch tay thì người chọn ngoại tuyến lãnh bản dịch kém hơn và không ai
+báo — đúng lớp lỗi #5 (câu chữ hai nơi đi lệch nhau). Test canh DANH SÁCH,
+không canh câu chữ, vì hai bên cố ý viết dài ngắn khác nhau.
+
+Đã thử **đột biến** chính bộ canh: (a) thêm một khoá ngôn ngữ vào máy chủ →
+test đỏ đúng chỗ; (b) bỏ dòng quy `""` về `None` → test đỏ đúng chỗ. Bộ canh
+không kêu khi có lỗi thì chỉ là trang trí.
+
+Ba test cũ của V15 khẳng định lời nhắc chứa «from zh-CN to …» — nay chuyển
+thành «from Chinese (Mandarin) to …». Ý định của chúng là canh ngôn ngữ ĐÍCH,
+giữ nguyên.
+
+### Rủi ro do chính bản vá này sinh ra — chặn trước khi nó thành lỗi tiền
+
+Nối được ngôn ngữ máy nghe ra vào phép so nguồn-trùng-đích cũng có nghĩa là
+một **phỏng đoán của máy** giờ có quyền **bỏ hẳn khâu dịch**. Nhận nhầm một
+video tiếng Trung thành tiếng Việt là giao ra bản «đã lồng tiếng» còn nguyên
+tiếng gốc — người dùng chỉ biết khi ngồi xem lại. Nên: dưới 85% chắc chắn thì
+vẫn dịch như thường, kèm câu nói rõ vì sao và chỉ cách chọn tay nếu muốn bỏ
+hẳn. Trả tiền một lượt dịch thừa rẻ hơn nhiều một video hỏng.
+
+Kèm theo đó, marker `.asr_lang` giữ cả độ tin cậy («`en-US 0.982`») để lượt
+chạy tiếp quyết y hệt lượt đầu; marker đời cũ (chỉ có mã) đọc ra 0 = «không
+biết», tức không dám bỏ khâu dịch. Phép so «đã đổi ngôn ngữ» của V40 chỉ nhìn
+phần mã — nếu nhìn cả dòng thì mọi lượt chạy tiếp đều bị bắt nghe lại cả
+video, có test canh riêng chuyện đó.
+
+2155 Python đạt / 7 bỏ qua, 522 Node đạt / 1 bỏ qua.
+
+### Giới hạn còn lại
+
+- **Chưa chạy thật lượt nào.** Toàn bộ phần B là câu chữ trong lời nhắc: chất
+  lượng chỉ đo được bằng cách dịch cùng một video hai lần (trước/sau) rồi đọc
+  đối chiếu. Việc đó cần **triển khai `control_server` lên máy chủ** và tốn
+  Vox thật — chưa làm, chờ chủ dự án quyết.
+- Phần A có bằng chứng ở tầng mã (bộ canh + đột biến), **chưa có lượt chạy
+  Windows thật** — vẫn đúng điểm yếu số 1 của dự án (FEATURES §5.1).
+- Bước **rà soát lại câu** (`buildReviewSystemPrompt`) cố ý KHÔNG nhận khối
+  luật nguồn: V66 đã cắt lời nhắc đó cho gọn vì bước sửa từng đắt gấp ~31 lần
+  bước nó đi sửa. Nếu sau này thấy bước rà soát dịch sai vì không hiểu nguồn
+  thì đó là một mini-spec riêng, có số đo trước.
+- Dịch cục bộ (NLLB) vẫn có thể **bỏ sót câu** khi bản chép lời nhiễu
+  (FEATURES §5.2) — không đụng ở đợt này: đó là hạn chế của chính mô hình
+  NLLB, không phải chuyện lời nhắc.

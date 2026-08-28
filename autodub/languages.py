@@ -166,3 +166,49 @@ def cung_ngon_ngu(source_lang: str, target_key: str) -> bool:
     if not source_lang or not target_key or source_lang == "auto":
         return False
     return NGUON_SANG_DICH.get(source_lang, "") == target_key
+
+
+# --------------------------------------------------- ngôn ngữ nguồn THẬT --
+#
+# mini-spec C44 (docs/PLAN.md): "Ngôn ngữ gốc" trước đây là thứ người dùng
+# KHAI, không phải thứ máy NGHE THẤY. Bật "Để ứng dụng tự nhận ra ngôn ngữ"
+# thì `source_lang` rỗng đi suốt cả pipeline: lời nhắc dịch ghi "translate an
+# ASR transcript from  to Vietnamese" (khoảng trắng, đo được), dịch ngoại
+# tuyến báo "không hỗ trợ ngôn ngữ nguồn ''", và phép so nguồn-trùng-đích
+# luôn trả False. Whisper LUÔN trả mã ngôn ngữ nó nhận ra — chỉ là không ai
+# đọc. Bảng dưới nối mã đó về đúng BCP-47 mà cả pipeline đang dùng.
+
+#: Mã Whisper (2 chữ) → BCP-47. Whisper nhận ~100 ngôn ngữ, nhiều hơn hẳn
+#: danh sách nguồn app cho chọn; mã ngoài bảng giữ NGUYÊN (vd "de") thay vì
+#: đoán bừa — máy chủ vẫn gọi tên được, còn dịch ngoại tuyến tự báo không hỗ
+#: trợ như trước.
+def from_asr_code(code: str) -> str:
+    """Mã ngôn ngữ Whisper trả về → mã nguồn BCP-47 của app."""
+    code = (code or "").strip().lower()
+    if not code:
+        return ""
+    return SOURCE_LANG_MAP.get(code, code)
+
+
+#: Tên tiếng Việt của ngôn ngữ nguồn — dùng cho Nhật ký và dòng trạng thái.
+#: Mã lạ (Whisper nhận ra ngôn ngữ ngoài danh sách) hiện nguyên mã, không bịa
+#: tên.
+TEN_NGON_NGU_NGUON = {
+    "en-US": "tiếng Anh",
+    "zh-CN": "tiếng Trung",
+    "zh-HK": "tiếng Trung (Quảng Đông)",
+    "zh-TW": "tiếng Trung (phồn thể)",
+    "vi-VN": "tiếng Việt",
+    "ko-KR": "tiếng Hàn",
+    "ja-JP": "tiếng Nhật",
+    "th-TH": "tiếng Thái",
+    "id-ID": "tiếng Indonesia",
+}
+
+
+def ten_ngon_ngu_nguon(lang: str) -> str:
+    """Tên tiếng Việt để hiện cho người dùng; rỗng → "tự nhận dạng"."""
+    lang = (lang or "").strip()
+    if not lang:
+        return "tự nhận dạng"
+    return TEN_NGON_NGU_NGUON.get(lang, lang)

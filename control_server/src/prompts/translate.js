@@ -46,6 +46,75 @@ function sanitizeContext(raw) {
   return out
 }
 
+// ------------------------------------------- HIỂU NGÔN NGỮ NGUỒN (C44) --
+//
+// mini-spec C44 (docs/PLAN.md) — trước C44 toàn bộ luật chất lượng của prompt
+// này gắn với NGÔN NGỮ ĐÍCH; ngôn ngữ NGUỒN chỉ được nội suy làm một chuỗi
+// trống rỗng ("translate an ASR transcript from ${sourceLang} to ..."). Đo
+// thật: app bật "Để ứng dụng tự nhận ra ngôn ngữ" gửi `sourceLang: ""`, và
+// `default: 'zh-CN'` của Fastify KHÔNG áp cho chuỗi rỗng (chỉ áp khi vắng
+// field), nên dòng đầu prompt ra đúng chữ "from  to Vietnamese".
+//
+// Bẫy dịch sai KHÔNG nằm ở ngôn ngữ đích: một câu tiếng Trung rụng chủ ngữ
+// hay một câu tiếng Anh dùng "you" chung chung thì dịch sang tiếng Việt nào
+// cũng sai như nhau. Đây là phần "đọc hiểu nguồn" — thứ hai hướng ưu tiên
+// chủ dự án chọn ngày 16/08 gọi tên.
+
+/** Tên hiển thị của ngôn ngữ nguồn — KHÔNG bao giờ để rỗng trong prompt. */
+const SOURCE_NAMES = {
+  zh: 'Chinese (Mandarin)', en: 'English', ja: 'Japanese', ko: 'Korean',
+  vi: 'Vietnamese', th: 'Thai', id: 'Indonesian', es: 'Spanish',
+  fr: 'French', de: 'German', pt: 'Portuguese', ru: 'Russian',
+}
+
+/** "zh-CN"/"zh"/"" → {key, name}. Rỗng/"auto" → tên trung tính, không bịa. */
+function resolveSourceLang(sourceLang) {
+  const raw = String(sourceLang || '').trim().toLowerCase()
+  const key = raw.split('-')[0]
+  if (!key || key === 'auto') {
+    // App đời cũ (trước C44) gửi chuỗi rỗng khi người dùng bật tự nhận dạng.
+    // Nói thẳng với mô hình là chưa biết + bảo nó tự suy từ chính bản chép
+    // lời, thay vì để một khoảng trắng giữa câu.
+    return { key: '', name: 'an unidentified language (infer it from the transcript itself)' }
+  }
+  return { key, name: SOURCE_NAMES[key] || raw }
+}
+
+/** Bẫy đọc hiểu RIÊNG của từng ngôn ngữ nguồn. Ngôn ngữ chưa có bộ riêng chỉ
+ * nhận phần chung — không giả vờ biết bẫy ngữ pháp của ngôn ngữ đó. */
+const SOURCE_RULES = {
+  zh: `- **Dropped subjects (pro-drop) — the #1 source of wrong translations**: Mandarin routinely omits the subject/pronoun ("下次再说吧" = "let's talk about it next time" — WHO is unstated). Recover WHO is acting from the neighbouring lines before translating, and keep that person consistent across the batch. Never default every subject-less line to first person.
+- **No tense, no plural marking**: time comes from context words (昨天, 已经, 明年) and aspect particles (了 = change of state/completion, 过 = past experience, 着 = ongoing) — NOT from the verb. Read the surrounding lines to place the event in time; do not stamp every sentence as past.
+- **Kinship terms used for strangers**: 哥/姐/叔/阿姨/老师 address non-relatives by relative age/status. Render the SOCIAL RELATIONSHIP, never a literal family word for someone who is not family.
+- **Nickname patterns**: 小X / 老X / 阿X are affectionate address forms, not names to transliterate character-by-character.
+- **Idioms (成语/歇后语)**: four-character idioms and proverb-riddles mean something entirely different from their characters. Translate the MEANING; a literal character gloss is always wrong.
+- **Big-number units**: 万 = ten thousand, 亿 = one hundred million. "三万五" is 35,000 — mis-scaling these numbers is a factual error, not a style choice. 两 vs 二 is grammar, not two different numbers.
+- **Measure words (量词)** carry no meaning of their own — 一个/一位/一条 all just mark counting; do not translate them as separate words.
+- **ASR homophone errors are expected**: Chinese ASR frequently confuses 的/得/地, 在/再, 他/她/它, 是/试, 做/作. If a character makes no sense in context, it is almost certainly a mishearing — translate the INTENDED meaning that fits the surrounding lines, never the nonsensical literal reading.`,
+
+  en: `- **"You" is ambiguous and the choice changes the whole line**: English "you" can be one person, a group, or generic "people in general" ("you never know"). Decide from context which one it is — the correct pronoun/address form in the target language depends entirely on that call, and getting it wrong makes the speaker sound like they are talking to the wrong person.
+- **Phrasal verbs and idioms are single units of meaning**: "check out", "pull it off", "get away with", "call it a day" mean nothing like their component words. Translate the meaning.
+- **Sarcasm and understatement are common in creator English**: "well, that went great", "not bad at all", "cool, cool, cool" often mean the OPPOSITE of the literal words. Read the surrounding lines and the speaker's situation before choosing the tone.
+- **Unstressed referents carry across lines**: "it", "they", "that one", "this thing" refer back to something said several segments earlier. Resolve the referent from context — many target languages need the actual noun repeated where English can stay vague.
+- **Perfect vs simple past is often NOT a real time difference**: "I've been there" vs "I went there" rarely justifies a different tense marker in the target. Add explicit past markers only where the timing genuinely matters.
+- **Spoken numbers**: "twenty twenty-four" is the year 2024; "a couple" ≈ 2, "a dozen" = 12, "half a dozen" = 6. Imperial units (feet, pounds, miles, °F) stay in their own unit — do NOT silently convert to metric.
+- **ASR homophone errors are expected**: English ASR frequently confuses their/there/they're, its/it's, to/too/two, then/than, and drops sentence-final consonants. If a word makes no sense in context, translate the INTENDED word that fits the surrounding lines.
+- **Contractions and reductions** ("gonna", "wanna", "kinda", "'cause", "lemme") are casual speech, not errors — they signal register, and the register belongs in the translation even though the sloppy spelling does not.`,
+}
+
+/** Phần chung cho MỌI ngôn ngữ nguồn: bản chép lời máy nghe không phải văn bản sạch. */
+const ASR_SOURCE_REALITY = `- **This is a machine transcript, not written text**: it contains mishearings, missing or wrong punctuation, and clauses cut across segment boundaries. When a line reads as nonsense, the transcript is wrong — recover what the speaker actually said from the surrounding lines and translate THAT. Never translate gibberish literally, and never invent content to fill a gap.
+- **Segment boundaries are timing, not sentences**: one sentence may span several segments and one segment may hold two. Understand the whole thought before translating each piece, but still return one translation per segment.`
+
+function sourceComprehensionBlock(sourceLang) {
+  const { key, name } = resolveSourceLang(sourceLang)
+  const specific = SOURCE_RULES[key]
+  return `
+
+### READING THE SOURCE (${name}) — UNDERSTAND BEFORE YOU TRANSLATE
+${ASR_SOURCE_REALITY}${specific ? '\n' + specific : ''}`
+}
+
 /**
  * Quy tắc dịch riêng theo NGÔN NGỮ ĐÍCH (mini-spec V15, xem docs/PLAN.md —
  * bug thật tìm ra: trước đây prompt hardcode "Vietnamese" khắp nơi, dịch
@@ -483,8 +552,11 @@ function buildTranslateSystemPrompt({ sourceLang, targetKey = 'vi',
   context = {}, cpsBudget = DEFAULT_CPS, emotionTone = false }) {
   const domain = context.domain || 'general'
   const { field: targetField, name: targetName } = resolveTargetLang(targetKey)
+  // C44: tên ngôn ngữ nguồn đi qua `resolveSourceLang` — mã rỗng (app bật tự
+  // nhận dạng) không còn để lại khoảng trắng giữa câu.
+  const { name: sourceName } = resolveSourceLang(sourceLang)
   return `You are an expert translator specializing in ASR (Automatic Speech Recognition) transcripts for video dubbing.
-Your task is to translate an ASR transcript from ${sourceLang} to ${targetName}.
+Your task is to translate an ASR transcript from ${sourceName} to ${targetName}.
 
 You will receive a JSON array of segments. Each segment contains: \`id\`, \`text\`, \`duration\` (seconds) and usually \`max_chars\`.
 
@@ -492,6 +564,8 @@ ${userContextBlock(context)}${outputFormatBlock(targetField, targetName, emotion
 
 ### STYLE & TRANSLATION RULES
 ${styleRules(targetKey, targetField, targetName, domain)}
+
+${sourceComprehensionBlock(sourceLang)}
 
 ### FIDELITY TO THE ORIGINAL (CRITICAL)
 - **Faithful, not free**: translate the FULL meaning of every segment — do NOT add ideas, do NOT drop ideas, do NOT invent content that is not in the source. Conciseness comes from tighter phrasing, never from cutting meaning.
@@ -620,7 +694,8 @@ function buildAnalysisPrompt({ lines, sourceLang, videoTitle = '', targetKey = '
     : `<the most natural ${targetName} addressing/register convention for THIS video — e.g. casual direct-address vs formal>`
   const domainHint = rule ? rule.domainHint
     : `<topic/domain in ${targetName}, e.g. 'tech review', 'cooking vlog', 'short film'>`
-  return `You are preparing CONTEXT for translating a ${sourceLang} video transcript to ${targetName} (video dubbing).
+  const { name: sourceName } = resolveSourceLang(sourceLang)
+  return `You are preparing CONTEXT for translating a video transcript spoken in ${sourceName} to ${targetName} (video dubbing).
 Read the transcript lines below and produce a compact analysis as STRICT JSON (no markdown fences, no commentary):
 
 {
@@ -786,6 +861,9 @@ module.exports = {
   TONE_VALUES,
   VOICE_STYLE_VALUES,
   resolveTargetLang,
+  resolveSourceLang,
+  SOURCE_RULES,
+  sourceComprehensionBlock,
   sanitizeContext,
   buildTranslateSystemPrompt,
   buildTranslateUserPrompt,

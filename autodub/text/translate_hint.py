@@ -134,6 +134,91 @@ def context_note(target: TargetLang) -> str:
             'NOT include them in the output.\n\n')
 
 
+# ------------------------------------------- HIỂU NGÔN NGỮ NGUỒN (C44) --
+#
+# mini-spec C44 — đường dịch TAY/NGOẠI TUYẾN phải nhận cùng bộ luật đọc hiểu
+# nguồn với đường máy chủ (`control_server/src/prompts/translate.js`), nếu
+# không thì người chọn dịch ngoại tuyến (D1) lãnh bản dịch kém hơn mà không
+# ai nói cho họ biết. Bản ở đây CỐ Ý gọn hơn bản máy chủ: người dùng phải dán
+# nguyên khối này vào ChatGPT/Gemini bằng tay, prompt dài quá thì họ cắt bớt.
+#
+# `tests/test_source_comprehension.py` canh cho hai bên không lệch DANH SÁCH
+# ngôn ngữ — thêm ngôn ngữ nguồn ở máy chủ mà quên chỗ này là test đỏ.
+
+#: Mã nguồn → tên tiếng Anh dùng trong prompt (prompt viết bằng tiếng Anh).
+SOURCE_NAMES = {
+    "zh": "Chinese (Mandarin)", "en": "English", "ja": "Japanese",
+    "ko": "Korean", "vi": "Vietnamese", "th": "Thai", "id": "Indonesian",
+    "es": "Spanish", "fr": "French", "de": "German", "pt": "Portuguese",
+    "ru": "Russian",
+}
+
+#: Bẫy đọc hiểu riêng của từng ngôn ngữ nguồn (bản gọn của SOURCE_RULES phía
+#: máy chủ). Ngôn ngữ chưa có mục riêng chỉ nhận phần chung.
+SOURCE_RULES = {
+    "zh": (
+        "- **Dropped subjects**: Mandarin routinely omits the subject — recover WHO "
+        "is acting from the neighbouring lines, and keep that person consistent.\n"
+        "- **No tense or plural marking**: time comes from context words (昨天, 已经) "
+        "and aspect particles (了/过/着), never from the verb.\n"
+        "- **Kinship terms for strangers** (哥/姐/叔/阿姨): render the social "
+        "relationship, never a literal family word.\n"
+        "- **Idioms (成语)**: translate the meaning; a literal character gloss is "
+        "always wrong.\n"
+        "- **Big-number units**: 万 = ten thousand, 亿 = one hundred million — "
+        "mis-scaling these is a factual error.\n"
+        "- **ASR homophones are expected** (的/得/地, 在/再, 他/她/它): a character "
+        "that makes no sense in context is a mishearing — translate the intended "
+        "meaning."
+    ),
+    "en": (
+        '- **"You" is ambiguous**: one person, a group, or generic "people in '
+        'general" — the correct pronoun in the target language depends entirely '
+        "on which one it is.\n"
+        '- **Phrasal verbs and idioms** ("pull it off", "get away with") are single '
+        "units of meaning — translate the meaning.\n"
+        '- **Sarcasm and understatement** ("well, that went great") often mean the '
+        "opposite of the literal words.\n"
+        '- **Vague referents** ("it", "they", "that one") point back several '
+        "segments — resolve them; the target language often needs the noun "
+        "repeated.\n"
+        '- **Spoken numbers**: "twenty twenty-four" is the year 2024; "a couple" ≈ 2; '
+        "imperial units stay imperial.\n"
+        "- **ASR homophones are expected** (their/there/they're, to/too/two): "
+        "translate the intended word that fits the context."
+    ),
+}
+
+#: Phần chung cho MỌI ngôn ngữ nguồn.
+ASR_SOURCE_REALITY = (
+    "- **This is a machine transcript, not written text**: it contains mishearings, "
+    "missing punctuation, and clauses cut across segment boundaries. When a line "
+    "reads as nonsense, recover what the speaker actually said from the surrounding "
+    "lines and translate THAT — never translate gibberish literally, never invent "
+    "content to fill a gap.\n"
+    "- **Segment boundaries are timing, not sentences**: one sentence may span "
+    "several segments — understand the whole thought, but return one translation "
+    "per segment."
+)
+
+
+def source_name(source_lang: str) -> str:
+    """Tên ngôn ngữ nguồn dùng trong prompt — KHÔNG bao giờ rỗng."""
+    key = (source_lang or "").strip().lower().split("-")[0]
+    if not key or key == "auto":
+        return "an unidentified language (infer it from the transcript itself)"
+    return SOURCE_NAMES.get(key, (source_lang or "").strip().lower())
+
+
+def build_source_block(source_lang: str) -> str:
+    """Khối "đọc hiểu nguồn" chèn vào prompt dịch."""
+    key = (source_lang or "").strip().lower().split("-")[0]
+    rieng = SOURCE_RULES.get(key)
+    return (f"\n### READING THE SOURCE ({source_name(source_lang)}) — "
+            f"UNDERSTAND BEFORE YOU TRANSLATE\n{ASR_SOURCE_REALITY}"
+            + (f"\n{rieng}" if rieng else ""))
+
+
 def build_style_rules(target: TargetLang, domain: str = "general") -> str:
     """Universal Vietnamese Spoken-Style Translation Rules (Single Source of Truth).
     Optimized for LLM execution and Text-to-Speech (TTS) readiness.
@@ -260,7 +345,7 @@ def build_translation_prompt(target: TargetLang, source_lang: str,
                     if compact_output else
                     "`id`, `text`, `start`, `end`, and `duration` (in seconds)")
     return f"""You are an expert translator specializing in ASR (Automatic Speech Recognition) transcripts for video dubbing.
-Your task is to translate an ASR transcript from {source_lang} to {target.name}.
+Your task is to translate an ASR transcript from {source_name(source_lang)} to {target.name}.
 
 You will receive a JSON array of segments. Each segment contains: {input_fields}.
 
@@ -268,6 +353,8 @@ You will receive a JSON array of segments. Each segment contains: {input_fields}
 
 ### STYLE & TRANSLATION RULES
 {build_style_rules(target, domain=domain)}
+
+{build_source_block(source_lang)}
 
 ### FIDELITY TO THE ORIGINAL (CRITICAL)
 - **Faithful, not free**: translate the FULL meaning of every segment — do NOT add ideas, do NOT drop ideas, do NOT invent content that is not in the source. Conciseness comes from tighter phrasing, never from cutting meaning.

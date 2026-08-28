@@ -18,8 +18,8 @@ Xem `docs/ARCH.md` cho kiến trúc chi tiết, `docs/PRD.md` cho scope sản ph
 - **website/** — React 18, Vite 5, Tailwind, Zustand, react-router.
 - **Đóng gói**: PyInstaller onedir (`autodub.spec`) + `.bat` script cài đặt/chạy. **Chỉ
   Windows** hiện tại.
-- **Test**: pytest cho `autodub/` + `autodub_gui/` (1741 test); `control_server` chạy
-  `npm test` (477 test, một `mongod` dùng chung qua `tests/chay.js`); `website` chưa có
+- **Test**: pytest cho `autodub/` + `autodub_gui/` (2155 test); `control_server` chạy
+  `npm test` (522 test, một `mongod` dùng chung qua `tests/chay.js`); `website` chưa có
   test.
 - **Máy mới / workspace vừa reset**: chạy `bash scripts/cai_moi_truong_test.sh` trước.
   Thiếu `libGL`/`ffmpeg` thì `pytest` nôn ra hàng chục lỗi import rời rạc trông y như

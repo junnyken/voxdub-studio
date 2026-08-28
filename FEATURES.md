@@ -81,10 +81,16 @@ xảy ra trên Windows đều không được test tự động.**
 3. **Tách nhạc nền khỏi giọng nói** (Demucs) — chạy trên máy hoặc trên máy
    chủ (50 Vox/lượt). Nhờ bước này bản lồng tiếng vẫn còn nhạc gốc.
 4. **Chép lời (ASR)** — Whisper (16 ngôn ngữ nguồn) hoặc Paraformer (tối ưu
-   tiếng Trung).
+   tiếng Trung). Chọn «để ứng dụng tự nhận ra ngôn ngữ» thì mã ngôn ngữ máy
+   nghe ra **đi tiếp vào mọi bước sau** (C44) — trước đó nó chỉ được ghi vào
+   Nhật ký rồi vứt, nên bước dịch chạy với ngôn ngữ nguồn rỗng.
 5. **Dịch** — ba đường: gọi máy chủ (AI), dịch cục bộ offline (NLLB), hoặc
    dán bản dịch tay. Có ngữ cảnh dịch: chủ đề, xưng hô, thuật ngữ cố định,
-   ghi chú giọng văn; và một lượt **soát lại bản dịch**.
+   ghi chú giọng văn; và một lượt **soát lại bản dịch**. Lời nhắc dịch có
+   luật riêng cho **ngôn ngữ nguồn** (C44): chủ ngữ ẩn và đơn vị 万/亿 của
+   tiếng Trung, «you» chung chung và cụm động từ của tiếng Anh, cộng phần
+   chung nhắc rằng bản chép lời là của máy nên có nghe nhầm. Ngôn ngữ nguồn
+   chưa có bộ riêng chỉ nhận phần chung.
 6. **Tạo giọng đọc (TTS)** — hai nguồn: CapCut API (nhiều giọng, nhiều ngôn
    ngữ) và VieNeu (giọng Việt chạy offline trên máy). Có thư viện giọng, sao
    chép giọng (voice cloning), gợi ý giọng theo nhân vật.
@@ -258,7 +264,7 @@ hình thật.**
 | **Toàn bộ cổng trợ lý (7 tác vụ)** | Chưa ai tạo bản ghi nhà cung cấp cho vai `assist` trong trang quản trị. Hiện tự dùng chung vai `translate` — **chạy được nhưng đắt hơn khoảng 25 lần** |
 | **Sinh ảnh sản phẩm** | Chưa có nhà cung cấp cho vai `image`. Không có vai dự phòng (cố ý — rơi về `translate` chỉ sinh ra chữ). Bốn giao thức: Google Gemini · OpenRouter Images · OpenAI/Grok Images · **tự khai** (nền tảng bất kỳ) — **DeepSeek không sinh được ảnh** |
 | **Cổng kiểm tuân thủ** | Cùng lý do trên |
-| **Trang Ảnh sản phẩm trong app** | Chưa nằm trong bản `.exe` nào đã phát hành |
+| **Trang Ảnh sản phẩm trong app** | Đã có trong bản phát hành (mục «Ảnh sản phẩm» ở thanh bên, từ v3.6.0, commit C1 21/08), nhưng chốt `image.scene.stage` mặc định TẮT nên bấm vào chưa chạy được gì |
 
 **Đây là MỘT việc, không phải bốn**: thêm hai dòng nhà cung cấp trong trang
 quản trị. Nó là thao tác của con người, không phải việc lập trình. Mọi đề

@@ -49,7 +49,8 @@ test('buildTranslateSystemPrompt target=vi: dịch sang Vietnamese, field text_v
   const system = prompts.buildTranslateSystemPrompt({
     sourceLang: 'zh-CN', targetKey: 'vi', context: {}, cpsBudget: 12.5,
   })
-  assert.match(system, /translate an ASR transcript from zh-CN to Vietnamese/)
+  // C44: mã nguồn được gọi bằng TÊN ngôn ngữ, không còn là mã thô.
+  assert.match(system, /translate an ASR transcript from Chinese \(Mandarin\) to Vietnamese/)
   assert.match(system, /"text_vi"/)
   assert.doesNotMatch(system, /"text_en"/)
 });
@@ -58,7 +59,8 @@ test('buildTranslateSystemPrompt target=en: dịch sang English, field text_en �
   const system = prompts.buildTranslateSystemPrompt({
     sourceLang: 'zh-CN', targetKey: 'en', context: {}, cpsBudget: 12.5,
   })
-  assert.match(system, /translate an ASR transcript from zh-CN to English/)
+  // C44: mã nguồn được gọi bằng TÊN ngôn ngữ, không còn là mã thô.
+  assert.match(system, /translate an ASR transcript from Chinese \(Mandarin\) to English/)
   assert.match(system, /"text_en"/)
   assert.doesNotMatch(system, /"text_vi"/)
   assert.doesNotMatch(system, /native Vietnamese content creator/,
@@ -88,7 +90,8 @@ test('buildTranslateSystemPrompt: ngôn ngữ chưa có bộ quy tắc riêng d�
   const system = prompts.buildTranslateSystemPrompt({
     sourceLang: 'zh-CN', targetKey: 'ko', context: {}, cpsBudget: 12.5,
   })
-  assert.match(system, /translate an ASR transcript from zh-CN to ko/)
+  // C44: mã nguồn được gọi bằng TÊN ngôn ngữ, không còn là mã thô.
+  assert.match(system, /translate an ASR transcript from Chinese \(Mandarin\) to ko/)
   assert.doesNotMatch(system, /Vietnamese/)
   assert.doesNotMatch(system, /Sino-Vietnamese/)
 });

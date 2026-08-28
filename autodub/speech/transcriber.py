@@ -175,7 +175,8 @@ class TranscribeCancelled(RuntimeError):
 
 def transcribe(audio_path: str, language: str, settings: Settings,
                whisper_cache: "WhisperCache | None" = None,
-               cancel_event=None, on_segment=None) -> list[dict]:
+               cancel_event=None, on_segment=None,
+               detected_out: dict | None = None) -> list[dict]:
     """Transcribe audio with the configured local ASR (free, offline).
 
     Engines: Whisper (default, multilingual) or Paraformer (Chinese only,
@@ -185,6 +186,12 @@ def transcribe(audio_path: str, language: str, settings: Settings,
     Segments keep the engine's fragment granularity — translation, subtitles,
     the editor AND the voice all follow the source video's own per-fragment
     timeline (strict 1:1 rendering, one clip per segment).
+
+    ``detected_out`` (mini-spec C44): dict do caller truyền vào để NHẬN lại
+    ngôn ngữ máy thật sự nghe thấy — ``{"language": "en", "prob": 0.98}``.
+    Trước C44 mã ngôn ngữ này chỉ được ghi vào Nhật ký rồi vứt, nên bật "tự
+    nhận ra ngôn ngữ" là cả pipeline sau đó chạy với ngôn ngữ nguồn RỖNG.
+    Không truyền thì mọi thứ y như cũ (mọi caller cũ không phải sửa).
     """
     segments = None
     if settings.asr_engine == "paraformer":
@@ -199,6 +206,11 @@ def transcribe(audio_path: str, language: str, settings: Settings,
                 from autodub.speech.paraformer_transcriber import (
                     transcribe_paraformer)
                 segments = transcribe_paraformer(audio_path, settings)
+                if detected_out is not None:
+                    # Paraformer CHỈ chạy khi người dùng đã chọn tiếng Trung
+                    # (điều kiện ngay trên) — không có gì để nhận dạng.
+                    detected_out["language"] = "zh"
+                    detected_out["prob"] = 1.0
             except Exception as e:
                 logger.warning(f"Paraformer lỗi ({e}) — chuyển sang Whisper")
     if segments is None:
@@ -221,7 +233,7 @@ def transcribe(audio_path: str, language: str, settings: Settings,
             try:
                 segments = _transcribe_whisper_subprocess(
                     audio_path, language, settings, cancel_event=cancel_event,
-                    on_segment=on_segment)
+                    on_segment=on_segment, detected_out=detected_out)
             except TranscribeCancelled:
                 # V74 — Dừng KHÔNG phải lỗi. `TranscribeCancelled` kế thừa
                 # `RuntimeError` nên `except Exception` bên dưới nuốt gọn nó,
@@ -249,7 +261,9 @@ def transcribe(audio_path: str, language: str, settings: Settings,
                 "thư mục .venv-whisper và models từ bản cũ sang).")
         if segments is None:
             segments = _transcribe_whisper(audio_path, language, settings,
-                                           whisper_cache, cancel_event=cancel_event)
+                                           whisper_cache,
+                                           cancel_event=cancel_event,
+                                           detected_out=detected_out)
 
     logger.info(f"Transcription complete: {len(segments)} raw segments")
 
@@ -267,7 +281,7 @@ def transcribe(audio_path: str, language: str, settings: Settings,
 
 def _transcribe_whisper_subprocess(
     audio_path: str, language: str, settings: Settings, cancel_event=None,
-    on_segment=None,
+    on_segment=None, detected_out: dict | None = None,
 ) -> list[dict]:
     """Chạy Whisper trong .venv-whisper (subprocess) — không cần bundle
     faster-whisper/ctranslate2 trong exe, giảm ~112 MB bản phân phối.
@@ -439,6 +453,10 @@ def _transcribe_whisper_subprocess(
                     logger.info(
                         f"Ngôn ngữ: {lang} "
                         f"({msg.get('language_prob', 0):.0%})")
+                    if detected_out is not None:
+                        detected_out["language"] = lang
+                        detected_out["prob"] = float(
+                            msg.get("language_prob", 0) or 0)
         proc.wait(timeout=7200)
     except SubprocessTimeoutError as e:
         proc.kill()
@@ -487,7 +505,9 @@ def _release_vram() -> None:
 
 
 def _transcribe_whisper(audio_path: str, language: str, settings: Settings,
-                        whisper_cache: "WhisperCache | None" = None, cancel_event=None) -> list[dict]:
+                        whisper_cache: "WhisperCache | None" = None,
+                        cancel_event=None,
+                        detected_out: dict | None = None) -> list[dict]:
     """Local ASR via faster-whisper — free, offline, no API key needed.
 
     ``word_timestamps=True``: mỗi segment mang kèm mảng ``words``
@@ -495,7 +515,16 @@ def _transcribe_whisper(audio_path: str, language: str, settings: Settings,
     mốc thời gian THẬT của từ, thay vì chia theo tỷ lệ ký tự (đoán). Mảng
     words bị loại khỏi kết quả cuối — transcript trên đĩa giữ format cũ.
     """
-    whisper_lang = WHISPER_LANG_MAP.get(language, language.split("-")[0])
+    # mini-spec C44 — faster-whisper CHỈ tự nhận dạng khi `language is None`
+    # (`Tokenizer.__init__` ném ValueError với chuỗi rỗng: "'' is not a valid
+    # language code"). Đường subprocess đã quy rỗng/"auto" về None từ lâu
+    # (`asr_whisper_worker.py`), đường in-process thì chưa — nên bật "tự nhận
+    # ra ngôn ngữ" mà máy không có .venv-whisper (chạy từ mã nguồn), hoặc mẻ
+    # từ 2 video trở lên (BatchWorker truyền whisper_cache), là ASR chết ngay
+    # tại đây. Cùng một lỗi sửa một đường, đúng lớp lỗi #2 của dự án.
+    whisper_lang = WHISPER_LANG_MAP.get(language, (language or "").split("-")[0])
+    if not whisper_lang or whisper_lang == "auto":
+        whisper_lang = None
     model_name = settings.whisper_model
 
     if whisper_cache is not None:
@@ -516,6 +545,10 @@ def _transcribe_whisper(audio_path: str, language: str, settings: Settings,
     if whisper_lang is None and getattr(info, "language", None):
         logger.info(f"Ngôn ngữ tự nhận dạng: {info.language} "
                     f"(độ tin cậy {getattr(info, 'language_probability', 0):.0%})")
+    if detected_out is not None and getattr(info, "language", None):
+        detected_out["language"] = str(info.language)
+        detected_out["prob"] = float(
+            getattr(info, "language_probability", 0) or 0)
 
     segments = []
     segment_id = 0

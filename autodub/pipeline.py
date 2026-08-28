@@ -27,7 +27,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from autodub.config import Settings
-from autodub.languages import TargetLang, get_target, resolve_source_lang
+from autodub.languages import (
+    TargetLang, from_asr_code, get_target, resolve_source_lang,
+    ten_ngon_ngu_nguon,
+)
 from autodub.progress import PipelineCancelled, ProgressFn, ProgressReporter
 from autodub.utils import setup_logging, ensure_dir, seg_wav_path
 from autodub.workdir import data_dir, data_path, youtube_dir
@@ -329,6 +332,9 @@ class DubPipeline:
 
         target = get_target(req.target)
         lang_code = resolve_source_lang(req.source_lang)
+        # mini-spec C44 — độ tin cậy của ngôn ngữ nguồn. Người dùng tự chọn thì
+        # coi như chắc chắn; máy tự nhận thì lấy đúng con số bộ nghe trả về.
+        nguon_do_tin_cay = 1.0
         logger.info(f"Source language: {lang_code} → {target.name}")
         self._log_machine_info(settings)
         self._reset_per_run_state()
@@ -480,7 +486,18 @@ class DubPipeline:
             logger.info(f"STEP 3: Reusing existing transcript: {transcript_orig_path}")
             logger.info(f"Dùng lại lời thoại đã nghe từ lần chạy trước "
                         f"({len(segments)} câu) — đỡ chờ")
-            rep.emit("asr", "skip", detail=f"{len(segments)} segments (cached)")
+            # mini-spec C44 — chạy tiếp một dự án đã nghe xong bằng "tự nhận
+            # ngôn ngữ" phải lấy lại đúng ngôn ngữ của lần nghe đó, nếu không
+            # bản dịch của lượt chạy tiếp lại rơi về nguồn RỖNG.
+            if not lang_code:
+                lang_code = self._doc_moc_ngon_ngu(asr_lang_marker)
+                nguon_do_tin_cay = self._doc_moc_tin_cay(asr_lang_marker)
+                if lang_code:
+                    logger.info("Ngôn ngữ nguồn lấy lại từ lần nghe trước: %s",
+                                ten_ngon_ngu_nguon(lang_code))
+            rep.emit("asr", "skip",
+                     detail=f"{len(segments)} segments (cached) · nguồn: "
+                            f"{ten_ngon_ngu_nguon(lang_code)}")
         if segments is None:
             # Demucs và ASR chỉ được chạy song song khi KHÔNG giành nhau
             # tài nguyên: Demucs trong tiến trình con GPU còn ASR chắc chắn
@@ -505,15 +522,36 @@ class DubPipeline:
             rep.emit("asr", "start")
             from autodub.speech.transcriber import transcribe, save_transcript
             from autodub.text.srt import generate_srt
+            nhan_dang: dict = {}
             segments = transcribe(audio_path, lang_code, settings,
-                                  whisper_cache=self._whisper_cache)
+                                  whisper_cache=self._whisper_cache,
+                                  detected_out=nhan_dang)
+            # mini-spec C44 — "Ngôn ngữ gốc" từ đây là thứ máy NGHE THẤY, không
+            # phải thứ người dùng khai. Chỉ điền khi người dùng để máy tự nhận
+            # (lang_code rỗng): người đã chọn tay thì tôn trọng lựa chọn đó,
+            # vì chính nó cũng là thứ đã lái bộ nghe lúc nãy.
+            if not lang_code and nhan_dang.get("language"):
+                lang_code = from_asr_code(str(nhan_dang["language"]))
+                nguon_do_tin_cay = float(nhan_dang.get("prob", 0) or 0)
+                logger.info(
+                    "Ngôn ngữ nguồn tự nhận: %s (%s, %.0f%%) — dùng cho dịch, "
+                    "phụ đề và mọi bước sau",
+                    ten_ngon_ngu_nguon(lang_code), lang_code,
+                    nguon_do_tin_cay * 100)
             save_transcript(segments, transcript_orig_path)
             with open(asr_lang_marker, "w", encoding="utf-8") as f:
-                f.write(lang_code)
+                # "<mã> <độ tin cậy>" — lượt chạy tiếp phải quyết y hệt lượt
+                # đầu (nhất là quyết định bỏ hẳn khâu dịch). Marker cũ chỉ có
+                # mã thì đọc ra độ tin cậy 0 = "không biết", tức không dám bỏ.
+                f.write(f"{lang_code} {nguon_do_tin_cay:.3f}")
             generate_srt(segments, data_path(work_dir, "transcript_original.srt"),
                          text_field="text", lang_key=lang_code.split("-")[0].lower())
             logger.info(f"Nghe xong: video có {len(segments)} câu thoại")
-            rep.emit("asr", "done", detail=f"{len(segments)} segments")
+            # Token ĐẦU vẫn phải là số câu: `widgets.py` tách detail theo dấu
+            # cách đầu tiên để hiện "Số câu thoại".
+            rep.emit("asr", "done",
+                     detail=f"{len(segments)} segments · nguồn: "
+                            f"{ten_ngon_ngu_nguon(lang_code)}")
         logger.info(f"Transcribed {len(segments)} segments")
         if not segments:
             # Không có lời nói → dịch/TTS đều vô nghĩa; báo đúng nguyên nhân
@@ -580,7 +618,23 @@ class DubPipeline:
         # hàng chục nghìn Vox.
         from autodub.languages import cung_ngon_ngu
 
-        khong_can_dich = cung_ngon_ngu(req.source_lang or "", target.key)
+        # C44: `lang_code` (ngôn ngữ THẬT sau bước nghe) chứ không phải
+        # `req.source_lang` — video tiếng Việt chạy bằng "tự nhận ngôn ngữ"
+        # trước đây vẫn bị tính tiền dịch Việt→Việt vì phép so này luôn trả
+        # False khi nguồn rỗng.
+        khong_can_dich = cung_ngon_ngu(lang_code or "", target.key)
+        # Nhưng BỎ HẲN khâu dịch dựa trên một phỏng đoán của máy là chuyện
+        # khác hẳn với việc dùng phỏng đoán đó để viết lời nhắc: đoán sai ở
+        # đây nghĩa là video giữ nguyên tiếng gốc và người dùng chỉ biết khi
+        # xem lại thành phẩm. Nhận dạng lờ mờ thì cứ dịch như thường — trả
+        # tiền một lượt dịch thừa còn hơn giao ra một video chưa dịch.
+        if khong_can_dich and nguon_do_tin_cay < 0.85:
+            logger.warning(
+                "Máy nghe ra %s (chỉ %.0f%% chắc chắn) — trùng ngôn ngữ đích "
+                "nhưng KHÔNG bỏ khâu dịch, vì nhận nhầm là giao ra video chưa "
+                "dịch. Chọn tay 'Ngôn ngữ gốc' nếu muốn bỏ hẳn khâu dịch.",
+                ten_ngon_ngu_nguon(lang_code), nguon_do_tin_cay * 100)
+            khong_can_dich = False
 
         # --- Chọn ngoại tuyến thì KHÔNG giữ chỗ tiền dịch (mini-spec D1) ---
         # Máy chủ trừ đúng số ước tính lúc giữ chỗ và KHÔNG hoàn phần chưa
@@ -692,7 +746,7 @@ class DubPipeline:
             rep.emit("translate", "done", detail=transcript_dub_path)
         else:
             translated = self._auto_translate(segments, target,
-                                              req.source_lang,
+                                              lang_code,
                                               work_dir=work_dir)
             if translated is None:
                 # Rẽ sang dịch tay. Hold GIỮ NGUYÊN: giá đã chốt và trừ đủ từ
@@ -701,7 +755,7 @@ class DubPipeline:
                 # chỉ cần nói rõ là không phát sinh thêm Vox.
                 refund_note = self._money_note_for_manual()
                 from autodub.text.translate_hint import write_hint
-                hint_path = write_hint(work_dir, target, req.source_lang,
+                hint_path = write_hint(work_dir, target, lang_code,
                                        settings=self.settings,
                                        refund_note=refund_note)
                 # Dòng info tiếng Anh cho console/dev; warning tiếng Việt là
@@ -1712,6 +1766,34 @@ class DubPipeline:
         return folder_name
 
     @staticmethod
+    def _doc_moc_ngon_ngu(lang_marker_path: str) -> str:
+        """Ngôn ngữ nguồn đã ghi kèm transcript cũ ("" nếu không có).
+
+        mini-spec C44 — marker này vốn chỉ dùng để phát hiện đổi ngôn ngữ khi
+        chạy tiếp (V40); giờ nó còn là chỗ giữ ngôn ngữ MÁY NGHE RA cho những
+        lượt chạy tiếp sau.
+        """
+        try:
+            with open(lang_marker_path, encoding="utf-8") as f:
+                return f.read().strip().split()[0]
+        except (OSError, IndexError):
+            return ""
+
+    @staticmethod
+    def _doc_moc_tin_cay(lang_marker_path: str) -> float:
+        """Độ tin cậy của lần nhận dạng đã ghi kèm marker (0 = không biết).
+
+        Marker từ trước C44 chỉ có mã ngôn ngữ — đọc ra 0, tức lượt chạy tiếp
+        KHÔNG dám bỏ khâu dịch dựa trên một phỏng đoán không rõ nguồn gốc.
+        """
+        try:
+            with open(lang_marker_path, encoding="utf-8") as f:
+                phan = f.read().strip().split()
+            return float(phan[1]) if len(phan) > 1 else 0.0
+        except (OSError, ValueError, IndexError):
+            return 0.0
+
+    @staticmethod
     def _load_cached_transcript(
         transcript_path: str, lang_marker_path: str, lang_code: str
     ) -> list[dict] | None:
@@ -1738,8 +1820,13 @@ class DubPipeline:
             cached_lang = None
             if os.path.exists(lang_marker_path):
                 with open(lang_marker_path, encoding="utf-8") as f:
-                    cached_lang = f.read().strip() or None
-            if cached_lang is not None and cached_lang != lang_code:
+                    # Marker từ C44 có dạng "<mã> <độ tin cậy>" — chỉ so
+                    # phần mã, phần sau chỉ dành cho quyết định bỏ khâu dịch.
+                    cached_lang = (f.read().strip().split() or [""])[0] or None
+            # mini-spec C44: `lang_code` rỗng = "để máy tự nhận" — KHÔNG
+            # phải một ngôn ngữ khác. Ép nghe lại cả video vài giờ chỉ vì
+            # lần này người dùng để máy tự nhận là phạt oan.
+            if cached_lang is not None and lang_code and cached_lang != lang_code:
                 raise ValueError(
                     f"ngôn ngữ nguồn đã đổi ({cached_lang} → {lang_code})")
             return cached_segments
