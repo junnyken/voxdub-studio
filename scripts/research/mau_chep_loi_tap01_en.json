@@ -1,0 +1,58 @@
+[
+ {
+  "id": 1,
+  "text": "Are you ready to order we are excuse me I have a question. Yes, I'm in the mood for lamb",
+  "start": 0.24,
+  "end": 6.72,
+  "duration": 6.48
+ },
+ {
+  "id": 2,
+  "text": "But the sauce looks too fatty",
+  "start": 6.72,
+  "end": 9.36,
+  "duration": 2.64
+ },
+ {
+  "id": 3,
+  "text": "Could I order the lamb without the sauce? Sure. What is it come with French fries? I don't like fried food",
+  "start": 10.28,
+  "end": 19.19,
+  "duration": 8.91
+ },
+ {
+  "id": 4,
+  "text": "Could I have a grilled vegetable instead? I think we have grilled peppers perfect",
+  "start": 20.19,
+  "end": 26.67,
+  "duration": 6.48
+ },
+ {
+  "id": 5,
+  "text": "Would you like to start with an appetizer?",
+  "start": 27.31,
+  "end": 31.14,
+  "duration": 3.83
+ },
+ {
+  "id": 6,
+  "text": "Is there oil on the tomato salad? There's a lot of olive oil. Yes, could I get it without the oil?",
+  "start": 32.61,
+  "end": 39.57,
+  "duration": 6.96
+ },
+ {
+  "id": 7,
+  "text": "Mm-hmm, but it wouldn't taste very good",
+  "start": 40.78,
+  "end": 43.66,
+  "duration": 2.88
+ },
+ {
+  "id": 8,
+  "text": "Then I'll just have a mixed green salad and you",
+  "start": 46.9,
+  "end": 51.6,
+  "duration": 4.7
+ }
+]
