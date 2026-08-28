@@ -13303,3 +13303,102 @@ bỏ ra lẫn thứ vừa nhận được.
 - Vẫn là **làm mờ**, không xoá thật.
 - **Chưa chạy thật trên video dài nào** — mọi bằng chứng ở đây là test và một
   ví dụ tính tay. Cần một lượt chạy thật của chủ dự án trên phim 40 phút.
+
+## C51 — Xoá chữ gốc thật, thay vì bôi mờ (28/08/2026)
+
+Chủ dự án yêu cầu làm cái tôi vừa ghi là «giới hạn còn lại»: che chữ vẫn chỉ là
+làm mờ. Trước khi xây, đo đã.
+
+### Đo trước: làm mờ gần như KHÔNG khá hơn để nguyên chữ
+
+Lấy một khung hình thật từ `tap01_clip.mp4`, vẽ chữ cháy lên, rồi so từng cách
+xử lý với **nền gốc** — thứ đáng lẽ hiện ra nếu xoá được thật (vùng chữ
+246x51, lệch trung bình trên 255):
+
+| | Lệch so với nền gốc | 95% dưới |
+|---|---|---|
+| Còn nguyên chữ | 58,98 | 253,33 |
+| **Làm mờ** | **52,66** | 113,33 |
+| **Xoá (`delogo`)** | **3,58** | 14,00 |
+
+Làm mờ chỉ TRỘN chữ với nền thành một vũng mờ — nhìn thì không đọc được chữ
+nữa, nhưng nó KHÔNG dựng lại nền, nên lệch gần bằng lúc còn nguyên chữ.
+`delogo` nội suy từ đường viền quanh vùng nên sát nền thật gấp ~16 lần.
+
+Và nó **không thêm gì vào máy người dùng**: `delogo` là bộ lọc có sẵn của
+ffmpeg, thứ app vốn đã bắt buộc phải có. Không model, không venv, không GB nào.
+
+### Một lần đo sai, và vì sao nó sai
+
+Lượt đo đầu cho ra kết quả NGƯỢC (xoá 33,74 — tệ hơn để nguyên chữ 26,41). Truy
+lại thì vùng lọc đặt ở y=932 trong khi chữ nằm ở y=951–990: bộ lọc xoá phần
+phía trên chữ và chừa lại chính chữ. Đo lại với vùng lọc và vùng đo khớp nhau
+thì ra bảng trên.
+
+Bài học đi kèm vào tính năng: **vùng che phải trùm đúng chữ** thì xoá mới có
+nghĩa; lệch một chút là vừa xoá oan nền vừa chừa chữ lại. Đây cũng là lý do
+`_PADDING_RATIO` (nới 15% quanh box OCR) đáng giữ.
+
+### Đã làm
+
+- `che_kieu`: `"lam_mo"` (mặc định, giữ nguyên hành vi mọi dự án cũ) hoặc
+  `"xoa"`. Đặt được ở kiểu chung, và đặt riêng cho từng vùng — dải phụ đề mỏng
+  hợp với xoá, còn mảng lớn trên nền động thì làm mờ lại đỡ lộ hơn.
+- `delogo_filter()` **kẹp vùng cho nằm gọn trong khung**: bộ lọc nội suy từ
+  đường viền nên vùng sát mép không còn viền để lấy màu. Kẹp được thì kẹp,
+  không còn chỗ thì **rơi về làm mờ** — che kiểu gì cũng hơn đổ cả lượt xuất.
+- Giữ nguyên khoảng thời gian của C50: `delogo=...:enable='between(t,..)'`.
+- Ô chọn trong hộp thoại Kiểu phụ đề, kèm tooltip nói thẳng giới hạn: hợp với
+  dải chữ mỏng trên nền đơn giản; vùng rộng trên nền nhiều chi tiết sẽ thành
+  mảng bị kéo nhoè.
+
+Chuỗi lọc do chính app sinh đã được **chạy thật bằng ffmpeg** trên khung hình
+mẫu, không chỉ so chuỗi ký tự.
+
+12 test mới (`tests/test_xoa_chu_goc.py`). 2236 Python đạt.
+
+### Giới hạn, nói trước
+
+- `delogo` nội suy từ viền: nền càng nhiều chi tiết và vùng càng rộng thì càng
+  lộ vệt kéo. Đây KHÔNG phải inpainting học sâu (LaMa/ProPainter) — thứ đó cần
+  model vài trăm MB và xử lý từng khung, tức hàng giờ cho video 40 phút trên
+  máy không GPU. Với chữ cháy dạng dải mỏng — đúng ca của nội dung Trung/Douyin
+  — cách này ăn đứt làm mờ mà không tốn thêm gì.
+- Chưa chạy trên video dài thật, mới chỉ trên khung hình đơn.
+
+
+## C52 — Công cụ đo «bước nghe có bỏ sót câu không» (28/08/2026)
+
+Chủ dự án báo: *"nó vẫn chưa ghi đúng số lượng câu trong đoạn video, đôi khi có
+bị thiếu câu"*.
+
+### Thử tái hiện, và KHÔNG tái hiện được
+
+Trên clip mẫu 53 giây: bản giọng sạch cho **13 câu / 107 từ**; trộn thêm nhạc
+nền rồi nghe lại cho **23 câu / 107 từ**. Tức nhạc làm **vụn câu** (cắt một câu
+thành nhiều mẩu) chứ **không nuốt chữ** nào. Tắt lọc im lặng (VAD) cũng vẫn 13
+câu — VAD không cắt mất câu nào ở mẫu này.
+
+Vậy tôi không có bằng chứng cho một chẩn đoán nào, và sẽ không đoán bừa.
+
+### Nhưng có một chuyện đáng ngờ trong kiến trúc
+
+Khi chọn tách nhạc nền, Demucs chạy **TRƯỚC** bước nghe và đã ghi ra
+`vocals.wav` — giọng sạch, không nhạc. Nhưng bước nghe vẫn đọc
+`original_audio.wav`, tức **bản trộn cả nhạc**, trong khi bản sạch nằm ngay
+cạnh đó. Chưa đủ bằng chứng để đổi (đo trên mẫu của tôi không cho khác biệt về
+số từ), nhưng đủ đáng để đo trên video thật.
+
+### Đã làm: `scripts/so_sanh_nghe.py`
+
+Chạy lại bước nghe trên một thư mục dự án CÓ SẴN, theo bốn cách, rồi so số câu
+/ số từ / số giây có tiếng: bản trộn vs `vocals.wav`, mỗi bản với lọc im lặng
+bật và tắt. In ra cả những câu chỉ xuất hiện ở một lượt.
+
+Không gọi máy chủ, không tốn Vox — chỉ nghe lại trên máy.
+
+Câu tổng kết cố ý nói rõ **so thô theo 25 ký tự đầu**, nên cắt câu khác nhau
+cũng lọt vào danh sách: nhìn số TỪ ở bảng trước, rồi mới đọc danh sách. Một
+công cụ chẩn đoán mà tự tin quá mức thì đẩy người dùng đi sai đường.
+
+Đã chạy thử end-to-end trên một thư mục dự án dựng sẵn (bản trộn + vocals).

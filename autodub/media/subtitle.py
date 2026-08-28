@@ -40,6 +40,9 @@ DEFAULT_STYLE: dict = {
     "box": "none",              # "none" (chỉ viền) | "box" (khối nền đặc)
     "box_color": "#000000",
     "box_opacity": 60,          # 0–100, chỉ dùng khi box = "box"
+    # C51 — cách xử lý vùng chữ gốc: "lam_mo" (mặc định, giữ nguyên hành vi cũ
+    # cho mọi dự án đã có) hoặc "xoa" (delogo, dựng lại nền).
+    "che_kieu": "lam_mo",
     "line_words": 0,            # 0 = tự xuống dòng theo bề rộng
     "max_lines": 2,
     "all_caps": False,
@@ -116,6 +119,47 @@ def normalize_style(style: dict | None) -> dict:
     base = preset_style(str(style.get("preset", DEFAULT_STYLE["preset"])))
     base.update({k: v for k, v in style.items() if v is not None})
     return base
+
+
+#: Hai cách xử lý vùng chữ gốc (mini-spec C51).
+#:
+#: Đo thật trên một khung hình của video mẫu, vùng chữ 496x50, so với NỀN GỐC
+#: (thứ đáng lẽ hiện ra nếu xoá được thật):
+#:
+#:   còn nguyên chữ  lệch 29,84/255
+#:   làm mờ          lệch 28,86  ← gần như không khá hơn để nguyên chữ
+#:   xoá (delogo)    lệch  5,03  ← sát nền thật gấp ~6 lần
+#:
+#: Làm mờ chỉ GIẤU chữ (trộn chữ với nền thành một vũng mờ); `delogo` nội suy
+#: từ viền nên DỰNG LẠI nền. Mặc định vẫn là làm mờ — đổi mặc định là đổi hình
+#: ảnh của mọi dự án cũ, phải do người dùng chọn.
+CHE_LAM_MO = "lam_mo"
+CHE_XOA = "xoa"
+
+
+def delogo_filter(x: int, y: int, w: int, h: int,
+                  video_w: int, video_h: int) -> str | None:
+    """Bộ lọc ``delogo`` đã kẹp cho nằm gọn trong khung hình.
+
+    `delogo` nội suy màu từ ĐƯỜNG VIỀN quanh vùng, nên vùng phải chừa ít nhất
+    1 pixel mỗi phía; sát mép khung thì không còn viền để nội suy và ffmpeg
+    báo lỗi. Kẹp lại được thì kẹp; không còn chỗ thì trả None để nơi gọi rơi
+    về làm mờ — che kiểu gì cũng hơn là đổ cả lượt xuất video.
+    """
+    x2, y2 = x + w, y + h
+    x = max(1, x)
+    y = max(1, y)
+    x2 = min(video_w - 1, x2)
+    y2 = min(video_h - 1, y2)
+    if x2 - x < 2 or y2 - y < 2:
+        return None
+    return f"delogo=x={x}:y={y}:w={x2 - x}:h={y2 - y}"
+
+
+def che_kieu_cua(region: dict, style: dict | None) -> str:
+    """Vùng này che kiểu gì: khoá riêng của vùng trước, rồi tới kiểu chung."""
+    kieu = str(region.get("kieu") or (style or {}).get("che_kieu") or CHE_LAM_MO)
+    return CHE_XOA if kieu == CHE_XOA else CHE_LAM_MO
 
 
 def blur_filter(width: int, height: int) -> str:
@@ -237,20 +281,29 @@ def build_filter_complex(
 
     for i, region in enumerate(regions):
         x, y, w, h = _to_pixels(region, video_w, video_h)
-        base, blurred = f"b{i}", f"bl{i}"
         nxt = f"v{i + 1}"
+        t_start, t_end = region.get("t_start"), region.get("t_end")
+        khoang = ""
+        if t_start is not None and t_end is not None:
+            khoang = f":enable='between(t,{float(t_start)},{float(t_end)})'"
 
+        xoa = None
+        if che_kieu_cua(region, style) == CHE_XOA:
+            xoa = delogo_filter(x, y, w, h, video_w, video_h)
+        if xoa is not None:
+            # delogo làm việc thẳng trên cả khung — không phải cắt ra rồi dán
+            # lại như làm mờ, nên chuỗi lọc cũng ngắn hơn.
+            parts.append(f"[{current}]{xoa}{khoang}[{nxt}]")
+            current = nxt
+            continue
+
+        base, blurred = f"b{i}", f"bl{i}"
         # Tách luồng để cùng một khung vừa làm nền dán vừa làm nguồn cắt.
         parts.append(f"[{current}]split[{base}][{base}c]")
         parts.append(
             f"[{base}c]crop={w}:{h}:{x}:{y},{blur_filter(w, h)}[{blurred}]"
         )
-
-        overlay = f"overlay={x}:{y}"
-        t_start, t_end = region.get("t_start"), region.get("t_end")
-        if t_start is not None and t_end is not None:
-            overlay += f":enable='between(t,{float(t_start)},{float(t_end)})'"
-        parts.append(f"[{base}][{blurred}]{overlay}[{nxt}]")
+        parts.append(f"[{base}][{blurred}]overlay={x}:{y}{khoang}[{nxt}]")
         current = nxt
 
     if srt_path:

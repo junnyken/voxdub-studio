@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-08-28 · phiên bản ứng dụng `3.15.0`
+> Cập nhật: 2026-08-28 · phiên bản ứng dụng `3.16.0`
 
 ---
 
@@ -301,8 +301,11 @@ chỉ giữ tên/giọng, không giữ câu thoại.
 - **Trình chỉnh sửa chưa có nút Dừng** cho hai thao tác dài (làm mới phụ đề,
   ghép video).
 - **Nhận diện vùng chữ (OCR)** nay dừng ngang được, hết giờ tính theo số
-  khung, và lấy mẫu rải đều cả video (C49). Vẫn chỉ **làm mờ**, không xoá
-  chữ thật — muốn xoá thật cần mô hình inpainting khác hẳn.
+  khung, và lấy mẫu rải đều cả video (C49). Nay có thêm lựa chọn **xoá chữ**
+  (`delogo`, C51): đo trên khung hình thật, làm mờ lệch 52,66/255 so với nền
+  gốc — gần bằng để nguyên chữ — còn xoá chỉ lệch 3,58. Vùng rộng trên nền
+  nhiều chi tiết vẫn bị kéo nhoè; inpainting học sâu thì chưa (cần model vài
+  trăm MB + xử lý từng khung).
 - **Chế độ dựng trên máy chủ chưa hiện tiến độ** — người dùng chỉ thấy một
   dòng "Đang chờ máy chủ xử lý…".
 - Một lượt chạy test đầy đủ **thỉnh thoảng kết thúc bằng core dump lúc dọn

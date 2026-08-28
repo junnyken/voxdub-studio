@@ -531,6 +531,21 @@ class StyleDialog(QDialog):
             ocr_row.addStretch()
             left.addLayout(ocr_row)
 
+        # C51 — cách xử lý vùng che. Đo thật trên một khung hình (vùng chữ
+        # 246x51, so với nền gốc): còn chữ lệch 58,98/255 · làm mờ 52,66 ·
+        # xoá 3,58. Làm mờ chỉ GIẤU chữ, delogo dựng lại nền.
+        from PySide6.QtWidgets import QCheckBox as _QCheckBox
+        self.chk_xoa_chu = _QCheckBox("Xoá chữ thay vì làm mờ (thử nghiệm)")
+        self.chk_xoa_chu.setToolTip(
+            "Dựng lại nền từ viền quanh vùng che, thay vì bôi mờ cả vùng.\n"
+            "Hợp với dải chữ mỏng trên nền đơn giản. Vùng che RỘNG trên nền "
+            "nhiều chi tiết sẽ thành một mảng bị kéo nhoè — lúc đó làm mờ lại "
+            "đỡ lộ hơn. Bật rồi xem thử trước khi xuất cả video.")
+        self.chk_xoa_chu.setChecked(
+            str(self._style.get("che_kieu", "lam_mo")) == "xoa")
+        self.chk_xoa_chu.toggled.connect(self._on_che_kieu)
+        left.addWidget(self.chk_xoa_chu)
+
         body.addLayout(left, 6)
 
         # --- Right: panel phẳng (3 phần) — nhóm bằng tiêu đề + khoảng
@@ -811,6 +826,9 @@ class StyleDialog(QDialog):
         worker.tien_do.connect(self._on_ocr_tien_do)
         self._ocr_worker = worker
         worker.start()
+
+    def _on_che_kieu(self, bat: bool) -> None:
+        self._style["che_kieu"] = "xoa" if bat else "lam_mo"
 
     def _on_ocr_tien_do(self, da: int, tong: int) -> None:
         self.btn_ocr_scan.setText(f"Đang quét… {da}/{tong}")
