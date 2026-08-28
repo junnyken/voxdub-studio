@@ -29,6 +29,16 @@ class _HetBoNho(Exception):
     pass
 
 
+@pytest.fixture(autouse=True)
+def _ram_co_dinh(monkeypatch):
+    """Cố định RAM "còn trống" cho mọi test trong tệp.
+
+    Không cố định thì bài kiểm bậc lùi phụ thuộc vào máy đang chạy test rảnh
+    hay bận — đỏ lúc này xanh lúc khác, đúng kiểu test bị tắt sau vài lần.
+    (Chính tệp này đã đỏ một lượt vì lý do đó.)"""
+    monkeypatch.setattr(transcriber, "available_ram_gb", lambda: 64.0)
+
+
 def _may_gia(nap_duoc: set[str]):
     """WhisperModel giả: chỉ nạp được những model trong `nap_duoc`."""
     da_thu: list[str] = []

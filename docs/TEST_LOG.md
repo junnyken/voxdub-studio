@@ -13086,3 +13086,76 @@ Và một test khẳng định lùi bậc KHÔNG tải về bậc nào không d�
 Chưa chạy được trên chính máy chủ dự án — bản vá này cần một bản phát hành mới
 thì mới tới tay. Cách chữa TẠM cho lượt chạy đang dở: ở bước Nhận dạng hạ
 «Độ chính xác» xuống mức thấp hơn rồi bấm chạy tiếp thư mục dự án đó.
+
+## C47 — Đóng gói `models/` mang đi máy khác, và chỗ KHÔNG nên đặt nó (28/08/2026)
+
+Chủ dự án gửi ảnh: thư mục cài đặt **17,8 GB / 101.884 tệp**, và hỏi có đưa
+phần đó lên Vibe Host rồi cho máy kéo về được không.
+
+### Đo trước, đừng đoán
+
+`scripts/xem_dung_luong.py` (mới) liệt kê từng thư mục con kèm việc nó phục vụ.
+Đo trên máy phát triển: **một** venv (`.venv-diar`) đã là **4,4 GB** —
+`nvidia` 2,7 GB + `torch` 1,2 GB + `triton` 0,7 GB. Nhân lên 5-7 venv là ra
+đúng con số 17,8 GB.
+
+Nên 17,8 GB đó là **hai thứ khác hẳn nhau**:
+
+- **`.venv-*`** — thư viện + DLL CUDA, **không mang đi được**: venv gắn với
+  đường dẫn tuyệt đối của máy đã tạo ra nó (`pyvenv.cfg` trỏ tới Python gốc).
+  Bê sang máy khác là trò may rủi, mà hỏng kiểu im lặng.
+- **`models/`** — tệp dữ liệu thuần, máy nào cũng dùng được, và là phần tải lâu
+  nhất. Đây mới là thứ đáng đóng gói.
+
+### Vibe Host KHÔNG phải chỗ đặt
+
+Container dựng lại từ git mỗi lần deploy và `control_server/Dockerfile` không
+khai báo volume nào — tệp tải lên đó sẽ bay ở lần deploy kế tiếp (riêng hôm nay
+đã deploy 3 lần). Thêm nữa đĩa đó nằm cùng chỗ với dữ liệu của dịch vụ đang thu
+tiền; đổ vài GB vào đấy là tự đặt bẫy cho chính mình. API của Vibe Host cũng
+chỉ cho thấy `diskUsed`, không thấy hạn mức.
+
+Chỗ đúng: **GitHub Release** — chính dự án này đã làm vậy một lần rồi
+(`voices-v1.0.0`, các tệp giọng mẫu). Miễn phí, có CDN, sống mãi. Trần **2 GB
+mỗi tệp**, mà model Whisper large-v3 cỡ 3 GB — nên bộ đóng gói phải biết cắt
+phần.
+
+### Đã làm
+
+- `scripts/dong_goi_models.py` — mỗi model một zip riêng + `models.json` ghi
+  mã băm và dung lượng. Gói vượt trần tự **cắt phần** (mặc định 1900 MB, vừa
+  trần GitHub), mỗi phần có mã băm RIÊNG: tải 3 GB hỏng ở phần cuối thì tải lại
+  đúng phần đó. Bản nguyên bị xoá sau khi cắt — để lại là vừa tốn chỗ vừa dễ
+  đưa nhầm tệp lên máy chủ.
+- `scripts/tai_models.py` — kéo về từ **URL hoặc ổ đĩa/USB** (cùng một lệnh),
+  kiểm mã băm TRƯỚC khi giải nén, giải vào thư mục tạm rồi mới đổi tên vào chỗ
+  thật. Model đã có sẵn thì bỏ qua chứ không đè.
+- **Model có ràng buộc quyền truy cập bị loại khỏi gói mặc định**: pyannote là
+  gated model, mỗi người phải tự đồng ý điều khoản trên HuggingFace và dùng
+  token riêng (xem `setup_diarization.py`) — đóng gói sẵn là đi vòng qua đúng
+  cái cổng đó. Có cờ `--gom-ca-model-gioi-han` kèm câu nhắc đừng để link công
+  khai.
+- Chặn **zip slip**: gói tải từ mạng về thì không được tin, đường dẫn thoát ra
+  ngoài thư mục đích là từ chối.
+
+### Chạy thật
+
+Đóng gói → phục vụ qua HTTP → kéo về "máy B": nội dung **khớp từng byte**.
+Sửa 1 byte giữa tệp trên "máy chủ": báo mã băm lệch, thoát mã 1, và **không để
+lại thư mục model dở dang** (để lại thì app tưởng đã cài xong rồi hỏng ở tận
+bước nghe). Cắt 3 phần rồi ghép: cũng khớp từng byte; phá phần giữa thì báo
+đúng «phần 2».
+
+`tests/test_dong_goi_va_tai_models.py` (10 test).
+
+### Hai lỗi trong chính bộ canh của tôi
+
+1. Test cắt phần dùng dữ liệu `b"x" * 5000` — nén xong còn vài trăm byte nên
+   không bao giờ vượt trần, tức bài test đó **không kiểm gì cả**. Đổi sang dữ
+   liệu ngẫu nhiên 3 MB.
+2. Test bậc lùi của C46 gọi `available_ram_gb()` THẬT, nên đỏ hay xanh tuỳ máy
+   chạy test đang rảnh hay bận — nó đã đỏ một lượt đúng như vậy. Cố định bằng
+   fixture `autouse`. Test bấp bênh thì sẽ bị tắt sau vài lần, đúng bài học
+   «bộ canh kêu nhầm sẽ bị tắt trong tuần đầu».
+
+2200 Python đạt / 7 bỏ qua.
