@@ -99,3 +99,54 @@ test('prompt phân tích: nguồn đã biết thì gọi đúng tên', () => {
   const p = prompts.buildAnalysisPrompt({ lines: 'x', sourceLang: 'zh-CN', targetKey: 'vi' })
   assert.match(p, /spoken in Chinese \(Mandarin\)/)
 })
+
+// ------------------------------------------- năm đọc theo cặp (sửa bằng mã) --
+//
+// Đo ngày 28/08 trên gemini-3.5-flash: nói bằng luật trong lời nhắc thì 0/10
+// ("năm hai mươi hai mươi tư"), gửi năm dưới dạng chữ số thì 6/6. Nên phần này
+// là mã, và mã thì phải có bộ canh.
+
+test('năm nói theo cặp được viết thành chữ số', () => {
+  const th = [
+    ['The phone came out in twenty twenty-four.', 'The phone came out in 2024.'],
+    ['That happened back in nineteen ninety-nine.', 'That happened back in 1999.'],
+    ['Released in twenty oh five, believe it or not.', 'Released in 2005, believe it or not.'],
+    ['It was nineteen eighty.', 'It was 1980.'],
+    ['Back in twenty ten we had nothing.', 'Back in 2010 we had nothing.'],
+    ['Twenty twenty-two and twenty twenty-three.', '2022 and 2023.'],
+  ]
+  for (const [vao, ra] of th) {
+    assert.equal(prompts.normalizeSpokenYears(vao), ra)
+  }
+})
+
+test('KHÔNG đụng vào cụm chỉ là số lượng, hoặc thiếu phần thế kỷ', () => {
+  const giu = [
+    'I paid twenty twenty-four dollars for it.',   // số tiền, không phải năm
+    'She is twenty five years old.',               // tuổi
+    'Back in ninety-nine.',                        // thiếu thế kỷ — đoán hộ là bịa
+    'It takes twenty minutes.',
+    '我们在二零二四年发布。',                        // nguồn tiếng Trung
+    '',
+  ]
+  for (const t of giu) assert.equal(prompts.normalizeSpokenYears(t), t)
+})
+
+test('chỉ áp cho nguồn tiếng Anh (và nguồn chưa biết của app đời cũ)', () => {
+  const segs = [{ id: 1, text: 'Made in twenty twenty-four.' }]
+  assert.equal(prompts.normalizeSourceSegments(segs, 'en-US')[0].text, 'Made in 2024.')
+  assert.equal(prompts.normalizeSourceSegments(segs, '')[0].text, 'Made in 2024.')
+  assert.equal(prompts.normalizeSourceSegments(segs, 'zh-CN')[0].text,
+    'Made in twenty twenty-four.')
+})
+
+test('không sửa gì thì trả về ĐÚNG object cũ (không sinh rác)', () => {
+  const segs = [{ id: 1, text: 'Nothing to change here.' }]
+  assert.strictEqual(prompts.normalizeSourceSegments(segs, 'en-US')[0], segs[0])
+})
+
+test('giữ nguyên các trường khác của câu', () => {
+  const segs = [{ id: 7, text: 'Since twenty ten.', duration: 3, max_chars: 40 }]
+  const ra = prompts.normalizeSourceSegments(segs, 'en-US')[0]
+  assert.deepEqual(ra, { id: 7, text: 'Since 2010.', duration: 3, max_chars: 40 })
+})

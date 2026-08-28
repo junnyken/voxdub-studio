@@ -301,9 +301,10 @@ chỉ giữ tên/giọng, không giữ câu thoại.
   giây, không huỷ ngang được.
 - **Chế độ dựng trên máy chủ chưa hiện tiến độ** — người dùng chỉ thấy một
   dòng "Đang chờ máy chủ xử lý…".
-- Một lượt chạy test đầy đủ từng kết thúc bằng **core dump lúc dọn dẹp**
-  (nghi Qt dọn luồng khi thoát). Chạy lại 4 lượt đều xanh. Chưa tái hiện
-  được, ghi lại làm manh mối.
+- Một lượt chạy test đầy đủ **thỉnh thoảng kết thúc bằng core dump lúc dọn
+  dẹp** (nghi Qt dọn luồng khi thoát). Đã gặp lần hai ngày 28/08; cả hai lần
+  đều xảy ra SAU khi test chạy xong, chạy lại ngay là xanh. Chưa tái hiện
+  được theo ý muốn.
 
 ### 5.3 Chưa từng kiểm chứng
 

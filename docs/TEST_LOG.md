@@ -12794,3 +12794,99 @@ video, có test canh riêng chuyện đó.
 - Dịch cục bộ (NLLB) vẫn có thể **bỏ sót câu** khi bản chép lời nhiễu
   (FEATURES §5.2) — không đụng ở đợt này: đó là hạn chế của chính mô hình
   NLLB, không phải chuyện lời nhắc.
+
+## C44b — Đo thật lời nhắc C44: một luật ăn tiền, một luật vô tác dụng, một luật phải sửa bằng mã (28/08/2026)
+
+Chủ dự án cấp một khoá Gemini để đo. Dựng `scripts/research/ab_loi_nhac_nguon.py`:
+dịch CÙNG một bản chép lời hai lần, chỉ đổi đúng một biến là lời nhắc (cánh cũ
+lấy `translate.js` ở git ref ra thư mục tạm rồi nạp), gọi Gemini y như
+`ai-gateway.service.js` gọi. Model `gemini-3.5-flash`.
+
+### Vòng 1 — bản chép lời THẬT: KHÔNG đo được cải thiện nào
+
+Cho Whisper nghe `tap01_clip.mp4` sẵn có trong repo: tiếng Anh 98,9%, 8 câu,
+giữ nguyên lỗi nghe thật (câu 1 dính hai người nói và mất dấu câu, câu 3 sai
+ngữ pháp «What is it come with French fries?»). Hội thoại bồi bàn ↔ khách, tức
+đúng chỗ luật «you ba nghĩa» phải phát huy.
+
+Lượt đầu nhìn rất thuyết phục: cánh MỚI gọi khách là «anh chị» thay vì «quý
+khách», và lời bồi bàn thành «hình như bên em có…» thay vì «tôi nghĩ chúng tôi
+có…» — đúng thứ luật xưng hô nhắm tới. **Nhưng chạy lại 3 lượt mỗi cánh thì số
+liệu lật ngược**: cánh MỚI dịch thẳng đại từ tiếng Anh 4/6, cánh CŨ 0/6. Chạy
+tiếp một loạt nữa có thêm cánh tách biến (cũ + tên ngôn ngữ) thì lật lần nữa:
+1/6 · 0/6 · 0/6.
+
+**Kết luận vòng 1: khác biệt nằm gọn trong nhiễu giữa các lượt.** Một lượt chạy
+duy nhất đủ để dựng nên bất kỳ câu chuyện nào mình muốn tin — và tôi suýt tin.
+Đây chính là lý do phải lặp lại trước khi kết luận.
+
+### Vòng 2 — phép thử có tiêu chí máy chấm được
+
+Câu **dựng riêng** (ghi rõ: không phải video thật) chứa đúng các bẫy mà luật
+nêu tên, chấm bằng biểu thức chính quy chứ không bằng cảm nhận, 5 lượt mỗi
+cánh. Kết quả lần đầu:
+
+| Bẫy | CŨ | MỚI |
+|---|---|---|
+| 万 = mười nghìn (三万五千块) | 0/5 | **0/5** |
+| 亿 = trăm triệu | 5/5 | 5/5 |
+| thành ngữ 一落千丈 | 5/5 | 5/5 |
+| «twenty twenty-four» = 2024 | 0/5 | **0/5** |
+| giữ đơn vị Anh (six feet / one eighty) | 0/5 | **5/5** |
+| đồng âm there → they're | 5/5 | 5/5 |
+
+Đọc thẳng: trong 7 bẫy, luật mới **chỉ dịch chuyển đúng một cái** (đơn vị Anh —
+cánh cũ tự ý đổi «six feet, one eighty» thành «một mét tám, tám mươi mốt cân»,
+tức sửa luôn lời người nói). Bốn bẫy cánh cũ vốn đã làm đúng. Hai bẫy **cả hai
+cánh cùng sai**.
+
+### Ba luật, ba số phận khác nhau
+
+1. **万 — luật viết chưa đủ, sửa lời là được.** Cả hai cánh ra «ba mươi lăm
+   triệu đồng» cho 三万五千块 (35.000 tệ): vừa lệch bậc 1.000 lần vừa tự đổi
+   sang tiền Việt. Luật cũ của tôi chỉ nói «万 = ten thousand» mà không cấm quy
+   đổi tiền tệ. Thêm câu cấm rõ (giữ nguyên đơn vị và bậc của người nói, cho cả
+   mọi ngôn ngữ nguồn) → **0/5 lên 5/5**.
+2. **Đơn vị Anh — luật ăn tiền ngay từ đầu.** 0/5 → 5/5, tách bạch hoàn toàn.
+3. **Năm đọc theo cặp — lời nhắc BẤT LỰC.** «twenty twenty-four» ra «năm hai
+   mươi hai mươi tư» (vô nghĩa trong tiếng Việt). Đã thử ba cách diễn đạt ở ba
+   chỗ: luật nguồn, khối số của ngôn ngữ đích, và danh sách tự kiểm cuối cùng
+   (chỗ mô hình đọc sau chót). **0/10**, giống hệt nhau từng chữ ở cả 5 lượt —
+   mô hình chép lại nhịp hai-cặp-số của câu gốc. Nhưng gửi CHÍNH câu đó với năm
+   đã viết thành chữ số («in 2024») thì **6/6**.
+
+   Nên chỗ sửa là **mã**: `normalizeSpokenYears()` viết năm 19xx/20xx nói theo
+   cặp thành chữ số, áp ngay trước khi dựng lời nhắc, chỉ cho nguồn tiếng Anh,
+   và **chỉ đụng bản gửi đi** — `segments` gốc vẫn là thứ đem gộp kết quả nên
+   câu nguồn của người dùng không bị sửa. Đo lại qua đúng đường máy chủ:
+   **0/10 → 10/10**.
+
+   Cẩn thận với dương tính giả, có test canh: «twenty twenty-four dollars»
+   (số tiền), «twenty five years old» (tuổi), «back in ninety-nine» (thiếu phần
+   thế kỷ — đoán hộ người nói là bịa) đều KHÔNG bị đụng.
+
+4. **Ba luật «năm» đã gỡ khỏi lời nhắc.** Một luật mô hình không nghe thì vừa
+   tốn token mỗi lượt gọi, vừa làm người đọc mã sau này tưởng chuyện đã được xử
+   lý. Giữ lại là tự đặt bẫy cho chính mình.
+
+### Điều đáng nhớ nhất của đợt này
+
+Sửa lời nhắc **cảm giác** như đang nâng chất lượng, và không có cách nào biết
+mình đúng hay sai nếu không đo. Trong ba luật tôi tự tin nhất: một cái ăn ngay,
+một cái phải viết lại mới ăn, một cái không bao giờ ăn dù nói kiểu gì. Tỷ lệ
+đó nên là mặc định trong đầu ở mọi lần sửa prompt sau này.
+
+Phần luật đọc hiểu nguồn CÒN LẠI (chủ ngữ ẩn, thành ngữ, xưng hô họ hàng, «you»
+ba nghĩa, mỉa mai) **vẫn chưa có bằng chứng nào** — bốn bẫy đo được thì cánh cũ
+vốn đã làm đúng, còn xưng hô thì chìm trong nhiễu. Chúng không gây hại, nhưng
+đừng ghi công cho chúng cho tới khi có phép đo lớn hơn: nhiều câu hơn, nhiều
+lượt hơn, và người chấm là người Việt chứ không phải biểu thức chính quy.
+
+### Ghi lại một chuyện bên lề
+
+Lượt chạy `pytest` đầy đủ **lại kết thúc bằng core dump lúc dọn dẹp** (đúng
+hiện tượng FEATURES §5.2 ghi là «chưa tái hiện được»). Chạy lại ngay sau đó:
+2155 đạt, 7 bỏ qua, sạch. Vậy là lần thứ hai — vẫn sau khi test đã chạy xong,
+không làm hỏng kết quả nào, nhưng nay có thêm một mốc thời gian cho manh mối.
+
+2155 Python đạt / 7 bỏ qua, 527 Node đạt / 1 bỏ qua.

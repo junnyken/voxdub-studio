@@ -348,7 +348,14 @@ async function translateBatch({ segments, sourceLang, targetKey = 'vi', context,
   const system = prompts.buildTranslateSystemPrompt({
     sourceLang, targetKey, context, cpsBudget, emotionTone,
   })
-  const user = prompts.buildTranslateUserPrompt({ segments, targetField, prevContext })
+  // mini-spec C44 — năm nói theo cặp ("twenty twenty-four") được viết thành chữ
+  // số TRƯỚC khi vào lời nhắc. Đo được: nói bằng luật thì 0/10, đưa vào bằng
+  // chữ số thì 6/6. Chỉ đổi bản GỬI ĐI; `segments` gốc vẫn là thứ đem gộp kết
+  // quả nên câu nguồn của người dùng không bị sửa.
+  const segmentsGui = prompts.normalizeSourceSegments(segments, sourceLang)
+  const user = prompts.buildTranslateUserPrompt({
+    segments: segmentsGui, targetField, prevContext,
+  })
   const schema = prompts.translateSchema(targetField, { emotionTone })
 
   const { content, usage, provider } = await callWithFallback('translate',

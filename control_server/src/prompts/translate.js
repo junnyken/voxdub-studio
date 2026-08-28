@@ -89,6 +89,7 @@ const SOURCE_RULES = {
 - **Nickname patterns**: 小X / 老X / 阿X are affectionate address forms, not names to transliterate character-by-character.
 - **Idioms (成语/歇后语)**: four-character idioms and proverb-riddles mean something entirely different from their characters. Translate the MEANING; a literal character gloss is always wrong.
 - **Big-number units**: 万 = ten thousand, 亿 = one hundred million. "三万五" is 35,000 — mis-scaling these numbers is a factual error, not a style choice. 两 vs 二 is grammar, not two different numbers.
+- **NEVER convert currency or re-scale a number for the audience**: 三万五千块 is "35,000 yuan", NOT "35 million" and NOT the same amount converted into the viewer's own currency. The speaker said a specific number in a specific currency; changing either one puts words in their mouth. Keep the source currency (yuan/元/块) and the source magnitude, exactly.
 - **Measure words (量词)** carry no meaning of their own — 一个/一位/一条 all just mark counting; do not translate them as separate words.
 - **ASR homophone errors are expected**: Chinese ASR frequently confuses 的/得/地, 在/再, 他/她/它, 是/试, 做/作. If a character makes no sense in context, it is almost certainly a mishearing — translate the INTENDED meaning that fits the surrounding lines, never the nonsensical literal reading.`,
 
@@ -97,14 +98,88 @@ const SOURCE_RULES = {
 - **Sarcasm and understatement are common in creator English**: "well, that went great", "not bad at all", "cool, cool, cool" often mean the OPPOSITE of the literal words. Read the surrounding lines and the speaker's situation before choosing the tone.
 - **Unstressed referents carry across lines**: "it", "they", "that one", "this thing" refer back to something said several segments earlier. Resolve the referent from context — many target languages need the actual noun repeated where English can stay vague.
 - **Perfect vs simple past is often NOT a real time difference**: "I've been there" vs "I went there" rarely justifies a different tense marker in the target. Add explicit past markers only where the timing genuinely matters.
-- **Spoken numbers**: "twenty twenty-four" is the year 2024; "a couple" ≈ 2, "a dozen" = 12, "half a dozen" = 6. Imperial units (feet, pounds, miles, °F) stay in their own unit — do NOT silently convert to metric.
+- **Spoken numbers**: "a couple" ≈ 2, "a dozen" = 12, "half a dozen" = 6. Imperial units (feet, pounds, miles, °F) stay in their own unit — do NOT silently convert to metric.
 - **ASR homophone errors are expected**: English ASR frequently confuses their/there/they're, its/it's, to/too/two, then/than, and drops sentence-final consonants. If a word makes no sense in context, translate the INTENDED word that fits the surrounding lines.
 - **Contractions and reductions** ("gonna", "wanna", "kinda", "'cause", "lemme") are casual speech, not errors — they signal register, and the register belongs in the translation even though the sloppy spelling does not.`,
 }
 
 /** Phần chung cho MỌI ngôn ngữ nguồn: bản chép lời máy nghe không phải văn bản sạch. */
 const ASR_SOURCE_REALITY = `- **This is a machine transcript, not written text**: it contains mishearings, missing or wrong punctuation, and clauses cut across segment boundaries. When a line reads as nonsense, the transcript is wrong — recover what the speaker actually said from the surrounding lines and translate THAT. Never translate gibberish literally, and never invent content to fill a gap.
-- **Segment boundaries are timing, not sentences**: one sentence may span several segments and one segment may hold two. Understand the whole thought before translating each piece, but still return one translation per segment.`
+- **Segment boundaries are timing, not sentences**: one sentence may span several segments and one segment may hold two. Understand the whole thought before translating each piece, but still return one translation per segment.
+- **Numbers, units and currencies belong to the SPEAKER**: keep the magnitude and the unit the speaker actually used. Never convert a currency into the viewer's currency, never switch measurement systems, never round differently. Spelling the number as spoken words for the TTS voice is required; changing what the number MEANS is not.`
+
+// ------------------------------- năm đọc theo cặp: sửa bằng MÃ, không bằng lời --
+//
+// mini-spec C44, đo ngày 28/08 trên gemini-3.5-flash: "The phone came out in
+// twenty twenty-four." ra "năm hai mươi hai mươi tư" — vô nghĩa trong tiếng
+// Việt — ở 5/5 lượt. Đã thử ba cách nói luật, đặt ở ba chỗ khác nhau (luật
+// nguồn, khối số của ngôn ngữ đích, danh sách tự kiểm cuối): 0/10. Mô hình chép
+// lại đúng nhịp hai-cặp-số của câu gốc.
+//
+// Nhưng gửi CHÍNH câu đó với năm đã viết thành chữ số ("in 2024") thì đúng 6/6.
+// Nên chỗ sửa là mã, không phải lời nhắc: một luật mô hình không nghe vừa tốn
+// token vừa làm người sau tưởng chuyện đã xong.
+//
+// Chỉ đụng vào bản gửi cho mô hình — câu gốc trên đĩa của người dùng giữ nguyên.
+
+const _DON_VI = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+}
+const _CHUC = {
+  twenty: 20, thirty: 30, forty: 40, fifty: 50,
+  sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+}
+const _MUOI = {
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
+  sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19,
+}
+/** Danh từ đi ngay sau thì cụm đó là SỐ LƯỢNG, không phải năm — đừng đụng vào. */
+const _KHONG_PHAI_NAM = /^(?:dollars?|bucks?|euros?|pounds?|cents?|percent|people|persons?|times|years?\s+old|items?|units?|pieces?|kilometers?|miles?|hours?|minutes?|seconds?|degrees?)\b/i
+
+const _CENTURY = { nineteen: 19, twenty: 20 }
+const _PHAN_SAU = Object.keys({ ..._CHUC, ..._MUOI }).join('|')
+const _RE_NAM = new RegExp(
+  String.raw`\b(nineteen|twenty)[\s-]+(?:(oh|o|zero)[\s-]+(${Object.keys(_DON_VI).join('|')})`
+  + String.raw`|(${_PHAN_SAU})(?:[\s-]+(${Object.keys(_DON_VI).join('|')}))?)\b`,
+  'gi')
+
+/**
+ * "twenty twenty-four" → "2024". Chỉ nhận dạng năm 19xx/20xx nói theo cặp —
+ * dạng phổ biến nhất và ít nhập nhằng nhất. "back in ninety-nine" (thiếu phần
+ * thế kỷ) CỐ Ý không đụng: đoán thế kỷ hộ người nói là bịa.
+ */
+function normalizeSpokenYears(text) {
+  const goc = String(text || '')
+  if (!goc) return goc
+  return goc.replace(_RE_NAM, (khop, tk, oh, donViSauOh, phanSau, donVi, viTri) => {
+    const the_ky = _CENTURY[tk.toLowerCase()]
+    let duoi
+    if (oh) {
+      duoi = _DON_VI[donViSauOh.toLowerCase()]
+    } else {
+      const p = phanSau.toLowerCase()
+      duoi = _MUOI[p] !== undefined ? _MUOI[p] : _CHUC[p]
+      if (_MUOI[p] !== undefined && donVi) return khop  // "twenty fifteen five" — không phải năm
+      if (donVi) duoi += _DON_VI[donVi.toLowerCase()]
+    }
+    if (duoi === undefined) return khop
+    const con_lai = goc.slice(viTri + khop.length).replace(/^[\s,]+/, '')
+    if (_KHONG_PHAI_NAM.test(con_lai)) return khop
+    return String(the_ky * 100 + duoi)
+  })
+}
+
+/** Chuẩn hoá phần NGUỒN trước khi đưa vào lời nhắc (chỉ nguồn tiếng Anh). */
+function normalizeSourceSegments(segments, sourceLang) {
+  const { key } = resolveSourceLang(sourceLang)
+  // key rỗng = app đời cũ chưa gửi ngôn ngữ nguồn; mẫu nhận dạng vốn đã là
+  // tiếng Anh nên áp vào cũng không đụng câu tiếng khác.
+  if (key && key !== 'en') return segments
+  return (segments || []).map((s) => {
+    const moi = normalizeSpokenYears(s && s.text)
+    return moi === (s && s.text) ? s : { ...s, text: moi }
+  })
+}
 
 function sourceComprehensionBlock(sourceLang) {
   const { key, name } = resolveSourceLang(sourceLang)
@@ -862,6 +937,8 @@ module.exports = {
   VOICE_STYLE_VALUES,
   resolveTargetLang,
   resolveSourceLang,
+  normalizeSpokenYears,
+  normalizeSourceSegments,
   SOURCE_RULES,
   sourceComprehensionBlock,
   sanitizeContext,
