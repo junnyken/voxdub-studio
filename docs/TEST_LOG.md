@@ -12971,4 +12971,38 @@ sẽ im lặng bỏ qua ngôn ngữ máy nghe ra, rồi ghi «from auto to Vietn
 - Lượt chạy dừng ở bước dịch, nên **không** kiểm tạo giọng, ghép video, phụ đề.
   Mở rộng thì tốn thời gian runner và cần VieNeu — cân nhắc riêng.
 
-2167 Python đạt / 7 bỏ qua.
+### Lượt CI Windows đầu tiên: ĐỎ, vì đúng cái bẫy dự án đã dính
+
+Bộ canh chết ở **dòng in đầu tiên**:
+
+```
+UnicodeEncodeError: 'charmap' codec can't encode character '\u1ea1'
+  print(f"Chạy thử một lượt dub: {video.name}")
+```
+
+Console Windows mặc định cp1252; các tệp `.bat` của người dùng đã có
+`chcp 65001` nên họ không dính, còn runner CI gọi thẳng `python` thì dính. Mọi
+worker trong dự án đã có sẵn hai dòng `sys.stdout.reconfigure(...)` từ D1f —
+riêng bộ canh mới thì tôi quên. **Lớp lỗi #2 dưới một hình dạng khác.**
+
+Vá: hai dòng `reconfigure` như mọi worker, cộng `PYTHONUTF8=1` +
+`PYTHONIOENCODING=utf-8` cho tiến trình con (stdout của nó là ỐNG nên cũng rơi
+về bảng mã máy).
+
+### Và bản test đầu của tôi cho lỗi đó là test GIẢ
+
+Viết test tái hiện bằng `PYTHONIOENCODING=cp1252` rồi gọi bộ canh với video
+không tồn tại. Xanh. Đột biến (gỡ bản vá) — **vẫn xanh**.
+
+Lý do: nhánh «không thấy video» in ra **stderr**, mà Python đặt
+`errors="backslashreplace"` cho stderr nên nó KHÔNG BAO GIỜ ném
+`UnicodeEncodeError` — chỉ stdout mới ném. Test đi đúng vào nhánh không thể
+chết. Đổi sang `--help` (in phần mô tả tiếng Việt ra stdout, chạy tức thì):
+đột biến làm nó đỏ đúng chỗ.
+
+Lần đầu tôi chạy đột biến này còn quên `assert` rằng phép đột biến đã áp được —
+tức lượt kiểm đó cũng vô nghĩa. Hai bài học chồng lên nhau trong cùng một giờ:
+**đột biến phải khẳng định là mình đã đột biến được**, và **phải đột biến đúng
+nhánh mà lỗi thật đi qua**.
+
+2169 Python đạt / 7 bỏ qua.

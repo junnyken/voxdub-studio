@@ -35,6 +35,17 @@ from pathlib import Path
 
 GOC = Path(__file__).resolve().parents[1]
 
+# Bảng mã: cùng lối đã dùng ở mọi worker của dự án (D1f). Console Windows mặc
+# định là cp1252, mà tệp này in tiếng Việt — chạy trên runner CI (không qua
+# .bat nên không có `chcp 65001`) là chết ngay dòng in ĐẦU TIÊN. Đã xảy ra
+# thật ở lượt chạy CI đầu tiên của chính bộ canh này: UnicodeEncodeError trên
+# chữ "ạ" của "Chạy thử một lượt dub".
+for _luong in (sys.stdout, sys.stderr):
+    try:
+        _luong.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):  # luồng đã bị thay bằng thứ khác
+        pass
+
 
 class Hong(Exception):
     """Một mục kiểm không đạt — thông điệp phải nói việc thật phải làm."""
@@ -56,6 +67,11 @@ def _chay_dub(video: Path, thu_muc_ra: Path, python_exe: str,
         "WHISPER_MODEL": env.get("WHISPER_MODEL", "tiny"),
         "ASR_ENGINE": "whisper",
         "QT_QPA_PLATFORM": "offscreen",
+        # Tiến trình con ghi nhật ký tiếng Việt, và ở đây stdout là ỐNG chứ
+        # không phải console — Python rơi về bảng mã của máy (cp1252 trên
+        # Windows) và chết y hệt. Cùng gốc với D1f.
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
     })
     lenh = [python_exe, "-m", "autodub.cli", "dub",
             "--file", str(video),

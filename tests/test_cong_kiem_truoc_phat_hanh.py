@@ -78,3 +78,40 @@ def test_test_yml_chay_that_tren_windows():
     khoi = y[y.find("chay-that-windows"):]
     assert re.search(r"runs-on:\s*windows-latest", khoi)
     assert "kiem_chay_that.py" in khoi
+
+
+def test_cong_kiem_song_duoc_voi_bang_ma_cu_cua_windows():
+    """Tái hiện NGAY TRÊN LINUX lỗi đã làm đỏ lượt CI đầu tiên: đặt
+    PYTHONIOENCODING=cp1252 là stdout hành xử y như console Windows chưa
+    `chcp 65001`.
+
+    Phải đi vào nhánh in ra **stdout**: Python đặt `errors="backslashreplace"`
+    cho stderr nên nhánh báo lỗi KHÔNG BAO GIỜ ném UnicodeEncodeError — bản
+    test đầu của tôi kiểm nhầm nhánh đó nên xanh cả khi bản vá bị gỡ (soi ra
+    bằng đột biến). `--help` in nguyên phần mô tả tiếng Việt ra stdout, tức
+    đúng nhánh chết thật, mà lại chạy tức thì.
+
+    Đây là lớp lỗi #2 của dự án dưới hình dạng khác (D1f: worker in tiếng Việt
+    chết vì bảng mã) — mọi worker đã có hai dòng `reconfigure`, riêng bộ canh
+    mới thì quên.
+    """
+    import subprocess
+    import sys as _sys
+
+    moi_truong = dict(os.environ, PYTHONIOENCODING="cp1252")
+    kq = subprocess.run(
+        [_sys.executable, os.path.join(GOC, KICH_BAN), "--help"],
+        capture_output=True, text=True, env=moi_truong, timeout=120,
+        errors="replace")
+    duoi = kq.stdout + kq.stderr
+    assert "UnicodeEncodeError" not in duoi, (
+        "bộ canh chết vì bảng mã trước cả khi kiểm được gì:\n" + duoi[-500:])
+    assert kq.returncode == 0, f"--help phải thoát sạch, nhận {kq.returncode}"
+
+
+def test_tien_trinh_con_cung_duoc_dat_bang_ma(tmp_path):
+    """Tiến trình con ghi nhật ký tiếng Việt và stdout của nó là ỐNG, nên nó
+    cũng rơi về bảng mã của máy nếu không được đặt sẵn."""
+    kich_ban = _doc(KICH_BAN)
+    assert '"PYTHONUTF8": "1"' in kich_ban
+    assert '"PYTHONIOENCODING": "utf-8"' in kich_ban
