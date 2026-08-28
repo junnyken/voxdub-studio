@@ -157,6 +157,26 @@ FRIENDLY_ERRORS: list[tuple[str, str, str]] = [
      "Liên hệ hỗ trợ kèm mã máy hiện ở trang Tài khoản."),
     ("Máy chủ đang bận", "Máy chủ đang quá tải",
      "Chờ một chút rồi chạy tiếp thư mục dự án đang dở."),
+    # C46 — lỗi thật chủ dự án gặp ở v3.14.0: máy hết RAM lúc nạp model nghe.
+    # Câu lỗi gốc là "mkl_malloc: failed to allocate memory", không một chữ nào
+    # gợi ý việc cần làm, nên hộp thoại chỉ nói được "lỗi ngoài dự tính". Đây là
+    # RAM của máy, KHÁC hẳn "CUDA out of memory" ngay dưới (bộ nhớ card đồ họa)
+    # — hai chỗ khác nhau thì cách chữa cũng khác nhau.
+    ("mkl_malloc", "Máy không đủ bộ nhớ để nghe",
+     "Ở bước Nhận dạng, hạ Độ chính xác xuống mức thấp hơn (ví dụ Cân bằng "
+     "hoặc Nhanh) rồi chạy tiếp thư mục dự án đang dở — không bị trừ Vox lần "
+     "nữa. Đóng bớt trình duyệt và ứng dụng nặng cũng giúp."),
+    ("Máy không đủ bộ nhớ", "Máy không đủ bộ nhớ để nghe",
+     "Ở bước Nhận dạng, hạ Độ chính xác xuống mức thấp hơn rồi chạy tiếp thư "
+     "mục dự án đang dở — không bị trừ Vox lần nữa. Đóng bớt trình duyệt và "
+     "ứng dụng nặng cũng giúp."),
+    # Câu lỗi THẬT của ctranslate2 là "CUDA failed with error out of memory"
+    # — mục cũ chỉ bắt "CUDA out of memory" nên chưa từng khớp một lần nào
+    # (thấy trong nhật ký thật của chủ dự án, 28/08). Giữ cả hai cách viết.
+    ("CUDA failed with error out of memory", "Card đồ họa không đủ bộ nhớ",
+     "Đóng bớt ứng dụng đang dùng card đồ họa như trò chơi hoặc trình duyệt "
+     "mở nhiều video, hoặc đổi Nhạc nền sang Giảm nhỏ tiếng gốc cho nhẹ hơn, "
+     "rồi chạy tiếp thư mục dự án đang dở."),
     ("CUDA out of memory", "Card đồ họa không đủ bộ nhớ",
      "Đóng bớt ứng dụng đang dùng card đồ họa như trò chơi hoặc trình duyệt "
      "mở nhiều video, hoặc đổi Nhạc nền sang Giảm nhỏ tiếng gốc cho nhẹ hơn, "

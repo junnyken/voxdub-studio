@@ -13010,3 +13010,79 @@ tức lượt kiểm đó cũng vô nghĩa. Hai bài học chồng lên nhau tro
 nhánh mà lỗi thật đi qua**.
 
 2169 Python đạt / 7 bỏ qua.
+
+## C46 — Bốn lỗi từ MỘT lượt chạy thật của chủ dự án trên v3.14.0 (28/08/2026)
+
+Chủ dự án tải v3.14.0 về chạy ngay, và lượt đầu chết ở bước nghe:
+
+```
+GPU float16 thất bại (CUDA failed with error out of memory)
+GPU int8_float16 thất bại (mkl_malloc: failed to allocate memory)
+GPU int8 thất bại (mkl_malloc: failed to allocate memory)
+GPU không dùng được, chuyển sang CPU
+Whisper worker báo lỗi: {'error': "Không nạp được model Whisper 'medium':
+                          mkl_malloc: failed to allocate memory"}
+```
+
+Hộp thoại chỉ nói được «Có lỗi ngoài dự tính nên ứng dụng phải dừng lại».
+
+Một lượt chạy, bốn lỗi khác nhau:
+
+### 1. App NUỐT lựa chọn của người dùng
+
+Ảnh chụp cho thấy bước Nhận dạng đang chọn **large-v3**, nhưng câu lỗi nói
+**medium** — một model chủ dự án chưa từng chọn. Gốc: sau khi GPU hỏng, worker
+gọi `_resolve_model("auto", False)`, tức vứt tham số `--model` và tự quy về
+"auto" (= medium trên CPU). Nay chỉ quy về auto khi người dùng THẬT SỰ chọn
+auto.
+
+### 2. Hết RAM là chết cả lượt chạy, không có bậc lùi
+
+`medium` không nạp nổi vì thiếu RAM → `_die`. Nay có bậc lùi
+`large-v3 → large-v2 → medium → small → base → tiny`, lùi **từng bậc một** và
+nói ra mỗi lần. Chỉ lùi khi câu lỗi đúng là hết bộ nhớ (`mkl_malloc`,
+`failed to allocate`, `out of memory`, `bad_alloc`) — lỗi khác (thiếu tệp
+model, hỏng mạng) mà cũng lùi thì chỉ hỏng chậm hơn và giấu mất nguyên nhân.
+
+**Nhưng lùi bậc sau khi nạp hỏng là chưa đủ**: mỗi bậc phải TẢI VỀ vài GB rồi
+mới biết không nạp nổi — người dùng ngồi chờ hàng chục phút cho một việc đằng
+nào cũng hỏng. Nên chọn đúng bậc NGAY TỪ ĐẦU theo RAM còn trống (bảng
+`RAM_CAN_GB`), bậc lùi chỉ còn là lưới an toàn. Worker chạy trong
+`.venv-whisper` không có thư viện nào để tự đo RAM, nên tiến trình cha đo hộ
+và truyền qua `--ram-trong-gb`; không đọc được thì truyền 0 và worker cứ thử
+như cũ, **không tự ý hạ mức dựa trên một con số không có**.
+
+### 3. Máy card Intel vẫn bị lôi vào nhánh CUDA
+
+`_try_load_cuda_dlls()` chỉ nạp thử `cublas64_*.dll` — mà DLL đó nằm sẵn trong
+thư mục torch, nạp được không có nghĩa là máy có card NVIDIA. Hậu quả: máy
+Intel thử ba lượt GPU rồi mới chịu rơi xuống CPU, và nhật ký đầy chữ «CUDA out
+of memory» khiến ai đọc cũng tưởng card yếu. Nay hỏi thẳng
+`ctranslate2.get_cuda_device_count()`.
+
+### 4. Lời khuyên cho lỗi card đồ họa CHƯA TỪNG khớp một lần nào
+
+Bảng `FRIENDLY_ERRORS` có sẵn mục cho card đồ họa, nhưng bắt chuỗi
+`"CUDA out of memory"` — trong khi câu lỗi thật của ctranslate2 là
+**`"CUDA failed with error out of memory"`**. Chưa khớp lần nào kể từ ngày
+được viết. Phát hiện ra là nhờ viết test khẳng định «lỗi RAM máy và lỗi RAM
+card phải ra hai lời khuyên KHÁC nhau» — test đỏ vì vế thứ hai trả `None`.
+
+Thêm luôn mục cho hết RAM máy (`mkl_malloc`): hạ Độ chính xác ở bước Nhận
+dạng, và nói rõ chạy tiếp thì **không bị trừ Vox lần nữa** — người dùng thấy
+lượt chạy chết giữa chừng sẽ mặc định là mình vừa mất tiền.
+
+### Bộ canh
+
+`tests/test_bac_lui_model_khi_thieu_bo_nho.py` (21 test), gồm cả test canh
+**bảng bậc và bảng RAM của hai đường ASR phải khớp nhau** — worker không import
+được `autodub` nên đành chép bảng, mà chỗ chép thì phải có bộ canh (lớp lỗi #2).
+Và một test khẳng định lùi bậc KHÔNG tải về bậc nào không dùng tới.
+
+2190 Python đạt / 7 bỏ qua.
+
+### Còn lại
+
+Chưa chạy được trên chính máy chủ dự án — bản vá này cần một bản phát hành mới
+thì mới tới tay. Cách chữa TẠM cho lượt chạy đang dở: ở bước Nhận dạng hạ
+«Độ chính xác» xuống mức thấp hơn rồi bấm chạy tiếp thư mục dự án đó.

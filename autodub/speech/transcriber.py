@@ -11,6 +11,7 @@ from autodub.config import Settings
 from autodub.languages import WHISPER_LANG_MAP
 from autodub.resources import GPU_LOCK
 from autodub.subprocess_watchdog import SubprocessTimeoutError, WatchedLineReader
+from autodub.sysinfo import available_ram_gb
 from autodub.utils import bundled_file, gpu_venv_dir, save_json_atomic, setup_logging
 
 logger = setup_logging("autodub.transcriber")
@@ -106,7 +107,82 @@ def _load_whisper_model(model_name: str, settings: Settings):
                         f"Whisper GPU {compute} không chạy được ({e})")
         logger.warning("Không chạy được Whisper trên GPU — dùng CPU")
     resolved = settings.resolved_whisper_model(cuda_available=False)
-    return WhisperModel(resolved, device="cpu", compute_type="int8"), "cpu"
+    return _nap_cpu_co_bac_lui(WhisperModel, resolved), "cpu"
+
+
+#: Bậc lùi khi máy không đủ bộ nhớ (mini-spec C46). PHẢI khớp `_BAC_MODEL`
+#: trong `asr_whisper_worker.py` — có test canh, vì sửa một trong hai đường là
+#: lớp lỗi #2 của dự án.
+BAC_MODEL = ["large-v3", "large-v2", "medium", "small", "base", "tiny"]
+
+DAU_HIEU_HET_BO_NHO = ("mkl_malloc", "failed to allocate", "out of memory",
+                       "bad_alloc", "cannot allocate")
+
+#: RAM (GB) cần để nạp mỗi model int8 trên CPU. PHẢI khớp `_RAM_CAN_GB` trong
+#: `asr_whisper_worker.py` — có test canh.
+RAM_CAN_GB = {"large-v3": 3.6, "large-v2": 3.6, "medium": 2.0,
+              "small": 1.0, "base": 0.6, "tiny": 0.4}
+
+
+def _model_vua_ram(model_name: str, ram_trong_gb: float) -> str:
+    """Model to nhất KHÔNG vượt lựa chọn của người dùng mà máy còn tải nổi."""
+    ten = (model_name or "").strip().lower()
+    if ram_trong_gb <= 0 or ten not in BAC_MODEL:
+        return model_name
+    for ung_vien in BAC_MODEL[BAC_MODEL.index(ten):]:
+        if RAM_CAN_GB.get(ung_vien, 0) <= ram_trong_gb:
+            return ung_vien
+    return BAC_MODEL[-1]
+
+
+def _bac_nhe_hon(model_name: str) -> str:
+    ten = (model_name or "").strip().lower()
+    if ten not in BAC_MODEL:
+        return "small"
+    i = BAC_MODEL.index(ten)
+    return BAC_MODEL[i + 1] if i + 1 < len(BAC_MODEL) else ""
+
+
+def _nap_cpu_co_bac_lui(WhisperModel, model_name: str):
+    """Nạp Whisper trên CPU, lùi dần bậc khi máy không đủ bộ nhớ.
+
+    Lỗi thật ở v3.14.0 (chủ dự án, 28/08): máy card Intel → CUDA hỏng → rơi
+    xuống CPU → `medium` không nạp nổi vì thiếu RAM → cả lượt chạy chết với
+    đúng một câu `mkl_malloc: failed to allocate memory`, không ai đoán ra
+    việc cần làm là hạ mức "Độ chính xác".
+    """
+    vua_ram = _model_vua_ram(model_name, available_ram_gb() or 0.0)
+    if vua_ram != model_name:
+        logger.warning(
+            "Máy không còn đủ RAM cho model '%s' — nghe bằng '%s'. Chọn sẵn "
+            "mức thấp hơn ở bước Nhận dạng thì khỏi phải chờ tải model.",
+            model_name, vua_ram)
+    thu = vua_ram
+    da_thu = []
+    while thu:
+        try:
+            model = WhisperModel(thu, device="cpu", compute_type="int8")
+            if thu != vua_ram:
+                logger.warning(
+                    "Đã nghe bằng model '%s' thay cho '%s' — máy không đủ bộ "
+                    "nhớ cho bản lớn hơn. Muốn chắc chắn thì chọn sẵn mức thấp "
+                    "hơn ở bước Nhận dạng.", thu, model_name)
+            return model
+        except Exception as e:
+            if not any(d in str(e).lower() for d in DAU_HIEU_HET_BO_NHO):
+                raise
+            da_thu.append(thu)
+            nhe_hon = _bac_nhe_hon(thu)
+            if not nhe_hon:
+                raise RuntimeError(
+                    "Máy không đủ bộ nhớ cho bất kỳ model nào (đã thử: "
+                    + ", ".join(da_thu) + "). Đóng bớt ứng dụng đang mở rồi "
+                    "chạy lại; tiến độ đã lưu nên không bị trừ Vox lần nữa."
+                ) from e
+            logger.warning("Máy không đủ bộ nhớ cho model '%s' — thử '%s'",
+                           thu, nhe_hon)
+            thu = nhe_hon
+    raise RuntimeError("Không còn model nào để thử")
 
 
 def _gpu_total_vram_gb() -> float:
@@ -305,6 +381,9 @@ def _transcribe_whisper_subprocess(
         "--language",  language or "",
         "--beam-size", str(settings.whisper_beam_size),
         "--model-dir", settings.whisper_model_dir_path(),
+        # C46: tiến trình cha đo RAM giúp, worker chạy venv tối giản không có
+        # thư viện nào để tự đo. 0 = không đọc được → worker cứ thử như cũ.
+        "--ram-trong-gb", f"{(available_ram_gb() or 0.0):.2f}",
     ]
     if cuda_dll_dir:
         cmd += ["--cuda-dll-dir", cuda_dll_dir]
