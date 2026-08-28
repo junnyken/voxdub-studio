@@ -60,7 +60,13 @@ def main() -> None:
                              "silero_vad.onnx (+ punct/)")
     parser.add_argument("--num-threads", type=int, default=4)
     parser.add_argument("--no-punct", action="store_true")
-    args = parser.parse_args()
+    args, _thua = parser.parse_known_args()
+    if _thua:
+        # C53 — tiến trình cha đời MỚI gửi tham số worker này chưa biết thì bỏ
+        # qua và nói ra, KHÔNG chết. Lỗi thật 28/08: cha mới gửi `--ram-trong-gb`
+        # xuống worker cũ, argparse sys.exit(2) và giết cả lượt lồng tiếng.
+        print(f"Bỏ qua tham số không nhận ra: {' '.join(_thua)}",
+              file=sys.stderr, flush=True)
 
     model_file = os.path.join(args.model_dir, "model.int8.onnx")
     tokens_file = os.path.join(args.model_dir, "tokens.txt")

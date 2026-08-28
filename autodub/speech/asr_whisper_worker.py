@@ -165,9 +165,24 @@ def main() -> None:
                         help="Thư mục cache model; rỗng = HuggingFace default")
     parser.add_argument("--cuda-dll-dir", default="",
                         help="Thư mục torch/lib chứa cublas64_*.dll (Windows)")
+    # C53: giữ lại tham số này cho tiến trình cha ĐỜI CŨ (bản 3.14.1-3.16.0
+    # gửi nó qua dòng lệnh). Bản mới gửi qua biến môi trường
+    # VOXDUB_RAM_TRONG_GB — worker đời cũ bỏ qua biến lạ trong im lặng, nên
+    # cha mới + worker cũ không còn giết cả lượt chạy.
     parser.add_argument("--ram-trong-gb", type=float, default=0.0,
                         help="RAM còn trống do tiến trình cha đo (0 = không biết)")
-    args = parser.parse_args()
+    args, thua = parser.parse_known_args()
+    if thua:
+        # Cha đời MỚI hơn gửi tham số worker này chưa biết. Bỏ qua và nói ra,
+        # chứ KHÔNG chết: người dùng không có cách nào tự chữa một lỗi như vậy.
+        print(f"Bỏ qua tham số không nhận ra: {' '.join(thua)}", flush=True)
+
+    ram_moi_truong = os.environ.get("VOXDUB_RAM_TRONG_GB", "").strip()
+    if ram_moi_truong and not args.ram_trong_gb:
+        try:
+            args.ram_trong_gb = float(ram_moi_truong)
+        except ValueError:
+            pass
 
     # --- Thử GPU ---
     #

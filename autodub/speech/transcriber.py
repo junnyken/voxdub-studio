@@ -381,14 +381,26 @@ def _transcribe_whisper_subprocess(
         "--language",  language or "",
         "--beam-size", str(settings.whisper_beam_size),
         "--model-dir", settings.whisper_model_dir_path(),
-        # C46: tiến trình cha đo RAM giúp, worker chạy venv tối giản không có
-        # thư viện nào để tự đo. 0 = không đọc được → worker cứ thử như cũ.
-        "--ram-trong-gb", f"{(available_ram_gb() or 0.0):.2f}",
     ]
     if cuda_dll_dir:
         cmd += ["--cuda-dll-dir", cuda_dll_dir]
 
     logger.info("Khởi động Whisper worker (subprocess) ...")
+    # mini-spec C53 — RAM còn trống đi qua BIẾN MÔI TRƯỜNG, không phải tham số
+    # dòng lệnh.
+    #
+    # Lỗi thật (chủ dự án, 28/08): tiến trình cha bản mới gửi `--ram-trong-gb`
+    # xuống một worker bản CŨ, argparse của worker gặp tham số lạ liền
+    # `sys.exit(2)` — **chết cả lượt chạy** vì một tính năng chỉ để chọn model
+    # cho khéo. Cả hai gói phát hành đều chứa worker mới nên tôi không tái hiện
+    # được vì sao máy đó chạy bản cũ; nhưng cách chữa đúng không phải là truy
+    # cho ra, mà là làm cho hợp đồng cha-con KHÔNG THỂ gãy kiểu đó nữa:
+    # worker cũ bỏ qua biến môi trường lạ trong im lặng, worker mới thì đọc.
+    #
+    # Nguyên tắc từ nay: tham số MỚI giữa cha và worker đi bằng biến môi
+    # trường; tham số dòng lệnh chỉ dành cho thứ đã có từ đầu.
+    moi_truong = dict(os.environ)
+    moi_truong["VOXDUB_RAM_TRONG_GB"] = f"{(available_ram_gb() or 0.0):.2f}"
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.PIPE,
@@ -396,6 +408,7 @@ def _transcribe_whisper_subprocess(
         stderr=subprocess.PIPE,
         encoding="utf-8",
         errors="replace",
+        env=moi_truong,
     )
     # mini-spec V40: đóng app giữa lúc ASR chạy (đóng cửa sổ, force-quit) từng
     # để lại tiến trình con này chạy mồ côi — `finally` bên dưới chỉ chạy nếu

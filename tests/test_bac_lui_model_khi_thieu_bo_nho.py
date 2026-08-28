@@ -154,11 +154,33 @@ def test_bang_RAM_cua_hai_duong_khop_nhau():
     assert bang == transcriber.RAM_CAN_GB
 
 
-def test_worker_nhan_duoc_ram_tu_tien_trinh_cha():
+def test_ram_di_bang_BIEN_MOI_TRUONG_chu_khong_phai_tham_so_dong_lenh():
+    """Lỗi thật (chủ dự án, 28/08): cha bản mới gửi `--ram-trong-gb` xuống một
+    worker bản CŨ; argparse gặp tham số lạ liền sys.exit(2) — CHẾT CẢ LƯỢT
+    CHẠY vì một tính năng chỉ để chọn model cho khéo.
+
+    Biến môi trường thì worker đời cũ bỏ qua trong im lặng. Từ nay tham số MỚI
+    giữa cha và worker đi bằng biến môi trường; dòng lệnh chỉ dành cho thứ đã
+    có từ đầu."""
     src = open(os.path.join(GOC, "autodub", "speech", "transcriber.py"),
                encoding="utf-8").read()
-    assert '"--ram-trong-gb"' in src, "cha không đo RAM giúp worker"
-    assert "--ram-trong-gb" in open(WORKER, encoding="utf-8").read()
+    assert '"--ram-trong-gb"' not in src, (
+        "cha vẫn gửi RAM qua dòng lệnh — worker đời cũ sẽ chết vì tham số lạ")
+    assert 'moi_truong["VOXDUB_RAM_TRONG_GB"]' in src
+    assert "env=moi_truong" in src, "đặt biến rồi mà không truyền cho tiến trình con"
+
+    w = open(WORKER, encoding="utf-8").read()
+    assert "VOXDUB_RAM_TRONG_GB" in w, "worker không đọc biến môi trường"
+    assert "--ram-trong-gb" in w, (
+        "vẫn phải nhận tham số cũ: cha bản 3.14.1-3.16.0 đang gửi nó")
+
+
+def test_worker_KHONG_CHET_khi_gap_tham_so_la():
+    """Cha bản mới hơn gửi tham số worker chưa biết thì bỏ qua, không chết —
+    người dùng không có cách nào tự chữa một lỗi như vậy."""
+    w = open(WORKER, encoding="utf-8").read()
+    assert "parse_known_args" in w, "còn dùng parse_args là còn chết vì tham số lạ"
+    assert "Bỏ qua tham số không nhận ra" in w, "bỏ qua thì phải NÓI RA"
 
 
 # ------------------ câu lỗi phải nói việc thật phải làm ------------------

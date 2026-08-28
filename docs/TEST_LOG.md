@@ -13402,3 +13402,68 @@ cũng lọt vào danh sách: nhìn số TỪ ở bảng trước, rồi mới đ
 công cụ chẩn đoán mà tự tin quá mức thì đẩy người dùng đi sai đường.
 
 Đã chạy thử end-to-end trên một thư mục dự án dựng sẵn (bản trộn + vocals).
+
+## C53 — Một tham số lạ giết cả lượt lồng tiếng (28/08/2026)
+
+Chủ dự án chạy v3.16.0, lượt chạy chết ngay bước nghe:
+
+```
+Whisper worker không phản hồi ready: ''
+usage: asr_whisper_worker.py [-h] --audio AUDIO [--model MODEL] ...
+asr_whisper_worker.py: error: unrecognized arguments: --ram-trong-gb 1.77
+```
+
+Tức tiến trình cha (bản mới, C46) gửi `--ram-trong-gb` xuống một
+`asr_whisper_worker.py` bản **CŨ**; argparse gặp tham số lạ liền `sys.exit(2)`
+và **cả lượt lồng tiếng chết** — vì một tính năng chỉ để chọn model cho khéo.
+
+### Không tái hiện được cơ chế, và nói thẳng là không
+
+Tôi tải cả hai gói phát hành về mở ra kiểm:
+
+| | worker trong gói | có `--ram-trong-gb` |
+|---|---|---|
+| v3.14.1 | 14.307 byte | ✅ |
+| v3.16.0 | 14.307 byte | ✅ |
+
+Cả hai đều chứa worker MỚI (14.307 byte = bản trong git 13.989 byte sau khi
+runner Windows đổi xuống dòng sang CRLF). Lượt dựng v3.14.1 cũng đã kiểm: chạy
+đúng commit `feff813d` của tag.
+
+Một lượt kiểm giữa chừng của tôi kết luận **sai** rằng gói v3.14.1 chứa worker
+cũ — hoá ra tệp `full.zip` tôi tải trước đó là của **v3.14.0**, không phải
+v3.14.1. Tải lại đúng địa chỉ thì số liệu ngược hẳn. Ghi lại vì suýt nữa tôi đi
+sửa một thứ không hỏng.
+
+Vậy vì sao máy đó chạy worker cũ thì **tôi không biết**, và tôi sẽ không bịa
+một lời giải thích nghe hợp lý.
+
+### Cách chữa: làm cho hợp đồng cha–con KHÔNG THỂ gãy kiểu đó nữa
+
+Truy cho ra cơ chế là việc có thể không bao giờ xong. Nhưng lớp lỗi thì đóng
+được:
+
+1. **RAM đi bằng biến môi trường**, không phải tham số dòng lệnh. Worker đời cũ
+   bỏ qua biến môi trường lạ trong im lặng; worker mới thì đọc. Từ nay: tham
+   số MỚI giữa cha và worker đi bằng biến môi trường, dòng lệnh chỉ dành cho
+   thứ đã có từ đầu. (Vẫn giữ `--ram-trong-gb` vì cha bản 3.14.1–3.16.0 đang
+   gửi nó.)
+2. **Cả CHÍN worker** của dự án đều đang dùng `parse_args()`, tức đều có sẵn
+   cùng quả mìn đó. Nay tất cả dùng `parse_known_args()`, gặp tham số lạ thì
+   **bỏ qua và NÓI RA** (bỏ qua im lặng là lớp lỗi #1 của dự án).
+
+Chạy thật ba kiểu gọi trên chính worker: cha đời cũ (dòng lệnh), cha đời mới
+(biến môi trường), cha tương lai (tham số chưa tồn tại) — không kiểu nào còn
+chết vì argparse.
+
+`tests/test_worker_khong_chet_vi_tham_so_la.py` (20 test) canh cả chín worker.
+
+2257 Python đạt / 7 bỏ qua.
+
+### Bài học
+
+Một tính năng phụ (chọn model theo RAM) không được có quyền giết cả lượt chạy
+chính. Chỗ nối giữa hai tiến trình chạy ở hai phiên bản khác nhau phải được
+thiết kế để **lệch phiên bản là chuyện bình thường**, không phải chuyện chết
+người — nhất là với ứng dụng desktop mà người dùng nâng cấp bằng cách giải nén
+một thư mục mới cạnh thư mục cũ.

@@ -291,7 +291,13 @@ def main() -> int:
     parser.add_argument("--model", default="htdemucs")
     parser.add_argument("--chunked", action="store_true",
                         help="Ép tách theo khúc (máy ít RAM)")
-    args = parser.parse_args()
+    args, _thua = parser.parse_known_args()
+    if _thua:
+        # C53 — tiến trình cha đời MỚI gửi tham số worker này chưa biết thì bỏ
+        # qua và nói ra, KHÔNG chết. Lỗi thật 28/08: cha mới gửi `--ram-trong-gb`
+        # xuống worker cũ, argparse sys.exit(2) và giết cả lượt lồng tiếng.
+        print(f"Bỏ qua tham số không nhận ra: {' '.join(_thua)}",
+              file=sys.stderr, flush=True)
 
     if args.serve:
         return serve()

@@ -84,7 +84,13 @@ def main() -> None:
                         help="0 = tự tính theo số lõi")
     parser.add_argument("--cuda-dll-dir", default="",
                         help="Thư mục torch/lib chứa cublas64_*.dll (Windows)")
-    args = parser.parse_args()
+    args, _thua = parser.parse_known_args()
+    if _thua:
+        # C53 — tiến trình cha đời MỚI gửi tham số worker này chưa biết thì bỏ
+        # qua và nói ra, KHÔNG chết. Lỗi thật 28/08: cha mới gửi `--ram-trong-gb`
+        # xuống worker cũ, argparse sys.exit(2) và giết cả lượt lồng tiếng.
+        print(f"Bỏ qua tham số không nhận ra: {' '.join(_thua)}",
+              file=sys.stderr, flush=True)
 
     try:
         from faster_whisper import WhisperModel
