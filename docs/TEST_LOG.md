@@ -13854,3 +13854,21 @@ Nhưng cùng lượt đó lộ ra: lúc app tắt, worker nhận trang HTML 502 
 in **nguyên xi**, một lần hỏng nở thành năm dòng log lẫn thẻ `<head>`, đẩy trôi
 những dòng đáng đọc. Đã ép thân phản hồi về MỘT dòng ngắn (`_mot_dong`), cắt
 200 ký tự và nói rõ là đã cắt. 3 test kèm theo.
+
+### C57b (tiếp) — chính C57 làm lộ một lỗi trong bộ dò V90
+
+Sau khi CI tự sinh lại nhánh, chạy `kiem_nhanh_deploy.py` trên máy dev thì nó
+báo **cả hai nhánh đang tụt lại**. Nhưng so nội dung thật thì hai bên **giống
+hệt** (cùng md5), và nhánh deploy đã có `_mot_dong` của C57b.
+
+Gốc: bộ dò lấy `ref_deploy = nhanh if co_ref(nhanh) else f"github/{nhanh}"` —
+**ưu tiên nhánh LOCAL**. Trước C57 điều đó vô hại vì chính người chạy script
+sinh ra nhánh local. Từ khi máy tự sinh trên remote, nhánh local cũ ngay lập
+tức ⇒ **kêu nhầm**. Mà bộ kiểm hay kêu nhầm thì bị tắt đi — còn tệ hơn không
+có (đúng bài học V90 tự viết ra cho chính nó).
+
+Chiều ngược lại nguy hơn nhiều: nhánh local vô tình khớp `main` trong khi nhánh
+remote đang cũ thì bộ dò báo OK, mà deploy vẫn build mã cũ — **đúng nguyên văn
+cái bẫy V90 sinh ra để chặn**.
+
+Sửa: hỏi nhánh trên remote trước, chỉ rơi về local khi chưa fetch. 2 test kèm.

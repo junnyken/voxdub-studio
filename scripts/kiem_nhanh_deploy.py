@@ -88,8 +88,20 @@ def _liet_ke(ref: str, duong_dan: str) -> dict[str, str]:
 
 def kiem_mot_nhanh(nhanh: str, cap: list[tuple[str, str]],
                    goc: str = "main") -> list[str]:
-    """Danh sách khác biệt; rỗng nghĩa là nhánh deploy đang khớp `main`."""
-    ref_deploy = nhanh if co_ref(nhanh) else f"github/{nhanh}"
+    """Danh sách khác biệt; rỗng nghĩa là nhánh deploy đang khớp `main`.
+
+    Hỏi nhánh TRÊN REMOTE trước, không phải nhánh local (C57b). Thứ nền tảng
+    hosting build là nhánh trên remote — nhánh local chỉ là bản sao lúc ai đó
+    chạy script lần cuối. Bản trước ưu tiên local, và từ khi CI tự sinh lại
+    nhánh (C57) thì nhánh local trên máy dev cũ ngay lập tức: bộ dò **kêu nhầm**
+    dù nội dung hai bên giống hệt (đã gặp thật 03-09, cùng md5 mà vẫn báo lệch).
+
+    Chiều ngược lại còn nguy hơn: nhánh local vô tình khớp `main` trong khi
+    nhánh remote đang cũ thì bộ dò báo OK, mà deploy vẫn build mã cũ — đúng
+    nguyên văn cái bẫy V90 sinh ra để chặn.
+    """
+    tu_xa = f"github/{nhanh}"
+    ref_deploy = tu_xa if co_ref(tu_xa) else nhanh
     if not co_ref(ref_deploy):
         return [f"không tìm thấy nhánh {nhanh} (thử `git fetch github {nhanh}`)"]
 

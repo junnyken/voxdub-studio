@@ -194,3 +194,35 @@ def test_script_sinh_nhanh_nhan_remote_va_goc_tu_moi_truong():
         assert 'REMOTE="${REMOTE:-github}"' in ma, f"{ten}: REMOTE bị ghim cứng"
         assert 'GOC_SINH="${GOC:-main}"' in ma, f"{ten}: gốc sinh bị ghim cứng"
         assert '"$GOC_SINH"' in ma, f"{ten}: khai biến gốc nhưng không dùng"
+
+
+# ------------------- C57b: hỏi nhánh REMOTE, không phải bản sao trên máy ---
+
+def test_bo_do_hoi_nhanh_TREN_REMOTE_truoc():
+    """Thứ nền tảng hosting build là nhánh TRÊN REMOTE.
+
+    Bản trước ưu tiên nhánh local. Từ khi CI tự sinh lại nhánh (C57), nhánh
+    local trên máy dev cũ ngay lập tức ⇒ bộ dò kêu nhầm dù nội dung giống hệt
+    (gặp thật 03-09: cùng md5 mà vẫn báo lệch). Bộ kiểm hay kêu nhầm thì bị tắt
+    đi — còn tệ hơn không có (V90).
+
+    Chiều ngược lại nguy hơn: local vô tình khớp `main` mà remote đang cũ thì
+    bộ dò báo OK trong khi deploy build mã cũ — đúng bẫy V90 sinh ra để chặn.
+    """
+    ma = _doc_script_do()
+    i_xa = ma.index('f"github/{nhanh}"')
+    i_local = ma.index("else nhanh")
+    assert i_xa < i_local, (
+        "bộ dò vẫn ưu tiên nhánh local — phải hỏi nhánh trên remote trước")
+
+
+def _doc_script_do() -> str:
+    return open(os.path.join(REPO, "scripts", "kiem_nhanh_deploy.py"),
+                encoding="utf-8").read()
+
+
+def test_bo_do_van_chay_duoc_khi_chua_fetch_remote():
+    """Máy chưa `git fetch` thì rơi về nhánh local, và phải NÓI RA nếu không
+    có nhánh nào — im lặng trả 'khớp' là kiểu hỏng tệ nhất của một bộ dò."""
+    ma = _doc_script_do()
+    assert "không tìm thấy nhánh" in ma
