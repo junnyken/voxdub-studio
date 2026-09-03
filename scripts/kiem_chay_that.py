@@ -17,9 +17,25 @@ Vox), và soi những thứ chỉ lượt chạy thật mới lộ ra:
 * Lời nhắc dịch giao cho người dùng có gọi đúng tên ngôn ngữ không, hay để lại
   một khoảng trắng giữa câu.
 
+**Chặng 2 (`--den-cuoi`, mini-spec C55)** — chặng 1 dừng ở bước dịch, nghĩa là
+**giọng đọc và video xuất ra chưa từng được chạy thử trước khi phát hành**: hai
+thứ chính là sản phẩm. Một bản có thể ship với VieNeu hỏng, ghép video hỏng,
+hoặc video ra mà CÂM, và cả cổng kiểm lẫn smoke test đều xanh.
+
+Chặng 2 đóng vai người dùng dịch tay (ghi `transcript_vi.json`), chạy tiếp
+`--resume-dir`, rồi soi chính tệp video ra:
+
+* có `dubbed_video.mp4` không, có luồng tiếng không;
+* tiếng có **thật sự phát ra âm** không (đo `mean_volume` bằng ffmpeg — video
+  câm là ca hỏng KHÔNG lộ ra ở bất kỳ mã thoát nào);
+* thời lượng có khớp video nguồn không (lệch nhiều = ghép sai).
+
+Chặng 2 cần VieNeu đã cài (`python scripts/setup_vieneu.py`).
+
 Dùng:
     python scripts/kiem_chay_that.py --video tap01_clip.mp4
     python scripts/kiem_chay_that.py --video x.mp4 --python .venv-whisper/Scripts/python.exe
+    python scripts/kiem_chay_that.py --den-cuoi        # kèm giọng đọc + xuất video
 
 Mã thoát khác 0 = KHÔNG được phát hành.
 """
@@ -84,6 +100,137 @@ def _chay_dub(video: Path, thu_muc_ra: Path, python_exe: str,
                           text=True, timeout=timeout_s, errors="replace")
 
 
+#: Câu tiếng Việt để đóng vai "người dùng đã dịch tay". Cố ý là tiếng Việt
+#: THẬT (không phải chuỗi rác): VieNeu đọc tiếng Việt, đưa chữ vô nghĩa vào là
+#: đang kiểm một ca không ai gặp.
+CAU_DICH_TAY = [
+    "Xin chào, đây là một lượt kiểm tự động của VoxDub Studio.",
+    "Giọng đọc tiếng Việt phải nghe được, chứ không phải im lặng.",
+    "Nghe thấy câu này nghĩa là đường lồng tiếng còn nguyên vẹn.",
+]
+
+
+def _viet_ban_dich_tay(work: Path, cau: list[dict]) -> Path:
+    """Đóng vai người dùng dịch tay: thêm `text_vi` vào từng câu.
+
+    Đúng hợp đồng mà `pipeline._load_translation` đòi — giữ NGUYÊN mọi trường
+    của bản chép lời gốc, chỉ THÊM trường bản dịch.
+    """
+    for i, s in enumerate(cau):
+        s["text_vi"] = CAU_DICH_TAY[i % len(CAU_DICH_TAY)]
+    dich = work / "data" / "transcript_vi.json"
+    dich.write_text(json.dumps(cau, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+    return dich
+
+
+def _chay_tiep(video: Path, work: Path, python_exe: str,
+               timeout_s: int) -> subprocess.CompletedProcess:
+    """Chạy tiếp lượt dở dang: dịch đã có → đọc giọng → ghép video."""
+    env = dict(os.environ)
+    env.update({
+        "TRANSLATE_MODE": "manual",
+        "VOXDUB_API_URL": "",
+        "TRANSLATE_LOCAL_ENABLED": "0",
+        "TRANSLATE_ANALYSIS": "0",
+        "QT_QPA_PLATFORM": "offscreen",
+        "PYTHONUTF8": "1",
+        "PYTHONIOENCODING": "utf-8",
+    })
+    lenh = [python_exe, "-m", "autodub.cli", "dub",
+            "--file", str(video),
+            "--source-lang", "auto",
+            "--bg-mode", "none",
+            "--subtitle-mode", "none",
+            "--resume-dir", str(work)]
+    return subprocess.run(lenh, cwd=str(GOC), env=env, capture_output=True,
+                          text=True, timeout=timeout_s, errors="replace")
+
+
+def _ffprobe(*args: str) -> str:
+    ra = subprocess.run(["ffprobe", "-v", "error", *args],
+                        capture_output=True, text=True, timeout=60)
+    return ra.stdout.strip()
+
+
+def _thoi_luong(duong_dan: Path) -> float:
+    ra = _ffprobe("-show_entries", "format=duration", "-of",
+                  "default=nw=1:nk=1", str(duong_dan))
+    try:
+        return float(ra.splitlines()[0])
+    except (ValueError, IndexError):
+        return 0.0
+
+
+def _muc_am_trung_binh(duong_dan: Path) -> float | None:
+    """dB trung bình của luồng tiếng; None nếu không đo được.
+
+    Đây là phép đo DUY NHẤT bắt được ca "video ra bình thường nhưng CÂM" —
+    ffmpeg ghép một luồng tiếng toàn số 0 vẫn trả mã thoát 0, mọi bước sau đều
+    báo thành công, và chỉ người dùng mở ra nghe mới biết.
+    """
+    ra = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(duong_dan),
+         "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True, timeout=300, errors="replace")
+    for dong in (ra.stderr or "").splitlines():
+        if "mean_volume:" in dong:
+            try:
+                return float(dong.split("mean_volume:")[1].split("dB")[0])
+            except (ValueError, IndexError):
+                return None
+    return None
+
+
+def _kiem_chang_hai(video: Path, work: Path, python_exe: str,
+                    timeout_s: int) -> list[str]:
+    """Soi tệp video ra — phần mà chặng 1 chưa bao giờ chạm tới."""
+    bao_cao: list[str] = []
+
+    goc_transcript = work / "data" / "transcript_original.json"
+    cau = json.loads(goc_transcript.read_text(encoding="utf-8"))
+    dich = _viet_ban_dich_tay(work, cau)
+    bao_cao.append(f"đã đóng vai dịch tay: {dich.name} ({len(cau)} câu)")
+
+    kq = _chay_tiep(video, work, python_exe, timeout_s)
+    duoi = (kq.stdout or "") + (kq.stderr or "")
+
+    ra = work / "dubbed_video.mp4"
+    if not ra.is_file():
+        raise Hong("Không có dubbed_video.mp4 — lượt chạy đi qua bước dịch "
+                   "nhưng KHÔNG xuất được video. Đây đúng là phần mà chặng 1 "
+                   f"không chạm tới. Mã thoát {kq.returncode}, 600 ký tự cuối:"
+                   f"\n{duoi[-600:]}")
+
+    tieng = _ffprobe("-select_streams", "a", "-show_entries",
+                     "stream=codec_name", "-of", "default=nw=1:nk=1", str(ra))
+    if not tieng:
+        raise Hong("dubbed_video.mp4 KHÔNG có luồng tiếng — video ra câm hoàn "
+                   "toàn, mà mọi bước đều báo thành công.")
+    bao_cao.append(f"video ra: {ra.stat().st_size // 1024} KB, tiếng={tieng}")
+
+    muc = _muc_am_trung_binh(ra)
+    if muc is None:
+        raise Hong("Không đo được mức âm của video ra — thiếu ffmpeg hoặc "
+                   "luồng tiếng hỏng.")
+    if muc <= -70:
+        raise Hong(f"Luồng tiếng CÂM (mean_volume {muc:.1f} dB): video có đủ "
+                   "luồng nhưng không phát ra âm nào. Giọng đọc hỏng mà không "
+                   "báo lỗi — đúng lớp hỏng im lặng.")
+    bao_cao.append(f"mức âm trung bình {muc:.1f} dB (không câm)")
+
+    dai_nguon, dai_ra = _thoi_luong(video), _thoi_luong(ra)
+    if dai_nguon > 0 and abs(dai_ra - dai_nguon) / dai_nguon > 0.35:
+        raise Hong(f"Thời lượng lệch quá nhiều: nguồn {dai_nguon:.1f}s, ra "
+                   f"{dai_ra:.1f}s — bước ghép đang cắt hoặc kéo dài sai.")
+    bao_cao.append(f"thời lượng {dai_ra:.1f}s (nguồn {dai_nguon:.1f}s)")
+
+    if kq.returncode != 0:
+        raise Hong(f"Video ra có vẻ ổn nhưng lượt chạy trả mã {kq.returncode} "
+                   f"— đừng phát hành khi hai thứ đó mâu thuẫn.\n{duoi[-400:]}")
+    return bao_cao
+
+
 def _thu_muc_lam_viec(thu_muc_ra: Path) -> Path:
     ung_vien = [p for p in thu_muc_ra.rglob("data") if p.is_dir()]
     if not ung_vien:
@@ -92,7 +239,8 @@ def _thu_muc_lam_viec(thu_muc_ra: Path) -> Path:
     return max(ung_vien, key=lambda p: p.stat().st_mtime).parent
 
 
-def kiem(video: Path, python_exe: str, timeout_s: int, giu_lai: bool) -> list[str]:
+def kiem(video: Path, python_exe: str, timeout_s: int, giu_lai: bool,
+         den_cuoi: bool = False) -> list[str]:
     """Trả về danh sách dòng báo cáo; ném :class:`Hong` khi có mục không đạt."""
     bao_cao: list[str] = []
     tam = Path(tempfile.mkdtemp(prefix="voxdub_kiem_"))
@@ -158,6 +306,10 @@ def kiem(video: Path, python_exe: str, timeout_s: int, giu_lai: bool) -> list[st
         if kq.returncode != 0 and "TRANSLATE_PENDING" not in duoi:
             raise Hong(f"Lượt chạy đổ (mã {kq.returncode}). 400 ký tự cuối:\n"
                        f"{duoi[-400:]}")
+
+        # 5. Chặng 2 (C55): đi nốt phần sản phẩm thật — giọng đọc + xuất video.
+        if den_cuoi:
+            bao_cao.extend(_kiem_chang_hai(video, work, python_exe, timeout_s))
         return bao_cao
     finally:
         if giu_lai:
@@ -177,6 +329,9 @@ def main() -> int:
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--giu-lai", action="store_true",
                     help="giữ thư mục thử để soi khi hỏng")
+    ap.add_argument("--den-cuoi", action="store_true",
+                    help="chạy tiếp qua GIỌNG ĐỌC và XUẤT VIDEO (C55) — cần "
+                         "VieNeu đã cài (scripts/setup_vieneu.py)")
     args = ap.parse_args()
 
     video = Path(args.video)
@@ -188,7 +343,8 @@ def main() -> int:
 
     print(f"Chạy thử một lượt dub: {video.name}")
     try:
-        for dong in kiem(video, args.python, args.timeout, args.giu_lai):
+        for dong in kiem(video, args.python, args.timeout, args.giu_lai,
+                         den_cuoi=args.den_cuoi):
             print(f"  [ok] {dong}")
     except Hong as e:
         print(f"\n  [HỎNG] {e}", file=sys.stderr)
@@ -198,8 +354,16 @@ def main() -> int:
         print(f"\n  [HỎNG] Quá {args.timeout}s mà lượt chạy chưa xong.",
               file=sys.stderr)
         return 1
-    print("\nKẾT LUẬN: lượt chạy thật đi qua bước nghe và tới bước dịch, "
-          "ngôn ngữ nguồn đúng là thứ máy nghe ra.")
+    # Câu kết luận phải nói ĐÚNG thứ vừa chạy: bản trước in "tới bước dịch"
+    # cho cả hai chặng, tức đọc log xong vẫn không biết giọng đọc có được kiểm
+    # hay không. Cùng lớp với dòng "Job xong" nói dối của C54.
+    if args.den_cuoi:
+        print("\nKẾT LUẬN: lượt chạy thật đi HẾT đường — nghe, dịch, đọc giọng, "
+              "ghép video; tệp ra có tiếng và không câm.")
+    else:
+        print("\nKẾT LUẬN: lượt chạy thật đi qua bước nghe và tới bước dịch, "
+              "ngôn ngữ nguồn đúng là thứ máy nghe ra. (Giọng đọc và video "
+              "xuất ra CHƯA kiểm — thêm --den-cuoi.)")
     return 0
 
 

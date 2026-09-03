@@ -13559,3 +13559,108 @@ Chốt chặn: `test_phien_ban_may_chu_khop_app` trong
   thế thì job vẫn mất — chỉ khác là nay **log nói thật** về chuyện đó.
 - Chưa chạy một job dub THẬT xuyên qua đường mới trên máy chủ; bằng chứng ở đây
   là 17 test + bộ 528 test Node còn xanh.
+
+## C55 — Cổng kiểm dừng ngay TRƯỚC phần là sản phẩm (03/09/2026)
+
+Chủ dự án nói rõ ưu tiên: **ổn định thứ đang có**, không thêm tính năng đa năng
+dở dang. Nên đi rà theo đúng lớp lỗi mà dự án này sập đi sập lại.
+
+### Rà bằng máy trước, đừng đọc mò
+
+Hai lượt quét, cả hai đều cho kết quả ÂM TÍNH — ghi lại để lần sau khỏi làm lại:
+
+1. **Lời gọi bị vứt kết quả** (đúng lớp C54): quét AST toàn bộ `autodub/`,
+   `autodub_gui/`, ra 391 chỗ nhưng gần như tất cả là trùng tên (`path.translate`
+   của Qt, `subprocess.run` trùng tên với `lipsync.run`). Không có ca thật nào
+   ngoài ca C54 đã sửa.
+2. **`except` nuốt lỗi không báo đâu**: 86 handler bắt `Exception` rộng, nhưng
+   **gần như tất cả đều có câu giải thích ngay tại chỗ** ("đóng worker lúc dọn
+   dẹp", "cấu hình hỏng thì dùng mặc định"). Lớp này đã được dọn từ trước.
+
+Lớp đóng gói (thứ gây V74/V75/V77–V87) cũng đã có chốt: smoke test của bản
+`.exe` kiểm `worker_scripts_found`, test V80 quét `bundled_file()` đối chiếu
+`datas`, và `build_exe.py` tự gom mọi `scripts/setup_*.py`.
+
+### Chỗ hở thật: cổng kiểm dừng NGAY TRƯỚC phần là sản phẩm
+
+Bảng che phủ trước C55:
+
+| Bước | Ai kiểm |
+|---|---|
+| Đóng gói đủ tệp | smoke test `.exe` + test V80 |
+| Tải/đọc video, NGHE | C45 chạy thật trên Windows |
+| Dịch | C45 (đường dịch tay) |
+| **Đọc giọng (VieNeu)** | **không ai** |
+| **Ghép + xuất video** | **không ai** |
+
+Tức là một bản có thể phát hành với VieNeu hỏng, ghép video hỏng, hoặc **video
+ra CÂM** — mà cổng kiểm, smoke test và mọi mã thoát đều xanh. Đúng ca đã xảy ra
+nhiều lần với lớp khác: hỏng im lặng, người dùng cuối phát hiện.
+
+Ca câm đáng sợ nhất: ffmpeg ghép một luồng tiếng toàn số 0 vẫn trả mã thoát 0,
+mọi bước đều báo "done", chỉ mở ra nghe mới biết.
+
+### Đã làm
+
+`scripts/kiem_chay_that.py --den-cuoi`: đóng vai người dùng dịch tay (ghi
+`transcript_vi.json` đúng hợp đồng `_load_translation` đòi — giữ nguyên mọi mốc
+thời gian, chỉ THÊM `text_vi`), chạy tiếp `--resume-dir`, rồi soi chính tệp ra:
+
+- có `dubbed_video.mp4` không;
+- có luồng tiếng không (thiếu hẳn luồng — ca dễ);
+- **có CÂM không** — đo `mean_volume` bằng ffmpeg, ≤ −70 dB là hỏng (ca khó, và
+  là ca duy nhất không lộ ra ở bất kỳ mã thoát nào);
+- thời lượng có khớp nguồn không (lệch > 35% = ghép sai).
+
+Câu dịch tay cố ý là **tiếng Việt thật có dấu**: VieNeu đọc tiếng Việt, nhét
+chuỗi rác vào là đang kiểm một ca không ai gặp.
+
+`release.yml` cài VieNeu (cache theo `setup_vieneu.py`) rồi chạy `--den-cuoi`.
+
+### Canh chính bộ canh
+
+`tests/test_cong_kiem_den_cuoi.py` (7 test) dựng THẬT hai video 2 giây bằng
+ffmpeg — một câm (`anullsrc`), một có tiếng (`sine`) — rồi bắt bộ đo phân biệt.
+Kèm test bắt `release.yml` phải thật sự chạy `--den-cuoi` và có cài VieNeu:
+viết ra một cổng kiểm rồi không cắm vào quy trình thì nó chỉ là tệp nằm im.
+
+### Giới hạn, nói trước
+
+- Chặng 2 chạy trên **mã nguồn**, không phải bản `.exe` đã đóng gói. Lớp "thiếu
+  tệp trong gói" vẫn do smoke test + test V80 gánh. `VoxDub.exe` là GUI, không
+  nhận tham số dòng lệnh, nên chạy pipeline xuyên qua nó cần một đường headless
+  riêng — chưa làm.
+- Chặng 2 **không chấm chất lượng** giọng đọc: nó trả lời "có ra tiếng không",
+  không trả lời "nghe có hay không".
+- `--bg-mode none`: Demucs (tách nhạc nền) vẫn KHÔNG được kiểm — rất nặng, và
+  nó là nhánh tuỳ chọn chứ không nằm trên đường chính.
+
+### Lượt cài engine lộ ra một test đạt GIẢ (cùng ngày)
+
+Cài Whisper lên máy dev để chạy được chặng 2, và **bộ test đang xanh bỗng đỏ 1
+test**: `test_align_segments_threads_language_through_to_asr_words`.
+
+Không phải sản phẩm hỏng — kiểm cả hai đường thì `language` đều tới nơi (đường
+tiến trình con truyền qua `--language` + payload stdin, worker dùng đúng). Hỏng
+là ở **chính test**:
+
+- `align_segments(settings=None)` tự `Settings.load()`, nên máy nào có
+  `.venv-whisper` là nó đi đường **tiến trình con**; `_asr_words` (thứ test
+  mock) không được gọi lần nào.
+- Tức test này **đạt hay trượt tuỳ máy có cài engine hay không** — và tệ hơn:
+  nó chỉ khoá đường **in-process**, trong khi bản `.exe` LUÔN đi đường tiến
+  trình con (V75). Nó đang canh đúng cái đường người dùng KHÔNG chạy.
+
+Đúng bẫy V75 lần nữa, chỉ đảo chiều: lần đó test đạt giả vì máy THIẾU engine,
+lần này đỏ giả vì máy CÓ engine.
+
+Sửa: ép đường in-process bằng **cấu hình** (`settings` giả trả
+`whisper_venv_configured() == False`), không phải bằng cách chặn hàm kia — chặn
+hàm cũng làm test xanh, nhưng xanh vì rơi qua nhánh dự phòng "venv lỗi → thử
+lại in-process", tức khoá nhầm hành vi. Thêm
+`test_duong_tien_trinh_con_cung_truyen_language` cho đường mà bản `.exe` thật
+sự dùng.
+
+**Bài học:** test mock một hàm cụ thể thì phải ép luôn NHÁNH dẫn tới hàm đó.
+Không ép thì cái quyết định test kiểm gì là *máy đang chạy*, chứ không phải
+người viết test.

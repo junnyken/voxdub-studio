@@ -61,10 +61,32 @@ jobs:
           }
           ffmpeg -version | Select-Object -First 1
 
-      - name: Kiểm bằng MỘT LƯỢT CHẠY THẬT (chặn phát hành nếu hỏng)
+      # mini-spec C55 — chặng 2 của cổng kiểm cần giọng đọc THẬT.
+      #
+      # Model ~300 MB tải từ HuggingFace; cache lại để lượt phát hành sau không
+      # tải lại. Cache trượt thì bước dưới tự cài, chỉ chậm hơn chứ không sai.
+      - name: Cache model VieNeu
+        uses: actions/cache@v4
+        with:
+          path: |
+            models/vieneu
+            .venv-vieneu
+          key: vieneu-${{ runner.os }}-${{ hashFiles('scripts/setup_vieneu.py') }}
+
+      - name: Cài VieNeu (giọng đọc tiếng Việt)
+        run: python scripts/setup_vieneu.py
+
+      # mini-spec C45 + C55 — CỔNG KIỂM TRƯỚC KHI PHÁT HÀNH.
+      #
+      # C45 chạy tới bước dịch. C55 đi NỐT: đóng vai người dùng dịch tay, đọc
+      # giọng bằng VieNeu, ghép video, rồi soi chính tệp ra — có luồng tiếng
+      # không, có CÂM không, thời lượng có khớp không. Trước C55, hai thứ chính
+      # LÀ sản phẩm (giọng đọc + video ghép) chưa từng được chạy thử trước khi
+      # phát hành: bản có thể ship với video ra câm mà mọi mã thoát đều xanh.
+      - name: Kiểm bằng MỘT LƯỢT CHẠY THẬT tới tận video ra (chặn phát hành nếu hỏng)
         env:
           WHISPER_MODEL: tiny   # kiểm ĐƯỜNG CHẠY, không chấm chất lượng nghe
-        run: python scripts/kiem_chay_that.py --video tap01_clip.mp4 --timeout 1800
+        run: python scripts/kiem_chay_that.py --video tap01_clip.mp4 --timeout 2700 --den-cuoi
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
