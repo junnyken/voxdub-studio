@@ -26,7 +26,12 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 BRANCH="deploy/vays-control-server"
-REMOTE="github"
+# C57 — CI tự chạy script này sau mỗi lần push `main`, nên hai thứ dưới đây
+# nhận biến môi trường: `REMOTE` (trên CI là `origin`, ở máy là `github`) và
+# `GOC` (commit gốc để sinh; CI truyền thẳng SHA vì checkout có thể ở trạng
+# thái HEAD rời). Mặc định giữ NGUYÊN như cũ để lệnh gõ tay không đổi.
+REMOTE="${REMOTE:-github}"
+GOC_SINH="${GOC:-main}"
 WORKTREE_DIR="$(mktemp -d)"
 
 cleanup() {
@@ -35,7 +40,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-git worktree add -B "$BRANCH" "$WORKTREE_DIR" main >/dev/null
+git worktree add -B "$BRANCH" "$WORKTREE_DIR" "$GOC_SINH" >/dev/null
 
 cd "$WORKTREE_DIR"
 

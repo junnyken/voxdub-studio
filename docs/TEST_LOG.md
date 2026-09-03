@@ -13795,3 +13795,46 @@ không phải để kiểm engine.
 **Kết quả:** 2302 đạt / **3 bỏ qua** (trước: 2285 đạt / 7 bỏ qua). Ba cái còn
 lại chỉ có nghĩa trên Windows — **không còn test nào bị bỏ qua vì thiếu
 engine**.
+
+## C57 — Bỏ hẳn bước tay: CI tự sinh lại nhánh deploy (03/09/2026)
+
+Tôi báo với chủ dự án rằng mục "CI trên `main` đỏ" đã sửa. Nói vậy là **chưa
+trọn**, và chính hôm nay tôi vấp lại: sửa `autodub/` cho C56, push `main`, lượt
+chạy đỏ ngay ở `deploy-branch-drift`.
+
+Cơ chế C54 chạy đúng như thiết kế — lượt chạy trên nhánh deploy xanh cả 4 job.
+Nhưng lượt chạy của chính commit trên `main` vẫn đỏ, vì bước sinh lại nhánh
+**luôn nằm SAU** lần push `main`. Cửa sổ đỏ ngắn đi, nhưng vẫn còn, và vẫn dựa
+vào trí nhớ con người — đúng thứ V90 đã kết luận là không sửa được bằng tài
+liệu, chỉ sửa được bằng cách chuyển việc sang máy.
+
+### Đã làm
+
+Job `sinh-nhanh-deploy` chạy trên mỗi push `main`: sinh lại CẢ HAI nhánh deploy
+từ đúng SHA vừa push rồi force-push. `deploy-branch-drift` nay `needs:` job đó —
+chấm SAU khi sinh, nên nó xác nhận việc sinh có đúng không, thay vì chấm phải
+trạng thái chưa sinh.
+
+Hai script sinh nhánh nhận `REMOTE` và `GOC` từ biến môi trường (CI: `origin` +
+SHA; máy dev: `github` + `main` — mặc định giữ nguyên nên lệnh gõ tay không đổi).
+
+Push bằng `GITHUB_TOKEN` **cố ý không kích hoạt workflow mới** (quy tắc của
+GitHub) — đó cũng chính là thứ chặn vòng lặp vô tận.
+
+`always()` trong điều kiện của job kiểm: trên nhánh `deploy/*` job sinh không
+chạy, thiếu `always()` thì job kiểm bị bỏ qua theo. Nó cũng giữ cho job kiểm vẫn
+chạy khi job sinh HỎNG — lúc đó biết trạng thái drift còn quan trọng hơn.
+
+### Canh chính bộ canh
+
+3 test mới trong `tests/test_chot_chan_deploy.py`: có job sinh, job sinh chạy
+CẢ HAI script (thiếu một là nhánh kia tụt lại), job kiểm `needs` job sinh, và
+hai script không ghim cứng remote/gốc (ghim là một trong hai bên không dùng
+được).
+
+### Giới hạn
+
+Nhánh deploy nay luôn khớp `main`, nhưng **redeploy vẫn là việc tay** — nghĩa
+là prod có thể chạy sau `main` một quãng. Đó là chủ ý: deploy tự động mỗi commit
+là một quyết định khác hẳn, cần chủ dự án quyết. Cái đã chữa là "nhánh deploy
+tụt lại mà không ai biết", không phải "prod luôn mới nhất".

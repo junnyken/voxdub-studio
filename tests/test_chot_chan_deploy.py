@@ -153,3 +153,44 @@ def _kiem_phu_thuoc(duoc_chep: set[str], ten_nguon: str) -> None:
                 thieu.append(f"{ten} import {mod} nhưng {mod}.py không có "
                              f"trong {ten_nguon}")
     assert not thieu, "; ".join(thieu)
+
+
+# ------------------------------------------- C57: máy tự sinh, đừng nhờ người ---
+
+def _workflow() -> str:
+    return open(os.path.join(REPO, ".github", "workflows", "test.yml"),
+                encoding="utf-8").read()
+
+
+def test_ci_tu_sinh_lai_nhanh_deploy():
+    """Bước sinh lại nhánh phải do MÁY làm, không dựa vào trí nhớ con người.
+
+    V90 đã kết luận tài liệu không sửa được lỗi này; C54 cho bộ kiểm chạy trên
+    nhánh deploy nhưng lượt chạy của `main` vẫn đỏ tới khi có người nhớ chạy
+    script. Chừng nào còn một bước tay thì còn ngày quên.
+    """
+    wf = _workflow()
+    assert "sinh-nhanh-deploy:" in wf, "thiếu job sinh lại nhánh deploy"
+    assert "gen_vays_control_server_branch.sh" in wf and \
+           "gen_vays_dub_worker_branch.sh" in wf, \
+        "job sinh nhánh phải chạy CẢ HAI script — thiếu một là nhánh kia tụt lại"
+    assert "contents: write" in wf, "job sinh nhánh không có quyền push"
+
+
+def test_kiem_drift_chay_SAU_khi_sinh_lai():
+    """Chấm trước khi sinh thì luôn chấm phải trạng thái chưa sinh — đúng cái
+    race đã làm lượt chạy của `main` đỏ ngày 03-09."""
+    wf = _workflow()
+    khoi = wf.split("deploy-branch-drift:", 1)[1]
+    assert "needs: [sinh-nhanh-deploy]" in khoi.split("steps:", 1)[0], \
+        "job kiểm drift phải phụ thuộc job sinh nhánh"
+
+
+def test_script_sinh_nhanh_nhan_remote_va_goc_tu_moi_truong():
+    """CI push về `origin` và sinh từ SHA vừa push; máy dev push về `github` và
+    sinh từ `main`. Ghim cứng một trong hai là bên kia không dùng được."""
+    for ten in ("gen_vays_control_server_branch.sh", "gen_vays_dub_worker_branch.sh"):
+        ma = _doc(ten)
+        assert 'REMOTE="${REMOTE:-github}"' in ma, f"{ten}: REMOTE bị ghim cứng"
+        assert 'GOC_SINH="${GOC:-main}"' in ma, f"{ten}: gốc sinh bị ghim cứng"
+        assert '"$GOC_SINH"' in ma, f"{ten}: khai biến gốc nhưng không dùng"
