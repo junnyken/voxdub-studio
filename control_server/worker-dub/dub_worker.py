@@ -25,6 +25,9 @@ Biến môi trường:
     DUB_WORK_DIR            mặc định /app/work — nơi autodub.cli ghi
                             work_dir trung gian (khác input/output path
                             server quản lý)
+    POLL_BACKOFF_MAX_S      mặc định 60 — trần nhịp chờ khi MẤT kết nối tới
+                            control_server (xem C54)
+    BAO_KET_THUC_SO_LAN     mặc định 6 — số lần thử báo kết quả cuối job
 """
 from __future__ import annotations
 
@@ -56,6 +59,14 @@ UPLOAD_TIMEOUT_S = 600
 # port này CHỈ để nền tảng hosting (Vibe Host) health-check thấy container
 # có lắng nghe, không phản ánh trạng thái job/queue thật.
 HEALTH_PORT = int(os.environ.get("PORT", "3000"))
+# C54 — worker và control_server chạy trên HAI project hosting tách nhau, nên
+# mọi lệnh gọi đi vòng ra tên miền công cộng: mất DNS hoặc timeout là chuyện
+# BÌNH THƯỜNG, không phải sự cố hiếm (31-08: mất phân giải tên ~1 tiếng, worker
+# vẫn nện 3 giây/lần và xả log lặp kín cả cửa sổ). Ba con số dưới đây là cách
+# chịu đựng chuyện đó mà không mất việc đã làm.
+POLL_BACKOFF_MAX_S = float(os.environ.get("POLL_BACKOFF_MAX_S", "60"))
+BAO_KET_THUC_SO_LAN = int(os.environ.get("BAO_KET_THUC_SO_LAN", "6"))
+TRUYEN_FILE_SO_LAN = int(os.environ.get("TRUYEN_FILE_SO_LAN", "3"))
 
 _shutdown = threading.Event()
 
@@ -81,28 +92,98 @@ def _headers() -> dict:
     return {"X-Worker-Token": WORKER_TOKEN, "Content-Type": "application/json"}
 
 
-def _post(path: str, payload: dict) -> dict | None:
+def _post_chi_tiet(path: str, payload: dict) -> tuple[dict | None, str | None]:
+    """Gọi POST, trả `(kết quả, lời lỗi)`.
+
+    Tách khỏi `_post` để phía gọi TỰ quyết định in lỗi thế nào: vòng poll gặp
+    cùng một lỗi hàng nghìn lần thì phải gộp lại, còn lệnh gọi lẻ vẫn in ngay.
+    """
     url = f"{CONTROL_SERVER_URL}{path}"
     try:
         resp = requests.post(url, json=payload, headers=_headers(),
                              timeout=REQUEST_TIMEOUT_S)
     except requests.RequestException as e:
-        print(f"[dub_worker] Lỗi gọi {path}: {e}", flush=True)
-        return None
+        return None, f"Lỗi gọi {path}: {e}"
     if resp.status_code >= 500:
-        print(f"[dub_worker] {path} trả {resp.status_code}: {resp.text[:300]}", flush=True)
-        return None
+        return None, f"{path} trả {resp.status_code}: {resp.text[:300]}"
     try:
-        return resp.json()
+        return resp.json(), None
     except ValueError:
-        return None
+        return None, f"{path} trả nội dung không phải JSON: {resp.text[:200]}"
 
 
-def claim_next_job() -> dict | None:
-    result = _post("/internal/dub-jobs/claim", {"workerId": WORKER_ID})
+def _post(path: str, payload: dict) -> dict | None:
+    ket_qua, loi = _post_chi_tiet(path, payload)
+    if loi:
+        print(f"[dub_worker] {loi}", flush=True)
+    return ket_qua
+
+
+def _nhip_cho(loi_lien_tiep: int) -> float:
+    """Nhịp chờ trước lượt poll kế tiếp, theo số lần lỗi LIÊN TIẾP.
+
+    0 lỗi → nhịp thường (3s). Mất kết nối thì giãn gấp đôi dần tới trần
+    `POLL_BACKOFF_MAX_S`: một tiếng mất DNS nện 1200 lượt (mỗi lượt còn ôm
+    timeout 15s) không giúp kết nối trở lại sớm hơn một giây nào.
+    """
+    if loi_lien_tiep <= 0:
+        return POLL_INTERVAL_S
+    return min(POLL_INTERVAL_S * (2 ** loi_lien_tiep), POLL_BACKOFF_MAX_S)
+
+
+class _SoMatKetNoi:
+    """Gộp log của chuỗi lỗi lặp — nhưng KHÔNG im lặng.
+
+    In lần đầu ngay, rồi thưa dần (lần 2, 4, 8, 16… — cùng nhịp với backoff),
+    kèm tổng số lần và mất bao lâu. Khi nối lại được thì NÓI RA, vì "im lặng
+    trở lại bình thường" đọc log không phân biệt được với "vẫn đang chết".
+    """
+
+    def __init__(self, now=time.monotonic):
+        self._now = now
+        self.lien_tiep = 0
+        self._moc = 0.0
+        self._nguong = 1
+
+    def ghi_loi(self, loi: str) -> str | None:
+        self.lien_tiep += 1
+        if self.lien_tiep == 1:
+            self._moc = self._now()
+            self._nguong = 1
+        if self.lien_tiep < self._nguong:
+            return None
+        self._nguong = max(2, self.lien_tiep * 2)
+        if self.lien_tiep == 1:
+            return f"[dub_worker] {loi}"
+        giay = round(self._now() - self._moc)
+        return (f"[dub_worker] Vẫn mất kết nối tới control_server: "
+                f"{self.lien_tiep} lần trong {giay}s. Lỗi mới nhất: {loi}")
+
+    def ghi_thanh_cong(self) -> str | None:
+        if self.lien_tiep == 0:
+            return None
+        giay = round(self._now() - self._moc)
+        lan = self.lien_tiep
+        self.lien_tiep = 0
+        self._nguong = 1
+        return (f"[dub_worker] Đã nối lại được control_server sau {lan} lần "
+                f"hỏng / {giay}s.")
+
+
+def claim_next_job() -> tuple[dict | None, str | None]:
+    """Trả `(job hoặc None, lời lỗi hoặc None)`.
+
+    Trước C54 hàm này trả None cho CẢ hai ca "không có việc" và "không gọi
+    được máy chủ" — vòng lặp không phân biệt được nên không thể giãn nhịp khi
+    mất kết nối. Nay "không có việc" là `(None, None)`, còn hỏng là
+    `(None, "…")`.
+    """
+    result, loi = _post_chi_tiet("/internal/dub-jobs/claim", {"workerId": WORKER_ID})
+    if loi is not None:
+        return None, loi
     if not result:
-        return None
-    return result.get("job")
+        return None, None
+    return result.get("job"), None
 
 
 # Nhịp kiểm "job còn của mình không" trong lúc chờ tiến trình dub (V55).
@@ -135,6 +216,57 @@ def _heartbeat_loop(job_id: str, stop: threading.Event,
             return
 
 
+def _thu_lai(mo_ta: str, ham, so_lan: int, cho_dau_s: float = 5.0,
+             dung_khi_tat_may: bool = True):
+    """Chạy `ham()` tới `so_lan` lần, nghỉ giãn dần, trả kết quả đầu tiên dùng
+    được (`None`/`False` là hỏng).
+
+    `ham` trả `(giá_trị, thử_lại_được)`: máy chủ trả 4xx nghĩa là *nó* từ chối
+    (job không còn của worker này chẳng hạn) — thử lại chỉ tốn thời gian, nên
+    dừng ngay. Còn mất mạng/5xx thì đáng thử lại.
+    """
+    cho = cho_dau_s
+    for lan in range(1, so_lan + 1):
+        gia_tri, thu_lai_duoc = ham()
+        if gia_tri:
+            if lan > 1:
+                print(f"[dub_worker] {mo_ta}: xong ở lần thử {lan}/{so_lan}.", flush=True)
+            return gia_tri
+        if not thu_lai_duoc or lan == so_lan:
+            break
+        if dung_khi_tat_may and _shutdown.is_set():
+            print(f"[dub_worker] {mo_ta}: đang tắt máy — không thử lại nữa.", flush=True)
+            break
+        print(f"[dub_worker] {mo_ta}: hỏng lần {lan}/{so_lan}, thử lại sau {cho:.0f}s.",
+              flush=True)
+        if dung_khi_tat_may:
+            _shutdown.wait(cho)
+        else:
+            time.sleep(cho)
+        cho = min(cho * 2, 30.0)
+    return None
+
+
+def _tai_input_mot_lan(job_id: str, dest_path: str) -> tuple[bool, bool]:
+    url = f"{CONTROL_SERVER_URL}/internal/dub-jobs/{job_id}/input"
+    try:
+        with requests.get(url, headers={"X-Worker-Token": WORKER_TOKEN},
+                          params={"workerId": WORKER_ID},
+                          stream=True, timeout=DOWNLOAD_TIMEOUT_S) as resp:
+            if resp.status_code != 200:
+                print(f"[dub_worker] Tải input job {job_id} lỗi {resp.status_code}: "
+                      f"{resp.text[:200]}", flush=True)
+                return False, resp.status_code >= 500
+            with open(dest_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+    except requests.RequestException as e:
+        print(f"[dub_worker] Tải input job {job_id} lỗi: {e}", flush=True)
+        return False, True
+    return True, False
+
+
 def download_input(job_id: str, dest_path: str) -> bool:
     """Kéo file input về đĩa CỦA WORKER qua HTTP.
 
@@ -144,31 +276,16 @@ def download_input(job_id: str, dest_path: str) -> bool:
     ở đây, nên luôn tải qua HTTP — chạy đúng ở CẢ hai kiểu triển khai.
 
     Ghi theo chunk, KHÔNG nạp cả file vào RAM (video tới 300 MB).
+
+    C54: một cú chập mạng ở đây từng đủ để đánh hỏng cả job (khách mất tiền
+    giữ chỗ cho một lượt chưa hề chạy) — nay thử lại có giới hạn.
     """
-    url = f"{CONTROL_SERVER_URL}/internal/dub-jobs/{job_id}/input"
-    try:
-        with requests.get(url, headers={"X-Worker-Token": WORKER_TOKEN},
-                          params={"workerId": WORKER_ID},
-                          stream=True, timeout=DOWNLOAD_TIMEOUT_S) as resp:
-            if resp.status_code != 200:
-                print(f"[dub_worker] Tải input job {job_id} lỗi {resp.status_code}: "
-                      f"{resp.text[:200]}", flush=True)
-                return False
-            with open(dest_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        f.write(chunk)
-    except requests.RequestException as e:
-        print(f"[dub_worker] Tải input job {job_id} lỗi: {e}", flush=True)
-        return False
-    return True
+    return bool(_thu_lai(f"Tải input job {job_id}",
+                         lambda: _tai_input_mot_lan(job_id, dest_path),
+                         TRUYEN_FILE_SO_LAN))
 
 
-def upload_output(job_id: str, video_path: str) -> str | None:
-    """Đẩy video kết quả lên control_server, trả `outputPath` phía server
-    (để gọi /complete) hoặc None nếu hỏng. Truyền file handle cho requests
-    để nó stream, không đọc hết vào RAM.
-    """
+def _day_ket_qua_mot_lan(job_id: str, video_path: str) -> tuple[str | None, bool]:
     url = f"{CONTROL_SERVER_URL}/internal/dub-jobs/{job_id}/output"
     try:
         with open(video_path, "rb") as f:
@@ -177,17 +294,34 @@ def upload_output(job_id: str, video_path: str) -> str | None:
                 params={"workerId": WORKER_ID},
                 files={"file": ("dubbed_video.mp4", f, "video/mp4")},
                 timeout=UPLOAD_TIMEOUT_S)
-    except (requests.RequestException, OSError) as e:
+    except requests.RequestException as e:
         print(f"[dub_worker] Đẩy kết quả job {job_id} lỗi: {e}", flush=True)
-        return None
+        return None, True
+    except OSError as e:
+        # Không đọc được file trên đĩa của chính mình — thử lại cũng thế.
+        print(f"[dub_worker] Đẩy kết quả job {job_id} lỗi: {e}", flush=True)
+        return None, False
     if resp.status_code != 200:
         print(f"[dub_worker] Đẩy kết quả job {job_id} lỗi {resp.status_code}: "
               f"{resp.text[:200]}", flush=True)
-        return None
+        return None, resp.status_code >= 500
     try:
-        return resp.json().get("outputPath")
+        return resp.json().get("outputPath"), False
     except ValueError:
-        return None
+        return None, False
+
+
+def upload_output(job_id: str, video_path: str) -> str | None:
+    """Đẩy video kết quả lên control_server, trả `outputPath` phía server
+    (để gọi /complete) hoặc None nếu hỏng. Truyền file handle cho requests
+    để nó stream, không đọc hết vào RAM.
+
+    C54: đây là chỗ ĐẮT NHẤT để hỏng — video đã dub xong (có khi 20 phút CPU),
+    hỏng ở bước đẩy là vứt sạch. Thử lại có giới hạn, mở lại file mỗi lần.
+    """
+    return _thu_lai(f"Đẩy kết quả job {job_id}",
+                    lambda: _day_ket_qua_mot_lan(job_id, video_path),
+                    TRUYEN_FILE_SO_LAN, cho_dau_s=10.0)
 
 
 def run_dub(job: dict, lost: threading.Event | None = None) -> dict:
@@ -274,6 +408,31 @@ def run_dub(job: dict, lost: threading.Event | None = None) -> dict:
     }
 
 
+def _bao_ket_thuc_mot_lan(path: str, payload: dict) -> tuple[bool, bool]:
+    ket_qua, loi = _post_chi_tiet(path, payload)
+    if loi is not None:
+        print(f"[dub_worker] {loi}", flush=True)
+        return False, True
+    # Máy chủ trả lời rành mạch (kể cả "job không còn của bạn") — đó là câu
+    # trả lời, không phải sự cố đường truyền: không thử lại.
+    return ket_qua is not None, False
+
+
+def _bao_ket_thuc(path: str, payload: dict, mo_ta: str) -> bool:
+    """Báo trạng thái CUỐI của job (xong/hỏng) — thử lại có giới hạn.
+
+    C54: trước đây đây là lệnh gọi bắn-rồi-quên. Mạng chập đúng lúc này thì
+    một job đã dub xong (hàng chục phút CPU, khách đã bị giữ tiền) rơi vào
+    im lặng, và log vẫn in "Job … xong" như thường — dòng log nói dối.
+
+    Không dừng sớm khi worker đang tắt: đây là thứ đáng cố nhất trong cả
+    vòng đời job.
+    """
+    return bool(_thu_lai(mo_ta, lambda: _bao_ket_thuc_mot_lan(path, payload),
+                         BAO_KET_THUC_SO_LAN, cho_dau_s=3.0,
+                         dung_khi_tat_may=False))
+
+
 def process_job(job: dict) -> None:
     job_id = job["jobId"]
     print(f"[dub_worker] Nhận job {job_id} ({job['sourceLang']}->{job['targetLang']})", flush=True)
@@ -313,16 +472,23 @@ def process_job(job: dict) -> None:
         return
 
     if result.get("ok"):
-        _post(f"/internal/dub-jobs/{job_id}/complete", {
+        da_bao = _bao_ket_thuc(f"/internal/dub-jobs/{job_id}/complete", {
             "workerId": WORKER_ID,
             "outputPath": result["server_output_path"],
             "metrics": result["metrics"],
-        })
-        print(f"[dub_worker] Job {job_id} xong ({result['metrics']['processingMs']} ms).", flush=True)
+        }, f"Báo XONG job {job_id}")
+        if da_bao:
+            print(f"[dub_worker] Job {job_id} xong "
+                  f"({result['metrics']['processingMs']} ms).", flush=True)
+        else:
+            print(f"[dub_worker] MẤT BÁO CÁO: job {job_id} đã dub XONG và đã đẩy "
+                  f"video lên, nhưng không báo được cho control_server. Máy chủ "
+                  f"sẽ coi worker này chết và cho job hỏng — khách phải chạy lại "
+                  f"dù việc đã làm xong.", flush=True)
     else:
-        _post(f"/internal/dub-jobs/{job_id}/fail", {
+        _bao_ket_thuc(f"/internal/dub-jobs/{job_id}/fail", {
             "workerId": WORKER_ID, "error": result.get("error", "Lỗi không rõ"),
-        })
+        }, f"Báo HỎNG job {job_id}")
         print(f"[dub_worker] Job {job_id} lỗi: {result.get('error')}", flush=True)
 
 
@@ -342,8 +508,18 @@ def main() -> None:
 
     print(f"[dub_worker] worker_id={WORKER_ID} bắt đầu poll {CONTROL_SERVER_URL} "
          f"mỗi {POLL_INTERVAL_S}s", flush=True)
+    dem = _SoMatKetNoi()
     while not _shutdown.is_set():
-        job = claim_next_job()
+        job, loi = claim_next_job()
+        if loi is not None:
+            dong = dem.ghi_loi(loi)
+            if dong:
+                print(dong, flush=True)
+            _shutdown.wait(_nhip_cho(dem.lien_tiep))
+            continue
+        dong = dem.ghi_thanh_cong()
+        if dong:
+            print(dong, flush=True)
         if job:
             process_job(job)
             continue

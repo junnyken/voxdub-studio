@@ -25,9 +25,14 @@ Response 200:
   "maxSegmentsPerRequest": 120,
   "pricing": { "segmentBase": 10, "segmentAutoTranslate": 2, "metadata": 20 },
   "webUrl": "http://localhost:3001",
-  "serverVersion": "3.0.0"
+  "serverVersion": "3.16.1"
 }
 ```
+
+`serverVersion` lấy từ `control_server/package.json` qua `src/version.js` (C54)
+— trước đây là chuỗi gõ tay đứng yên ở `3.0.0` trong khi máy chủ đã deploy 48
+lượt. `minAppVersion` là chuyện KHÁC (ngưỡng buộc nâng cấp, nằm trong config
+động), đừng lẫn hai con số này.
 
 ## `/v1/device`
 

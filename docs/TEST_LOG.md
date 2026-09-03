@@ -13467,3 +13467,95 @@ chính. Chỗ nối giữa hai tiến trình chạy ở hai phiên bản khác n
 thiết kế để **lệch phiên bản là chuyện bình thường**, không phải chuyện chết
 người — nhất là với ứng dụng desktop mà người dùng nâng cấp bằng cách giải nén
 một thư mục mới cạnh thư mục cũ.
+
+## C54 — Chỗ nối worker ⇄ máy chủ, và số phiên bản nói dối (03/09/2026)
+
+Chủ dự án hỏi "tình trạng tool thế nào, cần chỉnh gì nữa không". Đi rà thật thì
+ba thứ lộ ra, xếp theo mức đắt.
+
+### 1. CI trên `main` đỏ 8 commit liên tiếp — và nó đang báo ĐÚNG
+
+Từ `feff813` (v3.14.1) tới `da87adb` (v3.16.1), mọi lượt chạy trên `main` đều
+hỏng ở job `deploy-branch-drift`. Không phải test hỏng: bộ dò V90
+(`scripts/kiem_nhanh_deploy.py`) báo `deploy/vays-dub-worker` tụt lại **10 tệp**
+so với `main`.
+
+Mười tệp đó chính là **chín worker + `transcriber.py`** — đúng phần C53 vừa
+sửa. Nhánh deploy sinh lúc 16:12, commit C53 lúc 17:07: sinh trước, sửa sau.
+
+Nghĩa là **worker chạy trên Vibe Host vẫn dùng `parse_args()`**, tức quả mìn
+C53 vừa gỡ trên máy và trong bản .exe thì trên máy chủ còn nguyên.
+
+Đáng ghi lại: bộ canh V90 làm đúng việc của nó, nhưng **đỏ 8 lượt liên tiếp mà
+không ai chữa** — đúng cái kịch bản "bộ canh kêu mãi rồi bị coi là nền" mà V90
+đã lo. Bộ canh chỉ có giá trị khi màu đỏ được coi là việc phải làm ngay.
+
+### 2. Chỗ nối worker ⇄ control_server không chịu nổi mạng chập
+
+Worker và control_server là **hai project hosting tách nhau**, nên mọi lệnh gọi
+đi vòng ra tên miền công cộng. Nhật ký thật:
+
+- 31-08: mất phân giải tên miền `voxdub-app...` khoảng **một tiếng**. Worker vẫn
+  nện 3 giây/lần (mỗi lượt ôm timeout 15s) và xả đúng một dòng lỗi lặp **kín cả
+  cửa sổ log** — mở log ra không đọc được gì khác.
+- 03-09: còn 2 lần `Read timed out` rải rác.
+
+Nhưng log rác không phải chỗ đắt nhất. Đọc kỹ `dub_worker.py` thì:
+
+- `/complete` và `/fail` là lệnh gọi **bắn-rồi-quên**. Mạng chập đúng lúc đó
+  thì một job đã dub xong — hàng chục phút CPU, khách đã bị giữ tiền — rơi vào
+  im lặng, máy chủ coi worker chết và cho job hỏng. Khách chạy lại từ đầu một
+  việc đã làm xong.
+- Tệ hơn: log vẫn in **"Job … xong"** ngay sau đó, vì mã không hề nhìn kết quả
+  lệnh gọi. **Dòng log nói dối** — thứ khiến lần đi tìm lỗi sau đó chắc chắn đi
+  sai đường.
+- `download_input` / `upload_output` hỏng một lần là hỏng cả job. Đẩy kết quả là
+  chỗ đắt nhất để hỏng: video đã dub xong rồi mới vứt.
+
+Đã sửa:
+
+1. **Giãn nhịp khi mất kết nối** — `_nhip_cho()`: 3s → gấp đôi dần → trần 60s.
+   Nối lại được thì nhận việc trong vòng một phút, không phải chờ hàng giờ.
+2. **Gộp log mà KHÔNG im lặng** — `_SoMatKetNoi`: in ngay lần đầu, rồi thưa dần
+   kèm *"vẫn mất kết nối: N lần trong Ms"*, và **nói ra lúc nối lại được**. Im
+   bặt rồi tự hết là thứ đọc log không phân biệt được với "vẫn đang chết".
+3. **Báo kết quả cuối job thử lại có giới hạn** (6 lần, giãn 3→30s) và **không
+   dừng khi đang tắt máy** — đây là thứ đáng cố nhất trong cả vòng đời job.
+   Không báo được thì in `MẤT BÁO CÁO: job … đã dub XONG … khách phải chạy lại`,
+   **không bao giờ in "xong"**.
+4. **Tải/đẩy file thử lại 3 lần** — nhưng phân biệt: máy chủ trả 4xx là *câu trả
+   lời* (job không còn của worker này), thử lại chỉ tốn thời gian; mất mạng/5xx
+   mới đáng thử lại.
+
+`tests/test_dub_worker_chiu_chap_chon.py` (17 test) canh cả bốn, trong đó có
+đúng một test cho thứ quan trọng nhất: *báo cáo chưa tới nơi thì log KHÔNG được
+in "xong"*.
+
+### 3. Máy chủ khai phiên bản `3.0.0` suốt 48 lượt deploy
+
+`/health` trả `version: '3.0.0'` — **gõ tay trong mã**. Truy tiếp thì thấy hai
+chỗ nữa cùng bệnh: `/v1/config` (**app gọi lúc khởi động**) và
+`/v1/admin/whoami`, cũng `'3.0.0'` gõ tay.
+
+App đã đi tới 3.16.1. Nghĩa là suốt thời gian đó, ai đi kiểm "máy chủ đang chạy
+bản nào" đều nhận một con số **không liên quan gì tới thứ đang chạy** — chính
+tôi sáng nay cũng suýt đi theo nó.
+
+Đã gộp về một nguồn `control_server/src/version.js` (đọc `package.json`), bump
+`control_server` + `website` lên 3.16.1 cho khớp app, kèm `commit` nếu nền tảng
+truyền `APP_COMMIT`/`SOURCE_COMMIT` — không có thì **bỏ hẳn field**, không đoán.
+
+Chốt chặn: `test_phien_ban_may_chu_khop_app` trong
+`tests/test_features_khop_ma.py` — lần bump APP_VERSION sau mà quên hai
+`package.json` là test đỏ ngay, không đợi thêm 48 lượt deploy nữa.
+
+### Giới hạn, nói trước
+
+- Giãn nhịp và thử lại **không sửa được nguyên nhân**: worker vẫn gọi máy chủ
+  qua tên miền công cộng. Đi trong mạng nội bộ mới bỏ hẳn lớp lỗi DNS này —
+  nhưng đó là thay đổi hạ tầng (Vibe Host chưa có mạng nội bộ giữa hai project),
+  không phải thứ sửa được trong mã.
+- Chuỗi thử lại của `/complete` dài nhất khoảng **90 giây**. Mất mạng lâu hơn
+  thế thì job vẫn mất — chỉ khác là nay **log nói thật** về chuyện đó.
+- Chưa chạy một job dub THẬT xuyên qua đường mới trên máy chủ; bằng chứng ở đây
+  là 17 test + bộ 528 test Node còn xanh.

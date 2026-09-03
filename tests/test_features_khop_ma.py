@@ -10,6 +10,7 @@ văn xuôi không canh được, và cố canh thì chỉ tạo ra bộ canh kê
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 
@@ -72,3 +73,19 @@ def test_gia_moi_tac_vu_tro_ly_khop(tai_lieu):
 
 def test_gia_vox_quy_doi_khong_doi_le(tai_lieu):
     assert "1 Vox = 10 VNĐ" in tai_lieu
+
+
+def test_phien_ban_may_chu_khop_app():
+    """C54 — `/health`, `/v1/config` và `/v1/admin/whoami` đều lấy số phiên bản
+    từ `control_server/package.json`. Con số đó từng đứng yên ở 3.0.0 suốt 48
+    lượt deploy trong khi app đã đi tới 3.16.x, nên ai đi kiểm "máy chủ đang
+    chạy bản nào" đều bị dẫn sai đường.
+
+    Cả kho phát hành theo MỘT nhịp (một tag, một lượt dựng), nên hai con số
+    lệch nhau là dấu hiệu quên bump, không phải chủ ý.
+    """
+    app_ver = re.search(r'APP_VERSION = "([\d.]+)"', _doc("autodub_gui/app.py")).group(1)
+    for goi in ("control_server/package.json", "website/package.json"):
+        ver = json.loads(_doc(goi))["version"]
+        assert ver == app_ver, (
+            f"{goi} đang là {ver} còn app là {app_ver} — bump cùng lúc khi phát hành")

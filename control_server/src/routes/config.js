@@ -16,6 +16,7 @@
  */
 const config = require('../services/config.service')
 const { SOURCE_LANGS, TARGET_LANGS } = require('../utils/dub-langs')
+const PHIEN_BAN = require('../version')
 
 module.exports = async function configRoutes(fastify) {
   fastify.get('/app', {
@@ -68,7 +69,7 @@ module.exports = async function configRoutes(fastify) {
         targetLangs: TARGET_LANGS,
       },
       webUrl: (process.env.PUBLIC_URL || 'http://localhost:3001').replace(/\/+$/, ''),
-      serverVersion: '3.0.0',
+      serverVersion: PHIEN_BAN.version,
     }
   })
 }

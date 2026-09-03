@@ -13,6 +13,8 @@ const { pipeline: pipelineStream } = require('node:stream/promises')
 
 const mongoose = require('mongoose')
 
+const PHIEN_BAN = require('../version')
+
 const Device = require('../models/Device')
 const ActivationKey = require('../models/ActivationKey')
 const Order = require('../models/Order')
@@ -48,7 +50,7 @@ module.exports = async function adminRoutes(fastify) {
    */
   fastify.get('/whoami', {
     config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
-  }, async () => ({ ok: true, serverVersion: '3.0.0' }))
+  }, async () => ({ ok: true, serverVersion: PHIEN_BAN.version }))
 
   // ---------------------------------------------------------- thiết bị ---
   fastify.get('/devices', async (request) => {

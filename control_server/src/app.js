@@ -16,6 +16,11 @@ const Fastify = require('fastify')
 const WEB_DIST = process.env.WEB_DIST
   || path.join(__dirname, '..', '..', 'website', 'dist')
 
+// C54 — `/health` từng báo cứng '3.0.0' trong mã, không đổi suốt 48 lượt
+// deploy: đi kiểm "bản nào đang chạy trên máy chủ" thì con số đó chỉ dẫn đi
+// sai đường. Nay lấy từ một nguồn duy nhất (src/version.js).
+const PHIEN_BAN = require('./version')
+
 async function build(opts = {}) {
   const app = Fastify({
     logger: opts.logger !== undefined ? opts.logger : {
@@ -70,7 +75,8 @@ async function build(opts = {}) {
 
   app.get('/health', async () => ({
     ok: true,
-    version: '3.0.0',
+    version: PHIEN_BAN.version,
+    ...(PHIEN_BAN.commit ? { commit: PHIEN_BAN.commit } : {}),
     uptimeS: Math.round(process.uptime()),
   }))
 
