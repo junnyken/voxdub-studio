@@ -115,8 +115,13 @@ jobs:
         run: python scripts/kiem_chay_that.py --video tap01_clip.mp4 --timeout 1800
 
   # lần push, thay vì chỉ lộ ra lúc deploy xong mà không ai hay.
+  # C54: chạy CẢ khi push nhánh deploy/*, không chỉ main. Quy trình đúng là
+  # "push main → sinh lại nhánh deploy → redeploy", nên lượt chạy của main
+  # LUÔN đỏ (lúc nó chấm thì nhánh deploy còn chưa sinh) và chỉ xanh lại ở lần
+  # push main kế tiếp — tức main đứng đỏ suốt, đúng cách để một bộ canh bị coi
+  # là nền. Nay bước sinh lại nhánh cũng tự chấm điểm cho mình.
   deploy-branch-drift:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/deploy/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -127,10 +132,15 @@ jobs:
       - name: Nạp các nhánh deploy
         run: |
           git fetch origin 'refs/heads/deploy/*:refs/remotes/github/deploy/*' || true
+          git fetch origin '+refs/heads/main:refs/remotes/origin/main' || true
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Nhánh deploy có khớp main không
-        run: python3 scripts/kiem_nhanh_deploy.py
+        run: |
+          # Trên main: chấm đúng commit đang chạy (HEAD), không phải origin/main
+          # có thể đã đi tiếp. Trên nhánh deploy: chấm so với main mới nhất.
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then GOC=HEAD; else GOC=origin/main; fi
+          python3 scripts/kiem_nhanh_deploy.py --goc "$GOC"
