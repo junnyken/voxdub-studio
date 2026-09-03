@@ -13744,3 +13744,54 @@ Một test bị bỏ qua VĨNH VIỄN thì tệ hơn không có test: nó chiế
 đã có người canh. Khi engine chạy trong venv riêng, điều kiện skip phải hỏi
 **đúng nơi engine thật sự nằm** — không thì cái quyết định "có kiểm hay không"
 lại rơi vào tay môi trường, y như bài học C55.
+
+### Cài nốt Paraformer + NLLB: thêm hai ca cùng lớp, và hai chốt chặn làm đúng việc
+
+**Dịch ngoại tuyến (NLLB)** — cùng bẫy, hai tầng:
+
+1. Test tìm model ở `/tmp/nllb-model`, **đường dẫn không script nào tạo ra**.
+   `setup_translate_local.py` đặt model ở `models/translate-local`. Nên người
+   cài đúng cách xong vẫn phải tự đoán ra biến môi trường `VOXDUB_TEST_NLLB_
+   MODEL_DIR` mới chạy được test.
+2. Trỏ đúng model rồi thì test **đỏ ngay**: nó ép
+   `translate_local_venv_python_path` thành `sys.executable`, tức chạy worker
+   bằng venv CHÍNH — nơi `ctranslate2` không có và **không bao giờ có**
+   (installer cài vào `.venv-mt`). Tức hai test integration này vừa không chạy
+   được, vừa sẽ hỏng nếu có ai chạy.
+
+Sửa: mặc định hỏi đúng `models/translate-local`; dùng `.venv-mt` thật. Hai test
+nay chạy ~15 giây với model thật.
+
+**Nhận diện người nói (pyannote)** — `.venv-diar` đã cài sẵn trên máy này, mà
+`test_ban_pyannote_dang_cai_thuc_su_nhan_ten_nay` vẫn bỏ qua vì
+`importorskip("pyannote.audio")` hỏi venv chính. Chính docstring của nó viết
+"pyannote chỉ có trong .venv-diar" — biết mà vẫn hỏi nhầm chỗ. Nó canh đúng ca
+đã CHẾT thật (pyannote 4.x đổi `use_auth_token` → `token`), nhưng canh trong
+một căn phòng trống.
+
+Sửa: chạy chính `_token_kwarg` của worker **bên trong `.venv-diar`** rồi đối
+chiếu signature thật. Đo được: `pyannote 4.0.7 | worker truyền 'token' | có
+thật trong signature: True`.
+
+**Hai chốt chặn của dự án bắt đúng thay đổi của tôi** (ghi lại vì đây là bằng
+chứng chúng còn sống):
+
+- `test_script_cai_du_moi_goi_CI_dang_cai`: tôi thêm `fonts-wqy-zenhei` vào CI
+  mà quên `scripts/cai_moi_truong_test.sh` → máy phát triển sẽ thiếu đúng gói
+  đó. Đã thêm.
+- `test_no_unaccented_vietnamese`: lời báo mới nhắc tên tệp `.bat` không dấu.
+  Danh sách miễn trừ là **danh sách gõ tay** — đúng lớp lỗi V80/V82/V86 đã sập
+  ba lần. Nay **suy ra** từ `scripts/build_exe.py` thay vì gõ.
+
+**Không cài Demucs/lipsync**: quét thì không test nào gate theo hai engine đó
+(đều dùng worker giả để kiểm giao thức), nên cài thêm ~2,5 GB không mở khoá
+được test nào.
+
+**Rà cơ học cả bộ test cho đúng chữ ký lỗi này** (`sys.executable` làm venv
+giả): còn 8 chỗ, kiểm tay từng chỗ thì đều HỢP LỆ — chúng ghép với một *worker
+giả* để kiểm giao thức cha–con (watchdog, huỷ giữa chừng, truyền tham số),
+không phải để kiểm engine.
+
+**Kết quả:** 2302 đạt / **3 bỏ qua** (trước: 2285 đạt / 7 bỏ qua). Ba cái còn
+lại chỉ có nghĩa trên Windows — **không còn test nào bị bỏ qua vì thiếu
+engine**.

@@ -57,15 +57,27 @@ _EXEMPT: dict[str, str] = {
 # (preflight chỉ người dùng chạy tệp này) thì test chặn thẳng — danh sách
 # miễn trừ phải khớp với thứ thật sự được đóng gói, không phải với thứ tình
 # cờ đang được nhắc tới.
-_INSTALLER_FILES = (
-    "Cai dat giong VieNeu",
-    "Cai dat Whisper ASR",
-    "Cai dat ASR tieng",        # tên bị ngắt dòng ở vài chỗ nên khớp phần đầu
-    "Cai dat tinh nang Douyin",
-    "Cai dat FFmpeg",              # V82
-    "Cai dat tach nhac nen",       # V86 — tên tệp .bat, cố ý không dấu
-    "Cai dat tach giong",          # 26/8 — tách giọng theo người nói
-)
+def _ten_bat_tu_build_exe() -> tuple[str, ...]:
+    """Tên các tệp .bat cài đặt, ĐỌC TỪ `scripts/build_exe.py`.
+
+    C56: danh sách này trước đây gõ tay, và nó lệch ngay lần đầu có người nhắc
+    tới một bộ cài chưa nằm trong danh sách ("Cai dat nhan dien vung chu" của
+    OCR) — test đỏ ở một tệp không liên quan gì tới nó. Cùng lớp lỗi với "danh
+    sách đóng gói gõ tay" mà V80/V82/V86 đã sập ba lần: suy ra, đừng gõ.
+    """
+    goc = Path(__file__).resolve().parents[1] / "scripts" / "build_exe.py"
+    ma = goc.read_text(encoding="utf-8")
+    ten = set(re.findall(r'"(Cai dat[^"]*?)\.bat"', ma))     # danh sách cố định
+    ten |= set(re.findall(r'"(Cai dat[^"]*)"', ma))           # MO_TA_SETUP
+    ten = {t for t in ten if "{" not in t}       # bỏ khuôn f-string trong mã
+    # Nhiều chỗ trong mã ngắt dòng GIỮA tên (vd «Cai dat FFmpeg ↵(bat buoc)»),
+    # nên khớp cả phần đầu 3 chữ — vẫn đủ đặc trưng vì mọi tên đều mở đầu
+    # bằng "Cai dat <thứ gì>".
+    dau = {" ".join(t.split()[:3]) for t in ten if len(t.split()) >= 3}
+    return tuple(sorted(ten | dau, key=len, reverse=True))
+
+
+_INSTALLER_FILES = _ten_bat_tu_build_exe()
 
 
 def _is_installer_reference(line: str) -> bool:

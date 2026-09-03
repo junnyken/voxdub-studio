@@ -26,6 +26,9 @@ GOI=(
   libxcb-xinerama0
   # Vài test gọi ffmpeg thật (ghép video, trộn tiếng) — thiếu là 21 test đỏ
   ffmpeg
+  # Font CJK — test quét chữ (OCR) vẽ chữ Trung để thử. Thiếu font thì 4 test
+  # đó lặng lẽ bỏ qua, mà tính năng che chữ chính là thứ chúng canh (C56).
+  fonts-wqy-zenhei
 )
 
 # `--neu-thieu`: không có gì thiếu thì THOÁT NGAY, không đụng apt.

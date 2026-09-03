@@ -57,22 +57,48 @@ def test_is_available_true_when_configured_and_supported(monkeypatch):
 # này tự skip nếu không tìm thấy — chạy tay bằng cách set biến môi trường
 # VOXDUB_TEST_NLLB_MODEL_DIR trỏ tới thư mục model đã tải qua
 # scripts/setup_translate_local.py.
-_MODEL_DIR = os.environ.get("VOXDUB_TEST_NLLB_MODEL_DIR", "/tmp/nllb-model")
+def _thu_muc_model_mac_dinh() -> str:
+    """Nơi `scripts/setup_translate_local.py` ĐẶT model thật.
+
+    C56: mặc định cũ là `/tmp/nllb-model` — đường dẫn KHÔNG script nào tạo ra.
+    Nên hai test integration dưới đây chưa từng chạy tự động ở đâu, kể cả trên
+    máy vừa cài đúng cách: người cài xong vẫn phải tự đoán ra biến môi trường.
+    Hỏi đúng nơi engine thật sự nằm thì test tự chạy.
+    """
+    goc = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(goc, "models", "translate-local")
+
+
+_MODEL_DIR = os.environ.get("VOXDUB_TEST_NLLB_MODEL_DIR",
+                            _thu_muc_model_mac_dinh())
 _HAS_MODEL = os.path.isfile(os.path.join(_MODEL_DIR, "model.bin"))
+
+
+def _cai_dat_that(monkeypatch) -> Settings:
+    """Cấu hình trỏ vào ĐÚNG venv mà production dùng (`.venv-mt`).
+
+    C56: bản trước ép `translate_local_venv_python_path` thành `sys.executable`
+    — tức chạy worker bằng venv CHÍNH, nơi `ctranslate2` không có và không bao
+    giờ có (`setup_translate_local.py` cài vào `.venv-mt` riêng). Ghép với mặc
+    định model trỏ `/tmp/nllb-model`, hai test này vừa không chạy được, vừa sẽ
+    hỏng nếu có ai chạy. Cùng bẫy với OCR và align: test khoá đường mà sản
+    phẩm KHÔNG dùng.
+    """
+    settings = Settings()
+    if _MODEL_DIR != _thu_muc_model_mac_dinh():
+        monkeypatch.setattr(settings, "translate_local_model_dir_path",
+                            lambda: _MODEL_DIR)
+    return settings
 
 
 @pytest.mark.skipif(not _HAS_MODEL, reason=(
     "Cần model NLLB thật (622MB, không commit vào repo) — set "
     "VOXDUB_TEST_NLLB_MODEL_DIR hoặc chạy scripts/setup_translate_local.py "
-    "rồi trỏ về models/translate-local để chạy test này."))
+    "(model về models/translate-local, test tự tìm thấy)."))
 def test_translate_segments_local_end_to_end_real_model(monkeypatch):
     from autodub.text.translate_local import translate_segments_local
 
-    settings = Settings()
-    monkeypatch.setattr(settings, "translate_local_venv_python_path",
-                        lambda: sys.executable)
-    monkeypatch.setattr(settings, "translate_local_model_dir_path",
-                        lambda: _MODEL_DIR)
+    settings = _cai_dat_that(monkeypatch)
 
     segments = [
         {"id": 1, "text": "你好，欢迎来到我们的视频。"},
@@ -115,7 +141,7 @@ def test_split_sentences_handles_cjk_fullwidth_punctuation():
 @pytest.mark.skipif(not _HAS_MODEL, reason=(
     "Cần model NLLB thật (622MB, không commit vào repo) — set "
     "VOXDUB_TEST_NLLB_MODEL_DIR hoặc chạy scripts/setup_translate_local.py "
-    "rồi trỏ về models/translate-local để chạy test này."))
+    "(model về models/translate-local, test tự tìm thấy)."))
 def test_multi_sentence_segment_with_noisy_asr_no_longer_drops_second_sentence():
     """Tái tạo ĐÚNG văn bản đã gây bug thật ở V11 — segment 2 câu, câu 2 có
     lỗi nghe ASR nhẹ ("giàn lập" thay vì "giả lập"). TRƯỚC V21: model dừng
@@ -124,12 +150,8 @@ def test_multi_sentence_segment_with_noisy_asr_no_longer_drops_second_sentence()
     vốn nhiễu — chỉ đòi hỏi KHÔNG BỊ BỎ SÓT hoàn toàn)."""
     from autodub.text.translate_local import translate_segments_local
 
-    settings = Settings()
     monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(settings, "translate_local_venv_python_path",
-                        lambda: sys.executable)
-    monkeypatch.setattr(settings, "translate_local_model_dir_path",
-                        lambda: _MODEL_DIR)
+    settings = _cai_dat_that(monkeypatch)
     try:
         segments = [{"id": 1, "text": (
             "Trí tựa nhân tạo đang thay đổi cách chúng ta làm việc. "
