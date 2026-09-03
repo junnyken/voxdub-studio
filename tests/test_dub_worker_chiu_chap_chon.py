@@ -224,3 +224,24 @@ def test_tai_input_thu_lai_co_gioi_han(worker, monkeypatch):
     monkeypatch.setattr(worker._shutdown, "wait", lambda _s: False)
     assert worker.download_input("j1", "/tmp/x.mp4") is False
     assert len(lan) == worker.TRUYEN_FILE_SO_LAN
+
+
+# ------------------------------------- C57b: một lần hỏng = một dòng log ---
+
+def test_than_phan_hoi_bi_ep_ve_mot_dong(worker):
+    """Thấy trên prod 03-09: control_server khởi động lại, worker nhận trang
+    HTML 502 của proxy và in nguyên xi — một lần hỏng nở thành năm dòng log."""
+    html = "<html>\n<head>\n<title>502</title>\n</head>\n<body>lỗi</body>\n</html>"
+    ra = worker._mot_dong(html)
+    assert "\n" not in ra, "vẫn còn xuống dòng — một lần hỏng vẫn ra nhiều dòng log"
+    assert "502" in ra, "gọn quá tay, mất luôn thông tin cần đọc"
+
+
+def test_than_phan_hoi_dai_bi_cat_va_noi_la_da_cat(worker):
+    ra = worker._mot_dong("x" * 500)
+    assert len(ra) <= 201 and ra.endswith("…")
+
+
+def test_than_phan_hoi_rong_khong_lam_no_lien_quan(worker):
+    assert worker._mot_dong("") == ""
+    assert worker._mot_dong(None) == ""

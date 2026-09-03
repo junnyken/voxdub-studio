@@ -13838,3 +13838,19 @@ Nhánh deploy nay luôn khớp `main`, nhưng **redeploy vẫn là việc tay** 
 là prod có thể chạy sau `main` một quãng. Đó là chủ ý: deploy tự động mỗi commit
 là một quyết định khác hẳn, cần chủ dự án quyết. Cái đã chữa là "nhánh deploy
 tụt lại mà không ai biết", không phải "prod luôn mới nhất".
+
+### C57b — prod tự chứng minh C54, và lộ một chỗ log chưa gọn
+
+Redeploy xong, nhật ký worker trên prod có đúng dòng này:
+
+```
+[dub_worker] Đã nối lại được control_server sau 2 lần hỏng / 18s.
+```
+
+Đó là dòng C54 thêm vào, xảy ra thật lúc app khởi động lại. Trước C54 chỗ này
+là **im lặng** — đọc log không phân biệt được "đã ổn" với "vẫn đang chết".
+
+Nhưng cùng lượt đó lộ ra: lúc app tắt, worker nhận trang HTML 502 của proxy và
+in **nguyên xi**, một lần hỏng nở thành năm dòng log lẫn thẻ `<head>`, đẩy trôi
+những dòng đáng đọc. Đã ép thân phản hồi về MỘT dòng ngắn (`_mot_dong`), cắt
+200 ký tự và nói rõ là đã cắt. 3 test kèm theo.

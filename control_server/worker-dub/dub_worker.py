@@ -92,6 +92,18 @@ def _headers() -> dict:
     return {"X-Worker-Token": WORKER_TOKEN, "Content-Type": "application/json"}
 
 
+def _mot_dong(text: str, toi_da: int = 200) -> str:
+    """Ép thân phản hồi về MỘT dòng ngắn.
+
+    C57b, thấy trên prod: lúc control_server khởi động lại, worker nhận trang
+    HTML 502 của proxy và in nguyên xi — một lần hỏng nở thành năm dòng log
+    lẫn thẻ `<head>`, đẩy trôi những dòng đáng đọc. Log mà khó đọc thì cũng
+    không ai đọc.
+    """
+    gon = " ".join((text or "").split())
+    return gon[:toi_da] + ("…" if len(gon) > toi_da else "")
+
+
 def _post_chi_tiet(path: str, payload: dict) -> tuple[dict | None, str | None]:
     """Gọi POST, trả `(kết quả, lời lỗi)`.
 
@@ -105,11 +117,12 @@ def _post_chi_tiet(path: str, payload: dict) -> tuple[dict | None, str | None]:
     except requests.RequestException as e:
         return None, f"Lỗi gọi {path}: {e}"
     if resp.status_code >= 500:
-        return None, f"{path} trả {resp.status_code}: {resp.text[:300]}"
+        return None, f"{path} trả {resp.status_code}: {_mot_dong(resp.text)}"
     try:
         return resp.json(), None
     except ValueError:
-        return None, f"{path} trả nội dung không phải JSON: {resp.text[:200]}"
+        return None, (f"{path} trả nội dung không phải JSON: "
+                      f"{_mot_dong(resp.text)}")
 
 
 def _post(path: str, payload: dict) -> dict | None:
