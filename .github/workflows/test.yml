@@ -34,7 +34,20 @@ jobs:
             libegl1 libgl1 libxkbcommon0 libdbus-1-3 \
             libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
             libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 \
-            libxcb-xinerama0 ffmpeg
+            libxcb-xinerama0 ffmpeg fonts-wqy-zenhei
+
+      # C56 — bộ quét chữ (OCR) chạy trong `.venv-ocr` riêng, KHÔNG bao giờ
+      # nằm trong venv chính. Trước C56, `tests/test_text_regions.py` mở đầu
+      # bằng `importorskip("rapidocr_onnxruntime")` nên **cả tệp chưa từng chạy
+      # trên CI** — tính năng che chữ (V5, C48–C51) không có test nào canh, mà
+      # bảng kết quả chỉ hiện màu xám "skipped". Cài venv này để CI chạy đúng
+      # đường mà bản `.exe` dùng. ~40 MB, vài giây.
+      - name: Cài bộ quét chữ (.venv-ocr + venv chính) cho test OCR
+        run: |
+          python scripts/setup_ocr.py
+          # Thêm vào venv chính để test SO SÁNH hai đường chạy được: nó cần cả
+          # đường subprocess (.venv-ocr) lẫn đường in-process cùng lúc.
+          pip install rapidocr-onnxruntime
 
       # Loại demucs/soundfile — nặng (kéo theo torch), không cần cho test
       # suite hiện có (xem docs/PLAN.md V38 Audit Before Build: đã xác

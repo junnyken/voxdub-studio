@@ -13664,3 +13664,83 @@ sự dùng.
 **Bài học:** test mock một hàm cụ thể thì phải ép luôn NHÁNH dẫn tới hàm đó.
 Không ép thì cái quyết định test kiểm gì là *máy đang chạy*, chứ không phải
 người viết test.
+
+## C56 — Cài nốt engine, và "màu xám cũng là một sắc thái của màu xanh" (03/09/2026)
+
+Chủ dự án bảo làm tiếp việc tôi đề xuất: cài các engine máy dev đang thiếu rồi
+chạy lại bộ test xem cái gì đổi màu, truy nguyên nhân, sửa bug tồn đọng.
+
+### Mốc chuẩn: 7 test bỏ qua, và chúng chỉ đúng tên các engine đang thiếu
+
+`pytest -rs` cho danh sách: `rapidocr_onnxruntime` (quét chữ), `pyannote`
+(nhận diện người nói), model NLLB (dịch ngoại tuyến), 3 test chỉ chạy trên
+Windows.
+
+### Cài OCR xong, test vẫn bỏ qua — và đó mới là phát hiện
+
+Cài `scripts/setup_ocr.py` (đúng cách chính thức, engine tự smoke test đọc được
+"TEST 12345"), chạy lại: **`tests/test_text_regions.py` VẪN bỏ qua toàn bộ**.
+
+Vì tệp đó mở đầu bằng `pytest.importorskip("rapidocr_onnxruntime")` — hỏi
+**venv chính**. Mà OCR theo thiết kế nằm trong `.venv-ocr` riêng; **không bộ cài
+nào đặt rapidocr vào venv chính**. Nghĩa là:
+
+- Cả tệp **chưa bao giờ chạy**, kể cả trên CI, kể cả sau khi cài đúng cách. Nó
+  chỉ chạy nếu ai đó tự `pip install` vào venv chính — việc không script nào làm
+  và không tài liệu nào bảo làm.
+- Tính năng quét chữ (V5, và cả C48–C51 vừa làm tuần này) **không có một test
+  nào canh**. Nhìn bảng kết quả thì chỉ thấy màu xám "skipped" — mà **màu xám là
+  một sắc thái của màu xanh**: không ai đọc nó như một lời cảnh báo.
+- Kể cả 5 test logic thuần (`_iou`, `merge_regions`) cũng bị chặn theo, dù chúng
+  không cần OCR gì cả.
+
+Đo thật để chắc, không suy luận:
+
+```
+qua .venv-ocr: [{'x': 0.696, 'y': 0.035, 'w': 0.083, 'h': 0.032, 'confidence': 0.999}]
+in-process   : []          ← "Chưa cài OCR ... chạy scripts/setup_ocr.py"
+```
+
+Đường thật quét ra chữ. Đường mà test dùng thì không có engine.
+
+### Bug thật lộ ra từ đó: "không thấy chữ" và "chưa cài" là CÙNG một câu trả lời
+
+`_detect_in_process` thiếu engine thì **trả `[]`**. Và `style_dialog.py` nhận
+`[]` thì báo nguyên văn:
+
+> "Không phát hiện chữ overlay nào trong video này."
+
+Người dùng chưa cài OCR bấm "Quét chữ tự động" → được báo là video mình **sạch
+chữ** → yên tâm đi tiếp. Bản `.exe` KHÔNG bundle rapidocr, nên đây là đường mặc
+định của **mọi người dùng chưa chạy bộ cài**, không phải ca hiếm.
+
+Sửa: thêm `ChuaCaiOcr`. `[]` từ nay chỉ có MỘT nghĩa — đã quét, video sạch.
+Giao diện đã sẵn nhánh `_on_ocr_failed` nên lời báo tới đúng người dùng kèm việc
+cần làm ("Cai dat nhan dien vung chu.bat"). Phân biệt tiếp hai ca: chưa cài bao
+giờ, và **đã cài mà lượt này hỏng** — bảo người ta đi cài lại thứ họ đã cài là
+chỉ sai đường.
+
+### Và một test SO SÁNH chưa từng so gì
+
+`test_subprocess_path_matches_in_process_path` giả lập `.venv-ocr` bằng chính
+`sys.executable`. Tức nó so đường in-process với… đường in-process chạy qua
+subprocess. Nay dùng `.venv-ocr` THẬT — mới là thứ nó tự nhận là đang so.
+
+### Đã làm
+
+- `tests/test_text_regions.py`: bỏ `importorskip` toàn tệp; helper `quet()` tự
+  chọn đường THẬT (`.venv-ocr`) nếu có; chỉ test cần engine mới gắn `@can_ocr`.
+  Thêm 3 test cho hợp đồng mới (chưa cài → NÉM lỗi; đã cài mà hỏng → nói đúng
+  nguyên nhân; có engine + ảnh sạch → vẫn trả `[]`).
+- `.github/workflows/test.yml`: cài `.venv-ocr` + `fonts-wqy-zenhei` + rapidocr
+  vào venv chính. Font CJK thiếu khiến 4 test chữ Trung cũng chưa từng chạy trên
+  CI.
+
+Kết quả: `tests/test_text_regions.py` từ **0 test chạy** → **14 đạt**.
+
+### Bài học
+
+Một test bị bỏ qua VĨNH VIỄN thì tệ hơn không có test: nó chiếm chỗ, trông như
+đã có người canh. Khi engine chạy trong venv riêng, điều kiện skip phải hỏi
+**đúng nơi engine thật sự nằm** — không thì cái quyết định "có kiểm hay không"
+lại rơi vào tay môi trường, y như bài học C55.

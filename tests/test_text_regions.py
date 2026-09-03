@@ -12,6 +12,7 @@ trong CI, không chỉ sandbox có cài thêm.
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -22,10 +23,41 @@ import pytest
 from autodub.config import Settings
 from autodub.media.text_regions import merge_regions, _iou
 
-pytest.importorskip("rapidocr_onnxruntime")
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 from autodub.media.text_regions import detect_text_regions  # noqa: E402
+
+# C56 — TRƯỚC ĐÂY tệp này mở đầu bằng `importorskip("rapidocr_onnxruntime")`,
+# tức đòi OCR nằm trong VENV CHÍNH. Nhưng đường chính của sản phẩm là
+# `.venv-ocr` (subprocess), và KHÔNG bộ cài nào đặt rapidocr vào venv chính —
+# `scripts/setup_ocr.py` cố ý cài vào venv riêng. Hệ quả: cả tệp này **chưa bao
+# giờ chạy**, kể cả sau khi cài đúng cách, kể cả trên CI. Tính năng quét chữ
+# (V5, C48–C51) coi như không có test, mà nhìn bảng kết quả thì chỉ thấy màu
+# xám "skipped" — một sắc thái của màu xanh.
+#
+# Nay: chạy được đường nào thì kiểm đường đó, ưu tiên đường THẬT.
+_CO_OCR_VENV_CHINH = importlib.util.find_spec("rapidocr_onnxruntime") is not None
+try:
+    _CAI_DAT = Settings.load()
+    _CO_VENV_OCR = bool(_CAI_DAT.ocr_configured())
+except Exception:  # noqa: BLE001 — không đọc được cấu hình thì coi như chưa cài
+    _CAI_DAT, _CO_VENV_OCR = None, False
+
+can_ocr = pytest.mark.skipif(
+    not (_CO_OCR_VENV_CHINH or _CO_VENV_OCR),
+    reason="chưa cài OCR: chạy scripts/setup_ocr.py (.venv-ocr) hoặc "
+           "pip install rapidocr-onnxruntime vào venv hiện tại")
+
+
+def quet(paths: list[str]) -> list[dict]:
+    """Quét bằng đường THẬT nếu có `.venv-ocr`, không thì in-process.
+
+    Bọc lại thay vì gọi thẳng `detect_text_regions` để mọi test dưới đây tự
+    động chạy trên đường mà bản `.exe` dùng, chứ không chỉ đường dev.
+    """
+    if _CO_VENV_OCR:
+        return detect_text_regions(paths, settings=_CAI_DAT)
+    return detect_text_regions(paths)
 
 _CJK_FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
 _HAS_CJK_FONT = os.path.isfile(_CJK_FONT)
@@ -72,15 +104,17 @@ def test_merge_regions_empty_input():
 
 # ------------------------------------------------- integration thật (RapidOCR) --
 
+@can_ocr
 def test_clean_image_detects_nothing(tmp_path):
     """Guardrail 4 (mini-spec V5): video sạch không được tự bật tính năng blur."""
     img = Image.new("RGB", (640, 360), (20, 20, 20))
     path = str(tmp_path / "clean.png")
     img.save(path)
-    assert detect_text_regions([path]) == []
+    assert quet([path]) == []
 
 
 @pytest.mark.skipif(not _HAS_CJK_FONT, reason="cần font CJK hệ thống để vẽ chữ Trung thử")
+@can_ocr
 def test_detects_overlay_text_on_synthetic_frame(tmp_path):
     img = Image.new("RGB", (1280, 720), (30, 30, 30))
     draw = ImageDraw.Draw(img)
@@ -90,7 +124,7 @@ def test_detects_overlay_text_on_synthetic_frame(tmp_path):
     path = str(tmp_path / "frame.png")
     img.save(path)
 
-    regions = detect_text_regions([path])
+    regions = quet([path])
     assert len(regions) == 2, f"phải phát hiện đúng 2 vùng chữ, ra {regions}"
     # Watermark góc trên-phải: x lớn, y nhỏ.
     top_right = max(regions, key=lambda r: r["x"])
@@ -101,6 +135,7 @@ def test_detects_overlay_text_on_synthetic_frame(tmp_path):
 
 
 @pytest.mark.skipif(not _HAS_CJK_FONT, reason="cần font CJK hệ thống để vẽ chữ Trung thử")
+@can_ocr
 def test_same_watermark_across_frames_merges_into_one_region(tmp_path):
     """Chữ overlay tĩnh (watermark) xuất hiện gần nguyên vị trí qua nhiều
     frame — phải gộp thành 1 rectangle, không phải N rectangle trùng lặp."""
@@ -119,7 +154,7 @@ def test_same_watermark_across_frames_merges_into_one_region(tmp_path):
         img.save(path)
         paths.append(path)
 
-    regions = detect_text_regions(paths)
+    regions = quet(paths)
     # Watermark gộp thành 1 (dù xuất hiện 3 lần) + vùng caption (nội dung đổi
     # theo từng frame nhưng vị trí gần giống nhau nên cũng gộp/gần gộp được).
     watermark_like = [r for r in regions if r["x"] > 0.6]
@@ -128,10 +163,17 @@ def test_same_watermark_across_frames_merges_into_one_region(tmp_path):
 
 
 @pytest.mark.skipif(not _HAS_CJK_FONT, reason="cần font CJK hệ thống để vẽ chữ Trung thử")
-def test_subprocess_path_matches_in_process_path(tmp_path, monkeypatch):
-    """Đường .venv-ocr (subprocess, đường CHÍNH theo convention dự án) phải
-    cho kết quả giống hệt đường in-process — dùng python hiện tại làm
-    "venv .venv-ocr" giả lập (đã cài rapidocr-onnxruntime thật trong đó)."""
+@pytest.mark.skipif(
+    not (_CO_OCR_VENV_CHINH and _CO_VENV_OCR),
+    reason="cần CẢ hai đường mới so được: .venv-ocr (setup_ocr.py) và "
+           "rapidocr-onnxruntime trong venv hiện tại")
+def test_subprocess_path_matches_in_process_path(tmp_path):
+    """Đường `.venv-ocr` (đường CHÍNH, bản .exe dùng) phải cho kết quả GIỐNG
+    HỆT đường in-process.
+
+    C56: bản trước giả lập venv bằng chính `sys.executable`, tức so đường
+    in-process với... đường in-process chạy qua subprocess. Nay dùng
+    `.venv-ocr` THẬT — mới là thứ đang so."""
     from autodub.media.text_regions import detect_text_regions
 
     img = Image.new("RGB", (1280, 720), (30, 30, 30))
@@ -141,11 +183,7 @@ def test_subprocess_path_matches_in_process_path(tmp_path, monkeypatch):
     path = str(tmp_path / "frame.png")
     img.save(path)
 
-    settings = Settings()
-    monkeypatch.setattr(settings, "ocr_venv_python_path", lambda: sys.executable)
-    monkeypatch.setattr(settings, "ocr_configured", lambda: True)
-
-    via_subprocess = detect_text_regions([path], settings=settings)
+    via_subprocess = detect_text_regions([path], settings=_CAI_DAT)
     via_in_process = detect_text_regions([path])
     assert len(via_subprocess) == 1
     assert via_subprocess == via_in_process
@@ -156,6 +194,7 @@ def test_subprocess_path_matches_in_process_path(tmp_path, monkeypatch):
 @pytest.mark.skipif(not _HAS_FFMPEG, reason="cần ffmpeg để dựng video nén thật")
 @pytest.mark.skipif(not _HAS_CJK_FONT, reason="cần font CJK hệ thống")
 @pytest.mark.skipif(not os.path.isfile(_BARLOW_FONT), reason="thiếu font dự án")
+@can_ocr
 def test_real_encoded_video_detects_vietnamese_and_faded_watermark(tmp_path):
     """Video NÉN THẬT (libx264, không phải PNG tĩnh) với 3 case CHƯA từng
     test trước Re-audit này: (1) tiêu đề tiếng Việt CÓ DẤU, (2) watermark
@@ -188,7 +227,7 @@ def test_real_encoded_video_detects_vietnamese_and_faded_watermark(tmp_path):
         "-vf", "select=eq(n\\,45)", "-vsync", "0", "-frames:v", "1", frame_path,
     ], check=True, capture_output=True)
 
-    regions = detect_text_regions([frame_path])
+    regions = quet([frame_path])
     assert regions, "phải phát hiện được ít nhất 1 vùng chữ trên video nén thật"
 
     # Xác nhận bằng crop trực quan thay vì chỉ tin số lượng box (đúng
@@ -211,6 +250,7 @@ def test_real_encoded_video_detects_vietnamese_and_faded_watermark(tmp_path):
 
 
 @pytest.mark.skipif(not _HAS_FFMPEG, reason="cần ffmpeg để dựng video nén thật")
+@can_ocr
 def test_real_encoded_noisy_video_without_text_detects_nothing(tmp_path):
     """Guardrail 4 (mini-spec V5) trên nền THẬT phức tạp (nhiễu thời gian
     qua ffmpeg, không phải màu phẳng PIL) — video sạch không có chữ vẫn
@@ -229,4 +269,63 @@ def test_real_encoded_noisy_video_without_text_detects_nothing(tmp_path):
         "-vf", "select=eq(n\\,20)", "-vsync", "0", "-frames:v", "1", frame_path,
     ], check=True, capture_output=True)
 
-    assert detect_text_regions([frame_path]) == []
+    assert quet([frame_path]) == []
+
+
+# ------------------------------------------------ C56: rỗng ≠ chưa cài ---
+
+def test_chua_cai_ocr_thi_NEM_LOI_chu_khong_bao_video_sach_chu(tmp_path, monkeypatch):
+    """Bug thật C56, ảnh hưởng MỌI người dùng chưa chạy bộ cài.
+
+    Chưa cài OCR thì `detect_text_regions` trả `[]`, và giao diện báo nguyên
+    văn *"Không phát hiện chữ overlay nào trong video này."* — người dùng kết
+    luận video mình sạch chữ rồi đi tiếp. Bản `.exe` không bundle rapidocr nên
+    đây là đường mặc định, không phải ca hiếm.
+
+    `[]` chỉ được phép có MỘT nghĩa: đã quét, không thấy gì.
+    """
+    from autodub.media import text_regions as tr
+
+    def khong_co_engine():
+        raise ImportError("No module named 'rapidocr_onnxruntime'")
+
+    monkeypatch.setattr(tr, "_get_engine", khong_co_engine)
+    img = Image.new("RGB", (320, 240), (10, 10, 10))
+    path = str(tmp_path / "frame.png")
+    img.save(path)
+
+    with pytest.raises(tr.ChuaCaiOcr) as e:
+        tr.detect_text_regions([path])
+    assert "cài" in str(e.value).lower(), "lời báo phải nói việc cần làm"
+
+
+def test_da_cai_ma_worker_hong_thi_KHONG_bao_la_chua_cai(tmp_path, monkeypatch):
+    """Bảo người dùng đi cài lại thứ họ đã cài là chỉ sai đường."""
+    from autodub.media import text_regions as tr
+
+    monkeypatch.setattr(tr, "_detect_via_subprocess", lambda *a, **k: None)
+    monkeypatch.setattr(tr, "_get_engine",
+                        lambda: (_ for _ in ()).throw(ImportError("x")))
+
+    class _CoVenvOcr:
+        def ocr_configured(self):
+            return True
+        def __getattr__(self, ten):
+            return lambda *a, **k: ""
+
+    img = Image.new("RGB", (320, 240), (10, 10, 10))
+    path = str(tmp_path / "frame.png")
+    img.save(path)
+
+    with pytest.raises(tr.ChuaCaiOcr) as e:
+        tr.detect_text_regions([path], settings=_CoVenvOcr())
+    assert "đã cài" in str(e.value), f"lời báo sai nguyên nhân: {e.value}"
+
+
+@can_ocr
+def test_quet_that_ma_khong_co_chu_van_tra_rong(tmp_path):
+    """Nửa còn lại của hợp đồng: có engine + ảnh sạch = `[]`, không ném lỗi."""
+    img = Image.new("RGB", (640, 360), (20, 60, 20))
+    path = str(tmp_path / "sach.png")
+    img.save(path)
+    assert quet([path]) == []

@@ -99,6 +99,17 @@ def _pad(region: dict) -> dict:
     return ra
 
 
+class ChuaCaiOcr(RuntimeError):
+    """Không có bộ quét chữ nào chạy được — KHÁC HẲN "quét xong, không thấy chữ".
+
+    C56, lỗi thật: trước đây cả hai ca đều trả `[]`, nên giao diện báo *"Không
+    phát hiện chữ overlay nào trong video này"* cho người chưa cài OCR. Người
+    dùng kết luận video mình sạch chữ rồi đi tiếp, trong khi tính năng đơn giản
+    là chưa được cài. Bản `.exe` không bundle rapidocr nên đây là ca của **mọi
+    người dùng chưa chạy bộ cài** — không phải ca hiếm.
+    """
+
+
 _engine = None  # RapidOCR instance, nạp lười — chỉ dùng ở đường in-process
 
 
@@ -116,17 +127,19 @@ def _detect_in_process(image_paths: list[str]) -> list[dict]:
     """
     try:
         from PIL import Image
-    except ImportError:
+    except ImportError as e:
         logger.warning("Thiếu Pillow — không đọc được kích thước ảnh để "
                        "chuẩn hoá toạ độ OCR")
-        return []
+        raise ChuaCaiOcr("Thiếu thư viện Pillow nên không quét chữ được") from e
 
     try:
         engine = _get_engine()
     except ImportError as e:
         logger.info(f"Chưa cài OCR ({e}) — chạy scripts/setup_ocr.py để bật "
                     "quét chữ tự động")
-        return []
+        raise ChuaCaiOcr(
+            "Chưa cài bộ quét chữ. Chạy «Cai dat nhan dien vung chu.bat» "
+            "(hoặc scripts/setup_ocr.py) rồi quét lại") from e
 
     boxes: list[dict] = []
     for chi_so_anh, image_path in enumerate(image_paths):
@@ -306,13 +319,27 @@ def detect_text_regions(image_paths: list[str], settings=None,
 
     Trả về rỗng nếu không phát hiện chữ nào — KHÔNG tự bật tính năng blur
     khi video sạch (guardrail 4, mini-spec V5).
+
+    Ném :class:`ChuaCaiOcr` khi KHÔNG bộ quét nào chạy được (C56). Rỗng phải
+    có nghĩa duy nhất là "đã quét, video sạch chữ" — trộn hai ca đó vào cùng
+    một giá trị là cách chắc chắn để nói dối người dùng.
     """
     all_boxes = (_detect_via_subprocess(image_paths, settings, cancel_event)
                  if settings else None)
     if cancel_event is not None and cancel_event.is_set():
         return []
     if all_boxes is None:
-        all_boxes = _detect_in_process(image_paths)
+        try:
+            all_boxes = _detect_in_process(image_paths)
+        except ChuaCaiOcr:
+            # Có `.venv-ocr` mà vẫn rơi tới đây nghĩa là worker vừa hỏng, KHÔNG
+            # phải chưa cài — bảo người dùng đi cài lại thứ họ đã cài là chỉ
+            # sai đường.
+            if settings is not None and settings.ocr_configured():
+                raise ChuaCaiOcr(
+                    "Bộ quét chữ đã cài nhưng lượt này không chạy được — xem "
+                    "Nhật ký để biết lý do") from None
+            raise
     if not all_boxes:
         return []
     merged = merge_regions(all_boxes)
