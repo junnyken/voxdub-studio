@@ -13872,3 +13872,66 @@ remote đang cũ thì bộ dò báo OK, mà deploy vẫn build mã cũ — **đ�
 cái bẫy V90 sinh ra để chặn**.
 
 Sửa: hỏi nhánh trên remote trước, chỉ rơi về local khi chưa fetch. 2 test kèm.
+
+## C58 — Prod tự đi theo `main`, nhưng KHÔNG mù (04/09/2026)
+
+Chủ dự án chốt: làm nốt phần "prod luôn tự động theo mọi commit".
+
+Tới C57 nhánh deploy không thể tụt lại nữa, nhưng **bấm redeploy vẫn là việc
+tay** — nghĩa là prod đi sau `main` một quãng **không ai đo được**, và quãng đó
+chỉ lộ ra khi có người tình cờ đi kiểm. Đúng cách worker đã chạy mã trước C53
+suốt nhiều ngày mà mọi thứ vẫn "xanh".
+
+### Đo trước: nền tảng cho kích deploy bằng đường nào
+
+Cổng Vibe Host là một endpoint MCP trên HTTP (`/api/agent/mcp`), gọi được bằng
+JSON-RPC thuần với header `Authorization`. Đã thử thật bằng `curl` và bằng
+chính `goi_cong()` của bộ kích: đọc được tài khoản, đọc được danh sách dự án,
+và **hai mã dự án ghi trong workflow khớp đúng hai dịch vụ thật** (kiểm bằng
+`list_projects`, không gõ theo trí nhớ).
+
+Khoá đang dùng có phạm vi `read, deploy, runtime:write, env:write`.
+
+### Ba chốt để "tự động" không thành "liều"
+
+1. **Chỉ deploy sau khi test xanh** — Python + Node + *lượt dub thật trên
+   Windows* (C45/C55). Prod không bao giờ nhận mã chưa ai kiểm. Tự động hoá mà
+   bỏ qua chốt này là đổi một lớp rủi ro lấy một lớp rủi ro khác.
+2. **Chỉ deploy dịch vụ có thư mục build thật sự đổi.** Nhánh deploy đổi commit
+   theo MỌI commit của `main` (nó là worktree cả repo), nhưng nền tảng chỉ dựng
+   một thư mục con. So `git diff -- webapp/` và `-- dub-worker/` giữa đầu nhánh
+   cũ và mới; một commit sửa tài liệu không đáng 11 phút dựng lại worker.
+3. **Deploy xong phải hỏi chính dịch vụ.** `scripts/trien_khai_vibehost.py`
+   gọi `/health` thật; tác vụ báo thành công mà dịch vụ câm thì **vẫn là lượt
+   deploy HỎNG**. Không có bước này thì bộ kích chỉ là một lệnh gọi
+   bắn-rồi-quên — đúng lớp lỗi C54 vừa dọn ở worker.
+
+Kèm: thử lại **đúng một lần** khi hỏng vì hạ tầng chập (`fetch failed`, đã gặp
+thật 03-09), nhưng **không** thử lại khi build hỏng vì mã sai — thử lại chỉ tốn
+thêm 11 phút để nhận cùng một câu trả lời. Hết giờ chờ thì nói "KHÔNG kết luận
+được là hỏng hay chỉ chậm", không đoán bừa.
+
+Thiếu secret thì job **bỏ qua và nói to** (`::warning::`), không làm đỏ CI: repo
+phải dùng được với người không có khoá deploy.
+
+`scripts/deploy_vays.sh` (đường tay) nay dùng chung bộ kích đó khi có
+`VIBEHOST_TOKEN`, nên deploy tay cũng được kiểm y hệt deploy tự động.
+
+### Canh chính bộ canh
+
+`tests/test_trien_khai_vibehost.py` (10 test) canh đúng những chỗ dễ nói dối:
+tác vụ "thành công" mà dịch vụ câm ⇒ HỎNG; thử lại đúng ca hạ tầng chập, KHÔNG
+thử lại khi mã sai; hết giờ ⇒ nói không biết; thiếu token ⇒ dừng ngay. Cộng 2
+test bắt workflow phải đợi đủ 4 job và phải so từng thư mục build.
+
+### Còn lại — cần chủ dự án làm MỘT lần
+
+Secret `VIBEHOST_TOKEN` phải do chủ repo thêm: PAT trong workspace chỉ có
+`secrets=read` (GitHub trả 403 "Resource not accessible by personal access
+token"). Chưa thêm thì mọi thứ khác vẫn chạy, chỉ riêng bước cuối bỏ qua kèm
+cảnh báo vàng.
+
+**Lưu ý bảo mật, nói trước:** khoá đang dùng có cả `env:write` và
+`runtime:write`. Đưa nguyên nó vào Actions secrets nghĩa là ai có quyền ghi vào
+repo cũng có thể dùng nó. Nếu Vibe Host cấp được khoá chỉ-`deploy` thì nên
+dùng khoá đó, không dùng khoá đang cắm trong máy.

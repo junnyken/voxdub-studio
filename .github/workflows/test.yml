@@ -155,12 +155,98 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Sinh lại hai nhánh deploy từ đúng commit vừa push
+        id: sinh
         env:
           REMOTE: origin
           GOC: ${{ github.sha }}
         run: |
+          # Ghi lại đầu nhánh TRƯỚC khi sinh, để biết THƯ MỤC BUILD có đổi
+          # không. Nhánh deploy đổi commit theo MỌI commit của main (nó là
+          # worktree của cả repo), nhưng thứ nền tảng dựng chỉ là một thư mục
+          # con — một commit sửa tài liệu không đáng 11 phút dựng lại worker.
+          truoc_app=$(git rev-parse origin/deploy/vays-control-server 2>/dev/null || echo "")
+          truoc_worker=$(git rev-parse origin/deploy/vays-dub-worker 2>/dev/null || echo "")
+
           bash scripts/gen_vays_control_server_branch.sh
           bash scripts/gen_vays_dub_worker_branch.sh
+
+          sau_app=$(git rev-parse deploy/vays-control-server)
+          sau_worker=$(git rev-parse deploy/vays-dub-worker)
+
+          # Chưa có nhánh cũ để so (lần đầu) thì coi như CÓ đổi — thà dựng thừa
+          # một lượt còn hơn để prod đứng im mà tưởng đã lên.
+          if [ -z "$truoc_app" ] || ! git diff --quiet "$truoc_app" "$sau_app" -- webapp/; then
+            echo "app=1" >> "$GITHUB_OUTPUT"
+            echo "→ thư mục webapp/ có đổi: cần deploy voxdub-app"
+          else
+            echo "app=0" >> "$GITHUB_OUTPUT"
+            echo "→ webapp/ không đổi: bỏ qua deploy voxdub-app"
+          fi
+          if [ -z "$truoc_worker" ] || ! git diff --quiet "$truoc_worker" "$sau_worker" -- dub-worker/; then
+            echo "worker=1" >> "$GITHUB_OUTPUT"
+            echo "→ thư mục dub-worker/ có đổi: cần deploy voxdub-dub-worker"
+          else
+            echo "worker=0" >> "$GITHUB_OUTPUT"
+            echo "→ dub-worker/ không đổi: bỏ qua deploy worker"
+          fi
+    outputs:
+      app: ${{ steps.sinh.outputs.app }}
+      worker: ${{ steps.sinh.outputs.worker }}
+
+  # C58 — ĐƯA PROD THEO `main` TỰ ĐỘNG.
+  #
+  # Tới C57 nhánh deploy không thể tụt lại nữa, nhưng bấm redeploy vẫn là việc
+  # tay: prod đi sau `main` một quãng không ai đo được, và quãng đó chỉ lộ ra
+  # khi có người tình cờ đi kiểm (đã để worker chạy mã trước C53 nhiều ngày).
+  #
+  # Ba chốt để tự động KHÔNG biến thành liều:
+  #   1. Chỉ chạy sau khi test Python + Node + LƯỢT DUB THẬT trên Windows xanh.
+  #      Prod không bao giờ nhận mã chưa ai kiểm.
+  #   2. Chỉ deploy dịch vụ có thư mục build thật sự đổi.
+  #   3. Sau khi deploy, hỏi chính dịch vụ (`/health`). Tác vụ báo thành công
+  #      mà dịch vụ câm thì đây vẫn là lượt deploy HỎNG — xem
+  #      scripts/trien_khai_vibehost.py.
+  #
+  # Thiếu secret VIBEHOST_TOKEN thì bỏ qua và NÓI TO, không làm đỏ CI: repo
+  # phải dùng được với người không có khoá deploy.
+  trien-khai-prod:
+    if: github.ref == 'refs/heads/main'
+    needs: [sinh-nhanh-deploy, python-tests, node-tests, chay-that-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Có khoá deploy không
+        id: khoa
+        env:
+          CO_KHOA: ${{ secrets.VIBEHOST_TOKEN != '' }}
+        run: |
+          echo "co=$CO_KHOA" >> "$GITHUB_OUTPUT"
+          if [ "$CO_KHOA" != "true" ]; then
+            echo "::warning::Chưa cấu hình secret VIBEHOST_TOKEN — BỎ QUA bước đưa lên prod. Prod sẽ đứng lại ở bản deploy tay gần nhất."
+          fi
+
+      - name: Đưa voxdub-app lên prod
+        if: steps.khoa.outputs.co == 'true' && needs.sinh-nhanh-deploy.outputs.app == '1'
+        env:
+          VIBEHOST_TOKEN: ${{ secrets.VIBEHOST_TOKEN }}
+        run: |
+          python3 scripts/trien_khai_vibehost.py \
+            --du-an cmsx1rb7d016w0i5fo0cj2r8c --ten voxdub-app \
+            --suc-khoe https://voxdub-app.cmc-1.vibenode.matbao.ai/health
+
+      - name: Đưa voxdub-dub-worker lên prod
+        if: steps.khoa.outputs.co == 'true' && needs.sinh-nhanh-deploy.outputs.worker == '1'
+        env:
+          VIBEHOST_TOKEN: ${{ secrets.VIBEHOST_TOKEN }}
+        run: |
+          python3 scripts/trien_khai_vibehost.py \
+            --du-an cmsxh07sy039q0i5fpxpal7mv --ten voxdub-dub-worker \
+            --suc-khoe https://voxdub-dub-worker.cmc-1.vibenode.matbao.ai/health
 
   # lần push, thay vì chỉ lộ ra lúc deploy xong mà không ai hay.
   # C54: chạy CẢ khi push nhánh deploy/*, không chỉ main. Quy trình đúng là

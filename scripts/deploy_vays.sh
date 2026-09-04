@@ -48,6 +48,22 @@ git fetch github 'refs/heads/deploy/*:refs/remotes/github/deploy/*' -q || true
 python3 scripts/kiem_nhanh_deploy.py
 
 echo
-echo "Xong phần mã. Giờ mới bấm redeploy trên VAYS."
-echo "Sau khi deploy xong, kiểm bằng:"
-echo "    python3 scripts/kiem_deploy_song.py https://voxdub-app.cmc-1.vibenode.matbao.ai"
+# C58 — có khoá thì kích deploy luôn, và tự kiểm dịch vụ có sống không. Không
+# có khoá thì giữ nguyên đường cũ (bấm tay), chỉ nói rõ là chưa lên.
+if [ -n "${VIBEHOST_TOKEN:-}" ]; then
+  if [ "$MUC_TIEU" = "all" ] || [ "$MUC_TIEU" = "app" ]; then
+    python3 scripts/trien_khai_vibehost.py \
+      --du-an cmsx1rb7d016w0i5fo0cj2r8c --ten voxdub-app \
+      --suc-khoe https://voxdub-app.cmc-1.vibenode.matbao.ai/health
+  fi
+  if [ "$MUC_TIEU" = "all" ] || [ "$MUC_TIEU" = "worker" ]; then
+    python3 scripts/trien_khai_vibehost.py \
+      --du-an cmsxh07sy039q0i5fpxpal7mv --ten voxdub-dub-worker \
+      --suc-khoe https://voxdub-dub-worker.cmc-1.vibenode.matbao.ai/health
+  fi
+else
+  echo "Xong phần mã — nhưng CHƯA lên prod: thiếu VIBEHOST_TOKEN."
+  echo "Đặt biến đó rồi chạy lại để tự deploy + tự kiểm, hoặc bấm tay trên VAYS."
+  echo "Kiểm sau khi deploy tay:"
+  echo "    python3 scripts/kiem_deploy_song.py https://voxdub-app.cmc-1.vibenode.matbao.ai"
+fi
