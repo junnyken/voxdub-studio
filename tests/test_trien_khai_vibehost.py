@@ -186,3 +186,49 @@ def test_khoa_thieu_tien_to_bearer_van_dung_duoc(bo_kich):
     assert bo_kich.chuan_hoa_khoa("  Bearer abc123  ") == "Bearer abc123"
     assert bo_kich.chuan_hoa_khoa("bearer abc123") == "bearer abc123"
     assert bo_kich.chuan_hoa_khoa("") == ""
+
+
+# ---------------------------- C59: 200 chưa đủ, phụ thuộc phải lành ---
+
+def test_health_200_ma_mat_ket_noi_CSDL_van_la_chua_len(bo_kich):
+    """31-08 nền tảng báo dependency_unreachable hàng giờ trong khi /health vẫn
+    trả ok:true. Chấm deploy bằng mỗi mã 200 là ghi "đã lên" cho một bản thực
+    chất không dùng được."""
+    class _Resp:
+        status = 200
+        def read(self): return '{"ok":true,"db":"mất kết nối"}'.encode()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    with pytest.raises(bo_kich.DeployHong) as e:
+        bo_kich.kiem_suc_khoe("https://x/health", so_lan=2, nhip_s=0,
+                              ngu=lambda _s: None, mo=lambda u, timeout=0: _Resp())
+    assert "cơ sở dữ liệu" in str(e.value)
+
+
+def test_CSDL_ket_noi_muon_van_tinh_la_dat(bo_kich):
+    """Lúc vừa khởi động, kết nối CSDL chưa xong là bình thường — chờ tiếp
+    trong hạn, đừng kết luận hỏng ngay lượt đầu."""
+    dem = {"n": 0}
+
+    class _Resp:
+        status = 200
+        def __init__(self, than): self.than = than
+        def read(self): return self.than.encode()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def mo(url, timeout=0):
+        dem["n"] += 1
+        return _Resp('{"ok":true,"db":"đang kết nối"}' if dem["n"] < 3
+                     else '{"ok":true,"db":"đã kết nối"}')
+
+    ra = bo_kich.kiem_suc_khoe("https://x/health", so_lan=5, nhip_s=0,
+                               ngu=lambda _s: None, mo=mo)
+    assert "đã kết nối" in ra and dem["n"] == 3
+
+
+def test_worker_tra_chu_ok_thuan_khong_bi_bao_nham(bo_kich):
+    """Worker trả "ok" (không phải JSON) — không được coi là phụ thuộc hỏng."""
+    assert bo_kich._phu_thuoc_hong("ok") is None
+    assert bo_kich._phu_thuoc_hong('{"ok":true,"db":"không dùng"}') is None

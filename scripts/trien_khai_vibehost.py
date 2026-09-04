@@ -114,26 +114,51 @@ def cho_xong(job_id: str, *, cong: str, token: str,
         ngu(NHIP_HOI_S)
 
 
+def _phu_thuoc_hong(than: str) -> str | None:
+    """Đọc thân `/health`; trả lời phần phụ thuộc nào đang hỏng, hoặc None.
+
+    C59: `/health` của control_server trả `ok: true` KỂ CẢ khi mất kết nối
+    MongoDB (đã xảy ra thật 31-08, nền tảng báo `dependency_unreachable` hàng
+    giờ mà đường này vẫn xanh). Chấm điểm deploy chỉ bằng mã 200 nghĩa là ghi
+    "đã lên" cho một bản thực chất không dùng được.
+    """
+    try:
+        d = json.loads(than)
+    except (json.JSONDecodeError, TypeError):
+        return None                     # không phải JSON (worker trả "ok")
+    db = d.get("db")
+    if isinstance(db, str) and db not in ("đã kết nối", "không dùng"):
+        return f"cơ sở dữ liệu: {db}"
+    return None
+
+
 def kiem_suc_khoe(url: str, *, so_lan: int = 30, nhip_s: float = 10.0,
                   ngu=time.sleep, mo=urllib.request.urlopen) -> str:
-    """Gọi đường sức khoẻ tới khi 200. Ném :class:`DeployHong` nếu không bao giờ.
+    """Gọi đường sức khoẻ tới khi 200 VÀ phụ thuộc đều lành.
 
     Tác vụ deploy báo thành công KHÔNG đủ để kết luận dịch vụ sống: nền tảng
     chấm điểm bằng cổng mạng, còn thứ người dùng gặp là câu trả lời của ứng
-    dụng.
+    dụng. Và mã 200 cũng chưa đủ — xem `_phu_thuoc_hong`.
     """
     loi_cuoi = ""
     for _ in range(so_lan):
         try:
             with mo(url, timeout=20) as resp:
+                than = resp.read().decode("utf-8", "replace")
                 if resp.status == 200:
-                    return resp.read().decode("utf-8", "replace")[:200]
-                loi_cuoi = f"HTTP {resp.status}"
+                    hong = _phu_thuoc_hong(than)
+                    if hong is None:
+                        return than[:200]
+                    # Lúc vừa khởi động, kết nối CSDL có thể chưa xong — cứ
+                    # chờ tiếp trong hạn, chỉ kết luận hỏng khi hết lượt.
+                    loi_cuoi = f"200 nhưng {hong}"
+                else:
+                    loi_cuoi = f"HTTP {resp.status}"
         except Exception as e:  # noqa: BLE001 — mọi kiểu hỏng mạng đều là "chưa lên"
             loi_cuoi = str(e)
         ngu(nhip_s)
-    raise DeployHong(f"deploy xong nhưng {url} không trả 200 ({loi_cuoi}) — "
-                     "dịch vụ chưa sống, đừng coi là đã lên")
+    raise DeployHong(f"deploy xong nhưng {url} chưa lành ({loi_cuoi}) — "
+                     "đừng coi là đã lên")
 
 
 def trien_khai(du_an: str, ten: str, suc_khoe: str, *, cong: str, token: str,

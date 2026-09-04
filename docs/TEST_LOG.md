@@ -13935,3 +13935,30 @@ cảnh báo vàng.
 `runtime:write`. Đưa nguyên nó vào Actions secrets nghĩa là ai có quyền ghi vào
 repo cũng có thể dùng nó. Nếu Vibe Host cấp được khoá chỉ-`deploy` thì nên
 dùng khoá đó, không dùng khoá đang cắm trong máy.
+
+## C59 — `/health` báo "ổn" cả khi mất cơ sở dữ liệu (04/09/2026)
+
+Chủ dự án đã thêm secret `VIBEHOST_TOKEN`. Trước khi chạy thử vòng deploy tự
+động, rà lại chính thứ sắp được dùng làm **thước đo**: `/health`.
+
+Nó trả `ok: true` **kể cả khi mất kết nối MongoDB**. Ngày 31-08 nền tảng báo
+`dependency_unreachable` hàng giờ (worker không claim được job vì máy chủ không
+nối được Mongo) trong khi đường này vẫn xanh.
+
+Từ C58 chính đường này quyết định một lượt deploy tự động có được ghi là "đã
+lên" hay không. Nghĩa là: **bộ kiểm deploy sẽ chấm đạt cho một bản thực chất
+không dùng được** — tự động hoá một phép đo sai thì chỉ sai nhanh hơn.
+
+Đã sửa: `/health` thêm trường `db` (đã kết nối / đang kết nối / mất kết nối /
+đang ngắt / không dùng). `trien_khai_vibehost.py` đọc trường đó: 200 mà CSDL
+chưa nối thì **chờ tiếp trong hạn** (lúc vừa khởi động chưa nối xong là bình
+thường), hết lượt vẫn chưa lành thì kết luận HỎNG.
+
+**Vẫn trả HTTP 200 dù CSDL đứt** — có chủ ý: tiến trình còn sống thật, và cổng
+health của nền tảng dùng chính đường này để quyết định promote; trả 503 lúc CSDL
+chớp sẽ chặn cả những lượt deploy lành. Nói ra trạng thái, để nơi cần khắt khe
+tự quyết.
+
+Test: 2 test Node (`/health` có trường `db`, và vẫn 200 khi không có CSDL) + 3
+test Python (mất kết nối ⇒ chưa lên; nối muộn vẫn đạt; worker trả "ok" thuần
+không bị báo nhầm).

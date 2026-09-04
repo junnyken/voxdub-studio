@@ -20,6 +20,15 @@ const WEB_DIST = process.env.WEB_DIST
 // deploy: đi kiểm "bản nào đang chạy trên máy chủ" thì con số đó chỉ dẫn đi
 // sai đường. Nay lấy từ một nguồn duy nhất (src/version.js).
 const PHIEN_BAN = require('./version')
+const mongoose = require('mongoose')
+
+// Tên trạng thái của mongoose (readyState) bằng tiếng người đọc được.
+const TRANG_THAI_DB = {
+  0: 'mất kết nối',
+  1: 'đã kết nối',
+  2: 'đang kết nối',
+  3: 'đang ngắt',
+}
 
 async function build(opts = {}) {
   const app = Fastify({
@@ -73,10 +82,21 @@ async function build(opts = {}) {
     await app.register(require('./plugins/mongo'))
   }
 
+  // C59 — `/health` từng trả `ok: true` KỂ CẢ khi mất kết nối MongoDB. Ngày
+  // 31-08 nền tảng báo `dependency_unreachable` hàng giờ trong khi đường này
+  // vẫn xanh, và bộ kiểm deploy tự động (C58) chấm điểm bằng chính nó — tức
+  // một bản deploy hỏng vẫn được ghi là "đã lên".
+  //
+  // Vẫn trả HTTP 200 dù CSDL đứt: tiến trình còn sống thật, và cổng health
+  // của nền tảng dùng đường này để quyết định promote — trả 503 lúc CSDL chớp
+  // sẽ chặn cả những lượt deploy lành. Nói ra trạng thái, để nơi cần khắt khe
+  // (bộ kiểm deploy) tự quyết.
   app.get('/health', async () => ({
     ok: true,
     version: PHIEN_BAN.version,
     ...(PHIEN_BAN.commit ? { commit: PHIEN_BAN.commit } : {}),
+    db: opts.mongo === false ? 'không dùng' : TRANG_THAI_DB[mongoose.connection.readyState]
+      || `không rõ (${mongoose.connection.readyState})`,
     uptimeS: Math.round(process.uptime()),
   }))
 
