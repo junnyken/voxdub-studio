@@ -48,9 +48,24 @@ class DeployHong(Exception):
     """Thông điệp phải nói được: hỏng ở bước nào, và làm gì tiếp."""
 
 
+def chuan_hoa_khoa(token: str) -> str:
+    """Khoá phải đi kèm tiền tố ``Bearer``.
+
+    Khoá lưu trong máy có sẵn tiền tố đó, nhưng người dán vào GitHub Secrets
+    rất dễ dán mỗi phần chuỗi. Thiếu tiền tố thì cổng trả 401 và lời báo nói về
+    "khoá không hợp lệ" — dẫn thẳng tới việc đi xin cấp lại một khoá vốn không
+    hỏng. Tự thêm cho xong, thay vì bắt người dùng đoán.
+    """
+    token = (token or "").strip()
+    if token and not token.lower().startswith("bearer "):
+        return f"Bearer {token}"
+    return token
+
+
 def goi_cong(ten_tac_vu: str, tham_so: dict, *, cong: str, token: str,
              timeout: float = 60.0) -> dict:
     """Gọi một công cụ của cổng Vibe Host, trả về phần JSON nó gửi lại."""
+    token = chuan_hoa_khoa(token)
     than = json.dumps({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call",
         "params": {"name": ten_tac_vu, "arguments": tham_so},

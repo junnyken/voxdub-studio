@@ -173,3 +173,16 @@ def test_workflow_chi_deploy_dich_vu_co_thay_doi():
               encoding="utf-8").read()
     assert "dub-worker/" in wf and "webapp/" in wf, (
         "workflow phải so từng thư mục build để biết dịch vụ nào cần deploy")
+
+
+# ------------------------------------------ dán thiếu "Bearer" vẫn chạy ---
+
+def test_khoa_thieu_tien_to_bearer_van_dung_duoc(bo_kich):
+    """Người dán khoá vào GitHub Secrets rất dễ dán mỗi phần chuỗi. Thiếu tiền
+    tố thì cổng trả 401 và lời báo nói về "khoá không hợp lệ" — dẫn thẳng tới
+    việc đi xin cấp lại một khoá vốn không hỏng."""
+    assert bo_kich.chuan_hoa_khoa("abc123") == "Bearer abc123"
+    assert bo_kich.chuan_hoa_khoa("Bearer abc123") == "Bearer abc123"
+    assert bo_kich.chuan_hoa_khoa("  Bearer abc123  ") == "Bearer abc123"
+    assert bo_kich.chuan_hoa_khoa("bearer abc123") == "bearer abc123"
+    assert bo_kich.chuan_hoa_khoa("") == ""
