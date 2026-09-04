@@ -13962,3 +13962,65 @@ tự quyết.
 Test: 2 test Node (`/health` có trường `db`, và vẫn 200 khi không có CSDL) + 3
 test Python (mất kết nối ⇒ chưa lên; nối muộn vẫn đạt; worker trả "ok" thuần
 không bị báo nhầm).
+
+## C60 — App tự chết ngay sau một thông báo lỗi (04/09/2026)
+
+Chủ dự án duyệt phát hành v3.16.2. Bump phiên bản xong, chạy bộ test lần cuối
+trước khi gắn tag thì **cả tiến trình pytest bị abort** ở ~80%:
+
+```
+QThread: Destroyed while thread '' is still running
+Fatal Python error: Aborted
+  ...
+  File "autodub/saas_client.py", line 208 in _request
+  File "autodub_gui/workers.py", line 1036 in run
+```
+
+Không phải test đỏ — là **đổ vỡ**. Và truy ra thì đây là bug của SẢN PHẨM, chỉ
+tình cờ lộ ra trong test.
+
+### Chuyện gì xảy ra
+
+Trang Chép lời báo lỗi xong thì nhờ trợ lý giải thích thêm (V89). Luồng đó gắn
+`parent=self` — tức làm **con của trang**, và nó gọi máy chủ với hạn **30 giây**.
+
+Người dùng đóng trang hoặc thoát app trong 30 giây đó thì Qt huỷ QThread lúc nó
+CÒN ĐANG CHẠY và gọi `abort()`. Tức: **app chết ngay sau một thông báo lỗi** —
+đúng lúc người dùng đang bực nhất, và cái chết đó trông như thể chính lỗi kia
+làm sập app.
+
+Trong bộ test, "đóng trang" xảy ra ở cuối mỗi test (trang bị thu gom), nên nó
+giết luôn tiến trình pytest.
+
+### Vì sao trước giờ không thấy
+
+Nhánh này chỉ chạy khi `is_configured()` đúng — tức có cấu hình máy chủ. CI
+không có `.env` nên luồng thoát ngay ở dòng đầu. Máy tôi thì có. Và ngay cả ở
+đây nó cũng chỉ sập khi lượt gọi mạng đủ chậm để còn dở lúc test kết thúc —
+lần này `getaddrinfo` treo.
+
+### Đã sửa
+
+`giu_song()` trong `workers.py`: giữ tham chiếu ở **tầng module**, không gắn cha
+là trang. Luồng sống lâu hơn trang, tự dọn khi `finished`. Cách chữa KHÔNG phải
+là `wait()` lúc đóng — đó là treo giao diện tới 30 giây.
+
+Kèm: bộ test trang Chép lời nay chặn `is_configured` ngay từ fixture. **Test
+đơn vị đi ra internet là sai về nguyên tắc**, và ở đây nó còn gọi thẳng máy chủ
+prod.
+
+### Canh chính bộ canh
+
+2 test mới: luồng trợ lý KHÔNG được có cha, và phải nằm trong danh sách giữ
+sống; luồng xong thì phải được dọn khỏi danh sách (giữ mãi là rò rỉ).
+
+Một cái bẫy nhỏ lúc viết test đó: `QThread()` trần chạy vòng lặp sự kiện nên
+**không bao giờ kết thúc** — `wait()` hết giờ, rồi chính test lại tái hiện đúng
+crash mình đang canh. Phải dùng QThread con có `run()` trả về ngay.
+
+### Bài học
+
+"Giữ tham chiếu để khỏi bị thu gom" và "gắn cha để khỏi bị thu gom" trông giống
+nhau, nhưng gắn cha thì **vòng đời của luồng bị buộc vào vòng đời của giao
+diện** — mà giao diện thì người dùng đóng bất cứ lúc nào. Luồng gọi mạng dài
+không được làm con của thứ người dùng đóng được.

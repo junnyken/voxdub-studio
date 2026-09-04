@@ -367,13 +367,19 @@ class TranscribePage(BasePage):
         self.log.append_log(dong, 40 if status == "hong" else 20)
 
     def _nho_tro_ly_giai_thich(self, detail: str) -> None:
-        from autodub_gui.workers import ExplainErrorWorker
+        from autodub_gui.workers import ExplainErrorWorker, giu_song
 
-        worker = ExplainErrorWorker(detail, step="chép lời", parent=self)
+        # KHÔNG đặt `parent=self`: luồng này gọi máy chủ với hạn 30 giây, mà
+        # người dùng có thể đóng trang/thoát app ngay sau khi thấy lỗi. Trang
+        # bị huỷ trong lúc luồng con của nó còn chạy thì Qt gọi abort() —
+        # "QThread: Destroyed while thread is still running" — tức app CHẾT
+        # ngay sau một thông báo lỗi, đúng lúc người dùng đang bực (C60).
+        #
+        # Đã sập thật trong bộ test 04-09: trang bị thu gom cuối test, cả tiến
+        # trình pytest bị abort giữa chừng.
+        worker = ExplainErrorWorker(detail, step="chép lời")
         worker.finished_ok.connect(self._hien_loi_giai_thich)
-        # Giữ tham chiếu: QThread bị thu gom giữa chừng là tự crash.
-        self._explain_workers = getattr(self, "_explain_workers", [])
-        self._explain_workers.append(worker)
+        giu_song(worker)
         worker.start()
 
     def _hien_loi_giai_thich(self, viec: str, chuyen: str) -> None:

@@ -1008,6 +1008,27 @@ class AssistWorker(QThread):
         self.finished_ok.emit(list(ket))
 
 
+#: Luồng nền đang chạy mà KHÔNG có cha — xem `giu_song`.
+_DANG_CHAY: set = set()
+
+
+def giu_song(worker: QThread) -> None:
+    """Giữ tham chiếu tới một QThread cho tới khi nó chạy xong.
+
+    C60 — bug thật: một luồng gọi máy chủ (hạn 30 giây) được gắn `parent=` là
+    trang giao diện. Người dùng đóng trang hoặc thoát app trước khi lượt gọi
+    xong thì Qt huỷ QThread lúc nó CÒN ĐANG CHẠY và gọi `abort()`:
+    "QThread: Destroyed while thread is still running" — app chết ngay sau một
+    thông báo lỗi, đúng lúc người dùng đang bực nhất.
+
+    Đã sập thật trong bộ test 04-09 (cả tiến trình pytest bị abort). Cách chữa
+    KHÔNG phải là `wait()` lúc đóng — đó là treo giao diện tới 30 giây. Giữ
+    tham chiếu ở tầng module để luồng sống lâu hơn trang, rồi tự dọn khi xong.
+    """
+    _DANG_CHAY.add(worker)
+    worker.finished.connect(lambda: _DANG_CHAY.discard(worker))
+
+
 class ExplainErrorWorker(QThread):
     """Nhờ trợ lý dịch một dòng lỗi kỹ thuật sang việc người dùng làm được.
 

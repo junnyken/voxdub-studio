@@ -16,6 +16,19 @@ def _qapp():
     yield QApplication.instance() or QApplication([])
 
 
+@pytest.fixture(autouse=True)
+def _khong_goi_may_chu_that(monkeypatch):
+    """Chặn mọi lượt gọi máy chủ từ bộ test này.
+
+    C60: `test_dong_hong_kem_ly_do` kích đúng nhánh báo hỏng, mà nhánh đó khởi
+    động luồng trợ lý gọi THẲNG máy chủ prod (hạn 30 giây). Test đơn vị đi ra
+    internet là sai về nguyên tắc, và ở đây còn kéo theo hậu quả: luồng chưa
+    xong lúc test kết thúc thì Qt abort cả tiến trình pytest — đã sập thật
+    04-09, giữa một lượt chuẩn bị phát hành.
+    """
+    monkeypatch.setattr("autodub.saas_client.is_configured", lambda: False)
+
+
 @pytest.fixture()
 def page(tmp_path):
     settings = Settings()
@@ -236,3 +249,56 @@ def test_worker_chay_that_gui_kem_ly_do(tmp_path, monkeypatch):
     assert nhan[0][3] == "hong"
     assert nhan[0][4] == "Video này có khoá, cần đăng nhập.", \
         "tín hiệu phải mang theo lý do hỏng"
+
+
+def test_luong_tro_ly_KHONG_gan_lam_con_cua_trang(page, monkeypatch):
+    """C60 — bug thật, và nó giết cả tiến trình.
+
+    Luồng trợ lý gọi máy chủ với hạn 30 giây. Gắn nó `parent=self` nghĩa là
+    người dùng đóng trang (hoặc thoát app) trước khi lượt gọi xong thì Qt huỷ
+    QThread lúc CÒN ĐANG CHẠY rồi gọi abort() — app chết ngay sau một thông
+    báo lỗi, đúng lúc người dùng đang bực nhất.
+
+    Đã sập thật 04-09 giữa một lượt chuẩn bị phát hành: trang bị thu gom cuối
+    test, cả tiến trình pytest bị abort.
+    """
+    from autodub_gui import workers
+
+    tao = []
+    monkeypatch.setattr("autodub.saas_client.is_configured", lambda: True)
+    monkeypatch.setattr(workers.ExplainErrorWorker, "start",
+                        lambda self: tao.append(self))
+
+    page._nho_tro_ly_giai_thich("lỗi gì đó")
+
+    assert tao, "không khởi động luồng trợ lý"
+    w = tao[0]
+    assert w.parent() is None, (
+        "luồng gọi mạng KHÔNG được làm con của trang — trang bị huỷ trước khi "
+        "luồng xong là Qt abort cả tiến trình")
+    assert w in workers._DANG_CHAY, (
+        "không giữ tham chiếu thì QThread bị thu gom giữa chừng — cũng crash")
+
+
+def test_luong_xong_thi_duoc_don_khoi_danh_sach():
+    """Giữ tham chiếu mãi mãi là rò rỉ. Xong phải tự dọn.
+
+    Dùng QThread CON có `run()` trả về ngay: QThread trần chạy vòng lặp sự kiện
+    nên không bao giờ kết thúc (chính tôi vấp lúc viết test này).
+    """
+    from PySide6.QtCore import QThread
+
+    from autodub_gui import workers
+
+    class _XongNgay(QThread):
+        def run(self):
+            return
+
+    w = _XongNgay()
+    workers.giu_song(w)
+    assert w in workers._DANG_CHAY
+    w.start()
+    assert w.wait(5000), "luồng thử không kết thúc"
+    # `finished` phát ở luồng chủ — cho vòng lặp sự kiện một nhịp để chạy slot.
+    QApplication.processEvents()
+    assert w not in workers._DANG_CHAY, "xong rồi mà vẫn giữ tham chiếu"
