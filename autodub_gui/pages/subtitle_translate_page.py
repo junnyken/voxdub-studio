@@ -247,14 +247,22 @@ class SubtitleTranslatePage(BasePage):
         TOASTS.success("Dịch phụ đề xong.", action_label="Mở thư mục",
                        on_action=self._open_output_folder)
 
+    #: Câu khuyên khi KHÔNG đoán được nguyên nhân — cố ý liệt kê vài hướng.
+    _KHUYEN_CHUNG = ("Kiểm tra lại file phụ đề, ngôn ngữ đã chọn, hoặc kết nối "
+                     "mạng (nếu đang dịch qua máy chủ VoxDub), rồi thử lại.")
+
     def _on_failed(self, message: str) -> None:
         text, level = error_line(message)
         self.log.append_log(text, level)
         REGISTRY.finish_job(False, message[:120])
-        ConfirmDialog.show_error(
-            self, "Không dịch được",
-            "Kiểm tra lại file phụ đề, ngôn ngữ đã chọn, hoặc kết nối mạng "
-            "(nếu đang dịch qua máy chủ VoxDub), rồi thử lại.", detail=message)
+        # C61: khi lời báo đã nói được VIỆC CẦN LÀM (vd "chưa cài bộ dịch ngoại
+        # tuyến — chạy bộ cài này"), thay nó bằng câu khuyên chung chung là lấy
+        # đi đúng thứ người dùng cần. Câu chung chỉ dành cho ca thật sự không
+        # đoán được nguyên nhân.
+        than = self._KHUYEN_CHUNG
+        if text.startswith("Dừng lại: "):
+            than = text[len("Dừng lại: "):]
+        ConfirmDialog.show_error(self, "Không dịch được", than, detail=message)
 
     def _open_output_folder(self) -> None:
         if self._last_output_dir:

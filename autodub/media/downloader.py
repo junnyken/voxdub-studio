@@ -123,6 +123,70 @@ def ensure_single_video_url(url: str) -> None:
             "youtube.com/watch?v=… hoặc youtu.be/…).")
 
 
+#: Dấu hiệu "không đọc nổi kho cookie của trình duyệt" (C61).
+#:
+#: Lỗi thật người dùng gặp 05-09 khi chép lời một liên kết TikTok:
+#:   ERROR: Could not copy Chrome cookie database. See yt-dlp issue #7271
+#:
+#: Trên Windows, Chrome giữ khoá tệp cookie khi đang mở, nên yt-dlp không chép
+#: ra được. Cái đáng nói: phần lớn liên kết KHÔNG cần cookie, mà lượt tải vẫn
+#: chết chỉ vì bước đọc cookie — người dùng mất cả lượt chép lời cho một thứ
+#: họ không hề yêu cầu.
+DAU_HIEU_COOKIE_HONG = (
+    "could not copy",           # "Could not copy Chrome cookie database"
+    "cookie database",
+    "unable to open cookie",
+    "permission denied while opening",
+    "failed to decrypt",        # kho cookie mã hoá, thiếu quyền giải mã
+)
+
+
+def loi_do_cookie_trinh_duyet(loi: str) -> bool:
+    """Lỗi này có phải do KHÔNG ĐỌC ĐƯỢC cookie trình duyệt không?
+
+    Cố ý hẹp: chỉ nhận các câu nói về kho cookie. "Fresh cookies are needed" là
+    chuyện KHÁC hẳn — lúc đó video thật sự đòi cookie, bỏ cookie đi thì càng
+    chắc chắn hỏng.
+    """
+    thap = (loi or "").lower()
+    return any(k in thap for k in DAU_HIEU_COOKIE_HONG)
+
+
+def _tai_bang_ydl(canonical: str, ydl_opts: dict) -> dict:
+    """Gọi yt-dlp; đọc cookie trình duyệt hỏng thì thử lại KHÔNG cookie.
+
+    C61: bỏ cookie đi là một lượt thử RẺ và hầu như luôn đúng — phần lớn liên
+    kết công khai không cần cookie. Nếu lượt thứ hai vẫn hỏng thì mới là video
+    thật sự đòi đăng nhập, và lúc đó lời báo phải nói được việc cần làm.
+    """
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            return ydl.extract_info(canonical, download=True)
+    except Exception as e:      # phân loại rồi ném lại ngay bên dưới
+        co_cookie = bool(ydl_opts.get("cookiesfrombrowser"))
+        if not (co_cookie and loi_do_cookie_trinh_duyet(str(e))):
+            raise
+        logger.warning(
+            "Không đọc được cookie trình duyệt (%s) — thử lại KHÔNG dùng "
+            "cookie. Thường do trình duyệt đang mở giữ khoá tệp.", e)
+
+    khong_cookie = {k: v for k, v in ydl_opts.items()
+                    if k != "cookiesfrombrowser"}
+    try:
+        with yt_dlp.YoutubeDL(khong_cookie) as ydl:
+            info = ydl.extract_info(canonical, download=True)
+    except Exception as e:      # gói lại thành câu nói được việc
+        raise RuntimeError(
+            f"Không tải được video ({e}).\n"
+            "Trước đó cũng không đọc được cookie trình duyệt — thường do trình "
+            "duyệt đang mở giữ khoá tệp cookie. Cách xử lý: đóng hẳn trình "
+            "duyệt rồi thử lại, hoặc xuất tệp cookies.txt và trỏ vào ô «Tệp "
+            "cookie» trong Cài đặt.") from e
+    logger.info("Tải được mà không cần cookie — bỏ qua cookie trình duyệt "
+                "cho liên kết này.")
+    return info
+
+
 def cookie_opts_from(settings) -> dict:
     """Tham số cookie lấy từ Settings — mini-spec V67.
 
@@ -211,18 +275,17 @@ def download_video(url: str, output_dir: str, settings=None) -> str:
 
     logger.info(f"Downloading video from: {canonical}")
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(canonical, download=True)
-        video_id = info.get("id", "video")
-        ext = info.get("ext", "mp4")
-        filepath = (_ydl_reported_path(info)
-                    or os.path.join(output_dir, f"{video_id}.{ext}"))
+    info = _tai_bang_ydl(canonical, ydl_opts)
+    video_id = info.get("id", "video")
+    ext = info.get("ext", "mp4")
+    filepath = (_ydl_reported_path(info)
+                or os.path.join(output_dir, f"{video_id}.{ext}"))
 
-        if not os.path.exists(filepath):
-            for f in sorted(os.listdir(output_dir)):
-                if f.startswith(video_id) and not _is_partial_name(f):
-                    filepath = os.path.join(output_dir, f)
-                    break
+    if not os.path.exists(filepath):
+        for f in sorted(os.listdir(output_dir)):
+            if f.startswith(video_id) and not _is_partial_name(f):
+                filepath = os.path.join(output_dir, f)
+                break
 
     if not os.path.exists(filepath):
         raise RuntimeError(f"Download failed: file not found at {filepath}")

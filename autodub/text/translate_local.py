@@ -17,6 +17,7 @@ cho tính năng miễn phí của ứng dụng, không bán riêng bản dịch 
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from collections import deque
 
@@ -65,6 +66,20 @@ class LocalTranslateError(Exception):
     """Dịch local hỏng (worker crash, model thiếu, ngôn ngữ không hỗ trợ)."""
 
 
+class ChuaCaiDichNgoaiTuyen(LocalTranslateError):
+    """Chưa cài bộ dịch ngoại tuyến — KHÁC HẲN "đã cài mà chạy hỏng".
+
+    C61, lỗi thật người dùng báo: chọn "Máy này (offline, miễn phí)" ở trang
+    Dịch phụ đề rời trên máy chưa chạy bộ cài thì `Popen` ném FileNotFoundError
+    (không có python của `.venv-mt`), lỗi đó rơi thẳng ra giao diện thành
+    *"Dừng lại vì một lỗi ngoài dự tính"*. Người dùng không có cách nào đoán ra
+    việc cần làm là chạy một bộ cài.
+
+    Cùng lớp lỗi với C56 ở bộ quét chữ: thiếu engine bị báo thành một câu vô
+    nghĩa. Chưa cài là chuyện BÌNH THƯỜNG và đoán được — phải nói thẳng.
+    """
+
+
 def flores_code(bcp47: str) -> str | None:
     """FLORES-200 code cho 1 mã BCP-47, hoặc None nếu chưa map (chưa hỗ trợ)."""
     return LANG_TO_FLORES.get(bcp47)
@@ -93,6 +108,19 @@ def run_local_worker(
     if not items:
         raise LocalTranslateError("Không có câu nào để dịch")
 
+    # C61 — hỏi TRƯỚC khi chạy. Không có chốt này thì `Popen` ném
+    # FileNotFoundError và người dùng nhận một câu vô nghĩa.
+    # Hỏi đúng thứ sẽ hỏng: trình thông dịch của venv có tồn tại không. Dùng
+    # `translate_local_configured()` ở đây thì chặn nhầm cả những lượt gọi hợp
+    # lệ trỏ vào venv khác (bộ test watchdog dựng worker giả), mà vẫn không
+    # chính xác hơn — thứ ném FileNotFoundError chính là tệp python này.
+    if not os.path.isfile(settings.translate_local_venv_python_path()):
+        raise ChuaCaiDichNgoaiTuyen(
+            "Chưa cài bộ dịch ngoại tuyến trên máy này. Chạy "
+            "«Cai dat dich ngoai tuyen.bat» (hoặc scripts/setup_translate_local.py) "
+            "rồi dịch lại — bộ này nặng ~600 MB, tải một lần dùng mãi. "
+            "Cần dịch ngay thì chọn «Máy chủ VoxDub» (tốn Vox, chất lượng cao hơn).")
+
     worker_script = bundled_file("autodub", "text", "translate_local_worker.py")
     cmd = [
         settings.translate_local_venv_python_path(),
@@ -102,10 +130,19 @@ def run_local_worker(
         "--tgt-lang", tgt,
     ]
     logger.info(f"Đang dịch {len(items)} câu bằng model local (offline)...")
-    proc = subprocess.Popen(
-        cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
-    )
+    try:
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
+        )
+    except OSError as e:
+        # Chốt ở trên đã hỏi `translate_local_configured()`, nhưng bộ cài có
+        # thể cài dở (có thư mục model, thiếu venv). Vẫn phải là câu nói được
+        # việc cần làm, không phải mã lỗi hệ điều hành.
+        raise ChuaCaiDichNgoaiTuyen(
+            f"Không chạy được bộ dịch ngoại tuyến ({e}). Chạy lại "
+            "«Cai dat dich ngoai tuyen.bat» để cài cho đủ, hoặc chọn "
+            "«Máy chủ VoxDub» để dịch ngay.") from e
 
     stderr_tail: deque[str] = deque(maxlen=30)
     import threading

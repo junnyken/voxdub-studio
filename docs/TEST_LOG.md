@@ -14024,3 +14024,70 @@ crash mình đang canh. Phải dùng QThread con có `run()` trả về ngay.
 nhau, nhưng gắn cha thì **vòng đời của luồng bị buộc vào vòng đời của giao
 diện** — mà giao diện thì người dùng đóng bất cứ lúc nào. Luồng gọi mạng dài
 không được làm con của thứ người dùng đóng được.
+
+## C61 — Hai lỗi người dùng báo, cùng một bản chất: máy nói không rõ (05/09/2026)
+
+Chủ dự án gửi hai ảnh chụp màn hình sau khi chạy thử v3.16.2.
+
+### Lỗi 1 — dịch phụ đề rời tiếng Trung: "một lỗi ngoài dự tính"
+
+Chọn "Máy này (offline, miễn phí)" thì app báo: *"Dừng lại vì một lỗi ngoài dự
+tính — xem chi tiết ở hộp thoại vừa hiện."*
+
+**Tái hiện trước, đoán sau.** Máy tôi có sẵn engine, chạy thật đường đó với 3
+câu tiếng Trung: **chạy tốt**, 3 cue ra đúng. Vậy lỗi không nằm ở tiếng Trung
+hay ở NLLB.
+
+Truy tiếp thì rõ: `run_local_worker` gọi thẳng `subprocess.Popen` với python
+của `.venv-mt`. Máy chưa chạy bộ cài thì **`FileNotFoundError`** — mà lỗi đó
+KHÔNG phải `LocalTranslateError` nên không chỗ nào bọc lại, rơi thẳng ra giao
+diện và trở thành câu vô nghĩa kia. `translate_subtitle_file_local` cũng không
+gọi `is_available()` trước.
+
+Người dùng không có cách nào đoán ra việc cần làm là **chạy một bộ cài**. Đúng
+lớp lỗi C56 ở bộ quét chữ, chỉ khác chỗ.
+
+Sửa: `ChuaCaiDichNgoaiTuyen` — hỏi trước khi chạy (python của venv có tồn tại
+không), và bọc luôn `OSError` của `Popen` cho ca cài dở. Lời báo nói đúng hai
+thứ: bộ cài nào phải chạy, và đường thay thế ngay bây giờ (Máy chủ VoxDub).
+
+Chốt hỏi **đúng thứ sẽ hỏng** (tệp python), không hỏi
+`translate_local_configured()` — dùng cái sau thì chặn nhầm cả bộ test watchdog
+vốn trỏ vào worker giả hợp lệ. Bộ chặn hay chặn nhầm còn tệ hơn không có.
+
+### Lỗi 2 — chép lời từ liên kết TikTok: chết vì cookie
+
+```
+[1/1] HỎNG: https://www.tiktok.com/... — ERROR: Could not copy Chrome cookie
+database. See https://github.com/yt-dlp/yt-dlp/issues/7271
+```
+
+Chrome đang mở giữ khoá tệp cookie nên yt-dlp không chép ra được. Điều đáng nói:
+**phần lớn liên kết công khai KHÔNG cần cookie**, mà cả lượt chép lời vẫn chết
+vì một bước người dùng không hề yêu cầu — họ chỉ bật ô cookie trong Cài đặt cho
+những video có khoá.
+
+Sửa: đọc cookie hỏng thì **thử lại đúng một lần KHÔNG kèm cookie**. Rẻ và hầu
+như luôn đúng. Vẫn hỏng thì lời báo nói cả hai nguyên nhân kèm hai cách xử lý
+(đóng trình duyệt, hoặc xuất `cookies.txt` trỏ vào ô Tệp cookie).
+
+Nhận diện cố ý HẸP: chỉ các câu nói về *kho cookie*. `"fresh cookies are
+needed"` là chuyện khác hẳn — lúc đó video thật sự đòi đăng nhập, bỏ cookie đi
+thì càng chắc hỏng mà lại giấu mất nguyên nhân thật.
+
+### Lời khuyên tới được người dùng, không bị che
+
+Trang Dịch phụ đề rời **luôn** hiện một câu chung chung ("kiểm tra lại
+file/ngôn ngữ/mạng") kể cả khi lỗi đã nói rõ việc cần làm — lấy đi đúng thứ
+người dùng cần. Nay câu chung chỉ dành cho ca thật sự không đoán được.
+
+Đo thật: `error_line()` với lời báo mới trả về *"Dừng lại: Chưa cài bộ dịch
+ngoại tuyến trên máy này. Chạy «Cai dat dich ngoai tuyen.bat» rồi dịch lại…"*.
+
+### Test
+
+`tests/test_thieu_engine_va_cookie_hong.py` (10 test): chưa cài thì nói rõ việc
+cần làm; **đã cài thì KHÔNG bị chặn nhầm**; nhận đúng lỗi kho cookie mà không
+nhận nhầm "video đòi đăng nhập"; thử lại đúng một lần và **giữ nguyên các tham
+số khác**; không cấu hình cookie thì lỗi giữ nguyên, không bịa thêm chuyện
+cookie.
