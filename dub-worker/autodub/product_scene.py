@@ -1,0 +1,355 @@
+"""Dựng bối cảnh mới cho ảnh sản phẩm, có cổng kiểm tuân thủ — mini-spec C1.
+
+Bối cảnh thật (không phải giả định): người bán gửi ảnh chụp màn hình TikTok
+Shop — tài khoản bị **cưỡng chế hủy quyền thương mại điện tử và trừ 1000 điểm
+CHR** vì "quảng bá sản phẩm không nhất quán". Chính sách đó đòi sản phẩm trong
+video khớp sản phẩm đang bán về màu, kích thước, chất liệu và thiết kế; máy
+của TikTok quét bằng thị giác máy tính rồi so với ảnh đăng bán, và **6 lần
+cùng loại trong 90 ngày là mất quyền bán bất kể điểm CHR**.
+
+Nên tệp này không phải là "AI vẽ lại bao bì cho đẹp". Nó là ba luật:
+
+1. **Mặc định giữ nguyên sản phẩm** — câu lệnh gửi mô hình đã cấm sửa bao bì
+   (xem `control_server/src/prompts/product_scene.js`).
+2. **Kiểm lại bằng mắt máy, và KẾT QUẢ KIỂM ĐÈ LÊN CHẾ ĐỘ NGƯỜI DÙNG CHỌN.**
+   Mô hình hứa giữ nguyên là một chuyện; nó có giữ hay không là chuyện khác.
+   Xin SAFE mà ảnh ra lệch thì ảnh đó vẫn bị đánh dấu CONCEPT.
+3. **Hỏng thì nghiêng về phía an toàn.** Không kiểm được (mất mạng, hết Vox,
+   máy chủ lỗi) thì coi như CONCEPT — không bao giờ mặc định là an toàn.
+
+Ảnh CONCEPT luôn bị đóng nhãn nhìn thấy được và không được coi là dùng cho
+bài đăng bán. Mọi lượt dựng đều ghi vào nhật ký tra soát, để khi TikTok gắn cờ
+thì người bán có bằng chứng mình đã dùng ảnh nào.
+"""
+from __future__ import annotations
+
+import base64
+import hashlib
+import json
+import os
+import subprocess
+import time
+from dataclasses import dataclass, field
+
+from autodub.utils import save_json_atomic, setup_logging
+
+logger = setup_logging("autodub.product_scene")
+
+#: Trần cạnh dài của ảnh gửi lên. Ảnh điện thoại 4000px vừa tốn tiền vừa
+#: chậm mà mô hình không dùng hết độ phân giải đó.
+_CANH_DAI_TOI_DA = 1280
+
+#: Trần dung lượng base64 mà máy chủ nhận (schema route). Cắt sớm ở đây để
+#: không đẩy vài MB qua mạng chỉ để bên kia từ chối.
+#: Trần base64 MỖI ảnh. Đặt 1,6 MB chứ không phải 2,8: tác vụ kiểm bao bì
+#: gửi HAI ảnh một lượt, mà trần thân yêu cầu của máy chủ là 4 MB — 2×2,8
+#: vượt trần và bị chặn ở tầng vận chuyển, tức là người dùng nhận lỗi trống
+#: không thay vì câu giải thích nào. Ảnh đã thu về 1024px thì 1,6 MB base64
+#: là thừa thãi (mini-spec C7).
+_TRAN_BASE64 = 1_600_000
+
+#: Những mã lỗi mà thử lại là vô ích — dừng cả mẻ và nói thẳng lý do.
+_KHONG_THU_LAI = frozenset({"IMAGE_STAGE_OFF", "IMAGE_STAGE_CALIBRATION"})
+
+#: Tên tệp nhật ký tra soát, nằm cạnh ảnh kết quả.
+NHAT_KY = "nhat_ky_dung_anh.json"
+
+
+@dataclass
+class KetQua:
+    """Một ảnh đã dựng, kèm phán quyết tuân thủ."""
+
+    duong_dan: str
+    boi_canh: str
+    che_do_xin: str          # người dùng xin gì
+    che_do_that: str         # sau khi kiểm: SAFE | CONCEPT
+    ly_do: str               # vì sao — bằng lời, không phải điểm số
+    da_kiem: bool            # False = chưa kiểm được, phải coi như CONCEPT
+    vox: int = 0
+    # Dấu vân tay của CHÍNH TẤM ẢNH đã kiểm (mini-spec C6). Nhật ký chỉ ghi
+    # tên tệp thì không có gì ngăn người ta thay ruột tệp sau khi kiểm xong —
+    # tên vẫn thế, phán quyết vẫn "đạt", mà ảnh đã là ảnh khác.
+    bam: str = ""
+    # Đóng được nhãn "AI-generated" lên ảnh chưa. Đóng hụt mà vẫn cho ghép
+    # vào video là vi phạm đúng luật bắt buộc của C1.
+    da_dong_nhan: bool = False
+
+    @property
+    def dung_duoc_de_ban(self) -> bool:
+        """Ảnh này có được phép gắn vào bài đăng bán không."""
+        return self.che_do_that == "SAFE" and self.da_kiem
+
+
+@dataclass
+class Phien:
+    """Một lượt dựng nhiều bối cảnh từ một ảnh gốc."""
+
+    anh_goc: str
+    thu_muc: str
+    ket_qua: list[KetQua] = field(default_factory=list)
+    #: (bối cảnh, lý do) cho từng bối cảnh KHÔNG dựng được.
+    #:
+    #: Trước C15 lý do chỉ đi vào tệp nhật ký kỹ thuật, còn màn hình nói
+    #: "Không dựng được ảnh nào — thử lại sau ít phút". Người dùng thử lại
+    #: đúng ba lần, mỗi lần mất 30 Vox, và không lần nào biết vì sao — trong
+    #: khi máy chủ ghi rõ lượt gọi thành công. Lý do phải đi cùng kết quả.
+    hong: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def so_dung_duoc(self) -> int:
+        return sum(1 for k in self.ket_qua if k.dung_duoc_de_ban)
+
+
+def _chay_ffmpeg(args: list[str], timeout: float = 60.0) -> bool:
+    try:
+        ra = subprocess.run(["ffmpeg", "-y", "-v", "error", *args],
+                            capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning(f"ffmpeg lỗi ({e})")
+        return False
+    if ra.returncode != 0:
+        logger.warning(f"ffmpeg lỗi: {(ra.stderr or '')[-200:]}")
+        return False
+    return True
+
+
+def chuan_bi_anh(duong_dan: str, thu_muc_tam: str) -> dict:
+    """Đọc ảnh trên máy thành ``{"mimeType", "data"}`` để gửi lên.
+
+    Thu nhỏ trước khi gửi — dùng ffmpeg vì bản đóng gói CỐ Ý không mang theo
+    PIL (xem `autodub.spec`), còn ffmpeg thì luôn có mặt.
+    """
+    if not os.path.isfile(duong_dan):
+        raise FileNotFoundError(f"Không thấy ảnh: {duong_dan}")
+
+    os.makedirs(thu_muc_tam, exist_ok=True)
+    return thu_nho_de_gui(duong_dan, thu_muc_tam, "_anh_goc_thu_nho.jpg")
+
+
+def thu_nho_de_gui(duong_dan: str, thu_muc_tam: str, ten_tam: str) -> dict:
+    """Thu nhỏ MỘT ảnh trên đĩa rồi đóng gói ``{"mimeType", "data"}``.
+
+    Dùng cho cả ảnh gốc lẫn ảnh vừa dựng. Vì sao ảnh vừa dựng cũng phải qua
+    đây (bug thật, 22/8/2026): bản đầu gửi thẳng ảnh máy chủ trả về đi kiểm.
+    Mô hình sinh ảnh trả PNG 1024px — base64 lên tới vài MB — cộng với ảnh
+    gốc là vượt trần thân yêu cầu của máy chủ. Lượt kiểm bị chặn ngay ở tầng
+    vận chuyển, **không để lại một dòng nào trong sổ**, và app lặng lẽ đánh
+    dấu "chưa kiểm được".
+
+    Hậu quả: hai ảnh đã dựng, 60 Vox đã trừ, và **không một lượt kiểm bao bì
+    nào chạy** — tức là cổng tuân thủ, thứ duy nhất tính năng này sinh ra để
+    làm, chưa từng hoạt động.
+    """
+    nho = os.path.join(thu_muc_tam, ten_tam)
+    ok = _chay_ffmpeg([
+        "-i", duong_dan,
+        "-vf", f"scale='min({_CANH_DAI_TOI_DA},iw)':-2",
+        "-q:v", "3", nho,
+    ])
+    nguon = nho if ok and os.path.isfile(nho) else duong_dan
+
+    with open(nguon, "rb") as f:
+        raw = f.read()
+    data = base64.b64encode(raw).decode()
+    if len(data) > _TRAN_BASE64:
+        raise ValueError(
+            "Ảnh quá nặng ngay cả sau khi thu nhỏ — hãy chụp lại hoặc lưu ở "
+            "định dạng JPG.")
+    loai = "image/png" if nguon.lower().endswith(".png") else "image/jpeg"
+    return {"mimeType": loai, "data": data}
+
+
+def bam_tep(duong_dan: str) -> str:
+    """Dấu vân tay nội dung một tệp trên đĩa.
+
+    Dùng để phát hiện tệp bị thay ruột giữa lúc kiểm và lúc ghép video —
+    tên tệp không đủ, vì thay ruột thì tên vẫn nguyên.
+    """
+    try:
+        with open(duong_dan, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()[:32]
+    except OSError as e:
+        logger.warning(f"Không băm được «{duong_dan}» ({e})")
+        return ""
+
+
+def _bam_anh(anh: dict) -> str:
+    return hashlib.sha1((anh.get("data") or "").encode()).hexdigest()[:16]
+
+
+def dong_nhan_ai(duong_dan: str, che_do: str) -> bool:
+    """Đóng nhãn nhìn thấy được lên ảnh.
+
+    Không cho tắt trong bản đầu. Lý do: từ 13/5/2026 TikTok bắt buộc nhãn
+    "AI-generated" cho nội dung chỉnh sửa bằng AI đáng kể — và với ảnh
+    CONCEPT thì nhãn còn là thứ phân biệt "ảnh ý tưởng" với "ảnh sản phẩm
+    đang bán", tức là ranh giới tránh án phạt.
+    """
+    chu = ("AI-generated — anh y tuong, khong phai san pham dang ban"
+           if che_do == "CONCEPT" else "AI-generated")
+    tam = duong_dan + ".nhan.jpg"
+    ok = _chay_ffmpeg([
+        "-i", duong_dan,
+        "-vf",
+        (f"drawtext=text='{chu}':fontcolor=white:fontsize=h/28:"
+         "box=1:boxcolor=black@0.55:boxborderw=8:x=(w-text_w)/2:y=h-th-16"),
+        "-q:v", "3", tam,
+    ])
+    if ok and os.path.isfile(tam):
+        os.replace(tam, duong_dan)
+        return True
+    # Không đóng được nhãn thì KHÔNG im lặng trả về ảnh trần.
+    logger.warning("Không đóng được nhãn AI-generated lên ảnh — ảnh này chỉ "
+                   "nên dùng để xem, đừng đăng")
+    return False
+
+
+def kiem_tuan_thu(khach, anh_goc: dict, anh_moi: dict, *,
+                  ghi_chu: str = "") -> tuple[str, str, bool]:
+    """Hỏi máy chủ: ảnh mới còn là sản phẩm thật không?
+
+    Trả ``(che_do, ly_do, da_kiem)``. Hỏng thì trả CONCEPT — nghiêng về phía
+    an toàn, vì đoán sai theo hướng "an toàn" chỉ làm mất một tấm ảnh, còn
+    đoán sai theo hướng ngược lại là mất tài khoản bán hàng.
+    """
+    from autodub.saas_client import new_job_id
+
+    try:
+        ket = khach.assist(
+            "packaging_check", {"note": ghi_chu[:300]},
+            images=[anh_goc, anh_moi], job_id=new_job_id(), timeout=90.0)
+    except Exception as e:  # noqa: BLE001 — mọi lỗi đều nghiêng về an toàn
+        # Kèm NGUYÊN VĂN nguyên nhân: "chưa kiểm được" một mình không cho
+        # người bán biết nên chụp lại ảnh, đợi mạng, hay báo lỗi.
+        logger.warning(f"Không kiểm được ảnh ({str(e)[:120]}) — đánh dấu là "
+                       "ảnh ý tưởng cho chắc")
+        return ("CONCEPT",
+                f"chưa kiểm được ({str(e)[:80]}) — đánh dấu an toàn", False)
+
+    if not ket:
+        return "CONCEPT", "máy chủ không trả kết quả kiểm", False
+    dau = ket[0]
+    gia_tri = str(dau.get("value", "")).strip().upper()
+    ly_do = str(dau.get("reason", "")).strip() or "không rõ"
+    if gia_tri not in ("SAFE", "CONCEPT"):
+        return "CONCEPT", f"kết quả kiểm lạ ({gia_tri[:20]})", False
+    return gia_tri, ly_do, True
+
+
+def danh_sach_noi_goi(khach=None) -> list[tuple[str, str]]:
+    """[(tên, nhãn)] các nơi gọi mô hình ảnh — mini-spec C17.
+
+    Gọi mạng, nên nơi dùng phải đưa vào luồng nền (bài học C7).
+    """
+    from autodub.saas_client import get_client, is_configured
+
+    if not is_configured():
+        return []
+    khach = khach or get_client()
+    return [(str(m.get("name") or ""), str(m.get("label") or m.get("name") or ""))
+            for m in khach.image_providers() if m.get("name")]
+
+
+def dung_boi_canh(anh_goc_path: str, boi_canh: list[str], thu_muc_ra: str, *,
+                  che_do: str = "SAFE", ghi_chu: str = "", noi_goi: str = "",
+                  khach=None) -> Phien:
+    """Dựng nhiều bối cảnh từ một ảnh, kiểm từng ảnh, ghi nhật ký.
+
+    Mỗi ảnh đi qua đúng ba bước: dựng → kiểm → đóng nhãn. Không có đường tắt
+    nào bỏ bước kiểm, kể cả khi người dùng xin SAFE.
+    """
+    from autodub.saas_client import get_client, is_configured, new_job_id
+
+    if not is_configured():
+        raise RuntimeError(
+            "Tính năng này cần tài khoản VoxDub — mở Cài đặt để kết nối.")
+    khach = khach or get_client()
+
+    os.makedirs(thu_muc_ra, exist_ok=True)
+    goc = chuan_bi_anh(anh_goc_path, thu_muc_ra)
+    phien = Phien(anh_goc=anh_goc_path, thu_muc=thu_muc_ra)
+
+    for ten_bc in boi_canh:
+        try:
+            tra_ve = khach.product_scene(goc, ten_bc, job_id=new_job_id(),
+                                         mode=che_do, note=ghi_chu,
+                                         provider=noi_goi)
+        except Exception as e:  # noqa: BLE001 — một bối cảnh hỏng không giết cả mẻ
+            # Trừ những lý do KHÔNG phải trục trặc nhất thời: tính năng đang
+            # tắt, hoặc máy này chưa nằm trong danh sách chạy thử (C2). Thử
+            # tiếp năm bối cảnh nữa cũng ra đúng câu trả lời đó, mà người
+            # dùng lại nhận về "thử lại sau ít phút" — sai hẳn việc phải làm.
+            if getattr(e, "code", "") in _KHONG_THU_LAI:
+                raise
+            logger.warning(f"Không dựng được bối cảnh «{ten_bc}» ({str(e)[:120]})")
+            phien.hong.append((ten_bc, str(e)[:200]))
+            continue
+
+        anh_moi = tra_ve.get("image") or {}
+        if not anh_moi.get("data"):
+            logger.warning(f"Bối cảnh «{ten_bc}»: máy chủ không trả ảnh")
+            phien.hong.append((ten_bc, "máy chủ nhận lượt gọi nhưng không "
+                                       "trả về ảnh"))
+            continue
+
+        ra_path = os.path.join(thu_muc_ra, f"{ten_bc}.jpg")
+        with open(ra_path, "wb") as f:
+            f.write(base64.b64decode(anh_moi["data"]))
+
+        # Gửi bản THU NHỎ của ảnh vừa dựng, không phải ảnh máy chủ trả về:
+        # ảnh gốc từ mô hình quá nặng nên lượt kiểm bị chặn ở tầng vận
+        # chuyển (xem `thu_nho_de_gui`). Phán quyết vẫn đúng vì bước này
+        # nhìn bao bì và chữ trên nhãn, không soi từng điểm ảnh.
+        try:
+            anh_de_kiem = thu_nho_de_gui(ra_path, thu_muc_ra, "_anh_kiem_tam.jpg")
+        except (OSError, ValueError) as e:
+            logger.warning(f"Không chuẩn bị được ảnh để kiểm ({e})")
+            anh_de_kiem = anh_moi
+
+        che_do_that, ly_do, da_kiem = kiem_tuan_thu(
+            khach, goc, anh_de_kiem, ghi_chu=ghi_chu)
+        # Người dùng xin SAFE không có nghĩa ảnh ra là SAFE — phán quyết của
+        # bước kiểm mới là thứ tính.
+        da_dong_nhan = dong_nhan_ai(ra_path, che_do_that)
+
+        phien.ket_qua.append(KetQua(
+            duong_dan=ra_path, boi_canh=ten_bc, che_do_xin=che_do,
+            che_do_that=che_do_that, ly_do=ly_do, da_kiem=da_kiem,
+            vox=int(tra_ve.get("creditCharged") or 0),
+            # Băm SAU khi đóng nhãn: tệp trên đĩa lúc này mới là tệp cuối
+            # cùng, và đó mới là thứ cần khớp lúc ghép video.
+            bam=bam_tep(ra_path), da_dong_nhan=da_dong_nhan))
+
+    ghi_nhat_ky(phien, goc)
+    return phien
+
+
+def ghi_nhat_ky(phien: Phien, anh_goc: dict) -> str:
+    """Ghi lại mọi lượt dựng để người bán tự tra khi bị TikTok gắn cờ.
+
+    Đây không phải log kỹ thuật: nó là bằng chứng "tôi đã dùng ảnh nào cho
+    video nào", thứ duy nhất có ích khi phải khiếu nại một án phạt tự động.
+    """
+    duong = os.path.join(phien.thu_muc, NHAT_KY)
+    cu = []
+    if os.path.isfile(duong):
+        try:
+            with open(duong, encoding="utf-8") as f:
+                cu = json.load(f).get("lich_su", [])
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Nhật ký cũ không đọc được ({e}) — ghi tiếp bản mới")
+
+    cu.append({
+        "luc": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "anh_goc": phien.anh_goc,
+        "bam_anh_goc": _bam_anh(anh_goc),
+        "anh_da_dung": [
+            {"tep": os.path.basename(k.duong_dan), "boi_canh": k.boi_canh,
+             "xin": k.che_do_xin, "ket_luan": k.che_do_that,
+             "ly_do": k.ly_do, "da_kiem": k.da_kiem, "vox": k.vox,
+             "bam": k.bam, "da_dong_nhan": k.da_dong_nhan}
+            for k in phien.ket_qua
+        ],
+    })
+    save_json_atomic({"lich_su": cu}, duong)
+    return duong
