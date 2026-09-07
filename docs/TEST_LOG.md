@@ -14358,3 +14358,57 @@ test không đụng status start/done. `tests/test_cloud_render.py` thêm
 `total=1` ở trên).
 
 2375 đạt / 4 bỏ qua.
+
+## C69 — SỬA THẬT bug NLLB early-stop bằng `min_decoding_length` (07/09/2026)
+
+Nối tiếp C67 ngay trong ngày, theo yêu cầu tìm cách khắc phục thay vì dừng
+ở cảnh báo. C67 đã thử **lọc SAU khi dịch** (đo tỉ lệ độ dài, đo điểm tin
+cậy ctranslate2) — cả hai đều thất bại vì không phân biệt được đầu ra hỏng
+với đầu ra đúng. Hướng mới: **chặn TRƯỚC khi model kịp dừng sớm**, thay vì
+cố phát hiện sau khi đã dừng sớm.
+
+`ctranslate2.Translator.translate_batch()` có tham số `min_decoding_length`
+(mặc định 1 — gần như không giới hạn) ép model phải phát ra ít nhất N token
+trước khi được phép phát EOS. Đo thật bằng chính model NLLB (622MB,
+`models/translate-local/`, không cần internet) trên đúng câu gây bug thật
+ở V11 (`"Trí tựa nhân tạo... Đây chỉ là giàn lập, không phải thật."`, câu 2
+từng bị dừng sớm mất trắng khi gộp cùng câu 1 trong 1 lượt gọi):
+
+| `min_decoding_length` (tỉ lệ so với số token nguồn) | Kết quả |
+|---|---|
+| 0 (mặc định, đúng bug cũ) | Chỉ có câu 1: *"Artificial intelligence is changing the way we work."* |
+| 0.5 | Cả 2 câu: *"...the way we work. It's just random, it's not real."* |
+| 0.8 | Giống 0.5, không đổi |
+| 1.0 | Bắt đầu LẶP CHỮ ở cuối: *"...it's not real. It's not real."* (model phải độn thêm nội dung để đạt đúng độ dài ép buộc) |
+
+Chọn **0.5** — có biên an toàn rõ trước ngưỡng lặp chữ ở 1.0. Đo thêm trên
+các ca ĐÃ TỐT từ trước (câu ngắn, câu dài bình thường, cả hai chiều
+vi↔en/zh→vi): **không câu nào đổi bản dịch** ở tỉ lệ 0.5 — `min_decoding_
+length` chỉ là NGƯỠNG SÀN, không có tác dụng khi model đã tự nhiên dịch dài
+hơn ngưỡng đó (chỉ kích hoạt đúng lúc model ĐANG định dừng sớm bất thường).
+
+**Cái giá phải trả — đã đo, không giấu:** ctranslate2 chỉ nhận
+`min_decoding_length` là MỘT số dùng chung cho cả lượt `translate_batch()`
+(thử truyền một mảng số riêng từng câu bị từ chối thẳng —
+`TypeError: incompatible function arguments`), nên không đặt riêng theo độ
+dài từng câu được nếu vẫn gộp nhiều câu trong 1 lượt gọi như V21. Đổi
+sang gọi `translate_batch()` **riêng từng câu** (mỗi câu 1 lượt, đúng
+`min_decoding_length` của chính câu đó) — đo trên 32 segment mô phỏng thật
+(1-2 câu/segment, giống phân bố ASR thật): **chậm hơn ~10%** so với gộp
+theo segment như trước. Đánh đổi được coi là hợp lý: bước dịch vốn đã
+NHANH hơn nhiều so với ASR/TTS trong cả pipeline, và cái giá là để đổi lấy
+KHÔNG MẤT NỘI DUNG — mất câu là hỏng nặng hơn nhiều so với chậm thêm vài
+giây.
+
+**Còn tồn — KHÔNG giải quyết được bằng cách này:** ca "segment không có dấu
+kết câu" (ASR mất dấu, `_split_sentences()` coi cả cụm nhiều câu là 1 câu)
+vẫn chỉ được CẢNH BÁO (giữ nguyên từ C67), không tự sửa — `min_decoding_
+length` ép model dịch DÀI HƠN nhưng không ép nó dịch ĐÚNG NỘI DUNG của một
+cụm nhiều-câu-thành-một-khối; muốn sửa ca đó cần tách được ranh giới câu
+đáng tin cậy trong văn bản không dấu, việc đó chưa có lời giải rẻ.
+
+1 test mới (`test_min_decoding_length_giu_du_hai_cau_khong_chi_them_chu_thua`)
+canh CẤU TRÚC (≥2 dấu kết câu), không chỉ độ dài — để không lẫn "câu 2 đã về"
+với "câu 1 bị độn thêm chữ".
+
+2376 đạt / 4 bỏ qua.

@@ -333,15 +333,18 @@ này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cu
 
 ### 5.2 Đã biết, chưa sửa
 
-- **Dịch cục bộ (NLLB) có thể lẫn/bịa nội dung** khi một "câu" dài không có
-  dấu kết câu bị gửi nguyên cụm (thường do ASR mất dấu câu — xem cảnh báo có
-  sẵn ở `paraformer_transcriber.py`) — **tái hiện được thật bằng model NLLB
-  thật ngay trong sandbox** (C67 — mục riêng, xem TEST_LOG.md). Đã thử hai cách lọc tự
-  động (tỉ lệ độ dài output/input, điểm tin cậy của ctranslate2) — **cả hai
-  đều KHÔNG phân biệt được** ca lỗi này với bản dịch đúng, nên chưa có cách
-  sửa tự động đã kiểm chứng. Đã thêm: cảnh báo ra log ứng dụng khi gặp câu
-  dài không dấu (trước đây worker có cảnh báo qua stderr nhưng bị bỏ qua nếu
-  dịch vẫn "thành công" — nay luôn lên log). Xem `docs/TEST_LOG.md` mục C67.
+- ~~Dịch cục bộ (NLLB) có thể lẫn/bịa nội dung khi câu 2 trong 1 segment bị
+  model "dừng sớm"~~ — **đã sửa thật (C69).** C67 phát hiện lại đúng bug V11
+  và thử hai cách LỌC (đo sau khi dịch) — cả hai đều không phân biệt được ca
+  lỗi với bản dịch đúng. C69 đổi hướng sang SỬA TRƯỚC khi model kịp dừng
+  sớm: ép `min_decoding_length` (tham số có sẵn của ctranslate2) theo đúng
+  độ dài từng câu nguồn — đo thật bằng model NLLB thật, hết dấu vết bug V11,
+  0 hồi quy trên mọi ca đã thử, đổi lại translation chậm hơn ~10% (đo thật,
+  do gọi riêng từng câu thay vì gộp — `min_decoding_length` là số dùng
+  chung cho cả lượt gọi của ctranslate2, gộp câu thì không đặt riêng được).
+  Còn tồn: ca "segment không có dấu kết câu" (ASR mất dấu câu) — cảnh báo ra
+  log (giữ từ C67) nhưng chưa có sửa tự động, vì không tách được ranh giới
+  câu một cách đáng tin khi nguồn không có dấu. Xem `docs/TEST_LOG.md` C67+C69.
 - **"Nghe chép thiếu câu" — chủ dự án báo, CHƯA tái hiện được.** Thử trên clip
   53 giây: 13 câu ở cả bản sạch lẫn bản trộn nhạc, cùng 107 từ — nhạc làm VỤN
   câu chứ không nuốt câu. Một lượt 30 giây khác (05/09) ra đúng 5/5 câu. Chưa

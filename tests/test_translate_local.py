@@ -169,6 +169,36 @@ def test_multi_sentence_segment_with_noisy_asr_no_longer_drops_second_sentence()
         monkeypatch.undo()
 
 
+@pytest.mark.skipif(not _HAS_MODEL, reason=(
+    "Cần model NLLB thật (622MB, không commit vào repo) — set "
+    "VOXDUB_TEST_NLLB_MODEL_DIR hoặc chạy scripts/setup_translate_local.py "
+    "(model về models/translate-local, test tự tìm thấy)."))
+def test_min_decoding_length_giu_du_hai_cau_khong_chi_them_chu_thua():
+    """C69 — SỬA THẬT bằng `min_decoding_length` (ép ctranslate2 không phát
+    EOS quá sớm), không chỉ cảnh báo log. Test trên khác V21 ở chỗ: không chỉ
+    đòi ĐỘ DÀI tăng (có thể là chữ thừa/lặp do ép độ dài), mà đòi CẤU TRÚC HAI
+    CÂU thật sự — ít nhất 2 dấu kết câu trong bản dịch, đúng số câu nguồn."""
+    from autodub.text.translate_local import translate_segments_local
+
+    monkeypatch = pytest.MonkeyPatch()
+    settings = _cai_dat_that(monkeypatch)
+    try:
+        segments = [{"id": 1, "text": (
+            "Trí tựa nhân tạo đang thay đổi cách chúng ta làm việc. "
+            "Đây chỉ là giàn lập, không phải thật.")}]
+        target = get_target("en")
+        result = translate_segments_local(segments, target, "vi-VN", settings)
+        text = result[0][target.text_field]
+        print("Bản dịch thật (live NLLB, sau C69):", text)
+        so_dau_ket_cau = sum(text.count(c) for c in ".!?")
+        assert so_dau_ket_cau >= 2, (
+            f"chỉ thấy {so_dau_ket_cau} dấu kết câu trong {text!r} — nguồn "
+            "có 2 câu, bản dịch phải có cấu trúc 2 câu, không phải 1 câu "
+            "dài ra vì bị ép độn chữ")
+    finally:
+        monkeypatch.undo()
+
+
 # --------------------------------------------------------------------- #
 # mini-spec V27 (docs/PLAN.md, Phase G) — glossary trước đây bị bỏ qua âm
 # thầm trên nhánh local NLLB. Test bằng run_local_worker() giả (không cần

@@ -57,6 +57,17 @@ _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…。！？])\s*")
 # đây chỉ là CẢNH BÁO để lộ ra trong log, không tự sửa/tự thay nội dung.
 _NGUONG_CAU_DAI_KHONG_DAU = 80
 
+# C69 (docs/TEST_LOG.md) — SỬA THẬT cho early-stop, không chỉ cảnh báo:
+# ctranslate2 nhận `min_decoding_length` (ép model không được phát EOS quá
+# sớm). Đo thật bằng model NLLB thật trên đúng câu gây bug ở V11 ("Đây chỉ
+# là giàn lập, không phải thật" bị bỏ sót hoàn toàn): tỉ lệ 0.5 lần số token
+# nguồn làm model dịch đủ cả câu bị mất trước đây, KHÔNG đổi bất kỳ bản dịch
+# tốt nào trong các ca đã thử (min_decoding_length chỉ là NGƯỠNG SÀN — không
+# ảnh hưởng khi model đã tự nhiên dịch dài hơn ngưỡng đó). Tỉ lệ 1.0 bắt đầu
+# gây lặp chữ ở cuối câu (model phải "độn" thêm nội dung để đạt độ dài ép
+# buộc) — 0.5 có biên an toàn trước ngưỡng đó.
+_TI_LE_DO_DAI_TOI_THIEU_KHI_DICH = 0.5
+
 
 def _split_sentences(text: str) -> list[str]:
     """Tách 1 đoạn thành các câu theo dấu kết câu (Latin + CJK toàn độ
@@ -136,19 +147,24 @@ def main() -> None:
             print(json.dumps({"seg": True, "id": seg.get("id"), "text": ""}),
                   flush=True)
             continue
-        # V21: dịch TỪNG CÂU riêng trong 1 lượt translate_batch() (nhiều
-        # nguồn cùng lúc, KHÔNG chung state decode với nhau) — early-stop
-        # của model khi gặp câu nhiễu chỉ mất đúng câu đó, không kéo theo
-        # các câu sau trong cùng segment (xem comment ở _split_sentences).
+        # V21: dịch TỪNG CÂU riêng (không chung state decode với nhau) —
+        # early-stop của model khi gặp câu nhiễu chỉ mất đúng câu đó, không
+        # kéo theo các câu sau trong cùng segment (xem comment ở
+        # _split_sentences). C69: mỗi câu một lượt `translate_batch()` RIÊNG
+        # (không gộp chung — trước đó gộp để tận dụng batch, nhưng
+        # `min_decoding_length` của ctranslate2 là MỘT số dùng chung cho cả
+        # lượt gọi, không đặt được riêng từng câu nếu gộp) để ép đúng
+        # `min_decoding_length` theo độ dài CỦA CHÍNH câu đó.
         sentences = _split_sentences(text)
         _canh_bao_neu_cau_dai_khong_dau(sentences)
-        sources = [[args.src_lang] + sp.encode(sent, out_type=str) + ["</s>"]
-                  for sent in sentences]
-        results = translator.translate_batch(
-            sources, target_prefix=[[args.tgt_lang]] * len(sources),
-            beam_size=args.beam_size)
         out_parts = []
-        for r in results:
+        for sent in sentences:
+            toks = sp.encode(sent, out_type=str)
+            min_len = max(1, int(len(toks) * _TI_LE_DO_DAI_TOI_THIEU_KHI_DICH))
+            r = translator.translate_batch(
+                [[args.src_lang] + toks + ["</s>"]],
+                target_prefix=[[args.tgt_lang]], beam_size=args.beam_size,
+                min_decoding_length=min_len)[0]
             hyp = r.hypotheses[0]
             if hyp and hyp[0] == args.tgt_lang:
                 hyp = hyp[1:]
