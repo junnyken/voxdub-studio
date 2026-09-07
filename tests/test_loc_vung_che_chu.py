@@ -148,3 +148,63 @@ def test_giao_dien_goi_dung_ten_nut_xoa():
     ma = inspect.getsource(style_dialog.StyleDialog)
     assert "Xoá hết" not in ma, "vẫn còn tên nút không tồn tại"
     assert "Xoá tất cả" in ma
+
+
+# ------------------------------- 4. C64: xoá riêng một vùng ---
+
+@pytest.fixture()
+def khung(qapp=None):
+    """Canvas thật, đặt sẵn ba vùng — không cần video."""
+    pytest.importorskip("PySide6")
+    from PySide6.QtCore import QRect
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from autodub_gui.style_dialog import StyleDialog
+
+    d = StyleDialog(video_path="", style={})
+    d.canvas._rects = [QRect(10, 10, 50, 20),
+                       QRect(100, 40, 60, 30),
+                       QRect(200, 80, 40, 40)]
+    return d.canvas
+
+
+def test_bam_dung_vung_thi_xoa_dung_vung_do(khung):
+    """Sau một lượt quét ra cả chục vùng, muốn bỏ vài cái Ở GIỮA thì trước đây
+    phải xoá sạch rồi vẽ tay lại từ đầu (chủ dự án gặp 07-09)."""
+    from PySide6.QtCore import QPoint
+
+    assert khung.xoa_vung_tai(QPoint(120, 50)) is True
+    con_lai = [(r.x(), r.y()) for r in khung._rects]
+    assert con_lai == [(10, 10), (200, 80)], "xoá nhầm vùng khác"
+
+
+def test_bam_cho_trong_thi_khong_xoa_gi(khung):
+    """Bấm hụt không được im lặng xoá mất một vùng nào đó."""
+    from PySide6.QtCore import QPoint
+
+    assert khung.xoa_vung_tai(QPoint(400, 400)) is False
+    assert len(khung._rects) == 3
+
+
+def test_vung_chong_nhau_thi_xoa_cai_TREN_CUNG(khung):
+    """Quét tự động hay ra vùng chồng nhau. Vùng vẽ sau nằm trên, nên bấm vào
+    chỗ chồng thì phải xoá đúng cái người dùng đang NHÌN THẤY ở trên."""
+    from PySide6.QtCore import QPoint, QRect
+
+    khung._rects.append(QRect(15, 12, 30, 15))     # đè lên vùng đầu tiên
+    assert khung.xoa_vung_tai(QPoint(25, 20)) is True
+    assert (10, 10) in [(r.x(), r.y()) for r in khung._rects], (
+        "xoá mất vùng nằm dưới thay vì vùng trên cùng")
+
+
+def test_giao_dien_noi_cho_nguoi_dung_biet_cach_nay():
+    """Tính năng không ai biết là tính năng không tồn tại."""
+    pytest.importorskip("PySide6")
+    import inspect
+
+    from autodub_gui import style_dialog
+
+    ma = inspect.getsource(style_dialog.StyleDialog)
+    assert "CHUỘT PHẢI" in ma, "không nói ra trong câu hướng dẫn dưới khung hình"
+    assert "chuột phải" in ma, "thông báo sau khi quét không nhắc cách này"

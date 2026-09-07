@@ -14178,3 +14178,28 @@ nhưng luôn ở dải dưới cùng** — vẫn phải coi là nằm lì.
 Kèm ba test bắt phần giao diện phải THẬT SỰ gọi tới (hàm kiểm mà không ai gọi
 thì chỉ là một tệp nằm im), và một test canh tên nút: thông báo từng nhắc "Xoá
 hết" trong khi nút thật tên "Xoá tất cả".
+
+## C64 — Không có cách xoá MỘT vùng che (07/09/2026)
+
+Chủ dự án quét chữ trên một clip khác (cảnh siêu thị), ra 8 vùng, rồi hỏi:
+*"tôi có thể loại bỏ những vùng không cần thiết không"*.
+
+Đọc lại mã: chỉ có `clear_last` ("Xoá vùng cuối") và `clear_all` ("Xoá tất
+cả"). **Không có cách xoá một vùng cụ thể.** Sau một lượt quét ra cả chục vùng,
+muốn bỏ vài cái Ở GIỮA thì phải xoá sạch rồi vẽ tay lại từ đầu.
+
+Câu hỏi đó chính là báo cáo lỗi: người dùng nhìn thấy vùng thừa nằm ngay trước
+mắt mà không có cách bỏ nó đi.
+
+Đã thêm: **bấm chuột phải vào một vùng để xoá riêng vùng đó**. Vùng chồng nhau
+(chuyện thường sau lượt quét tự động) thì xoá cái NẰM TRÊN CÙNG — tức cái người
+dùng đang nhìn thấy, không phải cái bị che khuất bên dưới.
+
+Câu hướng dẫn dưới khung hình và thông báo sau khi quét đều nói ra cách này:
+tính năng không ai biết là tính năng không tồn tại.
+
+4 test: bấm đúng vùng nào xoá vùng đó; bấm hụt thì KHÔNG xoá gì (bấm hụt mà im
+lặng xoá mất một vùng là kiểu hỏng khó chịu nhất); vùng chồng nhau thì xoá cái
+trên cùng; và giao diện phải có nói ra cách dùng.
+
+2356 đạt / 3 bỏ qua.

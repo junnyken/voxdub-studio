@@ -267,6 +267,15 @@ class _FrameCanvas(QWidget):
     # --------------------------------------------------------- mouse ------ #
 
     def mousePressEvent(self, event):
+        # C64 — bấm chuột PHẢI vào một vùng để xoá đúng vùng đó.
+        #
+        # Trước đây chỉ có "Xoá vùng cuối" và "Xoá tất cả". Sau một lượt quét
+        # tự động ra cả chục vùng, muốn bỏ vài cái ở giữa thì phải xoá sạch rồi
+        # vẽ tay lại từ đầu — chủ dự án gặp đúng chuyện này 07-09.
+        if event.button() == Qt.RightButton:
+            if self._allow_regions:
+                self.xoa_vung_tai(event.position().toPoint())
+            return
         if event.button() != Qt.LeftButton:
             return
         pos = event.position()
@@ -275,6 +284,26 @@ class _FrameCanvas(QWidget):
         elif self._allow_regions:
             self._drag_origin = pos.toPoint()
             self._drag_current = None
+
+    def chi_so_vung_tai(self, diem) -> int | None:
+        """Vùng nào nằm dưới điểm này — hoặc None.
+
+        Đi NGƯỢC danh sách: vùng vẽ sau nằm trên cùng, nên nó phải được chọn
+        trước. Vùng chồng nhau là chuyện thường sau một lượt quét tự động.
+        """
+        for i in range(len(self._rects) - 1, -1, -1):
+            if self._rects[i].contains(diem):
+                return i
+        return None
+
+    def xoa_vung_tai(self, diem) -> bool:
+        """Xoá vùng nằm dưới điểm này. Trả về có xoá được gì không."""
+        i = self.chi_so_vung_tai(diem)
+        if i is None:
+            return False
+        del self._rects[i]
+        self.update()
+        return True
 
     def mouseMoveEvent(self, event):
         pos = event.position()
@@ -506,7 +535,8 @@ class StyleDialog(QDialog):
         left.addWidget(self.canvas, 1)
         hint = QLabel(
             "Kéo dòng phụ đề để đặt vị trí. "
-            "Kéo chuột trên hình để khoanh vùng che chữ (làm mờ suốt video)."
+            "Kéo chuột trên hình để khoanh vùng che chữ (làm mờ suốt video); "
+            "bấm CHUỘT PHẢI vào một vùng để xoá riêng vùng đó."
             + ("" if has_video else
                " Đang dùng khung mẫu — vùng che sẽ áp đúng lên video khi xử lý."))
         hint.setObjectName("hint")
@@ -903,7 +933,8 @@ class StyleDialog(QDialog):
         TOASTS.success(
             f"Đã quét {so_khung} khung rải đều cả video và đề xuất "
             f"{len(regions)} vùng chữ{phan_theo_doan} — xem lại và xoá vùng "
-            f"nào không cần bằng nút Xoá vùng cuối/Xoá tất cả.{phan_da_bo}")
+            f"nào không cần: bấm chuột phải vào đúng vùng đó, hoặc dùng nút "
+            f"Xoá vùng cuối/Xoá tất cả.{phan_da_bo}")
 
     def _on_ocr_failed(self, message: str) -> None:
         from autodub_gui.ui.toast import TOASTS
