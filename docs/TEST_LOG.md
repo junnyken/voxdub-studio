@@ -14129,3 +14129,52 @@ Lời khuyên trong sản phẩm cũng là một hợp đồng: nó hứa rằng
 việc. Trước khi viết "làm A đi", phải tự đi hết đường A — nếu A còn một điều
 kiện ngầm (đóng trình duyệt), điều kiện đó là phần BẮT BUỘC của lời khuyên, chứ
 không phải chi tiết phụ.
+
+## C63 — Bộ quét chữ đề xuất che cả mặt người (05/09/2026)
+
+Bằng chứng thật từ lượt chạy của chủ dự án trên clip Douyin cảnh phố đêm:
+"Quét chữ tự động" đề xuất **~15 vùng** — biển hiệu neon, chữ trên tường, và cả
+mặt diễn viên. Bật "Xoá chữ thay vì làm mờ" rồi xuất ra thì **nguyên mảng người
+bị kéo nhoè**, xấu hơn hẳn mấy dòng chữ gốc. Còn watermark góc trên phải — thứ
+đáng xoá nhất — vẫn còn nguyên.
+
+Đọc lại mã thì rõ: bộ quét **không có ngưỡng tin cậy, không giới hạn số vùng**,
+OCR thấy chữ ở đâu là đề xuất che ở đó.
+
+### Dấu hiệu rẻ mà đủ: nằm lì hay trôi qua
+
+Không cần model mới. Watermark và phụ đề cháy **nằm yên một chỗ** nên khung nào
+cũng thấy ở cùng vị trí và được `merge_regions` gộp lại; biển hiệu bên đường
+thì **trôi theo máy quay**, mỗi khung một chỗ, không gộp với ai. Tập khung hình
+`_anh` đã có sẵn từ C50 — chỉ việc đếm.
+
+`loc_theo_lap_lai()`: giữ vùng xuất hiện ở **≥2 khung**. Ngưỡng để ở 2 chứ
+không cao hơn — quét chỉ lấy vài khung rải đều cả video, mà mỗi câu phụ đề cháy
+chỉ sống vài giây nên rất dễ chỉ rơi vào một khung; đòi nhiều hơn là bỏ sót
+đúng thứ cần che. Quét dưới 2 khung thì **không lọc** (không có gì để so).
+
+Số vùng bị bỏ được **nói ra** trong thông báo: lọc âm thầm thì lần sau người
+dùng không hiểu vì sao chữ họ nhìn thấy trên hình lại không được đề xuất che.
+
+### Cảnh báo trước khi xoá, thay vì để chờ xuất xong mới biết
+
+`vung_qua_rong_cho_xoa()` — `delogo` nội suy màu từ đường viền, nên vùng càng
+rộng thì màu càng phải kéo xa khỏi viền, thành mảng nhoè. Bật ô "Xoá chữ" mà
+đang có vùng rộng thì hiện cảnh báo ngay, kèm gợi ý nghe thử 30 giây trước khi
+xuất cả video.
+
+**Cảnh báo, KHÔNG tự đổi sang làm mờ**: người dùng có quyền cứ xoá nếu thấy
+chấp nhận được. Ba ngưỡng (rộng >55% bề ngang, cao >18%, diện tích >6%) là con
+số THẬN TRỌNG theo kinh nghiệm, không phải kết quả đo tối ưu — ghi rõ trong mã
+để sau này ai chỉnh thì biết mình đang chỉnh cái gì.
+
+### Test
+
+`tests/test_loc_vung_che_chu.py` (14 test) dựng đúng tình huống trong ảnh:
+watermark nằm lì thì giữ, biển hiệu trôi thì bỏ, lẫn lộn cả hai thì chỉ giữ cái
+nằm lì. Ca dễ lọc nhầm nhất cũng có test riêng: **phụ đề cháy đổi chữ mỗi câu
+nhưng luôn ở dải dưới cùng** — vẫn phải coi là nằm lì.
+
+Kèm ba test bắt phần giao diện phải THẬT SỰ gọi tới (hàm kiểm mà không ai gọi
+thì chỉ là một tệp nằm im), và một test canh tên nút: thông báo từng nhắc "Xoá
+hết" trong khi nút thật tên "Xoá tất cả".

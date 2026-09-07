@@ -136,6 +136,42 @@ def normalize_style(style: dict | None) -> dict:
 CHE_LAM_MO = "lam_mo"
 CHE_XOA = "xoa"
 
+#: Ngưỡng "vùng quá rộng để xoá cho đẹp" (C63).
+#:
+#: `delogo` nội suy màu từ ĐƯỜNG VIỀN quanh vùng, nên vùng càng rộng thì màu
+#: càng phải kéo xa khỏi viền — thành một mảng bị nhoè. Trên dải chữ mỏng
+#: (đúng ca watermark/phụ đề cháy) nó ăn đứt làm mờ; trên một mảng lớn giữa
+#: cảnh nhiều chi tiết thì tệ hơn hẳn để nguyên.
+#:
+#: Bằng chứng thật: lượt chạy 05-09 của chủ dự án bật xoá chữ với các vùng do
+#: bộ quét đề xuất bừa (trùm cả người) — kết quả là nguyên mảng người bị kéo
+#: nhoè, xấu hơn mấy dòng chữ gốc.
+#:
+#: Ba con số dưới đây là NGƯỠNG THẬN TRỌNG theo kinh nghiệm, không phải kết
+#: quả đo tối ưu — chúng chỉ để CẢNH BÁO, không chặn ai làm gì.
+RONG_TOI_DA = 0.55      # quá nửa bề ngang khung hình
+CAO_TOI_DA = 0.18       # dải chữ thường mỏng hơn nhiều
+DIEN_TICH_TOI_DA = 0.06  # 6% diện tích khung hình
+
+
+def vung_qua_rong_cho_xoa(regions: list[dict]) -> list[dict]:
+    """Các vùng mà `delogo` gần như chắc chắn để lại vệt kéo.
+
+    Trả về danh sách vùng đáng cảnh báo (rỗng nghĩa là ổn). KHÔNG tự đổi sang
+    làm mờ: người dùng có quyền cứ xoá nếu họ thấy chấp nhận được — việc của
+    ứng dụng là nói trước, không phải quyết thay.
+    """
+    ra = []
+    for r in regions or []:
+        try:
+            w = float(r.get("w", 0) or 0)
+            h = float(r.get("h", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if w > RONG_TOI_DA or h > CAO_TOI_DA or w * h > DIEN_TICH_TOI_DA:
+            ra.append(r)
+    return ra
+
 
 def delogo_filter(x: int, y: int, w: int, h: int,
                   video_w: int, video_h: int) -> str | None:

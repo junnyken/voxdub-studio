@@ -83,6 +83,37 @@ def merge_regions(boxes: list[dict]) -> list[dict]:
     return regions
 
 
+#: Số khung tối thiểu một vùng phải xuất hiện thì mới coi là "chữ nằm lì".
+#:
+#: Bằng 2 chứ không cao hơn: quét chỉ lấy vài khung rải đều cả video, mà phụ đề
+#: cháy thì mỗi câu chỉ sống vài giây nên rất dễ chỉ rơi vào một khung. Đòi
+#: nhiều hơn là bỏ sót đúng thứ cần che.
+KHUNG_TOI_THIEU = 2
+
+
+def loc_theo_lap_lai(regions: list[dict], so_khung: int,
+                     toi_thieu: int = KHUNG_TOI_THIEU) -> tuple[list[dict], int]:
+    """Giữ vùng chữ NẰM LÌ qua nhiều khung; bỏ chữ chỉ trôi qua một khung.
+
+    C63 — bằng chứng thật từ lượt chạy của chủ dự án (05-09): quét một cảnh
+    phố đêm Trung Quốc đề xuất ~15 vùng, phần lớn là biển hiệu neon và cả mặt
+    diễn viên. Bật "xoá chữ" rồi xuất ra thì nguyên mảng người bị kéo nhoè —
+    tệ hơn hẳn mấy dòng chữ gốc.
+
+    Phân biệt được hai loại bằng một dấu hiệu rẻ: **watermark và phụ đề cháy
+    NẰM YÊN một chỗ**, nên khung nào cũng thấy ở cùng vị trí và được
+    `merge_regions` gộp lại; **biển hiệu, chữ trên tường thì TRÔI QUA** theo
+    máy quay, mỗi khung một chỗ, không gộp với ai.
+
+    Trả về ``(vùng giữ lại, số vùng đã bỏ)``. Quét dưới 2 khung thì KHÔNG lọc:
+    không có gì để so, lọc lúc đó chỉ là đoán bừa.
+    """
+    if so_khung < toi_thieu:
+        return regions, 0
+    giu = [r for r in regions if len(_tap_anh(r)) >= toi_thieu]
+    return giu, len(regions) - len(giu)
+
+
 def _pad(region: dict) -> dict:
     pad_w = region["w"] * _PADDING_RATIO
     pad_h = region["h"] * _PADDING_RATIO
@@ -309,7 +340,8 @@ def gan_khoang_thoi_gian(regions: list[dict], moc: list[float]) -> list[dict]:
 
 def detect_text_regions(image_paths: list[str], settings=None,
                         cancel_event=None,
-                        moc_thoi_gian: list[float] | None = None) -> list[dict]:
+                        moc_thoi_gian: list[float] | None = None,
+                        thong_ke: dict | None = None) -> list[dict]:
     """Quét nhiều frame đại diện, gộp kết quả, trả về rectangle sẵn dùng
     trực tiếp cho ``blur_regions`` (cùng format style_dialog.py đã dùng).
 
@@ -343,6 +375,16 @@ def detect_text_regions(image_paths: list[str], settings=None,
     if not all_boxes:
         return []
     merged = merge_regions(all_boxes)
+    # C63 — bỏ chữ chỉ TRÔI QUA một khung (biển hiệu, chữ trên tường). Số bỏ
+    # đi phải nói ra: lọc âm thầm thì lần sau vùng cần che biến mất mà không ai
+    # hiểu vì sao.
+    merged, da_bo = loc_theo_lap_lai(merged, len(image_paths))
+    if thong_ke is not None:
+        thong_ke["da_bo"] = da_bo
+        thong_ke["so_khung"] = len(image_paths)
+    if da_bo:
+        logger.info("Bỏ %d vùng chỉ thấy ở một khung (chữ trôi qua, không "
+                    "phải watermark/phụ đề cháy)", da_bo)
     if moc_thoi_gian:
         merged = gan_khoang_thoi_gian(merged, moc_thoi_gian)
     return [_pad(r) for r in merged]

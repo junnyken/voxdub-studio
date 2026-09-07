@@ -120,6 +120,7 @@ class _OcrWorker(QThread):
         self._settings = settings
         self._huy = threading.Event()
         self.so_khung_da_quet = 0
+        self.so_vung_da_bo = 0
 
     def dung(self) -> None:
         """Người dùng bấm Dừng — worker tự dọn và thoát êm."""
@@ -185,10 +186,15 @@ class _OcrWorker(QThread):
             if not paths:
                 self.failed.emit("Không trích được frame nào từ video")
                 return
+            thong_ke: dict = {}
             regions = detect_text_regions(paths, settings=self._settings,
                                           cancel_event=self._huy,
-                                          moc_thoi_gian=moc_lay_duoc)
+                                          moc_thoi_gian=moc_lay_duoc,
+                                          thong_ke=thong_ke)
             self.so_khung_da_quet = len(moc_lay_duoc)
+            # C63: số vùng bị bỏ vì chỉ thấy ở một khung. Lọc âm thầm thì lần
+            # sau người dùng không hiểu vì sao vùng họ trông đợi biến mất.
+            self.so_vung_da_bo = int(thong_ke.get("da_bo", 0))
             self.ready.emit(regions)
         except Exception as e:  # noqa: BLE001
             self.failed.emit(str(e))
@@ -829,6 +835,28 @@ class StyleDialog(QDialog):
 
     def _on_che_kieu(self, bat: bool) -> None:
         self._style["che_kieu"] = "xoa" if bat else "lam_mo"
+        if bat:
+            self._canh_bao_vung_rong()
+
+    def _canh_bao_vung_rong(self) -> None:
+        """Nói TRƯỚC khi xuất video rằng vùng này xoá sẽ ra vệt (C63).
+
+        Bằng chứng thật 05-09: bật xoá chữ với vùng trùm cả người thì nguyên
+        mảng bị kéo nhoè — xấu hơn hẳn chữ gốc, mà người dùng chỉ biết sau khi
+        chờ xuất xong. Cảnh báo, KHÔNG tự đổi sang làm mờ: họ có quyền cứ xoá
+        nếu thấy chấp nhận được.
+        """
+        from autodub.media.subtitle import vung_qua_rong_cho_xoa
+        from autodub_gui.ui.toast import TOASTS
+
+        rong = vung_qua_rong_cho_xoa(self.canvas.normalized_regions())
+        if not rong:
+            return
+        TOASTS.warn(
+            f"{len(rong)} vùng che khá rộng. Xoá chữ dựng lại nền từ viền nên "
+            "vùng rộng trên nền nhiều chi tiết (mặt người, phố xá) sẽ thành "
+            "mảng kéo nhoè — dải chữ mỏng mới hợp. Nghe thử 30 giây trước khi "
+            "xuất cả video, thấy lộ thì bỏ tick này để quay về làm mờ.")
 
     def _on_ocr_tien_do(self, da: int, tong: int) -> None:
         self.btn_ocr_scan.setText(f"Đang quét… {da}/{tong}")
@@ -862,13 +890,20 @@ class StyleDialog(QDialog):
         merged = self.canvas.normalized_regions() + regions
         self.canvas.set_rects_from_normalized(merged)
         so_khung = getattr(self._ocr_worker, "so_khung_da_quet", 0)
+        da_bo = getattr(self._ocr_worker, "so_vung_da_bo", 0)
         co_moc = sum(1 for r in regions if r.get("t_start") is not None)
         phan_theo_doan = (f", trong đó {co_moc} vùng chỉ che đúng đoạn có chữ"
                           if co_moc else "")
+        # C63: nói ra số vùng đã tự bỏ. Lọc âm thầm thì người dùng không hiểu
+        # vì sao chữ họ nhìn thấy trên hình lại không được đề xuất che.
+        phan_da_bo = (f" Đã bỏ {da_bo} vùng chỉ thấy ở một khung (chữ trôi qua "
+                      "như biển hiệu, không phải watermark hay phụ đề cháy) — "
+                      "cần thì tự khoanh tay."
+                      if da_bo else "")
         TOASTS.success(
             f"Đã quét {so_khung} khung rải đều cả video và đề xuất "
             f"{len(regions)} vùng chữ{phan_theo_doan} — xem lại và xoá vùng "
-            "nào không cần bằng nút Xoá vùng cuối/Xoá hết.")
+            f"nào không cần bằng nút Xoá vùng cuối/Xoá tất cả.{phan_da_bo}")
 
     def _on_ocr_failed(self, message: str) -> None:
         from autodub_gui.ui.toast import TOASTS
