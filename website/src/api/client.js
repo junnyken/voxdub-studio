@@ -109,7 +109,8 @@ export const adminApi = {
     adminRequest('/devices/bulk', {
       method: 'POST',
       body: { fingerprints, action, reason: reason || '', xemTruoc: !!xemTruoc },
-    }),  device: (fp) => adminRequest(`/devices/${fp}`),
+    }),
+  device: (fp) => adminRequest(`/devices/${fp}`),
   setDeviceStatus: (fp, status, reason) =>
     adminRequest(`/devices/${fp}/status`, {
       method: 'PATCH', body: { status, reason },

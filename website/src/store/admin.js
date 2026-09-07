@@ -44,7 +44,14 @@ export const useAdminAuth = create((set) => ({
       await adminApi.whoami()
       set({ token, authed: true, checking: false })
       return true
-    } catch {
+    } catch (err) {
+      // Mất mạng tạm thời KHÔNG có nghĩa token sai — xoá token ở đây sẽ đăng
+      // xuất admin đang dùng token còn hợp lệ chỉ vì một lượt chớp mạng.
+      // Chỉ xoá token khi máy chủ THẬT SỰ từ chối nó.
+      if (err.code === 'OFFLINE') {
+        set({ checking: false })
+        return false
+      }
       sessionStorage.removeItem(TOKEN_KEY)
       set({ token: '', authed: false, checking: false })
       return false

@@ -14412,3 +14412,58 @@ canh CẤU TRÚC (≥2 dấu kết câu), không chỉ độ dài — để khô
 với "câu 1 bị độn thêm chữ".
 
 2376 đạt / 4 bỏ qua.
+
+## C70 — Test cho website (React) + 1 bug thật ở phiên admin (07/09/2026)
+
+FEATURES.md §5.3 và CLAUDE.md ghi "website chưa có test" — **sai từ 17/08
+(V50)**: đã có Vitest + RTL, 39 test/4 tệp, chỉ là tài liệu quên cập nhật
+hơn ba tuần. Đã sửa lại cả hai tài liệu. Bài học lặp lại đúng lớp lỗi ở §6:
+đo lại trước khi tin dòng "chưa có gì".
+
+Viết thêm 35 test (74 tổng), theo đúng thứ tự rủi ro TIỀN/BẢO MẬT trước:
+
+**`src/api/client.js`** (9 test, trước đây 0 test trực tiếp — chỉ được test
+gián tiếp qua mock của `TryDub.test.jsx`): phân biệt `ApiError.code
+'OFFLINE'` (mất mạng) với lỗi máy chủ có `code` riêng; `AbortError` không bị
+gói nhầm thành `ApiError`; `qs()` bỏ tham số rỗng. Nhân tiện sửa 1 lỗi định
+dạng vô hại (không phải bug logic) — hai thuộc tính `devicesBulk`/`device`
+bị dính chung một dòng do lỗi soạn thảo trước đó.
+
+**`src/store/admin.js`** (7 test) — **tìm ra 1 bug thật**: `restore()` (chạy
+mỗi lần admin mở lại tab) coi MỌI lỗi từ `adminApi.whoami()` là "token sai"
+và xoá token khỏi sessionStorage, kể cả lỗi `OFFLINE` (mất mạng tạm thời).
+Nghĩa là admin đang có phiên hợp lệ, mở lại tab đúng lúc mạng chập chờn, bị
+đăng xuất oan và phải nhập lại token dù token vẫn dùng được — trong khi
+`ApiError.code` vốn đã tách sẵn "mất mạng" khỏi "máy chủ từ chối", chỉ là
+`restore()` không đọc `err.code`. Đã sửa: chỉ xoá token khi máy chủ THẬT SỰ
+từ chối (không phải `OFFLINE`).
+
+**`src/pages/Checkout.jsx`** (9 test) — state machine 4 trạng thái
+(pending/paid có key/paid không key do khác trình duyệt/expired+cancelled),
+poll tự lặp mỗi `POLL_MS` lúc pending và **dừng hẳn** khi đơn chốt (test
+canh bằng đồng hồ THẬT, không dùng fake timers — tương tác
+`setInterval`+`AbortController`+`act()` của RTL dưới fake timers không ổn
+định, đo thật vài giây đổi lấy test đáng tin hơn). Phải mock `canvas-
+confetti` (jsdom không có `HTMLCanvasElement.getContext` thật, ném lỗi
+ngoài promise chain của trang qua `requestAnimationFrame` — không liên quan
+hành vi cần test).
+
+**`src/pages/admin/Providers.jsx`** (10 test, qua `ProviderModal`) — chặn
+submit khi tạo mới thiếu tên/model/apiKey; CHO PHÉP submit khi sửa dù apiKey
+để trống (đúng quy ước "để trống = giữ key cũ"), và payload gửi đi KHÔNG có
+field `apiKey` trong ca đó (rò field rỗng có thể bị backend hiểu nhầm là
+"xoá key"); cảnh báo lệch vai trò/giao thức (vd vai «Sinh ảnh» + giao thức
+chỉ-sinh-chữ) hiện đúng lúc nhưng KHÔNG chặn submit — đúng thiết kế đã ghi
+trong code (người dùng có quyền cứ lưu). Đối chiếu chéo với
+`control_server/tests/ai-provider-roles.test.js` (đọc thẳng JSX này để so
+enum `role`) — vẫn 7/7 đạt, không phá vỡ hợp đồng liên tầng đó.
+
+**Bẫy kỹ thuật gặp khi viết test, ghi lại để khỏi lặp:** hai chuỗi tiếng
+Việt NHÌN GIỐNG HỆT NHAU (chuỗi placeholder `'••••••••  (không đổi)'` chép
+từ source sang tệp test) khiến `getByPlaceholderText` không khớp — nghi lệch
+chuẩn hoá Unicode (NFC/NFD) giữa hai lần gõ dấu tiếng Việt dù in ra y hệt.
+Chữa bằng cách không query theo chuỗi tiếng Việt có dấu khi có lựa chọn cấu
+trúc khác đáng tin hơn (ở đây: `input[type="password"]`, duy nhất trong
+form).
+
+74 đạt / 8 tệp (`npm test` trong `website/`), `npm run build` vẫn xanh.

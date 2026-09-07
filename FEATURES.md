@@ -10,7 +10,8 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-07 · phiên bản ứng dụng `3.16.5` · 2.376 test Python + 529 test Node
+> Cập nhật: 2026-09-07 · phiên bản ứng dụng `3.16.5` · 2.376 test Python +
+> 529 test Node + 74 test React
 
 ---
 
@@ -390,8 +391,12 @@ này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cu
 
 - Chưa chạy tải đồng thời nhiều lượt (`claimNextJob` đúng theo lý thuyết
   Mongo nhưng chưa chạy N tiến trình song song thật).
-- Chưa có test cho các thành phần React — `npm run build` là mức xác minh
-  duy nhất.
+- ~~Chưa có test cho các thành phần React~~ — **sai từ 17/08 (V50)**: đã có
+  Vitest + React Testing Library. C70 (07/09) viết thêm 35 test theo rủi ro
+  TIỀN/BẢO MẬT (`api/client.js`, phiên đăng nhập admin, state machine
+  Checkout, form cấu hình nhà cung cấp AI) — nay **74 test/8 tệp**
+  (`npm test` trong `website/`). Tìm ra 1 bug thật khi viết: phiên admin bị
+  đăng xuất oan lúc mất mạng tạm thời (đã sửa, xem `docs/TEST_LOG.md` C70).
 - Bản dựng Docker của tiến trình tách nhạc nền chưa build thành công trong
   môi trường phát triển (giới hạn mạng, không phải lỗi Dockerfile).
 
