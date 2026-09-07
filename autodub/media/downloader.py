@@ -178,10 +178,13 @@ def _tai_bang_ydl(canonical: str, ydl_opts: dict) -> dict:
     except Exception as e:      # gói lại thành câu nói được việc
         raise RuntimeError(
             f"Không tải được video ({e}).\n"
-            "Trước đó cũng không đọc được cookie trình duyệt — thường do trình "
-            "duyệt đang mở giữ khoá tệp cookie. Cách xử lý: đóng hẳn trình "
-            "duyệt rồi thử lại, hoặc xuất tệp cookies.txt và trỏ vào ô «Tệp "
-            "cookie» trong Cài đặt.") from e
+            "Trước đó cũng không đọc được cookie trình duyệt — Windows khoá tệp "
+            "cookie khi trình duyệt đang chạy. Cách xử lý: đóng hẳn trình duyệt "
+            "(cả phần chạy nền dưới khay hệ thống) rồi thử lại; hoặc xuất tệp "
+            "cookies.txt bằng tiện ích trình duyệt rồi trỏ vào ô «Hoặc dùng tệp "
+            "cookies.txt» trong Cài đặt → Nâng cao → Tải video khó — cách này "
+            "chạy được kể cả khi trình duyệt đang mở; hoặc tải video về máy rồi "
+            "bấm «Chọn file…».") from e
     logger.info("Tải được mà không cần cookie — bỏ qua cookie trình duyệt "
                 "cho liên kết này.")
     return info

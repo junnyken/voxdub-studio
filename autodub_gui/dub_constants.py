@@ -189,11 +189,22 @@ FRIENDLY_ERRORS: list[tuple[str, str, str]] = [
     # Cách chữa CÓ THẬT trong app là mượn cookie trình duyệt (COOKIES_FROM_
     # BROWSER trong Cài đặt) — nói thẳng ra thay vì để người dùng đi báo lỗi
     # cho yt-dlp như thông báo gốc bảo.
+    # C62 — lời khuyên cũ đẩy người dùng vào VÒNG LẶP, gặp thật 05-09: chọn
+    # Chrome ở mục đó thì yt-dlp báo "Could not copy Chrome cookie database"
+    # (Windows khoá tệp cookie khi trình duyệt đang chạy), bỏ chọn đi thì
+    # TikTok lại chặn — quay về đúng dòng này. Thiếu đúng MỘT câu: phải đóng
+    # trình duyệt. Và phải nêu đường đi được kể cả khi không đóng được.
     ("unexpected response from webpage request", "Trang video chặn lượt tải",
-     "Trang này (thường là TikTok) đòi trình duyệt đã đăng nhập. Mở Cài đặt "
-     "→ thẻ Nâng cao → mục \"Tải video khó\", chọn trình duyệt bạn hay dùng "
-     "rồi thử lại. Hoặc tải video về máy bằng trình duyệt rồi dùng nút Tải "
-     "tệp lên."),
+     "Trang này (thường là TikTok) đòi trình duyệt đã đăng nhập. Ba cách, "
+     "theo thứ tự dễ làm: (1) Tải video về máy bằng trình duyệt rồi bấm "
+     "\"Chọn file…\" (trang Chép lời) hoặc \"Tải tệp lên\" (khi tạo dự án) "
+     "— chắc ăn nhất, không cần cookie. (2) Mở Cài đặt → thẻ "
+     "Nâng cao → \"Tải video khó\" → \"Mượn cookie từ trình duyệt\", chọn "
+     "trình duyệt bạn hay dùng, rồi ĐÓNG HẲN trình duyệt đó (cả phần chạy nền "
+     "dưới khay hệ thống) trước khi bấm chạy — đang mở thì Windows khoá tệp "
+     "cookie và ứng dụng không đọc được. (3) Không đóng được thì dùng ô \"Hoặc "
+     "dùng tệp cookies.txt\" ngay dưới: xuất tệp bằng tiện ích trình duyệt — "
+     "cách này chạy được kể cả khi trình duyệt đang mở."),
     # C31 — Douyin đòi cookie. Người dùng thật gặp đúng dòng này. Cách chữa
     # có thật trong app là cài tính năng Douyin (đường tải riêng, không qua
     # yt-dlp) hoặc mượn cookie trình duyệt.

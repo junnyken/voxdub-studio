@@ -14091,3 +14091,41 @@ cần làm; **đã cài thì KHÔNG bị chặn nhầm**; nhận đúng lỗi kh
 nhận nhầm "video đòi đăng nhập"; thử lại đúng một lần và **giữ nguyên các tham
 số khác**; không cấu hình cookie thì lỗi giữ nguyên, không bịa thêm chuyện
 cookie.
+
+## C62 — Lời khuyên đẩy người dùng vào vòng lặp (05/09/2026)
+
+Ngay sau C61, chủ dự án gửi tiếp ảnh: bỏ cookie đi thì TikTok chặn, và app
+khuyên *"Mở Cài đặt → Nâng cao → Tải video khó, chọn trình duyệt bạn hay dùng
+rồi thử lại"*.
+
+Làm đúng lời khuyên đó thì gặp lại lỗi C61: **"Could not copy Chrome cookie
+database"** — Windows khoá tệp cookie khi trình duyệt đang chạy. Bỏ chọn lại thì
+TikTok chặn. **Một vòng lặp kín**, và cả hai đầu đều là lời khuyên của chính
+ứng dụng.
+
+Thiếu đúng MỘT câu: **phải đóng trình duyệt**. Người viết lời khuyên (tôi, ở
+V85) biết cách mượn cookie, nhưng không biết — hoặc quên — rằng nó chỉ chạy khi
+trình duyệt đã đóng.
+
+Đã viết lại thành ba cách, xếp theo mức dễ làm:
+
+1. Tải video về máy bằng trình duyệt rồi bấm "Chọn file…" — chắc ăn nhất, không
+   cần cookie.
+2. Mượn cookie từ trình duyệt, **và ĐÓNG HẲN trình duyệt đó** (kể cả phần chạy
+   nền dưới khay hệ thống) trước khi bấm chạy.
+3. Không đóng được thì dùng ô "Hoặc dùng tệp cookies.txt" — chạy được kể cả khi
+   trình duyệt đang mở.
+
+Câu báo trong `downloader.py` (C61) cũng sửa cho khớp, và **gọi đúng tên ô** như
+trên màn hình.
+
+**Test canh hai thứ:** lời khuyên phải có "ĐÓNG HẲN" + đường cookies.txt +
+đường "Chọn file"; và tên ô nhắc trong lời khuyên phải **thật sự tồn tại** trong
+`settings_fields.FIELDS` — sai một chữ là người dùng đi tìm một ô không có.
+
+### Bài học
+
+Lời khuyên trong sản phẩm cũng là một hợp đồng: nó hứa rằng làm theo sẽ xong
+việc. Trước khi viết "làm A đi", phải tự đi hết đường A — nếu A còn một điều
+kiện ngầm (đóng trình duyệt), điều kiện đó là phần BẮT BUỘC của lời khuyên, chứ
+không phải chi tiết phụ.

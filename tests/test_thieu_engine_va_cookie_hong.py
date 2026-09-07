@@ -182,3 +182,45 @@ def test_loi_that_su_kho_hieu_thi_van_co_cau_khuyen_chung():
     from autodub_gui.pages.subtitle_translate_page import SubtitleTranslatePage
 
     assert "Kiểm tra lại" in SubtitleTranslatePage._KHUYEN_CHUNG
+
+
+# --------------- 4. C62: lời khuyên không được đẩy người dùng vào vòng lặp ---
+
+def test_loi_khuyen_tiktok_khong_dan_vao_vong_lap():
+    """Vòng lặp có thật, gặp 05-09: chọn Chrome ở "Mượn cookie từ trình duyệt"
+    thì yt-dlp báo không chép được kho cookie (Windows khoá tệp khi trình duyệt
+    đang chạy); bỏ chọn đi thì TikTok chặn — quay lại đúng lời khuyên này.
+
+    Thiếu đúng MỘT câu: phải ĐÓNG trình duyệt. Và phải có đường đi được cho
+    người không đóng được.
+    """
+    pytest.importorskip("PySide6")
+    from autodub_gui.dub_constants import friendly_error
+
+    ra = friendly_error("ERROR: Unexpected response from webpage request")
+    assert ra is not None, "không còn nhận ra lỗi TikTok chặn"
+    _title, khuyen = ra
+    assert "ĐÓNG HẲN" in khuyen, (
+        "không nói phải đóng trình duyệt — người dùng sẽ rơi lại vào lỗi "
+        "'không chép được kho cookie'")
+    assert "cookies.txt" in khuyen, (
+        "không nêu đường chạy được khi KHÔNG đóng được trình duyệt")
+    assert "Chọn file" in khuyen, "không nêu đường chắc ăn nhất"
+    # Cùng một lời khuyên hiện ở HAI màn hình có tên nút khác nhau: "Chọn
+    # file…" ở trang Chép lời, "Tải tệp lên" ở trình tạo dự án. Nêu thiếu một
+    # cái là một nửa người dùng đi tìm nút không có trên màn hình họ đang mở.
+    assert "Tải tệp lên" in khuyen
+
+
+def test_loi_khuyen_tro_dung_ten_o_trong_cai_dat():
+    """Câu chữ phải khớp thứ hiện trên màn hình — chỉ sai một chữ là người dùng
+    đi tìm một ô không tồn tại."""
+    pytest.importorskip("PySide6")
+    from autodub_gui.dub_constants import friendly_error
+    from autodub_gui.pages.settings_fields import FIELDS
+
+    nhan = {f.label for f in FIELDS}
+    _title, khuyen = friendly_error("Unexpected response from webpage request")
+    for ten_o in ("Mượn cookie từ trình duyệt", "Hoặc dùng tệp cookies.txt"):
+        assert ten_o in nhan, f"ô {ten_o!r} không còn trong Cài đặt"
+        assert ten_o in khuyen, f"lời khuyên không nhắc tới ô {ten_o!r}"
