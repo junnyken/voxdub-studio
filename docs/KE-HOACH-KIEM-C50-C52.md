@@ -59,9 +59,8 @@ và/hoặc phụ đề Trung ở đáy.
    để chặn.
 
 Muốn xem chất lượng xoá chữ thì: xoá hết vùng thừa (**bấm chuột phải vào vùng
-để xoá riêng vùng đó** — có từ bản sau v3.16.3; bản hiện tại dùng nút "Xoá
-vùng cuối"/"Xoá tất cả"), giữ đúng vùng watermark, rồi bấm **"Nghe thử 30
-giây"**. Lượt đó tốn vài chục Vox chứ không phải cả phim.
+để xoá riêng vùng đó** — có từ v3.16.4), giữ đúng vùng watermark, rồi bấm
+**"Nghe thử 30 giây"**. Lượt đó tốn vài chục Vox chứ không phải cả phim.
 
 ---
 
