@@ -14202,4 +14202,44 @@ tính năng không ai biết là tính năng không tồn tại.
 lặng xoá mất một vùng là kiểu hỏng khó chịu nhất); vùng chồng nhau thì xoá cái
 trên cùng; và giao diện phải có nói ra cách dùng.
 
-2356 đạt / 3 bỏ qua.
+## C66 — Trình chỉnh sửa vẫn thiếu nút Dừng cho hai thao tác dài (07/09/2026)
+
+FEATURES.md §9 ghi rõ đây là "việc kỹ thuật đã rõ hình": `SaveAllWorker` (Lưu
+tất cả và đọc lại) và `RebuildWorker`/`SubtitleWorker` (Xuất video/Ghi lại
+phụ đề) đã có cờ huỷ từ C49 (dùng chung `ProgressReporter.cancel_event`),
+nhưng **không có nút nào trong Trình chỉnh sửa để chạm tới cờ đó** khi đang
+chạy. Với `RebuildWorker` còn có nút Dừng ở Trang chủ (`REGISTRY`/`ProcessingCard`)
+làm phao cứu, nhưng phải rời trang mới bấm được; với `SaveAllWorker` thì
+**không nối `REGISTRY.start_job()` nên không có nút Dừng ở đâu cả** —
+`worker.cancel()` chỉ được gọi khi đóng app.
+
+Đã thêm:
+- `VoicePanel.btn_stop_resynth` (nút Dừng cạnh "Lưu tất cả và đọc lại"), phát
+  `resynth_cancel_requested`; `editor_export._start_resynth()` nay nối thêm
+  `REGISTRY.start_job(kind="resynth", ...)` để Trang chủ cũng có đường dừng.
+- `ExportPanel.btn_stop` dùng chung cho cả "Xuất video" và "Ghi lại phụ đề"
+  (hai việc không bao giờ chạy chồng — `_busy_warn` đã chặn), phát
+  `cancel_requested`.
+- `editor_export._cancel_resynth()`/`_cancel_export()` gọi thẳng
+  `.cancel()` của đúng worker đang chạy — đúng pattern đã dùng ở
+  `download_page._cancel()`: disable nút + đổi chữ "Đang dừng…" (không phải
+  "Đã dừng" — việc còn đang dừng dở, câu vội sẽ sai y hệt bài học C61
+  "đang chạy chưa xong" ở tính năng khác).
+
+**Lỗi phụ tìm ra khi soát code cũ** (không phải phần mới thêm): đường huỷ
+`_on_export_cancelled` sẵn có trước đó **không gọi `REGISTRY.finish_job()`**
+— bấm Dừng lúc xuất video xong thì `REGISTRY` vẫn coi máy đang bận mãi, lượt
+`start_job()` kế tiếp sẽ ghi cảnh báo giả "bắt đầu X khi Y chưa xong" ở nhật
+ký hoạt động. Đã thêm dòng gọi còn thiếu, cùng lúc với `_on_resynth_cancelled`
+mới (nối `REGISTRY` lần đầu nên viết đúng ngay từ đầu).
+
+12 test mới (`tests/test_dung_khi_doc_lai_va_xuat.py`): nút chỉ bật khi đang
+chạy (cả hai panel); bấm nút phát đúng tín hiệu; tín hiệu nối đúng tới
+`cancel()` của đúng worker (không phải nút giả — cùng lớp lỗi C63/C64 đã
+canh); và hai test đọc thẳng mã nguồn khoá lại phần "giải phóng REGISTRY khi
+huỷ" để không lặp lại lỗi phụ nói trên.
+
+2367 đạt / 4 bỏ qua — 2355 đạt / 4 bỏ qua trước khi thêm C66 (chênh với lần
+đếm trước ở C64 vì môi trường workspace dựng lại `/usr` mỗi phiên khiến một
+test phụ thuộc hệ thống thỉnh thoảng rơi vào diện bỏ qua thay vì đạt, không
+liên quan tới thay đổi ở đây).

@@ -138,21 +138,35 @@ class VoiceAndExportMixin:
         worker.failed.connect(self._on_resynth_failed)
         worker.cancelled.connect(self._on_resynth_cancelled)
         self.log.setVisible(True)
-        self.voice_panel.btn_resynth.set_loading(True, "Đang đọc lại")
+        self.voice_panel.set_resynth_running(True)
         worker.finished.connect(
-            lambda: self.voice_panel.btn_resynth.set_loading(False))
+            lambda: self.voice_panel.set_resynth_running(False))
         self._resynth_worker = worker
         # Đọc lại giọng sẽ xóa dubbed_video.mp4 (bản cũ đã lỗi thời) — nhả
         # video ra trước, không thì Windows báo WinError 32 vì tệp đang mở.
         self._resynth_resume_pos = self.release_video()
+        REGISTRY.start_job(
+            ActiveJob(kind="resynth",
+                      title=f"Đọc lại giọng {self._project.title}",
+                      work_dir=self._work_dir),
+            on_cancel=worker.cancel)
         worker.start()
 
+    def _cancel_resynth(self) -> None:
+        if self._resynth_worker is None or not self._resynth_worker.isRunning():
+            return
+        self._resynth_worker.cancel()
+        self.voice_panel.btn_stop_resynth.setEnabled(False)
+        self.voice_panel.btn_stop_resynth.setText("Đang dừng…")
+
     def _on_resynth_cancelled(self) -> None:
+        REGISTRY.finish_job(False, "bạn đã bấm dừng")
         self.voice_panel.finish_progress("Đã dừng theo yêu cầu.")
         self.restore_video(getattr(self, "_resynth_resume_pos", None))
         self._resynth_resume_pos = None
 
     def _on_resynth_done(self, changed: list) -> None:
+        REGISTRY.finish_job(True)
         self._dirty_ids.clear()
         self._structural_edit = False
         self._refresh_banner()
@@ -180,6 +194,7 @@ class VoiceAndExportMixin:
             TOASTS.warn(f"Không lưu được tên giọng của dự án: {e}")
 
     def _on_resynth_failed(self, message: str) -> None:
+        REGISTRY.finish_job(False, message[:120])
         self.voice_panel.finish_progress("")
         self.restore_video(getattr(self, "_resynth_resume_pos", None))
         self._resynth_resume_pos = None
@@ -451,7 +466,18 @@ class VoiceAndExportMixin:
         # tránh hai phụ đề chồng nhau.
         self._sync_overlay(path)
 
+    def _cancel_export(self) -> None:
+        if self._rebuild_worker is None or not self._rebuild_worker.isRunning():
+            return
+        self._rebuild_worker.cancel()
+        self.export_panel.btn_stop.setEnabled(False)
+        self.export_panel.btn_stop.setText("Đang dừng…")
+
     def _on_export_cancelled(self) -> None:
+        # `_rebuild_worker` dùng chung cho cả "Xuất video" lẫn "Ghi lại phụ
+        # đề" — thiếu dòng này thì REGISTRY vẫn coi việc đang chạy, mọi lượt
+        # sau (kể cả Trang chủ) tưởng máy còn bận.
+        REGISTRY.finish_job(False, "bạn đã bấm dừng")
         self.export_panel.set_status("Đã dừng theo yêu cầu.")
         self.restore_video(getattr(self, "_export_resume_pos", None))
         self._export_resume_pos = None

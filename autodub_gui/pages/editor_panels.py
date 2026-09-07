@@ -17,7 +17,8 @@ from autodub_gui import icons, tokens
 from autodub_gui.formatting import (
     format_duration, format_hours, format_size, format_timecode,
 )
-from autodub_gui.ui.buttons import GhostButton, IconButton, PrimaryButton
+from autodub_gui.ui.buttons import (DangerButton, GhostButton, IconButton,
+                                    PrimaryButton)
 from autodub_gui.ui.collapsible import CollapsibleSection
 from autodub_gui.ui.inputs import LabeledCombo, LabeledSlider, SearchBox
 from autodub_gui.ui.labels import ElidedLabel
@@ -806,6 +807,7 @@ class VoicePanel(CollapsibleSection):
 
     preview_requested = Signal(str)      # tên giọng
     resynth_all_requested = Signal()
+    resynth_cancel_requested = Signal()
     speakers_requested = Signal()
     changed = Signal()
 
@@ -874,6 +876,11 @@ class VoicePanel(CollapsibleSection):
             "Lưu mọi câu bạn đã sửa rồi tạo lại giọng đọc cho những câu đó.")
         self.btn_resynth.clicked.connect(self.resynth_all_requested.emit)
         row.addWidget(self.btn_resynth)
+        self.btn_stop_resynth = DangerButton("Dừng")
+        self.btn_stop_resynth.setEnabled(False)
+        self.btn_stop_resynth.clicked.connect(
+            self.resynth_cancel_requested.emit)
+        row.addWidget(self.btn_stop_resynth)
         row.addStretch()
         self.add_layout(row)
 
@@ -950,6 +957,11 @@ class VoicePanel(CollapsibleSection):
     def project_voice(self) -> str:
         """Giọng đang nằm thật trong âm thanh của video."""
         return self._project_voice or self.picker.voice()
+
+    def set_resynth_running(self, running: bool) -> None:
+        self.btn_resynth.set_loading(running, "Đang đọc lại")
+        self.btn_stop_resynth.setEnabled(running)
+        self.btn_stop_resynth.setText("Dừng")
 
     def set_progress(self, done: int, total: int) -> None:
         self.progress.setVisible(total > 0)
@@ -1279,6 +1291,7 @@ class ExportPanel(CollapsibleSection):
     export_srt_requested = Signal()
     export_ass_requested = Signal()
     export_audio_mp3_requested = Signal()
+    cancel_requested = Signal()
     changed = Signal()
 
     def __init__(self, parent: QWidget | None = None):
@@ -1334,6 +1347,18 @@ class ExportPanel(CollapsibleSection):
             row.addWidget(button)
             row.addStretch()
             self.add_layout(row)
+
+        # Chung cho "Xuất video" và "Ghi lại phụ đề" — hai thao tác không bao
+        # giờ chạy cùng lúc (editor_export._busy_warn chặn chồng), nên một
+        # nút Dừng là đủ.
+        self.btn_stop = DangerButton("Dừng")
+        self.btn_stop.setEnabled(False)
+        self.btn_stop.clicked.connect(self.cancel_requested.emit)
+        stop_row = QHBoxLayout()
+        stop_row.setSpacing(tokens.SP_2)
+        stop_row.addWidget(self.btn_stop)
+        stop_row.addStretch()
+        self.add_layout(stop_row)
 
         self.progress = ThinProgressBar()
         self.progress.setVisible(False)
@@ -1442,6 +1467,8 @@ class ExportPanel(CollapsibleSection):
             self.btn_export.set_loading(running, "Đang xuất video")
             self.btn_subtitles.setEnabled(not running)
         self.btn_preview.setEnabled(not running)
+        self.btn_stop.setEnabled(running)
+        self.btn_stop.setText("Dừng")
         self.progress.setVisible(running)
         if running:
             self.progress.set_indeterminate(True)

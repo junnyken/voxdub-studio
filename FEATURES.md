@@ -300,9 +300,14 @@ Tính năng ảnh sản phẩm còn có **chốt ba nấc** (`image.scene.stage`
 **TẮT**: phải chuyển sang `calibration` (chỉ vài máy được phép), chạy 20–30
 ảnh thật, soi tay từng phán quyết, rồi mới bấm `production`.
 
-Ngoài ra: tác vụ `character_name` đã xong phía máy chủ nhưng **chưa nối vào
-giao diện** — nó cần lời thoại theo từng người nói, mà trang Hồ sơ nhân vật
-chỉ giữ tên/giọng, không giữ câu thoại.
+Ngoài ra: tác vụ `character_name` **đã nối vào giao diện** (hộp thoại "Xem
+trước người nói" trong Trình chỉnh sửa — nút "Gợi ý tên gọi" đọc thẳng câu
+thoại của người nói đó từ transcript đang mở, không cần đổi cấu trúc hồ sơ
+nhân vật). Cố ý **không tự ghi** tên gợi ý vào hồ sơ nhân vật — người dùng
+phải tự gõ, vì tên sai tự ghi sẽ áp cho mọi tập sau (có test chặn cứng:
+`tests/test_tro_ly_giai_doan_2.py::test_khong_tu_ghi_ten_vao_ho_so`). Việc
+này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cung cấp cho vai
+`assist`** (xem bảng trên) — mã đã xong, đang chờ đúng thao tác quản trị đó.
 
 ---
 
@@ -339,8 +344,6 @@ chỉ giữ tên/giọng, không giữ câu thoại.
   (`--video "D:\phim\tap01.mp4"`), không cần dự án đã dub.
 - **~190/204 mã ngôn ngữ FLORES chưa kiểm chứng chất lượng** — có chủ đích,
   giao diện có cảnh báo, nhưng đừng coi là "hỗ trợ 204 ngôn ngữ".
-- **Trình chỉnh sửa chưa có nút Dừng** cho hai thao tác dài (làm mới phụ đề,
-  ghép video).
 - **Nhận diện vùng chữ (OCR)** nay dừng ngang được, hết giờ tính theo số
   khung, và lấy mẫu rải đều cả video (C49). Có lựa chọn **xoá chữ**
   (`delogo`, C51): đo trên khung hình thật, làm mờ lệch 52,66/255 so với nền
@@ -491,16 +494,15 @@ Xếp theo mức sẵn sàng, không phải theo mức hấp dẫn:
 Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 
 **Việc kỹ thuật đã rõ hình:**
-- Nối `character_name` vào giao diện (cần đổi cấu trúc hồ sơ nhân vật để giữ
-  câu thoại theo người nói).
 - Hiện tiến độ lượt chạy trên máy chủ.
-- Nút Dừng cho hai thao tác còn thiếu trong Trình chỉnh sửa, và cho OCR
-  (hiện hết giờ sau 60 giây, không huỷ ngang được).
 
 **Đã giải quyết, đừng đề xuất lại:** tách `.venv-*`/`models/` ra khỏi thư mục
 ứng dụng — không cần nữa, vì app đã tự dò bản cũ nằm cùng thư mục cha (§3.1).
 Xem trước chi phí và gộp câu trước khi tính tiền cũng đã làm (V97);
-ba đường dịch đã làm (D1).
+ba đường dịch đã làm (D1). Nối `character_name` vào giao diện cũng đã làm —
+xem §4. Nút Dừng cho "Lưu tất cả và đọc lại" và "Xuất video"/"Ghi lại phụ đề"
+trong Trình chỉnh sửa cũng đã thêm (C66) — cờ huỷ ở tầng worker có từ C49,
+chỉ thiếu nút bấm tại chỗ.
 
 **Việc cần quyết định của con người trước:**
 - Có thu thập thêm dữ liệu sử dụng không (đã hỏi, chủ dự án chọn giữ nguyên

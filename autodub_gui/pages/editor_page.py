@@ -259,6 +259,7 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
         self.voice_panel = VoicePanel()
         self.voice_panel.preview_requested.connect(self._preview_voice)
         self.voice_panel.resynth_all_requested.connect(self._save_all_and_resynth)
+        self.voice_panel.resynth_cancel_requested.connect(self._cancel_resynth)
         self.voice_panel.speakers_requested.connect(self._open_speaker_dialog)
         self.voice_panel.changed.connect(self._save_render_opts)
         self.background_panel = BackgroundPanel()
@@ -283,6 +284,7 @@ class EditorPage(VoiceAndExportMixin, MusicSfxMixin, BasePage):
         self.export_panel.export_srt_requested.connect(self._export_srt_file)
         self.export_panel.export_ass_requested.connect(self._export_ass_file)
         self.export_panel.export_audio_mp3_requested.connect(self._export_audio_mp3)
+        self.export_panel.cancel_requested.connect(self._cancel_export)
         self.export_panel.changed.connect(self._on_export_options_changed)
         self._preview.status_changed.connect(self.voice_panel.status.setText)
         # Khoá nút khi đang tổng hợp / phát, mở lại khi xong — giống hành vi
