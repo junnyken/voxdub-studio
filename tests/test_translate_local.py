@@ -209,3 +209,86 @@ def test_translate_segments_local_empty_glossary_no_regression(monkeypatch):
     result = translate_segments_local(segments, target, "vi-VN", settings)
 
     assert result[0][target.text_field] == "We use AI a lot."
+
+
+# --------------------------------------------------------------------- #
+# C67 (docs/TEST_LOG.md) — điều tra tiếp phần dư âm của bug V11/V21: NLLB có
+# thể trả nội dung KHÔNG LIÊN QUAN tới nguồn (không phải bỏ trống — hallucinate)
+# khi 1 "câu" dài không có dấu kết câu được gửi nguyên cụm. Đã thử lọc theo tỉ
+# lệ độ dài output/input và theo điểm tin cậy ctranslate2 — CẢ HAI đều không
+# phân biệt được ca lỗi này với bản dịch đúng (đo thật bằng model NLLB, xem
+# TEST_LOG.md), nên KHÔNG có sửa tự động — chỉ cảnh báo ra log để dễ tra khi
+# có báo cáo lỗi thật.
+
+def test_canh_bao_khi_cau_dai_khong_co_dau_ket_cau(capsys):
+    from autodub.text.translate_local_worker import _canh_bao_neu_cau_dai_khong_dau
+
+    cau_dai_khong_dau = "một " * 30  # > 80 ký tự, không có dấu kết câu
+    _canh_bao_neu_cau_dai_khong_dau([cau_dai_khong_dau.strip()])
+    assert "Cảnh báo" in capsys.readouterr().err
+
+
+def test_khong_canh_bao_khi_da_tach_duoc_nhieu_cau(capsys):
+    """Segment tách được ≥2 câu (có dấu kết câu) — không phải ca đáng ngờ,
+    dù mỗi câu ngắn."""
+    from autodub.text.translate_local_worker import _canh_bao_neu_cau_dai_khong_dau
+
+    _canh_bao_neu_cau_dai_khong_dau(["Câu một.", "Câu hai."])
+    assert capsys.readouterr().err == ""
+
+
+def test_khong_canh_bao_khi_cau_ngan_du_khong_co_dau(capsys):
+    """Câu ngắn không dấu kết câu là chuyện bình thường (ASR cắt giữa câu),
+    không phải dấu hiệu gộp nhiều câu — chỉ cảnh báo khi ĐỦ DÀI."""
+    from autodub.text.translate_local_worker import _canh_bao_neu_cau_dai_khong_dau
+
+    _canh_bao_neu_cau_dai_khong_dau(["một câu ngắn không dấu"])
+    assert capsys.readouterr().err == ""
+
+
+def test_canh_bao_worker_thanh_cong_van_len_duoc_log_ung_dung(
+        monkeypatch, caplog, tmp_path):
+    """Trước C67: `stderr_tail` chỉ được đọc khi worker LỖI — cảnh báo in ra
+    stderr lúc dịch THÀNH CÔNG rơi vào hư không, không ai thấy. Dùng worker
+    giả thật (subprocess thật, đúng khuôn test_translate_local_watchdog.py)
+    để canh đúng đường ống thật, không phải hành vi giả lập của mock."""
+    import logging
+    import sys
+    import textwrap
+
+    from autodub.config import Settings
+    from autodub.text.translate_local import run_local_worker
+
+    worker_path = tmp_path / "fake_worker_canh_bao.py"
+    worker_path.write_text(textwrap.dedent("""
+        import json, sys
+        print(json.dumps({"ready": True}), flush=True)
+        line = sys.stdin.readline()
+        request = json.loads(line)
+        print("Cảnh báo: câu dài không có dấu kết câu", file=sys.stderr,
+              flush=True)
+        for seg in request["segments"]:
+            print(json.dumps({"seg": True, "id": seg["id"],
+                              "text": "dịch: " + seg["text"]}), flush=True)
+        print(json.dumps({"done": True,
+                          "translated": len(request["segments"])}),
+              flush=True)
+    """), encoding="utf-8")
+
+    settings = Settings()
+    monkeypatch.setattr(settings, "translate_local_venv_python_path",
+                        lambda: sys.executable)
+    monkeypatch.setattr(settings, "translate_local_model_dir_path",
+                        lambda: "/tmp/fake-model")
+    monkeypatch.setattr("autodub.text.translate_local.bundled_file",
+                        lambda *a, **k: str(worker_path))
+
+    with caplog.at_level(logging.WARNING):
+        result = run_local_worker(
+            [(1, "một câu rất dài không có dấu kết câu nào cả")],
+            "eng_Latn", "vie_Latn", settings)
+
+    assert result == {1: "dịch: một câu rất dài không có dấu kết câu nào cả"}
+    assert any("Cảnh báo" in r.message for r in caplog.records), (
+        "worker cảnh báo thành công nhưng không lên log ứng dụng — "
+        "cảnh báo rơi vào hư không")

@@ -333,8 +333,15 @@ này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cu
 
 ### 5.2 Đã biết, chưa sửa
 
-- **Dịch cục bộ (NLLB) có thể bỏ sót câu** khi bản chép lời nhiễu — phát hiện
-  thật, chưa sửa.
+- **Dịch cục bộ (NLLB) có thể lẫn/bịa nội dung** khi một "câu" dài không có
+  dấu kết câu bị gửi nguyên cụm (thường do ASR mất dấu câu — xem cảnh báo có
+  sẵn ở `paraformer_transcriber.py`) — **tái hiện được thật bằng model NLLB
+  thật ngay trong sandbox** (C67, không cần video). Đã thử hai cách lọc tự
+  động (tỉ lệ độ dài output/input, điểm tin cậy của ctranslate2) — **cả hai
+  đều KHÔNG phân biệt được** ca lỗi này với bản dịch đúng, nên chưa có cách
+  sửa tự động đã kiểm chứng. Đã thêm: cảnh báo ra log ứng dụng khi gặp câu
+  dài không dấu (trước đây worker có cảnh báo qua stderr nhưng bị bỏ qua nếu
+  dịch vẫn "thành công" — nay luôn lên log). Xem `docs/TEST_LOG.md` mục C67.
 - **"Nghe chép thiếu câu" — chủ dự án báo, CHƯA tái hiện được.** Thử trên clip
   53 giây: 13 câu ở cả bản sạch lẫn bản trộn nhạc, cùng 107 từ — nhạc làm VỤN
   câu chứ không nuốt câu. Một lượt 30 giây khác (05/09) ra đúng 5/5 câu. Chưa

@@ -14243,3 +14243,66 @@ huỷ" để không lặp lại lỗi phụ nói trên.
 đếm trước ở C64 vì môi trường workspace dựng lại `/usr` mỗi phiên khiến một
 test phụ thuộc hệ thống thỉnh thoảng rơi vào diện bỏ qua thay vì đạt, không
 liên quan tới thay đổi ở đây).
+
+## C67 — Điều tra "NLLB có thể bỏ sót câu" (FEATURES.md §5.2) — tái hiện
+được, chưa có cách sửa tự động đã kiểm chứng (07/09/2026)
+
+Phần dư âm còn mở của V11/V21: sau khi V21 sửa "segment nhiều câu, câu 2
+nhiễu nhẹ bị mất hoàn toàn" bằng cách dịch từng câu riêng (`_split_sentences`
+tách theo dấu kết câu), `docs/TEST_LOG.md` mục V21 tự ghi rõ phần CHƯA sửa:
+*"câu không có dấu kết câu rõ ràng vẫn được coi là 1 câu duy nhất như
+trước"*. Lần này đo lại bằng chính model NLLB thật đã có sẵn trong
+workspace (`models/translate-local/model.bin`, 622MB — **không cần video,
+không cần internet**, chạy thẳng `.venv-mt` như production).
+
+**Tái hiện được**: ghép 3 câu thật liền nhau KHÔNG có dấu chấm (đúng kịch
+bản `paraformer_transcriber.py` đã tự cảnh báo khi bộ chấm câu CT-Transformer
+không tải được — transcript ra đời hoàn toàn không dấu câu) → `_split_
+sentences()` coi cả cụm là 1 "câu" → gửi nguyên cụm vào NLLB trong 1 lượt →
+early-stop → có lần model trả về nội dung **hoàn toàn không liên quan** tới
+nguồn (không lỗi, không dấu hiệu). Kết quả KHÔNG ổn định 100% qua các lần
+thử (một số văn bản tổng hợp dịch đúng cả 3 ý dù không có dấu câu) — đúng
+tính chất "hạn chế robustness của model trước nhiễu" mà V21 đã mô tả, không
+phải bug xác định (deterministic) theo input.
+
+**Hai hướng lọc tự động đã thử — CẢ HAI đều không dùng được**, đo bằng script
+tạm gọi thẳng `ctranslate2.Translator` với dữ liệu tổng hợp:
+
+1. *Tỉ lệ độ dài output/input* (chữ số/số từ): case lỗi thật đã biết
+   (V11, "giàn lập" ở câu 2, dịch mất hẳn câu 2) cho tỉ lệ từ 0,40 — có vẻ là
+   tín hiệu tốt. Nhưng case garbage-in (emoji, ký tự thay thế U+FFFD, chuỗi
+   lặp) lại cho tỉ lệ 0,7-0,8 — KHÔNG khác biệt rõ với bản dịch tốt (0,7-1,0)
+   — không đặt được một ngưỡng chung không gây báo sai hàng loạt.
+2. *Điểm tin cậy (`log-prob`) của chính ctranslate2* (`return_scores=True`):
+   điểm chuẩn hoá theo token cho garbage-in THẤP rõ rệt (−0,11 đến −0,23) so
+   với bản dịch tốt (−0,02 đến −0,04) — tín hiệu thật, có thể dùng để bắt ca
+   "input vô nghĩa → output vô nghĩa". **Nhưng lại KHÔNG bắt được đúng bug đã
+   biết (câu 2 bị bỏ sót hoàn toàn ở V11)** — điểm của bản dịch "cụt" đó vẫn
+   TỐT (−0,036, ngang bản dịch đúng), vì model dừng sớm một cách "tự tin"
+   (EOS sạch), không phải vì bối rối. Cơ chế early-stop không để lại dấu vết
+   ở điểm tin cậy.
+
+Kết luận: model **không "biết" là nó vừa bỏ sót/bịa nội dung** — không có
+tín hiệu rẻ nào từ chính lượt gọi để tầng ứng dụng phát hiện và tự sửa mà
+không tốn rất nhiều công sức kiểm chứng thêm (kiểu back-translation hay
+model lớn hơn). Đúng nguyên tắc của dự án (đừng sửa đại một lỗi chưa đo
+được, xem `docs/KE-HOACH-KIEM-C50-C52.md`) — **không thêm bộ lọc tự động
+chưa kiểm chứng được**.
+
+**Đã làm (chỉ cảnh báo, không tự sửa nội dung):**
+- `translate_local_worker.py::_canh_bao_neu_cau_dai_khong_dau()` — in cảnh
+  báo ra stderr khi cả segment chỉ ra đúng 1 "câu" dài (>80 ký tự) không có
+  dấu kết câu — dấu hiệu rẻ của việc nhiều câu ASR gộp lại, không cần model.
+- Sửa một lỗ hổng phụ tìm ra khi soát code: `translate_local.py` chỉ đọc
+  `stderr_tail` (cảnh báo từ worker) khi lượt dịch **LỖI** — cảnh báo in ra
+  lúc dịch vẫn "thành công" (kể cả cảnh báo cũ C53 "bỏ qua tham số không
+  nhận ra") **rơi vào hư không**, không ai đọc. Nay `stderr_tail` không rỗng
+  thì luôn ghi `logger.warning` dù dịch thành công.
+
+4 test mới: cảnh báo bật đúng lúc (câu dài không dấu), không bật sai (đã
+tách được nhiều câu, hoặc câu ngắn không dấu — bình thường với ASR cắt giữa
+câu); và một test dùng worker giả THẬT (subprocess, đúng khuôn
+`test_translate_local_watchdog.py`) canh cảnh báo lúc THÀNH CÔNG phải lên
+tới log ứng dụng, không bị bỏ qua.
+
+2371 đạt / 4 bỏ qua.

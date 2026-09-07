@@ -234,6 +234,15 @@ def run_local_worker(
             "Worker dịch local kết thúc bất thường\n" + "\n".join(stderr_tail))
 
     logger.info(f"Dịch local xong: {len(by_id)} câu")
+    if stderr_tail:
+        # C67 — trước đây `stderr_tail` chỉ được đọc khi worker LỖI (đính
+        # kèm vào exception). Cảnh báo (vd C67 câu dài không dấu, hoặc C53
+        # "bỏ qua tham số không nhận ra") vẫn in ra stderr dù lượt dịch
+        # THÀNH CÔNG — mà không ai đọc `stderr_tail` ở đường thành công thì
+        # cảnh báo đó rơi vào hư không, không khác gì không cảnh báo.
+        logger.warning(
+            "Worker dịch local có cảnh báo (dịch vẫn thành công):\n"
+            + "\n".join(stderr_tail))
     return by_id
 
 

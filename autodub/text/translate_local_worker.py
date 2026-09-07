@@ -46,6 +46,17 @@ sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 # mất tối đa nội dung của 1 câu duy nhất, không kéo theo các câu SAU nó.
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…。！？])\s*")
 
+# C67 (docs/TEST_LOG.md) — tái hiện được bằng model NLLB thật: một "câu" dài
+# mà KHÔNG tách được (không có dấu kết câu) rất có thể là NHIỀU câu ASR gộp
+# lại (paraformer_transcriber.py đã tự cảnh báo kịch bản này khi bộ chấm câu
+# không tải được). Gửi cả cụm vào NLLB trong 1 lượt là đúng kiểu input gây
+# early-stop ở V11 — model có thể trả về nội dung KHÔNG LIÊN QUAN tới nguồn,
+# không lỗi, không dấu hiệu. Không có cách sửa rẻ đã kiểm chứng được (đã thử
+# lọc theo độ dài output/input và theo điểm tin cậy của ctranslate2 — cả hai
+# đều KHÔNG phân biệt được ca lỗi này với bản dịch đúng, xem TEST_LOG.md) nên
+# đây chỉ là CẢNH BÁO để lộ ra trong log, không tự sửa/tự thay nội dung.
+_NGUONG_CAU_DAI_KHONG_DAU = 80
+
 
 def _split_sentences(text: str) -> list[str]:
     """Tách 1 đoạn thành các câu theo dấu kết câu (Latin + CJK toàn độ
@@ -53,6 +64,19 @@ def _split_sentences(text: str) -> list[str]:
     cả dấu CJK). Đoạn không có dấu kết câu nào → trả nguyên đoạn (1 câu)."""
     parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(text) if p.strip()]
     return parts or ([text] if text.strip() else [])
+
+
+def _canh_bao_neu_cau_dai_khong_dau(sentences: list[str]) -> None:
+    """In cảnh báo ra stderr khi CẢ segment chỉ ra đúng 1 "câu" dài mà không
+    có dấu kết câu nào — dấu hiệu rẻ tiền của việc nhiều câu ASR bị gộp lại
+    (xem comment ở trên). Không đổi bản dịch, chỉ để lộ ra trong log."""
+    if (len(sentences) == 1
+            and len(sentences[0]) > _NGUONG_CAU_DAI_KHONG_DAU):
+        print(
+            f"Cảnh báo: một câu dài {len(sentences[0])} ký tự không có dấu "
+            "kết câu — có thể là nhiều câu ASR gộp lại, bản dịch NLLB có "
+            "thể bỏ sót hoặc lẫn nội dung (xem C67, docs/TEST_LOG.md).",
+            file=sys.stderr, flush=True)
 
 
 def _die(msg: str) -> None:
@@ -117,6 +141,7 @@ def main() -> None:
         # của model khi gặp câu nhiễu chỉ mất đúng câu đó, không kéo theo
         # các câu sau trong cùng segment (xem comment ở _split_sentences).
         sentences = _split_sentences(text)
+        _canh_bao_neu_cau_dai_khong_dau(sentences)
         sources = [[args.src_lang] + sp.encode(sent, out_type=str) + ["</s>"]
                   for sent in sentences]
         results = translator.translate_batch(
