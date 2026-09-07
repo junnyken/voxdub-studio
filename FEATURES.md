@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-05 · phiên bản ứng dụng `3.16.3`
+> Cập nhật: 2026-09-07 · phiên bản ứng dụng `3.16.3` · 2.356 test Python + 529 test Node
 
 ---
 
@@ -57,7 +57,32 @@ qua tiến trình con. Nghĩa là:
 
 Đóng gói bằng PyInstaller onedir, phát hành qua GitHub Actions trên
 `windows-latest`. Test chạy trên `ubuntu-latest` — **nghĩa là mọi thứ chỉ
-xảy ra trên Windows đều không được test tự động.**
+xảy ra trên Windows đều không được test tự động** (trừ một lượt dub thật,
+xem §5.1).
+
+### Phần máy chủ triển khai thế nào (C57–C59, 03–04/09/2026)
+
+`control_server` và tiến trình lồng tiếng phía máy chủ chạy trên Vibe Host,
+**không deploy thẳng từ `main`** mà từ hai nhánh sinh tự động
+(`deploy/vays-control-server`, `deploy/vays-dub-worker`) vì nền tảng chỉ nhận
+thư mục con ở ngay gốc repo. Bẫy cố hữu: quên sinh lại nhánh thì nền tảng
+dựng lại **mã cũ** và vẫn báo thành công — đã sập ba lần.
+
+Nay chuỗi này chạy hết bằng máy, không còn bước tay nào:
+
+1. Push `main` → CI **tự sinh lại cả hai nhánh** deploy từ đúng commit vừa
+   push rồi force-push (`sinh-nhanh-deploy`).
+2. Bộ dò so cây thư mục giữa `main` và nhánh deploy — chạy SAU bước sinh, và
+   hỏi nhánh **trên remote** chứ không phải bản sao trên máy lập trình.
+3. Chỉ khi test Python + Node + **lượt dub thật trên Windows** đều xanh, CI
+   mới đưa lên prod — và **chỉ dịch vụ nào có thư mục build thật sự đổi**.
+4. Deploy xong thì hỏi chính dịch vụ (`/health`): 200 chưa đủ, phải kèm
+   `db: "đã kết nối"` — trước C59 đường này trả `ok: true` cả khi mất
+   MongoDB, tức bộ kiểm sẽ ghi "đã lên" cho một bản không dùng được.
+
+Một chi tiết đáng nhớ cho ai sửa phần này: **tác vụ deploy báo thành công
+không có nghĩa là dịch vụ sống** — nền tảng chấm điểm bằng cổng mạng, còn thứ
+người dùng gặp là câu trả lời của ứng dụng.
 
 ---
 
@@ -286,26 +311,56 @@ chỉ giữ tên/giọng, không giữ câu thoại.
 ### 5.1 Nghiêm trọng — ảnh hưởng người dùng thật
 
 - **Không có máy Windows nào để kiểm thử tay.** Test chạy trên Linux; cả một
-  chuỗi lỗi (V73–V87) đến từ ảnh chụp màn hình của người dùng, không phải từ
-  test. **Đỡ hơn từ 28/08 (C45)**: CI chạy MỘT lượt dub thật trên runner
-  Windows ở mỗi push vào `main` và chặn phát hành nếu hỏng — nhưng lượt đó
-  chạy từ mã nguồn và dừng ở bước dịch, nên tạo giọng, ghép video và bản
-  `.exe` đóng gói vẫn chưa có ai chạy thử tự động.
+  chuỗi lỗi (V73–V87, và tiếp tục ở C61–C64) đến từ ảnh chụp màn hình của
+  người dùng, không phải từ test.
+
+  **Đỡ hơn nhiều từ 28/08 (C45) và 04/09 (C55)**: mỗi push vào `main`, CI chạy
+  MỘT lượt dub THẬT trên runner Windows; và trước mỗi lần phát hành, lượt đó
+  đi **tới tận video xuất ra** — đóng vai người dùng dịch tay, đọc giọng bằng
+  VieNeu, ghép video, rồi soi chính tệp ra: có luồng tiếng không, **có CÂM
+  không** (đo `mean_volume`), thời lượng có khớp nguồn không. Hỏng thì không
+  phát hành. Bằng chứng lượt v3.16.3: *23 câu · tiếng aac · −15,9 dB · 54,6s
+  (nguồn 53,5s)*.
+
+  Còn lại chưa tự động: lượt chạy đó dùng **mã nguồn**, không phải bản `.exe`
+  đã đóng gói (bản `.exe` chỉ có smoke test khởi động + kiểm tệp worker có
+  trong gói). Và không có gì kiểm được **chất lượng** — chỉ kiểm đường chạy.
 
 ### 5.2 Đã biết, chưa sửa
 
 - **Dịch cục bộ (NLLB) có thể bỏ sót câu** khi bản chép lời nhiễu — phát hiện
   thật, chưa sửa.
+- **"Nghe chép thiếu câu" — chủ dự án báo, CHƯA tái hiện được.** Thử trên clip
+  53 giây: 13 câu ở cả bản sạch lẫn bản trộn nhạc, cùng 107 từ — nhạc làm VỤN
+  câu chứ không nuốt câu. Một lượt 30 giây khác (05/09) ra đúng 5/5 câu. Chưa
+  có bằng chứng nào cho thấy nó xảy ra, nhưng cũng chưa có bằng chứng nào bác
+  bỏ: cả hai lượt đều là video NGẮN. Công cụ đo: `scripts/so_sanh_nghe.py`
+  (chạy trên máy, không tốn Vox) — từ C65 nhận thẳng tệp video
+  (`--video "D:\phim\tap01.mp4"`), không cần dự án đã dub.
 - **~190/204 mã ngôn ngữ FLORES chưa kiểm chứng chất lượng** — có chủ đích,
   giao diện có cảnh báo, nhưng đừng coi là "hỗ trợ 204 ngôn ngữ".
 - **Trình chỉnh sửa chưa có nút Dừng** cho hai thao tác dài (làm mới phụ đề,
   ghép video).
 - **Nhận diện vùng chữ (OCR)** nay dừng ngang được, hết giờ tính theo số
-  khung, và lấy mẫu rải đều cả video (C49). Nay có thêm lựa chọn **xoá chữ**
+  khung, và lấy mẫu rải đều cả video (C49). Có lựa chọn **xoá chữ**
   (`delogo`, C51): đo trên khung hình thật, làm mờ lệch 52,66/255 so với nền
-  gốc — gần bằng để nguyên chữ — còn xoá chỉ lệch 3,58. Vùng rộng trên nền
-  nhiều chi tiết vẫn bị kéo nhoè; inpainting học sâu thì chưa (cần model vài
-  trăm MB + xử lý từng khung).
+  gốc — gần bằng để nguyên chữ — còn xoá chỉ lệch 3,58.
+
+  **Vùng rộng trên nền nhiều chi tiết vẫn bị kéo nhoè** — đã xảy ra thật
+  05/09: bộ quét đề xuất ~15 vùng trên một cảnh phố đêm (biển hiệu neon, cả
+  mặt diễn viên), bật xoá chữ rồi xuất ra thì nguyên mảng người bị nhoè, xấu
+  hơn chữ gốc. Ba việc đã sửa sau đó: **lọc chữ chỉ TRÔI QUA một khung** và
+  giữ chữ NẰM LÌ (C63 — watermark/phụ đề cháy nằm yên một chỗ nên khung nào
+  cũng thấy; biển hiệu trôi theo máy quay); **cảnh báo khi vùng quá rộng mà
+  đang bật xoá chữ** (cảnh báo, không tự đổi sang làm mờ); **bấm chuột phải
+  để xoá riêng một vùng** (C64 — trước đó chỉ có "Xoá vùng cuối"/"Xoá tất
+  cả", muốn bỏ vài vùng ở giữa thì phải xoá sạch rồi vẽ lại).
+
+  Inpainting học sâu thì vẫn chưa (cần model vài trăm MB + xử lý từng khung).
+- **Che chữ trên video DÀI chưa ai chạy thật.** C50 quét dày hơn theo thời
+  lượng (tới 24 khung), nhưng mọi bằng chứng hiện có là test và tính tay —
+  chưa có lượt nào trên phim ~40 phút. Lấy mẫu ~2 phút/khung vẫn **có thể
+  lọt** chữ chỉ hiện 30 giây.
 - **Chế độ dựng trên máy chủ chưa hiện tiến độ** — người dùng chỉ thấy một
   dòng "Đang chờ máy chủ xử lý…".
 - Một lượt chạy test đầy đủ **thỉnh thoảng kết thúc bằng core dump lúc dọn
@@ -324,9 +379,9 @@ chỉ giữ tên/giọng, không giữ câu thoại.
 
 ---
 
-## 6. Năm lớp lỗi đã lặp lại — đọc trước khi đề xuất
+## 6. Sáu lớp lỗi đã lặp lại — đọc trước khi đề xuất
 
-Dự án này có **năm cơ chế lỗi đã tái diễn nhiều lần**. Đề xuất nào đụng vào
+Dự án này có **sáu cơ chế lỗi đã tái diễn nhiều lần**. Đề xuất nào đụng vào
 các vùng này phải tính tới chúng.
 
 1. **`except Exception` không kèm log = lỗi sống nhiều tháng.** Trình cài đặt
@@ -360,9 +415,33 @@ các vùng này phải tính tới chúng.
    giá của đường tốn tiền**; miễn trừ phải kèm lý do viết ra, và có test canh
    chính danh sách miễn trừ đó.
 
+6. **Máy BIẾT chuyện gì xảy ra nhưng nói ra một câu người dùng không dùng
+   được.** Lớp lỗi này lặp ba lần trong hai ngày (05–07/09):
+   - Chưa cài bộ quét chữ → trả `[]` → giao diện báo *"Không phát hiện chữ
+     overlay nào trong video này"*. Người dùng kết luận video mình sạch chữ
+     rồi đi tiếp (C56).
+   - Chưa cài bộ dịch ngoại tuyến → `FileNotFoundError` không ai bọc → *"Dừng
+     lại vì một lỗi ngoài dự tính"* (C61).
+   - Lời khuyên khi TikTok chặn bảo đi bật mượn cookie; làm theo thì gặp *"không
+     chép được kho cookie"* (Windows khoá tệp khi trình duyệt đang chạy); tắt
+     cookie đi thì quay lại lời khuyên cũ — **một vòng lặp kín do chính ứng
+     dụng dựng ra** (C62).
+
+   Ba cách chữa thành luật: (a) tài nguyên tuỳ chọn phải có chốt "đã cài
+   chưa" TRƯỚC khi gọi, và ném lỗi RIÊNG chứ không để lỗi hệ điều hành rơi ra
+   giao diện; (b) rỗng chỉ được có MỘT nghĩa — "đã kiểm, không có gì" — không
+   được trộn với "không kiểm được"; (c) trước khi viết *"làm A đi"*, phải tự
+   đi hết đường A: điều kiện ngầm của A là phần BẮT BUỘC của lời khuyên.
+   Nay có test canh tên ô/nút nhắc trong lời khuyên phải THẬT SỰ tồn tại
+   trong giao diện.
+
 **Bài học chung của dự án:** tài liệu không sửa được lỗi con người — phải
 biến quy tắc thành thứ máy tự kiểm. Nhưng **một bộ canh kêu nhầm sẽ bị tắt
 trong tuần đầu**, nên đo tỷ lệ báo nhầm trước khi dựng bộ canh.
+
+**Và một bài học riêng cho AI đọc file này:** năm trong sáu lớp lỗi trên đều
+lộ ra từ **một lượt chạy thật của người dùng**, không phải từ 2.356 test. Test
+canh được cái mình đã nghĩ tới; lượt chạy thật canh phần còn lại.
 
 ---
 
@@ -440,9 +519,10 @@ ba đường dịch đã làm (D1).
 | `docs/API.md` | Hợp đồng từng cửa API máy chủ |
 | `docs/ARCH.md` | Kiến trúc lõi |
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
+| `docs/KE-HOACH-KIEM-C50-C52.md` | Hai việc còn tồn chỉ máy chủ dự án trả lời được: che chữ trên phim dài, và "nghe chép thiếu câu" — kèm cách đo, **không tốn Vox** |
 
-**Quy mô test tại thời điểm cập nhật tệp này:** 1980 test Python (7 bỏ qua)
-+ 511 test Node (510 đạt, 0 hỏng). Con số này tăng gần như mỗi đợt — dùng nó
+**Quy mô test tại thời điểm cập nhật tệp này:** 2.356 test Python (3 bỏ qua —
+cả ba chỉ có nghĩa trên Windows) + 529 test Node (0 hỏng). Con số này tăng gần như mỗi đợt — dùng nó
 để hình dung quy mô, đừng dùng làm mốc đối chiếu.
 
 ⚠️ **Một cái bẫy khi tự đếm:** máy chạy test thiếu thư viện hệ thống của Qt

@@ -14,6 +14,7 @@ rồi so số câu và số từ:
 * model to hơn — trả lời "có phải do nghe bằng model nhỏ không".
 
 Dùng:
+    py scripts/so_sanh_nghe.py --video "D:\\phim\\tap01.mp4"
     py scripts/so_sanh_nghe.py --du-an "output\\VN\\20260828_vi"
     py scripts/so_sanh_nghe.py --du-an ... --model small --python .venv-whisper\\Scripts\\python.exe
 
@@ -89,7 +90,13 @@ def _cau_thieu(nhieu: list[dict], it: list[dict]) -> list[dict]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--du-an", required=True, help="thư mục dự án trong output/")
+    ap.add_argument("--du-an", default="", help="thư mục dự án trong output/")
+    # C65 — đo "thiếu câu" trên phim 40 phút thì đòi một thư mục dự án đã dub
+    # là vô lý: dub cả phim tốn hàng nghìn Vox, mà thứ cần đo chỉ là bước
+    # NGHE (chạy trên máy, miễn phí). Nhận thẳng tệp video/âm thanh.
+    ap.add_argument("--video", default="",
+                    help="hoặc chỉ thẳng một tệp video/âm thanh (không cần dự "
+                         "án, không tốn Vox)")
     ap.add_argument("--model", default="small")
     ap.add_argument("--ngon-ngu", default="", help="rỗng = để máy tự nhận")
     ap.add_argument("--python", default=sys.executable,
@@ -97,13 +104,38 @@ def main() -> int:
     ap.add_argument("--ra", default="", help="ghi bản chép của từng lượt ra thư mục này")
     args = ap.parse_args()
 
-    du_an = Path(args.du_an).resolve()
-    am = _tim_am_thanh(du_an)
-    if not am:
-        print(f"!! Không thấy original_audio.wav trong {du_an}", file=sys.stderr)
+    if not args.du_an and not args.video:
+        print("!! Cần --du-an <thư mục dự án> hoặc --video <tệp>", file=sys.stderr)
         return 2
 
-    print(f"Dự án: {du_an.name}")
+    tam_video = None
+    if args.video:
+        nguon = Path(args.video).resolve()
+        if not nguon.is_file():
+            print(f"!! Không thấy tệp {nguon}", file=sys.stderr)
+            return 2
+        tam_video = Path(tempfile.mkdtemp(prefix="so_sanh_nghe_"))
+        wav = tam_video / "original_audio.wav"
+        print(f"Tách âm thanh từ {nguon.name} …", flush=True)
+        ra_ffmpeg = subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-i", str(nguon),
+             "-vn", "-ac", "1", "-ar", "16000", str(wav)],
+            capture_output=True, text=True)
+        if ra_ffmpeg.returncode != 0 or not wav.is_file():
+            print(f"!! ffmpeg không tách được âm thanh: "
+                  f"{ra_ffmpeg.stderr.strip()[:300]}", file=sys.stderr)
+            return 2
+        du_an = tam_video
+        am = {"bản trộn (app đang nghe)": wav}
+    else:
+        du_an = Path(args.du_an).resolve()
+        am = _tim_am_thanh(du_an)
+        if not am:
+            print(f"!! Không thấy original_audio.wav trong {du_an}",
+                  file=sys.stderr)
+            return 2
+
+    print(f"Nguồn: {du_an.name}")
     print(f"Model: {args.model} · ngôn ngữ: {args.ngon_ngu or 'tự nhận'}\n")
 
     ket: dict[str, list[dict]] = {}
