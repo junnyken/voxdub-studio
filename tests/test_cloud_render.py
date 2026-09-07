@@ -224,6 +224,52 @@ def test_download_retries_transient_error_then_succeeds(tmp_path, monkeypatch):
     assert fake_client.download_job_result.call_count == 3
 
 
+# ------------------------------------- C68/V12 — hiện tiến độ lúc chờ ---- #
+# FEATURES.md §5.1: "chế độ dựng trên máy chủ chưa hiện tiến độ" — trước đây
+# chỉ emit MỘT lần duy nhất lúc nộp job (current=0, total=1), không cập nhật
+# lại trong cả vòng poll (có thể tới 30 phút) — và log_text.Narrator không
+# có template cho step "separate" nên dòng đó KHÔNG hề lên Nhật ký (kiểm tra
+# riêng ở tests/test_log_text_cloud_render_progress.py).
+
+def test_emits_progress_repeatedly_while_polling_with_real_elapsed_time(
+        tmp_path, monkeypatch):
+    """Server không trả % thật nên `total` phải là hạn chờ thật (MAX_WAIT_S),
+    KHÔNG phải 1 — total=1 khiến `current` (giây đã trôi) vượt total ngay ở
+    giây đầu tiên, ratio bị step_percent() kẹp về 100% giả ngay lập tức."""
+    fake_client = MagicMock()
+    fake_client.submit_demucs_job.return_value = {"jobId": "job9", "status": "queued"}
+    fake_client.job_status.side_effect = [
+        {"status": "queued"},
+        {"status": "running"},
+        {"status": "done"},
+    ]
+
+    def fake_download(job_id, stem, dest_path):
+        write_wav(dest_path)
+    fake_client.download_job_result.side_effect = fake_download
+    monkeypatch.setattr("autodub.saas_client.get_client", lambda: fake_client)
+    # ProgressReporter chặn bớt "progress" cách nhau dưới 0.1s (chống ngập
+    # UI) — 0.0 làm 3 lượt poll dồn cục trong 1 khung throttle, chỉ lọt được
+    # 1 sự kiện đầu. Sản xuất thật cách nhau 3s (POLL_INTERVAL_S), 0.15s ở
+    # đây đủ để mỗi lượt poll lọt qua mà vẫn nhanh.
+    monkeypatch.setattr(cloud_render, "POLL_INTERVAL_S", 0.15)
+
+    events = []
+    reporter = ProgressReporter(callback=events.append)
+    cloud_render.separate_vocals_cloud(
+        "/tmp/in.wav", str(tmp_path), reporter=reporter)
+
+    progress_events = [e for e in events
+                       if e.step == "separate" and e.status == "progress"]
+    assert len(progress_events) >= 2, (
+        "chỉ emit 1 lần lúc nộp job — đúng bug cũ, dòng đứng khựng suốt lúc chờ")
+    for e in progress_events:
+        assert e.total == int(cloud_render.MAX_WAIT_S), (
+            "total=1 khiến current (giây đã trôi) vượt total gần như ngay "
+            "lập tức, ratio bị kẹp về 100% giả")
+        assert e.current >= 0
+
+
 def test_cancellation_propagates_not_swallowed(tmp_path, monkeypatch):
     """Người dùng hủy giữa lúc chờ job cloud — PipelineCancelled phải bay
     thẳng lên caller, KHÔNG bị nuốt như một lỗi cloud thường."""

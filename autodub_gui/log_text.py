@@ -72,6 +72,12 @@ _STEP_PROGRESS = {
     "translate": "Đang dịch: {current}/{total} câu",
     "tts": "Đang tạo giọng đọc: {current}/{total} câu",
     "merge_audio": "Đang cân âm lượng: {current}/{total} câu",
+    # V12 (docs/PLAN.md) — tách nhạc trên cloud: server không trả % thật (1
+    # job = 1 lượt Demucs, không chia nhỏ được), nên đây là SỐ GIÂY ĐÃ CHỜ
+    # thật (không phải % ước lượng) — đủ để người dùng thấy máy chưa treo,
+    # không bịa ra một con số hoàn thành không có cơ sở (C68 cùng ngày: đã
+    # thử và bỏ hướng ước lượng % vì không kiểm chứng được).
+    "separate": "Đang chờ máy chủ xử lý… (đã chờ {current}s)",
 }
 
 

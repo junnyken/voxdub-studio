@@ -87,9 +87,14 @@ def separate_vocals_cloud(
     submitted = client.submit_demucs_job(input_wav)
     job_id = submitted["jobId"]
     logger.info(f"Đã nộp job tách nhạc lên cloud (jobId={job_id})")
+    start_poll = time.monotonic()
     if reporter is not None:
+        # `total=MAX_WAIT_S` (không phải 1): server không trả % thật, nên
+        # đây là elapsed/hạn-chờ-thật — tỉ lệ CHẬM và THẬN TRỌNG có chủ đích,
+        # còn hơn báo "xong" giả khi job còn chạy (đặt total=1 sẽ khiến tỉ lệ
+        # vọt lên 100% của bước này chỉ sau ~1 giây, sai hẳn thực tế).
         reporter.emit("separate", "progress", detail="Đang chờ máy chủ xử lý…",
-                      current=0, total=1)
+                      current=0, total=int(MAX_WAIT_S))
 
     deadline = time.monotonic() + MAX_WAIT_S
     status = submitted.get("status", "queued")
@@ -125,6 +130,14 @@ def separate_vocals_cloud(
         if status != last_status:
             logger.info(f"Job tách nhạc cloud: {status}")
             last_status = status
+        if reporter is not None:
+            # Server không trả % thật (1 job = 1 lượt Demucs không chia nhỏ
+            # được) — hiện SỐ GIÂY ĐÃ CHỜ thật thay vì đứng khựng ở một dòng
+            # tĩnh suốt tới 30 phút (xem log_text._STEP_PROGRESS["separate"]).
+            reporter.emit("separate", "progress",
+                          detail="Đang chờ máy chủ xử lý…",
+                          current=int(time.monotonic() - start_poll),
+                          total=int(MAX_WAIT_S))
 
     if status == "failed":
         raise SaasError(f"Máy chủ tách nhạc lỗi: {info.get('error') or 'không rõ lý do'}")

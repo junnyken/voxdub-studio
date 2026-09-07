@@ -1387,11 +1387,8 @@ Kết luận không đổi: cần build trên máy/CI có mạng Docker bình th
   `claimNextJob` atomic đã đúng theo lý thuyết Mongo
   (`findOneAndUpdate`) và có test khoá lại (`claimNextJob: FIFO, atomic`)
   nhưng chưa chạy N worker thật song song.
-- GUI cloud-render: chưa hiện TIẾN ĐỘ job đang chạy trên cloud trong lúc
-  chờ (mini-spec Scope D có nhắc "hiện tiến độ job") — hiện tại chỉ có
-  1 dòng log tiến độ chung ("Đang chờ máy chủ xử lý…") qua
-  `ProgressReporter`, chưa có UI riêng hiện %/trạng thái job cloud tách
-  biệt khỏi các bước khác của pipeline.
+- ~~GUI cloud-render: chưa hiện TIẾN ĐỘ job đang chạy trên cloud trong lúc
+  chờ~~ — **đã sửa, xem mục C68 (07/09/2026) cuối tài liệu này.**
 - Chưa chạy thật qua GUI desktop (PySide6 thật, không phải smoke test
   offscreen) — verify GUI mới dừng ở dựng widget thật trong `QApplication`
   offscreen + gọi hàm thật, chưa click chuột thật qua toàn bộ luồng Tạo dự
@@ -14306,3 +14303,58 @@ câu); và một test dùng worker giả THẬT (subprocess, đúng khuôn
 tới log ứng dụng, không bị bỏ qua.
 
 2371 đạt / 4 bỏ qua.
+
+## C68 — Đóng gap V12 Scope D: "chế độ dựng trên máy chủ chưa hiện tiến độ"
+(07/09/2026)
+
+FEATURES.md §5.1 và V12 Remaining Limits cùng ghi nhận gap này. Đọc lại mã
+thì root cause KHÔNG phải chỉ "thiếu UI" như mô tả — nó sâu hơn:
+`autodub/cloud_render.py::separate_vocals_cloud()` chỉ gọi
+`reporter.emit("separate", "progress", ...)` **đúng MỘT LẦN** lúc vừa nộp
+job (`current=0, total=1`), rồi suốt cả vòng poll (có thể tới `MAX_WAIT_S` =
+30 phút) không emit lại — nhưng còn tệ hơn: **kể cả dòng emit duy nhất đó
+cũng không hề lên Nhật ký**, vì `autodub_gui/log_text.py::Narrator` không có
+mục nào cho step `"separate"` trong `_STEP_PROGRESS` (chỉ có
+`translate`/`tts`/`merge_audio`) — `narrate()` trả `None` ngay ở dòng
+`if not template or not total: return None`. Người dùng chỉ thấy đúng một
+dòng tĩnh từ status `"start"` ("Đang tách giọng nói khỏi nhạc nền"), rồi im
+lặng hoàn toàn tới khi job xong.
+
+Guardrail mini-spec V12 #2 (dùng lại `RenderJob`/Mongo, không thêm
+Redis/broker) và phạm vi gap ("hiển thị tiến độ", không phải kiến trúc
+queue) được giữ nguyên — sửa gói gọn trong `cloud_render.py` (client poll
+loop) + `log_text.py` (thêm 1 template), KHÔNG đụng `control_server`.
+
+**Quyết định quan trọng nhất — KHÔNG bịa % hoàn thành:** 1 job Demucs cloud
+= 1 lượt xử lý không chia nhỏ được, server không trả % thật. Cân nhắc dùng
+elapsed-time làm % ước lượng (kiểu "thanh tiến trình ước lượng" phổ biến ở
+nơi khác) nhưng không có số liệu THẬT nào về "thời gian xử lý điển hình" của
+job Demucs cloud để đặt mẫu số cho ước lượng đó — bịa một hằng số không đo
+được đi ngược nguyên tắc "đo trước khi tin" của dự án (cùng ngày với C67).
+Chọn hiện **số giây đã chờ thật** thay vì %.
+
+Có một bẫy số học cần tránh: nếu vẫn dùng `total=1` (giá trị cũ) mà `current`
+là số giây tăng dần, `current` vượt `total` chỉ sau ~1 giây →
+`run_state.step_percent()` kẹp `ratio = current/total` về `1.0` ngay lập tức
+→ thanh tiến trình TỔNG nhảy vọt tới mốc "đã xong bước tách nhạc" giả dù job
+còn chạy có thể tới 30 phút. Sửa bằng `total=int(MAX_WAIT_S)` — tỉ lệ khi đó
+tăng CHẬM và THẬN TRỌNG có chủ đích (bám đúng hạn chờ thật), không báo xong
+giả.
+
+Đã làm:
+- `cloud_render.py`: emit lại `"separate"`/`"progress"` mỗi vòng poll với
+  `current=`giây đã trôi thật, `total=int(MAX_WAIT_S)`.
+- `log_text.py::_STEP_PROGRESS["separate"]` = `"Đang chờ máy chủ xử lý…
+  (đã chờ {current}s)"` — chỉ dùng `{current}`, KHÔNG hiện `{total}` (30
+  phút) ra cho người dùng vì đó là ngưỡng treo, không phải thời lượng job sẽ
+  chạy — hiện ra dễ hiểu nhầm.
+
+4 test mới: `tests/test_log_text_cloud_render_progress.py` khoá đúng phát
+hiện chính (trước sửa, `narrate()` trả `None` cho step "separate" — dòng
+tiến độ biến mất hoàn toàn) + canh không hiện số 1800 ra text; regression
+test không đụng status start/done. `tests/test_cloud_render.py` thêm
+`test_emits_progress_repeatedly_while_polling_with_real_elapsed_time` — emit
+≥2 lần (không phải 1 lần duy nhất) và luôn dùng `total=MAX_WAIT_S` (khoá bẫy
+`total=1` ở trên).
+
+2375 đạt / 4 bỏ qua.

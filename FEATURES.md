@@ -336,7 +336,7 @@ này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cu
 - **Dịch cục bộ (NLLB) có thể lẫn/bịa nội dung** khi một "câu" dài không có
   dấu kết câu bị gửi nguyên cụm (thường do ASR mất dấu câu — xem cảnh báo có
   sẵn ở `paraformer_transcriber.py`) — **tái hiện được thật bằng model NLLB
-  thật ngay trong sandbox** (C67, không cần video). Đã thử hai cách lọc tự
+  thật ngay trong sandbox** (C67 — mục riêng, xem TEST_LOG.md). Đã thử hai cách lọc tự
   động (tỉ lệ độ dài output/input, điểm tin cậy của ctranslate2) — **cả hai
   đều KHÔNG phân biệt được** ca lỗi này với bản dịch đúng, nên chưa có cách
   sửa tự động đã kiểm chứng. Đã thêm: cảnh báo ra log ứng dụng khi gặp câu
@@ -371,8 +371,13 @@ này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cu
   lượng (tới 24 khung), nhưng mọi bằng chứng hiện có là test và tính tay —
   chưa có lượt nào trên phim ~40 phút. Lấy mẫu ~2 phút/khung vẫn **có thể
   lọt** chữ chỉ hiện 30 giây.
-- **Chế độ dựng trên máy chủ chưa hiện tiến độ** — người dùng chỉ thấy một
-  dòng "Đang chờ máy chủ xử lý…".
+- ~~Chế độ dựng trên máy chủ chưa hiện tiến độ~~ — **đã sửa (C68/V12).** Gốc
+  rễ thật không chỉ là "thiếu UI": `Narrator` (khung Nhật ký) không có
+  template cho step "separate" nên dòng tiến độ **không hề lên Nhật ký**,
+  người dùng chỉ thấy dòng tĩnh "Đang tách giọng nói khỏi nhạc nền" rồi im
+  lặng tới khi xong (có thể 30 phút). Nay hiện **số giây đã chờ thật** (server
+  không trả % thật — 1 job Demucs không chia nhỏ được, nên không bịa ra một
+  con số hoàn thành).
 - Một lượt chạy test đầy đủ **thỉnh thoảng kết thúc bằng core dump lúc dọn
   dẹp** (nghi Qt dọn luồng khi thoát). Đã gặp lần hai ngày 28/08; cả hai lần
   đều xảy ra SAU khi test chạy xong, chạy lại ngay là xanh. Chưa tái hiện
