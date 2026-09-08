@@ -14584,6 +14584,49 @@ thật** ở bất kỳ đâu (sandbox không có `HF_TOKEN`, gated model trên 
 (mới) cho đề xuất: audit/benchmark trước khi cam kết build, đúng tiền lệ
 V30→V32a (lipsync).
 
+### G1 tiếp — TÁI HIỆN ĐƯỢC THẬT, và nguyên nhân KHÁC giả thuyết ban đầu (08/09/2026)
+
+Chủ dự án gửi thêm 2 video hoạt hình có cảnh hành động hỗn loạn: *Sing 2*
+(cảnh cả nhóm chạy trốn, 563s) và *Kung Fu Panda* (cảnh huấn luyện/chiến
+đấu, 585s). Cùng phương pháp G1 (`so_sanh_nghe.py`, VAD bật/tắt):
+
+| Video | VAD BẬT (app dùng) | VAD TẮT | Chênh SỐ TỪ |
+|---|---|---|---|
+| Kung Fu Panda | 837 từ | 858 từ | 2,4% (cao hơn Mean Girls 1,3%, nhưng vẫn nhỏ) |
+| **Sing 2** | **840 từ** | **1013 từ** | **17,1%** ← nhảy vọt |
+
+Kiểm tay video Sing 2 quanh mốc chênh lớn nhất: **XÁC NHẬN MẤT NỘI DUNG
+THẬT, lần đầu tiên trong toàn bộ điều tra G1.** Bản VAD BẬT (đúng đường app
+đang dùng) có một khoảng TRỐNG HOÀN TOÀN từ 53,8s tới 91,5s (~38 giây) —
+không một câu nào. Bản VAD TẮT trong đúng khoảng đó có **6 câu liền**:
+*"I got some hotmail for you." / "It is so new." / "I knew it." / "Look
+out!" / "Buster?" / "Ash?"* — toàn bộ biến mất hoàn toàn khỏi bản BẬT,
+không phải cắt câu khác, không phải chuyển câu — **MẤT SẠCH**.
+
+**Nguyên nhân nghi ngờ nhất KHÔNG PHẢI "chồng tiếng"** (giả thuyết ban đầu
+dẫn tới G2) — kiểm âm lượng đoạn mất (`ffmpeg volumedetect`, 51-92s):
+mean −24,1dB, max −7,5dB, **gần như giống hệt** đoạn nghe bình thường
+(0-45s: mean −22,7dB, max −7,5dB). Không phải do "quá to". Nghi ngờ mới:
+**bộ lọc VAD (dựa trên xác suất giọng nói của mô hình, không phải ngưỡng
+decibel đơn thuần) đánh giá NHẦM cả đoạn là "không có tiếng nói"** khi âm
+thanh cảnh hành động (nhạc nền dồn dập + hiệu ứng + thoại nhanh chồng nhịp
+điệu) làm giảm độ tin cậy "đây là giọng nói" của VAD, dù người nghe thật
+(và bản VAD TẮT) vẫn nhận ra rõ ràng có lời thoại.
+
+**Ý nghĩa cho hướng đi tiếp theo:** đây là tin TỐT hơn ban đầu tưởng — nếu
+đúng là do VAD (không phải do ASR bó tay trước giọng chồng), **cách sửa rẻ
+hơn NHIỀU** so với hướng speech-separation của G2 (không cần GPU, không
+cần model mới): có thể chỉ cần điều chỉnh ngưỡng nhạy VAD, hoặc thêm một
+lượt nghe LẠI KHÔNG VAD cho các khoảng VAD đã loại bỏ để "vớt" lại nội dung
+bị bỏ sót, trước khi cân nhắc đầu tư speech-separation. **Không tự sửa
+ngay** (đúng guardrail G1/G2 — cần một mini-spec riêng cô lập đúng biến VAD
+trước khi kết luận chắc chắn, và kiểm xem ca này lặp lại trên video khác
+hay chỉ là 1 lần).
+
+Chưa kiểm: video Kung Fu Panda có "có tiếng" lệch lớn (480,4s BẬT vs
+276,6s TẮT) dù số từ chỉ lệch 2,4% — đáng ngờ nhưng số từ không phản ánh
+đúng mức, cần xem lại nếu tiếp tục điều tra.
+
 **G2 Scope A (audit giấy phép model tách giọng nói) — xong (08/09/2026).**
 Tìm ra đúng một bẫy license giống hệt bài học Wav2Lip ở V30: các checkpoint
 chất lượng cao nhất công khai (`sepformer-wsj02mix`, `sepformer-whamr`,
