@@ -543,9 +543,10 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 | `docs/KE-HOACH-KIEM-C50-C52.md` | Hai việc còn tồn chỉ máy chủ dự án trả lời được: che chữ trên phim dài, và "nghe chép thiếu câu" — kèm cách đo, **không tốn Vox** |
 
-**Quy mô test tại thời điểm cập nhật tệp này:** 2.356 test Python (3 bỏ qua —
-cả ba chỉ có nghĩa trên Windows) + 529 test Node (0 hỏng). Con số này tăng gần như mỗi đợt — dùng nó
-để hình dung quy mô, đừng dùng làm mốc đối chiếu.
+**Quy mô test tại thời điểm cập nhật tệp này:** 2.376 test Python (4 bỏ qua —
+chỉ có nghĩa trên Windows) + 529 test Node (0 hỏng) + 74 test React (0 hỏng).
+Con số này tăng gần như mỗi đợt — dùng nó để hình dung quy mô, đừng dùng làm
+mốc đối chiếu.
 
 ⚠️ **Một cái bẫy khi tự đếm:** máy chạy test thiếu thư viện hệ thống của Qt
 thì một loạt tệp test giao diện bị bỏ qua **ngay ở tầng nạp module** —
