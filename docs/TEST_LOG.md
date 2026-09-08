@@ -14529,3 +14529,57 @@ nói chồng tiếng: có/không").
 
 Chưa thử: tiếng Trung (chủ dự án xác nhận cũng là ngôn ngữ đã gặp lỗi),
 có nhạc nền ở video dài thật (khác thử nghiệm cũ chỉ có ở clip ngắn).
+
+### G1 tiếp — thử biến "nhiều người nói chồng tiếng" (08/09/2026)
+
+Chủ dự án tự đề xuất đúng ô còn thiếu trong ma trận G1 khi xem báo cáo giữa
+chừng. Video thử: cảnh phim *Mean Girls* trên YouTube, 534s (~8,9 phút),
+4-5 nhân vật nữ sinh nói nhanh, nhiều đoạn chen lời/nói gần như chồng nhau
+(kiểu hội thoại phim, khác hẳn phỏng vấn tuần tự của 2 video trước).
+
+| Video | VAD BẬT | VAD TẮT | Chênh SỐ TỪ |
+|---|---|---|---|
+| 16 phút (phỏng vấn, 2 người) | 2530 từ | 2525 từ | 5 từ (0,2%) |
+| 22 phút (phỏng vấn, 2 người) | 3010 từ | 3008 từ | 2 từ (0,07%) |
+| **8,9 phút (phim, 4-5 người, chen lời)** | **1348 từ** | **1365 từ** | **17 từ (1,3%)** |
+
+Chênh số từ **cao hơn ~6-18 lần** so với hai video phỏng vấn — đúng hướng
+giả thuyết (chồng tiếng làm tăng biến động). Nhưng kiểm tay thủ công 2 đoạn
+cụ thể trong danh sách "câu thiếu" (mốc 22s "Nice wig, Janice…", mốc 116s
+"Karen Smith…") đối chiếu đầy đủ hai bản chép: **nội dung có mặt ở CẢ HAI**,
+không mất — chỉ khác cách cắt câu, và ở cả hai đoạn kiểm, bản **VAD BẬT
+(app đang dùng) nghe CHÍNH XÁC HƠN** bản VAD TẮT (vd bản BẬT nghe đúng "Nice
+wig, Janice" — đúng lời thoại gốc; bản TẮT nghe nhầm thành "Last week,
+Janice").
+
+**Kết luận: tín hiệu YẾU, KHÔNG đủ để kết luận "chồng tiếng gây mất nội
+dung" là nguyên nhân xác nhận.** Chênh số từ tăng so với video êm nhưng vẫn
+nhỏ (1,3%), và 2/2 mẫu kiểm tay đều là "cắt khác" chứ không phải "mất hẳn".
+Đúng tinh thần Success Criteria của G1: **không kết luận mơ hồ "có thể do
+chồng tiếng"** khi bằng chứng trực tiếp (đọc lại transcript) không xác nhận
+mất nội dung ở 2 mẫu đã kiểm — dù xu hướng số liệu (chênh từ tăng theo mức
+chồng tiếng) là có thật và đáng ghi nhận cho hướng điều tra tiếp theo.
+
+**Vẫn đúng một điều đã biết rộng rãi ở tầng model, độc lập với kết quả đo
+trên**: khi hai giọng chồng THẬT SỰ đồng thời trên cùng một khung âm thanh
+ngắn (không phải chen lời cách nhau vài trăm ms như trong 3 video đã thử),
+ASR một-kênh về nguyên lý không tách được — đây là giới hạn kiến trúc, không
+phải bug riêng của app, và 3 video vừa thử có thể chưa chạm đúng mức độ
+chồng tiếng nặng đó (đối thoại phim vẫn chủ yếu chen lời NỐI TIẾP nhanh,
+không phải hai giọng nói CÙNG lúc kéo dài).
+
+**Theo dõi audit hạ tầng liên quan** (không phải G1, phục vụ quyết định có
+mở PoC hay không): diarization hiện tại (`autodub/speech/diarization.py`,
+V26) chạy **SAU** ASR, chỉ dùng để gán giọng đọc TTS theo người nói — không
+giúp ASR nghe tốt hơn dù pyannote (`speaker-diarization-3.1`) có tín hiệu
+overlap sẵn (`speaker_diarization` output, bị `assign_speakers()` vứt bỏ để
+lấy 1 nhãn/segment — quyết định thiết kế ghi rõ ở `docs/PLAN.md:2072-2074`,
+"KHÔNG cam kết chất lượng ở video chồng lấn nặng"). Demucs (tách nhạc nền)
+không giải quyết được bài toán tách NHIỀU GIỌNG NGƯỜI chồng nhau — đó là
+bài toán khác (speech separation), chưa có bất kỳ model/venv/worker nào
+trong repo. V26 diarization tự nó **chưa từng chạy thật với model pyannote
+thật** ở bất kỳ đâu (sandbox không có `HF_TOKEN`, gated model trên HF Hub).
+
+**Không mở PoC ngay** — xem `docs/MINI-SPEC_G2_POC_ASR_Chong_Tieng.md`
+(mới) cho đề xuất: audit/benchmark trước khi cam kết build, đúng tiền lệ
+V30→V32a (lipsync).
