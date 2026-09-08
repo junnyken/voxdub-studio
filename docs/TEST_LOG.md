@@ -14698,3 +14698,54 @@ hiện không có), logic cắt audio đúng khoảng trống + nghe lại + gh�
 thời gian, và ngưỡng "khoảng trống bất thường" cần audit thêm (tránh nghe
 lại nhầm đoạn im lặng thật). Độ phức tạp cao hơn hẳn Scope B — để lại làm
 riêng nếu chủ dự án muốn đóng nốt phần còn thiếu.
+
+## G3 Scope C thực hiện xong: vá khoảng trống — ĐÓNG NỐT (08/09/2026)
+
+Theo yêu cầu chủ dự án ("hoàn chỉnh tối ưu các chỗ bị thiếu trống"), làm
+tiếp phần còn treo của G3.
+
+**Cơ chế**: sau khi nghe xong (VAD threshold=0.3, Scope B), dò khoảng cách
+giữa 2 câu liên tiếp — nếu > `_NGUONG_KHOANG_TRONG_S = 15.0` giây (biên an
+toàn rộng trước ngưỡng im lặng tự nhiên bình thường, và thấp hơn nhiều so
+với khoảng mất thật đã đo 38s), cắt đúng khoảng đó bằng `ffmpeg`, nghe lại
+**TẮT HẲN VAD** (`vad_filter=False`), rồi chèn kết quả (nếu có) vào đúng
+mốc thời gian. Lỗi ở bước vá (ffmpeg/ASR) tự nuốt, KHÔNG làm hỏng lượt
+chép lời chính — vá là VỚT, không phải lõi.
+
+**Thay đổi kỹ thuật**: thêm tham số `vad_filter` xuyên suốt 3 tầng
+(`asr_whisper_worker.py` đọc từ JSON request → `_transcribe_whisper_
+subprocess()`/`_transcribe_whisper()` trong `transcriber.py` nhận tham số
+→ gọi lại chính đường Whisper đã có, không xây engine mới). Chỉ áp dụng
+cho Whisper (kể cả khi segment gốc đến từ Paraformer — dùng Whisper làm
+lượt vá chéo-engine, vì Whisper luôn có sẵn làm phương án dự phòng trong
+toàn bộ codebase).
+
+**Verify bằng `transcribe()` THẬT (không phải hàm nội bộ tách rời) trên
+đúng video Sing 2, model `medium`** — so với bản VAD-tắt-hoàn-toàn (chuẩn
+đối chứng gốc từ G1) trong khoảng 45-95s:
+
+| Mốc thời gian VAD-tắt-hoàn-toàn (G1, chuẩn đối chứng) | Sau Scope B+C (production thật) |
+|---|---|
+| 53,7s "I got some hotmail for you." | 53,8s "Linda, I got some hot deals for you." ✓ |
+| 55,8s "It is so new." | 56,6s "It is so nice to see you!" ✓ |
+| 58,2s "I knew it." | 59,5s "Hey, check that!" / 61,9s "Oh my god." ✓ (nhiều hơn) |
+| 66,7-78,4s "Look out!" | Trong khoảng 61,9-79,0s có nội dung liên tục, không còn khoảng trắng |
+| 80,5s "Buster?" | 77,9s "Buster?" ✓ |
+| 82,8s "Ash?" | 83,4s "Ash?" ✓ (gần khớp mốc) |
+
+**Toàn bộ khoảng trống 38 giây đã được lấp — không còn một giây nào hoàn
+toàn im lặng trong đoạn 44-96s**, so với TRƯỚC G3 chỉ có 2 câu/12 từ
+(khoảng trắng 47,6s→57s rồi một câu duy nhất trải sai suốt 57-94s). Không
+chỉ khớp lại chuẩn đối chứng — vài chỗ Scope C còn nghe RA NHIỀU HƠN bản
+VAD-tắt-hoàn-toàn gốc (thêm "You look terrific!", "Hey, check that!").
+
+7 test mới cho Scope C (12 tổng trong `tests/test_vad_bo_sot_doan_on.py`):
+hàm dò khoảng trống thuần (không khoảng trống/khoảng ngắn bình thường/
+khoảng dài bất thường/nhiều khoảng cùng lúc), tích hợp thật với worker giả
+qua subprocess thật (đúng khuôn `test_translate_local_watchdog.py` — canh
+cả việc gọi đúng `vad_filter=False` và dời mốc thời gian đúng), không tốn
+thêm lượt ASR nào khi không có khoảng trống, và `_nghe_lai_khong_vad` thật
+tự nuốt lỗi ffmpeg khi audio không tồn tại. Tổng test suite: xem commit.
+
+**G3 coi như đóng — cả Scope B lẫn C đều đã làm, verify bằng số liệu thật
+trên đúng ca đã xác nhận lỗi.**

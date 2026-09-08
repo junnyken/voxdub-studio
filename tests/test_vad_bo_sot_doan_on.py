@@ -13,11 +13,19 @@ dự án — sửa một đường quên đường kia): ``asr_whisper_worker.py
 đường subprocess — đường THẬT của bản .exe), ``transcriber.py`` (Whisper,
 đường in-process — chỉ dùng khi chạy từ mã nguồn), ``asr_paraformer_worker.py``
 (Paraformer, tiếng Trung — CÙNG rủi ro vì cùng model Silero VAD).
+
+Scope C (thêm sau, cùng ngày): hạ threshold một mình KHÔNG đóng hết được
+khoảng trống ở ca cực đoan (ngay cả threshold=0.1 vẫn còn ~15s không phát
+hiện được). Thêm cơ chế "vá khoảng trống": sau khi nghe xong, dò khoảng cách
+BẤT THƯỜNG giữa 2 câu liên tiếp rồi nghe lại đúng đoạn đó, TẮT HẲN VAD.
 """
 from __future__ import annotations
 
 import os
 import re
+import sys
+import textwrap
+import wave
 
 import pytest
 
@@ -120,3 +128,148 @@ def test_threshold_thap_hon_phat_hien_nhieu_audio_hon_tren_nhieu_tren():
         "threshold thấp hơn phải phát hiện được audio NHIỀU HƠN HOẶC BẰNG, "
         "không bao giờ ít hơn — nếu test này đỏ, model VAD hoặc API đã đổi "
         "hành vi, cần điều tra lại trước khi tin số liệu G3")
+
+
+# --------------------------------------------------------------------- #
+# Scope C — vá khoảng trống. `_tim_khoang_trong_bat_thuong` là hàm thuần,
+# test trực tiếp không cần audio/model.
+
+def test_khong_co_khoang_trong_thi_khong_vá_gì():
+    from autodub.speech.transcriber import _tim_khoang_trong_bat_thuong
+
+    segs = [{"start": 0.0, "end": 2.0}, {"start": 3.0, "end": 5.0},
+            {"start": 6.0, "end": 8.0}]
+    assert _tim_khoang_trong_bat_thuong(segs) == []
+
+
+def test_khoang_trong_ngan_binh_thuong_khong_bi_coi_la_bat_thuong():
+    """Ngừng lấy hơi/dấu chấm câu vài giây là chuyện bình thường, không phải
+    dấu hiệu VAD bỏ sót — chỉ khoảng RẤT DÀI mới đáng nghi."""
+    from autodub.speech.transcriber import _tim_khoang_trong_bat_thuong
+
+    segs = [{"start": 0.0, "end": 2.0}, {"start": 8.0, "end": 10.0}]  # 6s
+    assert _tim_khoang_trong_bat_thuong(segs) == []
+
+
+def test_khoang_trong_dai_bat_thuong_duoc_phat_hien_dung_moc():
+    from autodub.speech.transcriber import _tim_khoang_trong_bat_thuong
+
+    segs = [{"start": 0.0, "end": 45.5}, {"start": 91.2, "end": 95.0}]  # 45.7s
+    assert _tim_khoang_trong_bat_thuong(segs) == [(45.5, 91.2)]
+
+
+def test_nhieu_khoang_trong_deu_duoc_liet_ke():
+    from autodub.speech.transcriber import _tim_khoang_trong_bat_thuong
+
+    segs = [
+        {"start": 0.0, "end": 10.0},
+        {"start": 30.0, "end": 32.0},   # khoảng 1: 20s
+        {"start": 34.0, "end": 36.0},   # bình thường: 2s
+        {"start": 60.0, "end": 62.0},   # khoảng 2: 24s
+    ]
+    assert _tim_khoang_trong_bat_thuong(segs) == [(10.0, 30.0), (36.0, 60.0)]
+
+
+# --------------------------------------------------------------------- #
+# Tích hợp thật: `_va_khoang_trong` cắt audio thật bằng ffmpeg rồi gọi lại
+# đúng đường subprocess thật (worker giả, đúng khuôn
+# test_translate_local_watchdog.py — không mock Popen, chạy tiến trình con
+# thật để canh đúng hành vi thật, không phải hành vi giả lập của mock).
+
+def _wav_im_lang(path: str, seconds: float = 100.0) -> None:
+    """Audio giả (im lặng) đủ dài để cắt — worker giả không thật sự nghe."""
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x00" * int(16000 * seconds))
+
+
+def _worker_gia_tra_ve(tmp_path, cau: list[dict]) -> str:
+    """Worker giả mô phỏng đúng giao thức JSON của asr_whisper_worker.py —
+    LUÔN trả về `cau` bất kể audio thật là gì (test hành vi ghép/dời mốc
+    thời gian của `_va_khoang_trong`, không test chất lượng nghe)."""
+    path = tmp_path / "fake_asr_worker.py"
+    path.write_text(textwrap.dedent(f"""
+        import json, sys
+        print(json.dumps({{"ready": True}}), flush=True)
+        line = sys.stdin.readline()
+        req = json.loads(line)
+        assert req.get("vad_filter") is False, (
+            "vá khoảng trống PHẢI gọi với vad_filter=False, nếu không thì "
+            "gặp lại đúng bug đang sửa")
+        for c in {cau!r}:
+            print(json.dumps({{"seg": True, **c}}), flush=True)
+        print(json.dumps({{"done": True}}), flush=True)
+    """), encoding="utf-8")
+    return str(path)
+
+
+def _settings_gia(monkeypatch, worker_path):
+    from autodub.config import Settings
+
+    settings = Settings()
+    monkeypatch.setattr(settings, "whisper_venv_configured", lambda: True)
+    monkeypatch.setattr(settings, "whisper_venv_python_path",
+                        lambda: sys.executable)
+    monkeypatch.setattr(settings, "whisper_model_dir_path", lambda: "/tmp")
+    monkeypatch.setattr("autodub.speech.transcriber._WHISPER_WORKER_SCRIPT",
+                        worker_path)
+    return settings
+
+
+def test_va_khoang_trong_chen_dung_cau_moi_va_doi_moc_thoi_gian(
+        monkeypatch, tmp_path):
+    from autodub.speech.transcriber import _va_khoang_trong
+
+    audio_path = str(tmp_path / "goc.wav")
+    _wav_im_lang(audio_path, seconds=100)
+    # Worker giả "nghe" ra 1 câu ở giây 2 CỦA ĐOẠN CẮT — sau khi vá phải
+    # thành 47.5s (45.5 + 2) trong hệ mốc thời gian audio GỐC.
+    worker = _worker_gia_tra_ve(
+        tmp_path, [{"id": 1, "start": 2.0, "end": 4.0, "text": "câu bị lọt"}])
+    settings = _settings_gia(monkeypatch, worker)
+
+    segments = [{"id": 1, "start": 0.0, "end": 45.5, "text": "a"},
+               {"id": 2, "start": 91.2, "end": 95.0, "text": "b"}]
+    ket_qua = _va_khoang_trong(segments, audio_path, "en", settings)
+
+    assert len(ket_qua) == 3
+    vá = next(s for s in ket_qua if s["text"] == "câu bị lọt")
+    assert vá["start"] == pytest.approx(47.5)
+    assert vá["end"] == pytest.approx(49.5)
+    # Câu vá nằm ĐÚNG VỊ TRÍ theo thời gian, giữa câu 1 và câu 2 cũ.
+    assert [s["text"] for s in ket_qua] == ["a", "câu bị lọt", "b"]
+
+
+def test_khong_co_khoang_trong_thi_khong_goi_asr_them(monkeypatch, tmp_path):
+    """Video bình thường (không có khoảng trống bất thường) không được tốn
+    thêm một lượt ASR nào — vá chỉ kích hoạt đúng lúc cần."""
+    from autodub.speech.transcriber import _va_khoang_trong
+
+    goi = {"so_lan": 0}
+
+    def _khong_duoc_goi(*a, **k):
+        goi["so_lan"] += 1
+        return []
+
+    monkeypatch.setattr("autodub.speech.transcriber._nghe_lai_khong_vad",
+                        _khong_duoc_goi)
+    settings = object()  # không cần dùng nếu không có khoảng trống
+    segments = [{"id": 1, "start": 0.0, "end": 2.0, "text": "a"},
+               {"id": 2, "start": 3.0, "end": 5.0, "text": "b"}]
+    ket_qua = _va_khoang_trong(segments, "khong-can-dung", "en", settings)
+    assert ket_qua == segments
+    assert goi["so_lan"] == 0
+
+
+def test_nghe_lai_khong_vad_that_tu_nuot_loi_ffmpeg(tmp_path):
+    """`_nghe_lai_khong_vad` THẬT (không mock) phải tự nuốt lỗi ffmpeg (audio
+    không tồn tại) và trả về [] — vá thêm là VỚT, không được văng lỗi làm
+    hỏng cả lượt chép lời chính vì một đoạn vá phụ thất bại."""
+    from autodub.config import Settings
+    from autodub.speech.transcriber import _nghe_lai_khong_vad
+
+    ket_qua = _nghe_lai_khong_vad(
+        str(tmp_path / "khong_ton_tai.wav"), 10.0, 20.0, "en", Settings())
+    assert ket_qua == []

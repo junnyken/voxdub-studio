@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-08 · phiên bản ứng dụng `3.16.6` · 2.381 test Python +
+> Cập nhật: 2026-09-08 · phiên bản ứng dụng `3.16.6` · 2.388 test Python +
 > 529 test Node + 74 test React
 
 ---
@@ -347,18 +347,19 @@ này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cu
   log (giữ từ C67) nhưng chưa có sửa tự động, vì không tách được ranh giới
   câu một cách đáng tin khi nguồn không có dấu. Xem `docs/TEST_LOG.md` C67+C69.
 - ~~"Nghe chép thiếu câu" — chủ dự án báo, CHƯA tái hiện được~~ — **TÁI HIỆN
-  ĐƯỢC THẬT (G1, 08/09) và đã sửa một phần (G3).** Clip ngắn (30s/53s) không
-  lộ ra gì — nhưng video hoạt hình cảnh hành động (nhạc nền + hiệu ứng dồn
-  dập) làm lộ: Silero VAD (bộ lọc trước khi nghe, `threshold=0.5` mặc định)
-  coi cả một đoạn 38 giây là "không có tiếng nói", dù âm lượng không khác gì
-  đoạn nghe bình thường (không phải do quá to). Hạ `threshold` xuống 0.3 ở cả
-  3 nơi dùng chung model VAD (Whisper 2 đường + Paraformer) — verify bằng
-  model thật: **+192% số từ phục hồi** trên đúng đoạn đã mất, không hồi quy
-  trên video nói liên tục. **Chưa phục hồi 100%** — vẫn còn ca cực đoan mất
-  một phần dù đã hạ threshold, cần thêm cơ chế "vá khoảng trống" (G3 Scope C,
-  chưa làm). Công cụ đo: `scripts/so_sanh_nghe.py` (chạy trên máy, không tốn
-  Vox) — từ C65 nhận thẳng tệp video. Chi tiết: `docs/TEST_LOG.md` mục G1/G3,
-  `docs/MINI-SPEC_G3_VAD_Bo_Sot_Doan_On.md`.
+  ĐƯỢC THẬT và ĐÃ SỬA (G1→G3, 08/09).** Clip ngắn (30s/53s) không lộ ra gì —
+  nhưng video hoạt hình cảnh hành động (nhạc nền + hiệu ứng dồn dập) làm lộ:
+  Silero VAD (bộ lọc trước khi nghe, `threshold=0.5` mặc định) coi cả một
+  đoạn 38 giây là "không có tiếng nói", dù âm lượng không khác gì đoạn nghe
+  bình thường (không phải do quá to). Sửa hai lớp: (1) hạ `threshold` xuống
+  0.3 ở cả 3 nơi dùng chung model VAD (Whisper 2 đường + Paraformer), không
+  hồi quy trên video nói liên tục; (2) tự động dò khoảng cách bất thường
+  giữa 2 câu liên tiếp rồi nghe lại đúng đoạn đó tắt hẳn VAD. Verify bằng
+  `transcribe()` production thật trên đúng video đã lỗi: **toàn bộ khoảng
+  trống 38 giây được lấp đầy**, khớp (vài chỗ còn nhiều hơn) chuẩn đối
+  chứng nghe không lọc VAD. Công cụ đo: `scripts/so_sanh_nghe.py` (chạy
+  trên máy, không tốn Vox) — từ C65 nhận thẳng tệp video. Chi tiết:
+  `docs/TEST_LOG.md` mục G1/G3, `docs/MINI-SPEC_G3_VAD_Bo_Sot_Doan_On.md`.
 - **~190/204 mã ngôn ngữ FLORES chưa kiểm chứng chất lượng** — có chủ đích,
   giao diện có cảnh báo, nhưng đừng coi là "hỗ trợ 204 ngôn ngữ".
 - **Nhận diện vùng chữ (OCR)** nay dừng ngang được, hết giờ tính theo số
@@ -549,7 +550,7 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 | `docs/KE-HOACH-KIEM-C50-C52.md` | Hai việc còn tồn chỉ máy chủ dự án trả lời được: che chữ trên phim dài, và "nghe chép thiếu câu" — kèm cách đo, **không tốn Vox** |
 
-**Quy mô test tại thời điểm cập nhật tệp này:** 2.381 test Python (4 bỏ qua —
+**Quy mô test tại thời điểm cập nhật tệp này:** 2.388 test Python (4 bỏ qua —
 chỉ có nghĩa trên Windows) + 529 test Node (0 hỏng) + 74 test React (0 hỏng).
 Con số này tăng gần như mỗi đợt — dùng nó để hình dung quy mô, đừng dùng làm
 mốc đối chiếu.

@@ -2,8 +2,10 @@ import atexit
 import ctypes
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from collections import deque
 
@@ -249,6 +251,113 @@ class TranscribeCancelled(RuntimeError):
     """
 
 
+# G3 Scope C (docs/MINI-SPEC_G3_VAD_Bo_Sot_Doan_On.md) — hạ threshold VAD
+# (Scope B) không đóng hết được khoảng trống ở ca cực đoan (video thử vẫn
+# thiếu ~15s dù threshold=0.1). Khoảng cách giữa 2 câu liên tiếp DÀI HƠN
+# ngưỡng này bị nghi là VAD bỏ sót, không phải im lặng thật — im lặng thật
+# giữa các câu (kể cả ngừng lấy hơi kịch tính) hiếm khi vượt quá vài giây;
+# 15s có biên an toàn rộng trước khi chạm ngưỡng đó, trong khi vẫn thấp hơn
+# nhiều so với khoảng mất thật đã đo (38s).
+_NGUONG_KHOANG_TRONG_S = 15.0
+
+
+def _tim_khoang_trong_bat_thuong(segments: list[dict]) -> list[tuple[float, float]]:
+    """Các khoảng (start, end) giữa 2 segment liên tiếp dài hơn ngưỡng nghi
+    ngờ — ứng viên để nghe lại không lọc VAD. Không xét trước câu đầu/sau
+    câu cuối (ngoài phạm vi G3 Scope C — xem Remaining Limits của spec)."""
+    khoang: list[tuple[float, float]] = []
+    for a, b in zip(segments, segments[1:]):
+        trong = b["start"] - a["end"]
+        if trong > _NGUONG_KHOANG_TRONG_S:
+            khoang.append((a["end"], b["start"]))
+    return khoang
+
+
+def _nghe_lai_khong_vad(audio_path: str, start_s: float, end_s: float,
+                        language: str, settings: Settings,
+                        cancel_event=None) -> list[dict]:
+    """Nghe lại đúng một khoảng thời gian, TẮT HẲN VAD — dùng khi khoảng đó
+    đã bị VAD (bật) bỏ sót hoàn toàn. Trả về segment với mốc thời gian đã
+    dời về khung THẬT của audio gốc (rỗng nếu cắt/nghe lỗi — vá thêm không
+    được phép làm hỏng lượt chép lời chính)."""
+    tmp_dir = tempfile.mkdtemp(prefix="vad_vet_khoang_trong_")
+    tmp_wav = os.path.join(tmp_dir, "doan.wav")
+    try:
+        try:
+            ket = subprocess.run(
+                ["ffmpeg", "-v", "error", "-y",
+                 "-ss", f"{start_s:.3f}", "-to", f"{end_s:.3f}",
+                 "-i", audio_path, "-vn", "-ac", "1", "-ar", "16000", tmp_wav],
+                capture_output=True, text=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            logger.warning(f"FFmpeg treo khi cắt khoảng {start_s:.1f}-"
+                           f"{end_s:.1f}s để vá — bỏ qua")
+            return []
+        if ket.returncode != 0 or not os.path.isfile(tmp_wav):
+            logger.warning(f"Không cắt được khoảng {start_s:.1f}-{end_s:.1f}s "
+                           f"để vá: {ket.stderr.strip()[:200]}")
+            return []
+
+        dong_bang = getattr(sys, "frozen", False)
+        try:
+            if settings.whisper_venv_configured():
+                segs = _transcribe_whisper_subprocess(
+                    tmp_wav, language, settings, cancel_event=cancel_event,
+                    vad_filter=False)
+            elif not dong_bang:
+                segs = _transcribe_whisper(
+                    tmp_wav, language, settings, cancel_event=cancel_event,
+                    vad_filter=False)
+            else:
+                return []
+        except TranscribeCancelled:
+            raise
+        except Exception as e:  # noqa: BLE001 — vá thêm là VỚT, không được
+            # làm hỏng lượt chép lời chính nếu chính nó lỗi.
+            logger.warning(f"Nghe lại khoảng {start_s:.1f}-{end_s:.1f}s để vá "
+                           f"lỗi ({e}) — bỏ qua, giữ nguyên kết quả VAD gốc")
+            return []
+
+        for seg in segs:
+            seg["start"] = round(seg["start"] + start_s, 3)
+            seg["end"] = round(seg["end"] + start_s, 3)
+            seg["duration"] = round(seg["end"] - seg["start"], 3)
+        return segs
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _va_khoang_trong(segments: list[dict], audio_path: str, language: str,
+                     settings: Settings, cancel_event=None) -> list[dict]:
+    """G3 Scope C — hạ threshold VAD (Scope B) không đóng hết được khoảng
+    trống ở ca cực đoan (nhạc nền/hiệu ứng dồn dập). Dò các khoảng trống BẤT
+    THƯỜNG giữa 2 câu liên tiếp rồi nghe lại ĐÚNG đoạn đó, tắt hẳn VAD —
+    KHÔNG đổi bất cứ gì ở các câu đã nghe được, chỉ CHÈN THÊM nếu tìm ra.
+    Lỗi ở bước vá (ffmpeg/ASR) không được làm hỏng lượt chính — trả nguyên
+    `segments` gốc nếu không vá được gì."""
+    khoang = _tim_khoang_trong_bat_thuong(segments)
+    if not khoang:
+        return segments
+    them: list[dict] = []
+    for start_s, end_s in khoang:
+        logger.info(f"Phát hiện khoảng trống bất thường {start_s:.1f}-"
+                    f"{end_s:.1f}s ({end_s - start_s:.1f}s) — nghe lại "
+                    "không lọc VAD (G3 Scope C)")
+        segs = _nghe_lai_khong_vad(audio_path, start_s, end_s, language,
+                                   settings, cancel_event=cancel_event)
+        if segs:
+            logger.info(f"Vá khoảng trống {start_s:.1f}-{end_s:.1f}s: tìm "
+                       f"thêm {len(segs)} câu")
+            them.extend(segs)
+    if not them:
+        return segments
+    ket_hop = segments + them
+    ket_hop.sort(key=lambda s: s["start"])
+    for i, seg in enumerate(ket_hop, start=1):
+        seg["id"] = i
+    return ket_hop
+
+
 def transcribe(audio_path: str, language: str, settings: Settings,
                whisper_cache: "WhisperCache | None" = None,
                cancel_event=None, on_segment=None,
@@ -343,6 +452,18 @@ def transcribe(audio_path: str, language: str, settings: Settings,
 
     logger.info(f"Transcription complete: {len(segments)} raw segments")
 
+    # G3 Scope C — vá khoảng trống bất thường (VAD bỏ sót dù đã hạ threshold
+    # ở Scope B). Dùng Whisper cho lượt vá bất kể engine gốc là gì (Paraformer
+    # dùng chung model Silero VAD, cùng rủi ro) — lỗi ở đây KHÔNG được làm
+    # hỏng lượt chép lời chính, xem docstring `_va_khoang_trong`.
+    try:
+        segments = _va_khoang_trong(segments, audio_path, language, settings,
+                                    cancel_event=cancel_event)
+    except TranscribeCancelled:
+        raise
+    except Exception as e:  # noqa: BLE001 — vá thêm là VỚT, không phải lõi.
+        logger.warning(f"Vá khoảng trống VAD lỗi ({e}) — giữ nguyên kết quả gốc")
+
     # Split long segments into ~MAX_SEGMENT_DURATION chunks
     segments = split_long_segments(segments, max_duration=10.0)
     logger.info(f"After splitting: {len(segments)} segments")
@@ -358,6 +479,7 @@ def transcribe(audio_path: str, language: str, settings: Settings,
 def _transcribe_whisper_subprocess(
     audio_path: str, language: str, settings: Settings, cancel_event=None,
     on_segment=None, detected_out: dict | None = None,
+    vad_filter: bool = True,
 ) -> list[dict]:
     """Chạy Whisper trong .venv-whisper (subprocess) — không cần bundle
     faster-whisper/ctranslate2 trong exe, giảm ~112 MB bản phân phối.
@@ -456,7 +578,8 @@ def _transcribe_whisper_subprocess(
 
     # Gửi request
     req = {"audio": audio_path, "language": language or "",
-           "beam_size": settings.whisper_beam_size}
+           "beam_size": settings.whisper_beam_size,
+           "vad_filter": vad_filter}
     proc.stdin.write(json.dumps(req, ensure_ascii=False) + "\n")
     proc.stdin.flush()
     proc.stdin.close()
@@ -599,7 +722,8 @@ def _release_vram() -> None:
 def _transcribe_whisper(audio_path: str, language: str, settings: Settings,
                         whisper_cache: "WhisperCache | None" = None,
                         cancel_event=None,
-                        detected_out: dict | None = None) -> list[dict]:
+                        detected_out: dict | None = None,
+                        vad_filter: bool = True) -> list[dict]:
     """Local ASR via faster-whisper — free, offline, no API key needed.
 
     ``word_timestamps=True``: mỗi segment mang kèm mảng ``words``
@@ -630,12 +754,14 @@ def _transcribe_whisper(audio_path: str, language: str, settings: Settings,
         audio_path,
         language=whisper_lang,
         beam_size=settings.whisper_beam_size,
-        vad_filter=True,
+        vad_filter=vad_filter,
         # G3 (docs/MINI-SPEC_G3_VAD_Bo_Sot_Doan_On.md) — cùng lý do và số
         # liệu đo thật với `asr_whisper_worker.py` (đường subprocess đã
         # dùng ngưỡng này) — hai đường phải khớp nhau, sửa một mà quên
-        # đường kia là đúng lớp lỗi #2 của dự án.
-        vad_parameters={"min_silence_duration_ms": 500, "threshold": 0.3},
+        # đường kia là đúng lớp lỗi #2 của dự án. `vad_filter=False` (Scope
+        # C — vá khoảng trống) thì bỏ luôn `vad_parameters`, không có nghĩa.
+        vad_parameters=({"min_silence_duration_ms": 500, "threshold": 0.3}
+                        if vad_filter else None),
         word_timestamps=True,
     )
     if whisper_lang is None and getattr(info, "language", None):

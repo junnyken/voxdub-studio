@@ -262,6 +262,10 @@ def main() -> None:
     audio_path = req.get("audio") or args.audio
     language   = req.get("language") or args.language or None
     beam_size  = req.get("beam_size", args.beam_size)
+    # G3 Scope C — cha gọi lại với vad_filter=False khi vá một khoảng trống
+    # đã xác định là bị VAD (bật) bỏ sót hoàn toàn, xem transcriber.py
+    # `_nghe_lai_khong_vad`. Mặc định True — mọi request cũ không đổi hành vi.
+    vad_filter = bool(req.get("vad_filter", True))
 
     # Normalize language: "zh-CN" → "zh"
     if language:
@@ -274,7 +278,7 @@ def main() -> None:
             audio_path,
             language=language,
             beam_size=beam_size,
-            vad_filter=True,
+            vad_filter=vad_filter,
             # G3 (docs/MINI-SPEC_G3_VAD_Bo_Sot_Doan_On.md) — mặc định
             # `threshold=0.5` của Silero VAD bỏ sót cả đoạn thoại thật khi
             # nhạc nền/hiệu ứng dồn dập (video hoạt hình cảnh hành động):
@@ -286,10 +290,12 @@ def main() -> None:
             # +0,1%), không sinh thêm đoạn giả — an toàn cho nội dung nói
             # bình thường, chỉ giúp cho đoạn ồn. Không hạ thấp hơn nữa:
             # 0.1 vẫn không đóng hết được khoảng trống ở video thử (còn
-            # ~15s không phát hiện được dù đã rất nhạy) — cần cơ chế "vá
-            # khoảng trống" riêng (Scope C của G3, chưa làm) cho các ca
-            # cực đoan, threshold chỉ giảm bớt vùng ảnh hưởng.
-            vad_parameters={"min_silence_duration_ms": 500, "threshold": 0.3},
+            # ~15s không phát hiện được dù đã rất nhạy) — cần "vá khoảng
+            # trống" (Scope C, dưới) cho các ca cực đoan đó: gọi lại đúng
+            # đoạn với `vad_filter=False`, khi đó KHÔNG có `vad_parameters`
+            # để nghe.
+            vad_parameters=({"min_silence_duration_ms": 500, "threshold": 0.3}
+                            if vad_filter else None),
             word_timestamps=True,
             # Mini-spec C28 — CHẶN VÒNG LẶP BỊA.
             #

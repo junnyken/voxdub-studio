@@ -1,12 +1,12 @@
 # G3 — VAD bỏ sót cả đoạn khi âm thanh ồn (xác nhận + sửa) (bản sẵn sàng chạy)
 
-> **Trạng thái (08/09/2026): Scope A+B XONG, đã sửa + verify.** Hạ
-> `threshold` VAD 0.5→0.3 ở cả 3 nơi dùng Silero VAD, verify bằng model
-> Whisper thật: +192% số từ phục hồi trên đúng đoạn Sing 2 đã mất, không
-> hồi quy trên video nói liên tục. Chưa phục hồi 100% (đúng dự đoán —
-> threshold một mình không đóng hết khoảng trống cực đoan). Chi tiết đầy
-> đủ + bảng trước/sau ở `docs/TEST_LOG.md` mục "G3 — Scope A+B thực hiện".
-> **Scope C (vá khoảng trống) vẫn CHƯA làm** — xem Remaining Limits.
+> **Trạng thái (08/09/2026): ĐÓNG — Scope A+B+C đều xong, verify bằng
+> `transcribe()` production thật.** Hạ `threshold` VAD 0.5→0.3 (Scope B) +
+> cơ chế tự vá khoảng trống bất thường (Scope C, nghe lại tắt hẳn VAD).
+> Verify trên đúng video Sing 2: toàn bộ khoảng trống 38 giây đã mất trước
+> đây nay được lấp đầy, khớp (và vài chỗ nhiều hơn) chuẩn đối chứng VAD-tắt-
+> hoàn-toàn của G1. Chi tiết đầy đủ ở `docs/TEST_LOG.md` mục "G3 Scope C
+> thực hiện xong — ĐÓNG NỐT".
 
 ## Lưu ý thực thi trước tiên (đọc trước khi bắt đầu)
 
