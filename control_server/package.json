@@ -1,6 +1,6 @@
 {
   "name": "voxdub-api",
-  "version": "3.16.5",
+  "version": "3.16.6",
   "description": "VoxDub Studio SaaS backend — key-based activation, credit wallet, AI gateway",
   "main": "server.js",
   "type": "commonjs",
