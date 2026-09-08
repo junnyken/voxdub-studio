@@ -63,7 +63,8 @@ def test_download_one_uu_tien_tham_so_truyen_tay(monkeypatch, tmp_path):
     from autodub.media import downloader
     ghi_nhan = {}
 
-    def gia_lap(output_dir, cookies_from_browser=None, cookies_file=None):
+    def gia_lap(output_dir, cookies_from_browser=None, cookies_file=None,
+               dinh_dang="video"):
         ghi_nhan["browser"] = cookies_from_browser
         ghi_nhan["file"] = cookies_file
         return {}

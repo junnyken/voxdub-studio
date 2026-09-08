@@ -14749,3 +14749,46 @@ tự nuốt lỗi ffmpeg khi audio không tồn tại. Tổng test suite: xem co
 
 **G3 coi như đóng — cả Scope B lẫn C đều đã làm, verify bằng số liệu thật
 trên đúng ca đã xác nhận lỗi.**
+
+---
+
+## Tính năng: Tải riêng MP3 trên trang Tải xuống (08/09/2026)
+
+Người dùng hỏi có tính năng "dán link → lấy .srt" và "tải video/mp3" chưa.
+Kiểm tra code (không đoán từ trí nhớ) thì thấy 2/3 đã có sẵn: trang **Chép
+lời** đã nhận link + xuất `.srt`, trang **Tải xuống** đã tải được video.
+Chỉ thiếu đúng một việc: tải **riêng MP3** (không kèm hình) — người dùng
+chọn thêm cái này vào trang Tải xuống có sẵn thay vì dựng trang mới.
+
+**Đo thật trước khi sửa**: gọi `yt_dlp.YoutubeDL` thật với hậu xử lý
+`FFmpegExtractAudio` lên một video YouTube thật, xem `info` trả về sau khi
+tải xong có gì. Phát hiện: `info["requested_downloads"][0]` **không có
+khoá `"filepath"`** sau khi chuyển đổi sang mp3 (khác với tải video thường,
+nơi khoá đó luôn có). Nhưng hàm `_resolve_filepath()` sẵn có trong
+`downloader.py` vốn đã tìm tệp theo **tiền tố tên** (không theo đuôi mở
+rộng dự đoán) làm phương án dự phòng — nên tìm đúng file `.mp3` cuối cùng
+mà **không cần sửa gì** ở hàm đó. Đo trước khi sửa tránh được việc vá một
+chỗ vốn dĩ đã đúng.
+
+**Thay đổi**: `build_ydl_opts()`/`download_one()` (`autodub/media/
+downloader.py`) nhận thêm tham số `dinh_dang` ("video"/"mp3_audio"), threading
+qua `DownloadWorker` (`autodub_gui/workers.py`) tới `DownloadPage`
+(`autodub_gui/pages/download_page.py`) — thêm ô chọn "Định dạng" cạnh ô
+chọn thư mục lưu. Nhãn nút kết quả ("Mở video"/"Mở audio") đổi theo đuôi
+tệp thật của kết quả (`.mp3`/`.m4a`/`.wav` → "audio"), không đổi theo lựa
+chọn ban đầu của người dùng — tránh lỗi chữ nói sai với thứ vừa tải nếu có
+sai lệch (đúng lớp lỗi #6, FEATURES.md §6). Douyin dùng bộ tải Playwright
+riêng, không hỗ trợ tách audio — chọn MP3 với link Douyin vẫn tải video
+nhưng **ghi log cảnh báo rõ ràng** thay vì lặng lẽ bỏ qua lựa chọn.
+
+**Test**: 11 test mới — 5 test thuần cho `downloader.py`
+(`tests/test_download_mp3_audio.py`: cấu hình `build_ydl_opts` cho từng
+định dạng, giữ nguyên cookie/noplaylist, threading tham số qua
+`download_one`, đúng ca "không có khoá filepath" đo thật ở trên, cảnh báo
+Douyin) + 6 test GUI cho `DownloadPage`
+(`tests/test_download_page_mp3_audio.py`: mặc định là video, ô chọn có đủ
+2 lựa chọn, `DownloadWorker` nhận đúng `dinh_dang` theo lựa chọn trên UI,
+nhãn nút đúng theo đuôi tệp `.mp3` lẫn `.mp4`). Sửa 1 test cũ bị vỡ
+(`test_cookie_settings.py` — hàm giả lập `build_ydl_opts` cần nhận thêm
+tham số `dinh_dang`). Toàn bộ suite: 2399 passed, 4 skipped (từ 2388,
+không có test nào vỡ).

@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-08 · phiên bản ứng dụng `3.16.7` · 2.388 test Python +
+> Cập nhật: 2026-09-08 · phiên bản ứng dụng `3.16.7` · 2.399 test Python +
 > 529 test Node + 74 test React
 
 ---
@@ -179,7 +179,7 @@ lại cả video.
 |---|---|
 | **Chép lời** | Liên kết/video/mp3 → văn bản + `.srt`/`.vtt`/`.json`, có mốc thời gian. Chọn nhiều tệp một lượt. Xem §3.4 — đây là phần được mài nhiều nhất gần đây. |
 | **Dịch phụ đề** | Dịch một tệp `.srt`/`.vtt` rời |
-| **Tải xuống** | Chỉ tải video về, không lồng tiếng |
+| **Tải xuống** | Tải video (MP4) hoặc chỉ tải âm thanh (MP3) về, không lồng tiếng — chọn định dạng ngay trên trang |
 | **Xử lý hàng loạt** | Lồng tiếng nhiều video một lượt, có thử lại và ghi nhật ký hỏng |
 | **Hồ sơ nhân vật** | Giữ cùng một giọng cho cùng một nhân vật qua nhiều tập phim |
 | **Báo cáo chất lượng** | Thống kê độ tin cậy ASR, cảnh báo câu chồng tiếng, câu đọc quá nhanh |

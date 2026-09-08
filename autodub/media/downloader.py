@@ -302,13 +302,19 @@ def build_ydl_opts(
     output_dir: str,
     cookies_from_browser: str | None = None,
     cookies_file: str | None = None,
+    dinh_dang: str = "video",
 ) -> dict:
-    """yt-dlp options for the standalone `autodub download` command."""
+    """yt-dlp options for the standalone `autodub download` command.
+
+    ``dinh_dang``: ``"video"`` (mặc định, mp4) hoặc ``"mp3_audio"`` (chỉ tải
+    âm thanh, ffmpeg chuyển sang mp3 — mini-spec "Tải MP3 riêng", 08/09/2026).
+    Không tự đoán đuôi tệp cuối cùng ở đây: `_resolve_filepath` đã tìm theo
+    TIỀN TỐ tên tệp, không theo đuôi, nên hoạt động đúng với cả hai chế độ
+    mà không cần sửa thêm — xem comment ở đó.
+    """
     opts = {
         # Use extractor + id as filename so TikTok/Douyin/YouTube don't collide
         "outtmpl": os.path.join(output_dir, "%(extractor_key)s_%(id)s.%(ext)s"),
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "merge_output_format": "mp4",
         "quiet": False,
         "no_warnings": False,
         "noprogress": False,
@@ -318,6 +324,16 @@ def build_ydl_opts(
         "fragment_retries": 5,
         "socket_timeout": 30,
     }
+    if dinh_dang == "mp3_audio":
+        opts["format"] = "bestaudio/best"
+        opts["postprocessors"] = [{
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "192",
+        }]
+    else:
+        opts["format"] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+        opts["merge_output_format"] = "mp4"
     if cookies_from_browser:
         opts["cookiesfrombrowser"] = (cookies_from_browser,)
     if cookies_file:
@@ -375,12 +391,18 @@ def download_one(
     cookies_from_browser: str | None = None,
     cookies_file: str | None = None,
     settings=None,
+    dinh_dang: str = "video",
 ) -> dict:
     """Download a single URL and return metadata + saved filepath.
 
     Douyin URLs (including short-link v.douyin.com/...) are routed to a
     Playwright-based extractor because yt-dlp's Douyin path is broken upstream.
     All other sites continue through yt-dlp.
+
+    ``dinh_dang="mp3_audio"``: chỉ tải âm thanh, ffmpeg chuyển sang mp3 —
+    KHÔNG áp dụng cho Douyin (bộ tải riêng, chỉ trả về video) — nói rõ ra
+    thay vì âm thầm bỏ qua lựa chọn của người dùng (lớp lỗi #6, xem
+    FEATURES.md §6).
     """
     # Cùng lý do như `download_video` — xem mini-spec C31.
     from autodub.utils import tach_lien_ket
@@ -389,6 +411,9 @@ def download_one(
 
     from autodub.media.douyin import is_douyin_url, download_douyin
     if is_douyin_url(url):
+        if dinh_dang == "mp3_audio":
+            logger.warning(
+                f"Douyin chỉ tải được video (chưa hỗ trợ tách audio MP3): {url}")
         logger.info(f"Routing to Playwright Douyin extractor: {url}")
         return download_douyin(url, output_dir)
 
@@ -403,7 +428,8 @@ def download_one(
         _ck = cookie_opts_from(settings)
         cookies_file = _ck.get("cookies_file") or None
         cookies_from_browser = _ck.get("cookies_from_browser") or None
-    ydl_opts = build_ydl_opts(output_dir, cookies_from_browser, cookies_file)
+    ydl_opts = build_ydl_opts(output_dir, cookies_from_browser, cookies_file,
+                              dinh_dang=dinh_dang)
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(canonical, download=True)

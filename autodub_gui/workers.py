@@ -615,12 +615,14 @@ class DownloadWorker(QThread):
 
     def __init__(self, urls: list[str], output_dir: str,
                  cookies_from_browser: str | None = None,
-                 cookies_file: str | None = None, parent=None):
+                 cookies_file: str | None = None, parent=None,
+                 dinh_dang: str = "video"):
         super().__init__(parent)
         self._urls = urls
         self._output_dir = output_dir
         self._cookies_browser = cookies_from_browser or None
         self._cookies_file = cookies_file or None
+        self._dinh_dang = dinh_dang
         self._cancel_event = threading.Event()
 
     def cancel(self) -> None:
@@ -642,7 +644,8 @@ class DownloadWorker(QThread):
                 self.item_status.emit(i, total, url, "start", "")
                 try:
                     entry = download_one(url, self._output_dir,
-                                         self._cookies_browser, self._cookies_file)
+                                         self._cookies_browser, self._cookies_file,
+                                         dinh_dang=self._dinh_dang)
                     success += 1
                     self.item_status.emit(i, total, url, "success", entry["filepath"])
                 except Exception as e:  # noqa: BLE001 — per-item failure

@@ -40,6 +40,11 @@ _COOKIE_SOURCES = [
     ("Lấy từ Firefox", "firefox"),
 ]
 
+_DINH_DANG_TAI = [
+    ("Video (MP4)", "video"),
+    ("Chỉ âm thanh (MP3)", "mp3_audio"),
+]
+
 _STATUS_VIEW = {
     "waiting": ("Đang chờ", "neutral"),
     "start": ("Đang tải", "processing"),
@@ -69,6 +74,7 @@ class DownloadPage(BasePage):
         self._urls: list[str] = []
         self._status: dict[str, tuple[str, str]] = {}
         self._rows: dict[str, int] = {}
+        self._dinh_dang_dang_tai = "video"
         self._build()
 
     # -- Dựng giao diện ------------------------------------------------
@@ -126,11 +132,16 @@ class DownloadPage(BasePage):
         self.output = FilePicker("Thư mục lưu", "downloads",
                                  "Nơi lưu các video tải về", directory=True)
         self.output.set_text("downloads")
+        self.dinh_dang = LabeledCombo(
+            "Định dạng", _DINH_DANG_TAI,
+            "Chỉ âm thanh (MP3) dùng khi bạn không cần hình, chỉ cần giữ "
+            "lại tiếng — tệp nhỏ hơn nhiều so với tải cả video.")
         self.cookies = LabeledCombo(
             "Cookie đăng nhập", _COOKIE_SOURCES,
             "Một số video yêu cầu đăng nhập. Chọn trình duyệt bạn đang đăng "
             "nhập để dùng lại phiên đó.")
         options.addWidget(self.output, 2)
+        options.addWidget(self.dinh_dang, 1)
         options.addWidget(self.cookies, 1)
         card.body.addLayout(options)
         return card
@@ -234,8 +245,11 @@ class DownloadPage(BasePage):
         self.log.reset_log()
         self._set_running(True)
 
+        dinh_dang = self.dinh_dang.current_key()
+        self._dinh_dang_dang_tai = dinh_dang
         worker = DownloadWorker(urls, self.output.text() or "downloads",
-                                self.cookies.current_key(), None, self)
+                                self.cookies.current_key(), None, self,
+                                dinh_dang=dinh_dang)
         worker.item_status.connect(self._on_item_status)
         worker.log.connect(self.log.append_log)
         worker.finished_ok.connect(self._on_finished)
@@ -243,8 +257,9 @@ class DownloadPage(BasePage):
         worker.cancelled.connect(self._on_cancelled)
         worker.finished.connect(lambda: self._set_running(False))
         self._worker = worker
+        nhan_don_vi = "audio MP3" if dinh_dang == "mp3_audio" else "video"
         REGISTRY.start_job(
-            ActiveJob(kind="download", title=f"Tải {len(urls)} video",
+            ActiveJob(kind="download", title=f"Tải {len(urls)} {nhan_don_vi}",
                       # Chuông thông báo mở được thư mục chứa video tải về.
                       work_dir=os.path.abspath(self.output.text() or "downloads")),
             on_cancel=self._cancel)
@@ -269,11 +284,13 @@ class DownloadPage(BasePage):
         self._update_row(url)
 
     def _on_finished(self, success: int, failed: int) -> None:
-        REGISTRY.finish_job(True, f"{success} video tải xong")
+        nhan = ("audio MP3" if self._dinh_dang_dang_tai == "mp3_audio"
+                else "video")
+        REGISTRY.finish_job(True, f"{success} {nhan} tải xong")
         self.summary.setText(
-            f"Đã tải xong {success} video" +
+            f"Đã tải xong {success} {nhan}" +
             (f", {failed} liên kết lỗi" if failed else ""))
-        TOASTS.success(f"Tải xong {success} video.",
+        TOASTS.success(f"Tải xong {success} {nhan}.",
                        action_label="Mở thư mục", on_action=self._open_output)
         self.finished_all.emit(success, failed)
 
@@ -320,11 +337,17 @@ class DownloadPage(BasePage):
     def _actions(self, url: str, status: str, detail: str) -> list[QWidget]:
         """Hai nút, đổi theo trạng thái của dòng. Không có nút chết."""
         if status == "success" and detail:
-            first = IconButton(icons.play(tokens.SUCCESS), "Mở video",
-                               size=_ACTION_ICON)
+            # detail là đường dẫn tệp kết quả — .mp3 khi tải "Chỉ âm thanh",
+            # nói đúng "audio" thay vì "video" để không sai với thứ vừa tải.
+            la_audio = detail.lower().endswith((".mp3", ".m4a", ".wav"))
+            first = IconButton(
+                icons.play(tokens.SUCCESS),
+                "Mở audio" if la_audio else "Mở video", size=_ACTION_ICON)
             first.clicked.connect(lambda _c=False, p=detail: self._open(p))
-            second = IconButton(icons.folder(tokens.TEXT_SECONDARY),
-                                "Mở thư mục chứa video", size=_ACTION_ICON)
+            second = IconButton(
+                icons.folder(tokens.TEXT_SECONDARY),
+                "Mở thư mục chứa audio" if la_audio else "Mở thư mục chứa video",
+                size=_ACTION_ICON)
             second.clicked.connect(lambda _c=False, p=detail: reveal_file(p))
             return [first, second]
         first = IconButton(icons.external(tokens.TEXT_SECONDARY),
