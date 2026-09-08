@@ -100,14 +100,20 @@ def test_bao_cao_khong_bia_so_da_xu_ly():
 
 
 def test_thieu_am_thanh_khong_chan_viec_sua():
-    """Trích trượt thì vẫn nhập được — chỉ mất dạng sóng, không mất dự án."""
+    """Trích trượt thì vẫn nhập được — chỉ mất dạng sóng, không mất dự án.
+
+    Logic này nằm ở `_dung_thu_muc_du_an` (đuôi dùng chung — mini-spec
+    08/09/2026 nối "Nhập phụ đề" với "Dịch phụ đề"), không còn trực tiếp
+    trong thân `nhap_du_an` — cả `nhap_du_an` lẫn `nhap_du_an_dich` đều gọi
+    qua hàm đuôi này nên vẫn được canh như cũ, chỉ đổi chỗ đọc.
+    """
     src = _doc("autodub/nhap_phu_de.py")
     for nut in ast.walk(ast.parse(src)):
-        if isinstance(nut, ast.FunctionDef) and nut.name == "nhap_du_an":
+        if isinstance(nut, ast.FunctionDef) and nut.name == "_dung_thu_muc_du_an":
             than = ast.get_source_segment(src, nut) or ""
             break
     else:
-        raise AssertionError("không còn hàm nhap_du_an")
+        raise AssertionError("không còn hàm _dung_thu_muc_du_an")
     i = than.index("extract_audio")
     sau = than[i:]
     assert "except Exception" in sau and "logger.warning" in sau, (

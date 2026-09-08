@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QButtonGroup, QCompleter, QHBoxLayout, QLabel, QRadioButton, QVBoxLayout,
-    QWidget,
+    QButtonGroup, QHBoxLayout, QLabel, QRadioButton, QVBoxLayout, QWidget,
 )
 
 from autodub_gui import tokens
@@ -24,6 +22,7 @@ from autodub_gui.run_state import REGISTRY, ActiveJob
 from autodub_gui.system_open import open_folder
 from autodub_gui.ui.buttons import GhostButton, PrimaryButton
 from autodub_gui.ui.cards import Card
+from autodub_gui.ui.flores_picker import language_options, make_searchable
 from autodub_gui.ui.inputs import FilePicker, LabeledCombo
 from autodub_gui.ui.modal import ConfirmDialog
 from autodub_gui.ui.toast import TOASTS
@@ -33,26 +32,6 @@ from autodub_gui.workers import SubtitleTranslateWorker
 _PAGE_MARGIN = 28
 _DEFAULT_SOURCE = "eng_Latn"
 _DEFAULT_TARGET = "vie_Latn"
-
-
-def _language_options() -> list[tuple[str, str]]:
-    from autodub.text.flores200 import FLORES200_LANGUAGES
-
-    return sorted(((name, code) for code, name in FLORES200_LANGUAGES.items()),
-                  key=lambda pair: pair[0])
-
-
-def _make_searchable(combo: LabeledCombo) -> None:
-    """Cho gõ để lọc trong ~200 mục — QComboBox editable + QCompleter (mẫu
-    Qt chuẩn), không đổi cách chọn bằng chuột hay `current_key()`."""
-    box = combo.combo
-    box.setEditable(True)
-    box.setInsertPolicy(box.InsertPolicy.NoInsert)
-    completer = QCompleter(box.model(), box)
-    completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-    completer.setFilterMode(Qt.MatchFlag.MatchContains)
-    completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-    box.setCompleter(completer)
 
 
 class SubtitleTranslatePage(BasePage):
@@ -101,15 +80,15 @@ class SubtitleTranslatePage(BasePage):
 
         langs = QHBoxLayout()
         langs.setSpacing(tokens.SP_3)
-        options = _language_options()
+        options = language_options()
         self.source = LabeledCombo("Ngôn ngữ nguồn", options,
                                    "Ngôn ngữ hiện có trong file phụ đề.")
         self.target = LabeledCombo("Ngôn ngữ đích", options,
                                    "Ngôn ngữ muốn dịch sang.")
         self._select_key(self.source, _DEFAULT_SOURCE)
         self._select_key(self.target, _DEFAULT_TARGET)
-        _make_searchable(self.source)
-        _make_searchable(self.target)
+        make_searchable(self.source)
+        make_searchable(self.target)
         self.source.changed.connect(self._refresh_warning)
         self.target.changed.connect(self._refresh_warning)
         langs.addWidget(self.source, 1)

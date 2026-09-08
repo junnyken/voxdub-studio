@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-08 · phiên bản ứng dụng `3.16.7` · 2.399 test Python +
+> Cập nhật: 2026-09-08 · phiên bản ứng dụng `3.16.7` · 2.417 test Python +
 > 529 test Node + 74 test React
 
 ---
@@ -180,6 +180,7 @@ lại cả video.
 | **Chép lời** | Liên kết/video/mp3 → văn bản + `.srt`/`.vtt`/`.json`, có mốc thời gian. Chọn nhiều tệp một lượt. Xem §3.4 — đây là phần được mài nhiều nhất gần đây. |
 | **Dịch phụ đề** | Dịch một tệp `.srt`/`.vtt` rời |
 | **Tải xuống** | Tải video (MP4) hoặc chỉ tải âm thanh (MP3) về, không lồng tiếng — chọn định dạng ngay trên trang |
+| **Nhập video + phụ đề có sẵn** | Trang launcher Trình chỉnh sửa: (video, phụ đề đã tiếng Việt) → dự án chỉnh sửa được thẳng, không tốn Vox. Nút thứ hai (08/09): (video, phụ đề NƯỚC NGOÀI) → **tự dịch** (offline NLLB miễn phí hoặc SaaS tính phí) → dự án lồng tiếng luôn — gộp việc trước đây phải làm tay 2 bước (Dịch phụ đề rồi Nhập phụ đề) thành một |
 | **Xử lý hàng loạt** | Lồng tiếng nhiều video một lượt, có thử lại và ghi nhật ký hỏng |
 | **Hồ sơ nhân vật** | Giữ cùng một giọng cho cùng một nhân vật qua nhiều tập phim |
 | **Báo cáo chất lượng** | Thống kê độ tin cậy ASR, cảnh báo câu chồng tiếng, câu đọc quá nhanh |
@@ -550,7 +551,7 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 | `docs/KE-HOACH-KIEM-C50-C52.md` | Hai việc còn tồn chỉ máy chủ dự án trả lời được: che chữ trên phim dài, và "nghe chép thiếu câu" — kèm cách đo, **không tốn Vox** |
 
-**Quy mô test tại thời điểm cập nhật tệp này:** 2.388 test Python (4 bỏ qua —
+**Quy mô test tại thời điểm cập nhật tệp này:** 2.417 test Python (4 bỏ qua —
 chỉ có nghĩa trên Windows) + 529 test Node (0 hỏng) + 74 test React (0 hỏng).
 Con số này tăng gần như mỗi đợt — dùng nó để hình dung quy mô, đừng dùng làm
 mốc đối chiếu.

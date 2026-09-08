@@ -14792,3 +14792,77 @@ nhãn nút đúng theo đuôi tệp `.mp3` lẫn `.mp4`). Sửa 1 test cũ bị 
 (`test_cookie_settings.py` — hàm giả lập `build_ydl_opts` cần nhận thêm
 tham số `dinh_dang`). Toàn bộ suite: 2399 passed, 4 skipped (từ 2388,
 không có test nào vỡ).
+
+---
+
+## Tính năng: Nối "Nhập phụ đề" với "Dịch phụ đề" thành một luồng (08/09/2026)
+
+Yêu cầu người dùng thật sau khi rà tính năng: *"định hướng nó luồng tự động
+nối luôn Nhập phụ đề với Dịch phụ đề thành một luồng — phụ đề nước ngoài +
+video → tự dịch → dự án lồng tiếng luôn"*. Đúng gap đã ghi từ C37
+(26/8/2026): `nhap_phu_de.py` lúc đó chỉ nhận phụ đề **ĐÃ tiếng Việt**;
+phụ đề nước ngoài phải tự làm tay 2 bước tách rời (trang Dịch phụ đề rời →
+rồi trang Nhập phụ đề với bản đã dịch) — ghi rõ "chặng sau", chưa ai quay
+lại làm tới hôm nay.
+
+**Không dựng đường dịch thứ ba.** `nhap_du_an_dich()` (mới,
+`autodub/nhap_phu_de.py`) dùng lại NGUYÊN hai đường dịch đã có trong
+`autodub/text/subtitle_translate.py`: offline NLLB qua
+`translate_local.run_local_worker()` (miễn phí, chạy trên máy) hoặc SaaS qua
+`saas_client.translate_subtitle()` (tính phí theo dòng, cùng đơn giá
+`credit.cost.segment.autotranslate`). Ngôn ngữ nguồn dùng mã FLORES-200 tự
+do (như trang Dịch phụ đề rời — phụ đề nhập vào có thể ở BẤT KỲ ngôn ngữ
+nào, không giới hạn theo `SOURCE_LANG_MAP` hẹp của pipeline dub); ngôn ngữ
+đích dùng `target_key` hẹp (10 ngôn ngữ đã đăng ký giọng đọc, như trang Tạo
+dự án) — quy đổi sang FLORES qua bảng có sẵn `translate_local.LANG_TO_FLORES`,
+không suy đoán BCP-47→FLORES cho ~200 ngôn ngữ (giữ đúng Constraint 1 của
+V14).
+
+**Refactor trước khi thêm** (không đổi hành vi cũ — 14 test cũ của
+`nhap_du_an` vẫn xanh nguyên): tách phần đọc+parse phụ đề
+(`_kiem_tra_video`/`_doc_phu_de`), phần ghép câu thô CHƯA gán bản dịch
+(`_dung_cau_tho`, dùng chung cho cả đường-đã-tiếng-Việt lẫn đường-cần-dịch),
+và phần đuôi dựng thư mục dự án (`_dung_thu_muc_du_an` — ghi transcript
++ đo thời lượng + trích âm thanh gốc, C39) ra khỏi thân `nhap_du_an` để
+`nhap_du_an_dich` dùng lại, không chép lại logic.
+
+**Bắt đúng một lỗi tiềm ẩn khi refactor**: `dung_cau_thoai` (đường cũ) hardcode
+tên trường `"text_vi"`; nếu copy y nguyên cho đường mới thì dịch English→Nhật
+(target_key="ja") sẽ ghi nhầm vào `text_vi` thay vì `text_ja`, và Trình chỉnh
+sửa sẽ đọc rỗng. Sửa bằng cách `nhap_du_an_dich` ghi đúng `target.text_field`
+(tra từ `autodub.languages.TARGETS`) — có test khoá riêng
+(`test_dich_local_dung_dung_transcript_field_cho_dich_khac_vi`).
+
+**GUI**: nút thứ hai trên trang launcher Trình chỉnh sửa, "Mở video + phụ đề
+nước ngoài (tự dịch)...", mở hộp thoại `NhapPhuDeDichDialog`
+(`autodub_gui/pages/nhap_phu_de_dich_dialog.py`) — chọn video, phụ đề, ngôn
+ngữ nguồn (ô FLORES gõ-tìm được, tách ra dùng chung tại
+`autodub_gui/ui/flores_picker.py` — trước đó chỉ có ở trang Dịch phụ đề rời),
+ngôn ngữ đích, cách dịch (máy này/SaaS, khoá SaaS nếu chưa cấu hình máy
+chủ). Chạy qua `NhapPhuDeDichWorker` (QThread) — khác nút cũ (chạy thẳng
+luồng giao diện vì chỉ đọc 1 tệp văn bản), việc này gọi mạng hoặc nạp model
+NLLB nên không được chặn giao diện (luật C7). Không cho đóng hộp thoại giữa
+lúc đang dịch (tránh để lại thư mục dự án nửa vời) — cùng giới hạn chưa có
+cơ chế huỷ giữa chừng như trang Dịch phụ đề rời (V14).
+
+**Bắt bởi bộ canh có sẵn, không phải tự nhớ**: thêm nhánh SaaS (tốn Vox) vào
+`nhap_phu_de.py` làm `test_cau_chu_ve_tien.py` (lớp lỗi #5) đỏ ngay —
+docstring đầu tệp nói "không tốn Vox" (đúng cho `nhap_du_an`) nhưng không
+nói giá của đường SaaS mới. Sửa bằng cách nói rõ đường SaaS tính phí ngay
+trong docstring, đúng luật đã có.
+
+**Test**: 18 test mới — 11 test thuần cho `nhap_phu_de.py`
+(`tests/test_nhap_phu_de_dich.py`: dịch local đúng field/giữ field gốc,
+dịch đúng ra `text_ja` khi target≠vi, thiếu settings/mã FLORES sai/dich_mode
+sai/thiếu video đều báo rõ, dịch SaaS trừ đúng Vox, câu máy dịch bỏ sót vẫn
+giữ bản gốc và NÓI RA số câu thiếu, nguồn=đích thì báo "giống nhau", Trình
+chỉnh sửa mở được dự án vừa dịch, nút launcher có nối đúng dialog) + 7 test
+GUI cho hộp thoại (`tests/test_nhap_phu_de_dich_dialog.py`: mặc định
+Anh→Việt không cảnh báo, ngôn ngữ chưa kiểm chứng thì cảnh báo hiện, thiếu
+video thì cảnh báo không crash, bấm Dịch truyền đúng tham số xuống worker,
+đang chạy thì không cho đóng — có cả test đối chứng "không chạy thì đóng
+bình thường" để tránh khoá cứng nhầm). Sửa 1 test cũ bị vỡ vì đổi chỗ hàm
+(`test_trinh_chinh_sua_day_du.py::test_thieu_am_thanh_khong_chan_viec_sua` —
+trỏ theo hàm `_dung_thu_muc_du_an` mới thay vì `nhap_du_an`, hành vi được
+canh không đổi). Toàn bộ suite: 2417 passed, 4 skipped (từ 2399), không có
+test nào vỡ.

@@ -922,6 +922,48 @@ class SubtitleTranslateWorker(QThread):
             detach_gui_logging(handler)
 
 
+class NhapPhuDeDichWorker(QThread):
+    """Nhập video + phụ đề NGÔN NGỮ NƯỚC NGOÀI, tự dịch trước khi dựng dự án
+    (08/09/2026, nối `nhap_phu_de.py`/`subtitle_translate.py`).
+
+    Khác `EditorLauncherPage._nhap_video_phu_de` (phụ đề ĐÃ tiếng Việt, chạy
+    thẳng trên luồng giao diện vì chỉ đọc 1 tệp văn bản) — việc này gọi mạng
+    (SaaS) hoặc nạp model NLLB 600MB qua subprocess (offline), cả hai đều có
+    thể mất hàng chục giây tới vài phút, không được chặn giao diện (luật C7).
+    """
+
+    log = Signal(str, int)
+    finished_ok = Signal(object)   # KetQuaNhap
+    failed = Signal(str)
+
+    def __init__(self, video_path: str, phu_de_path: str, thu_muc_goc: str,
+                 source_flores: str, target_key: str, mode: str,
+                 settings: Settings, parent=None):
+        super().__init__(parent)
+        self._video_path = video_path
+        self._phu_de_path = phu_de_path
+        self._thu_muc_goc = thu_muc_goc
+        self._source_flores = source_flores
+        self._target_key = target_key
+        self._mode = mode   # "local" | "saas"
+        self._settings = settings
+
+    def run(self) -> None:
+        from autodub.nhap_phu_de import nhap_du_an_dich
+
+        handler = attach_gui_logging(self.log)
+        try:
+            ket = nhap_du_an_dich(
+                self._video_path, self._phu_de_path, self._thu_muc_goc,
+                source_flores=self._source_flores, target_key=self._target_key,
+                dich_mode=self._mode, settings=self._settings)
+            self.finished_ok.emit(ket)
+        except Exception as e:  # noqa: BLE001
+            self.failed.emit(str(e))
+        finally:
+            detach_gui_logging(handler)
+
+
 class TranscribeWorker(QThread):
     """Chép lời một liên kết/file — mini-spec V71.
 

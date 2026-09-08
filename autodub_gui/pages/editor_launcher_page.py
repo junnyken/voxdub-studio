@@ -83,6 +83,16 @@ class EditorLauncherPage(BasePage):
             "chạy lại bước nghe và bước dịch.")
         btn_nhap.clicked.connect(self._nhap_video_phu_de)
 
+        # Cửa vào cho phụ đề CÒN Ở NGÔN NGỮ NƯỚC NGOÀI (08/09/2026) — nối
+        # thẳng với bước dịch thay vì bắt người dùng tự dịch riêng bằng
+        # trang «Dịch phụ đề» rồi quay lại đây với bản đã dịch.
+        btn_nhap_dich = GhostButton("Mở video + phụ đề nước ngoài (tự dịch)...")
+        btn_nhap_dich.setToolTip(
+            "Chọn một video và một tệp .srt/.vtt CHƯA dịch. App tự dịch "
+            "sang ngôn ngữ đích rồi dựng thành dự án — gộp hai bước Dịch "
+            "phụ đề + Mở video vào một lượt.")
+        btn_nhap_dich.clicked.connect(self._nhap_video_phu_de_dich)
+
         # Nút mở thư mục tùy chọn
         btn_open = GhostButton("Mở thư mục dự án...")
         btn_open.clicked.connect(self._browse_folder)
@@ -91,6 +101,7 @@ class EditorLauncherPage(BasePage):
         btn_row = QHBoxLayout(btn_wrap)
         btn_row.setContentsMargins(0, 0, 0, 0)
         btn_row.addWidget(btn_nhap)
+        btn_row.addWidget(btn_nhap_dich)
         btn_row.addWidget(btn_open)
         btn_row.addStretch()
         root.addWidget(btn_wrap)
@@ -187,6 +198,19 @@ class EditorLauncherPage(BasePage):
             f"Đã nhập {ket.so_cau} câu. Sửa lời nếu cần, rồi bấm «Đọc lại "
             "tất cả» để tạo giọng.")
         self.open_requested.emit(ket.thu_muc)
+
+    def _nhap_video_phu_de_dich(self) -> None:
+        """Dựng dự án từ video + phụ đề NGÔN NGỮ NƯỚC NGOÀI, tự dịch trước.
+
+        Khác `_nhap_video_phu_de`: mở một hộp thoại riêng (chọn ngôn ngữ
+        phụ đề, ngôn ngữ đích, cách dịch) vì việc này gọi mạng hoặc engine
+        dịch offline — không chạy thẳng trên luồng giao diện được.
+        """
+        from autodub_gui.pages.nhap_phu_de_dich_dialog import NhapPhuDeDichDialog
+
+        dialog = NhapPhuDeDichDialog(self._settings_provider, self)
+        if dialog.exec() == dialog.DialogCode.Accepted and dialog.thu_muc_ket_qua:
+            self.open_requested.emit(dialog.thu_muc_ket_qua)
 
     def _browse_folder(self) -> None:
         folder = QFileDialog.getExistingDirectory(
