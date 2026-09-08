@@ -14467,3 +14467,65 @@ trúc khác đáng tin hơn (ở đây: `input[type="password"]`, duy nhất tro
 form).
 
 74 đạt / 8 tệp (`npm test` trong `website/`), `npm run build` vẫn xanh.
+
+## G1 — Điều tra "nghe chép thiếu câu" trên video TRUNG/DÀI thật (08/09/2026)
+
+Theo đúng spec G1 (nhận từ chủ dự án, dạng "sẵn sàng chạy"): điểm chung đáng
+ngờ nhất của 2 lượt thử cũ (30s, 53s) là CẢ HAI đều video NGẮN — đây là biến
+duy nhất chưa có đối chứng. G1 ưu tiên thử biến ĐỘ DÀI trước.
+
+**Chuẩn bị (đúng guardrail #1 của G1 — không tự chọn video ngẫu nhiên):**
+hỏi lại chủ dự án ngôn ngữ nguồn thật (trả lời: tiếng Trung hoặc tiếng Anh)
+và xin link video thật — chủ dự án gửi 2 link YouTube tiếng Anh:
+- `long_22min` — 1318s (~21,97 phút), podcast học tiếng Anh, 2 người nói
+  (host + khách), không nhạc nền trong lúc nói.
+- `medium_16min` — 971s (~16,2 phút), cùng kiểu (host + khách "Anna"),
+  hơi dài hơn khung "trung" (5-10 phút) đề xuất trong spec nhưng vẫn là một
+  bước tăng có ý nghĩa so với 30s/53s cũ.
+
+**Test Plan bước 1 — xác nhận công cụ đo chạy ổn trên input dài:** chạy
+`scripts/so_sanh_nghe.py --video ... --model small --ngon-ngu en` (venv
+`.venv-whisper` thật, không phải giả lập) cho cả 2 video, chạy song song.
+Cả hai xong trong dưới 15 phút mỗi video (chạy đồng thời, có tranh CPU),
+RAM đỉnh dùng 23/62GB — **không cần sửa công cụ đo**, chạy ổn trên input
+dài gấp ~25 lần clip cũ (53s → 22 phút).
+
+**Test Plan bước 2+3 — kết quả trên video trung + dài (chỉ so VAD bật/tắt,
+`--video` không có `vocals.wav` để so nhạc):**
+
+| Video | VAD BẬT | VAD TẮT | Chênh SỐ TỪ |
+|---|---|---|---|
+| 16 phút | 287 câu · 2530 từ · 860,9s có tiếng | 250 câu · 2525 từ · 874,3s có tiếng | **5 từ** (0,2%) |
+| 22 phút | 304 câu · 3010 từ · 1197,4s có tiếng | 317 câu · 3008 từ · 1180,0s có tiếng | **2 từ** (0,07%) |
+
+Số CÂU lệch nhiều (287 vs 250; 304 vs 317) nhưng số TỪ gần như giống hệt —
+đúng cảnh báo có sẵn trong công cụ: "cắt câu khác nhau cũng lọt vào danh
+sách thiếu, nhìn số từ trước". Kiểm tay 1 câu trong danh sách "thiếu" của
+video 22 phút (mốc 84,6s, `"Ouch! That sounds serious..."`) đối chiếu hai
+bản chép đầy đủ (`--ra` lưu lại JSON từng lượt): câu này **CÓ MẶT** ở cả
+hai, chỉ bị VAD-BẬT cắt làm hai dòng (`"...Ouch. That"` ở 80,12s rồi
+`"It sounds serious..."` ở 85,98s) thay vì một dòng liền như VAD-TẮT — đúng
+mẫu "vụn câu, không mất nội dung" đã biết từ trước (trước đây quy cho nhạc
+nền, nay xác nhận VAD cũng gây hiện tượng y hệt).
+
+**Kết luận cho nhánh đã thử: KHÔNG tái hiện được "mất nội dung" trên video
+trung/dài thật, tiếng Anh, 1-2 người nói, không nhạc.** 4/4 lượt thử (30s,
+53s, 16 phút, 22 phút) đều cho cùng một mẫu: câu bị CẮT KHÁC NHAU, không
+bị MẤT. Đây là kết luận (b) theo Success Criteria của G1 — không phải
+"không có bug", mà là "đã thử đủ ma trận hợp lý ở nhánh ĐỘ DÀI mà chưa tái
+hiện được".
+
+**Biến CHƯA thử — chủ dự án tự nêu ra khi xem báo cáo giữa chừng, trùng
+đúng một ô trong ma trận G1 chưa đụng tới:** "nhiều người nói chồng tiếng".
+Hai video vừa thử chỉ có 1-2 người nói, gần như không chồng tiếng (hội
+thoại phỏng vấn, nói lần lượt). Whisper (và các model ASR nói chung) có
+điểm yếu THẬT SỰ đã biết rộng rãi khi nhiều người nói CHỒNG LÊN NHAU cùng
+lúc — mô hình nghe một kênh âm thanh trộn sẵn, không tách được ai nói gì
+khi hai giọng chồng, và phần chồng tiếng dễ bị bỏ qua hoàn toàn (khác hẳn
+cơ chế "cắt câu khác nhau" đã xác nhận ở trên — đây là khả năng MẤT THẬT).
+Đây là ứng viên mạnh nhất còn lại để tái hiện — cần video 3-4 người nói,
+có đoạn chồng tiếng, để thử tiếp theo đúng ma trận G1 (mục A "nhiều người
+nói chồng tiếng: có/không").
+
+Chưa thử: tiếng Trung (chủ dự án xác nhận cũng là ngôn ngữ đã gặp lỗi),
+có nhạc nền ở video dài thật (khác thử nghiệm cũ chỉ có ở clip ngắn).
