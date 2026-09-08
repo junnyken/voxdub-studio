@@ -14583,3 +14583,17 @@ thật** ở bất kỳ đâu (sandbox không có `HF_TOKEN`, gated model trên 
 **Không mở PoC ngay** — xem `docs/MINI-SPEC_G2_POC_ASR_Chong_Tieng.md`
 (mới) cho đề xuất: audit/benchmark trước khi cam kết build, đúng tiền lệ
 V30→V32a (lipsync).
+
+**G2 Scope A (audit giấy phép model tách giọng nói) — xong (08/09/2026).**
+Tìm ra đúng một bẫy license giống hệt bài học Wav2Lip ở V30: các checkpoint
+chất lượng cao nhất công khai (`sepformer-wsj02mix`, `sepformer-whamr`,
+`ConvTasNet_WHAM_sepclean`) đều train trên WSJ0 — corpus độc quyền LDC chỉ
+cấp phép "Research only", dù model card tự gắn nhãn Apache 2.0/CC BY-SA cho
+code. Loại cả ba khỏi benchmark. Còn 3 lựa chọn sạch giấy phép để benchmark
+ở Scope B/C: `MossFormer2_SS_16K` (Apache 2.0, chất lượng cao nhất, chưa rõ
+VRAM), `sepformer-libri2mix` (Apache 2.0, cùng hệ sinh thái pip với
+pyannote đang dùng), `ConvTasNet_Libri2Mix` (CC BY-SA — cần chủ dự án xác
+nhận rủi ro copyleft trước khi go, nhẹ phần cứng nhất). Chi tiết đầy đủ ở
+`docs/MINI-SPEC_G2_POC_ASR_Chong_Tieng.md` Scope A. Không có số liệu VRAM
+infer chính thức nào công khai cho input ngắn — vẫn phải đo thật khi có
+GPU (Scope B/C chưa làm được, thiếu GPU trong mọi sandbox tới nay).

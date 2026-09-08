@@ -92,11 +92,35 @@ mini-spec build production (G3?) hay không:
 
 ## Scope
 
-**A. Audit trước khi chọn model (không benchmark ngay)**
-- Khảo sát 2-3 model speech-separation mã nguồn mở (giấy phép + yêu cầu
-  phần cứng công khai) — tối thiểu SepFormer (SpeechBrain), Conv-TasNet;
-  audit giấy phép TRƯỚC (bài học V30: license loại được nhiều lựa chọn
-  ngay từ đầu, đỡ benchmark uổng công).
+**A. Audit trước khi chọn model — ĐÃ XONG (08/09/2026), kết quả dưới đây**
+
+Khảo sát 3 lựa chọn (SepFormer/SpeechBrain, Conv-TasNet/Asteroid,
+MossFormer2/ClearerVoice). **Phát hiện đúng một bẫy license giống hệt bài
+học Wav2Lip ở V30**: rất nhiều checkpoint phổ biến nhất (SI-SNRi cao nhất
+trong benchmark công khai) được train trên **WSJ0-2mix/WHAM/WHAMR** —
+WSJ0 là corpus độc quyền của LDC, chỉ cấp phép **"Research only"**. Model
+card HuggingFace tự gắn "Apache 2.0"/"CC BY-SA" cho *code/định dạng weight*,
+nhưng KHÔNG xoá được ràng buộc thương mại kế thừa từ dữ liệu train. Đây là
+lỗi dễ mắc nếu chỉ đọc license header mà không truy nguồn dữ liệu train —
+đúng nguyên tắc "audit trước khi benchmark" của mini-spec này.
+
+**Loại khỏi mọi benchmark tiếp theo** (dính taint LDC hoặc ShareAlike):
+`speechbrain/sepformer-wsj02mix`, `speechbrain/sepformer-whamr`,
+`mpariente/ConvTasNet_WHAM_sepclean`.
+
+**Còn lại 3 ứng viên sạch giấy phép, thứ tự ưu tiên benchmark ở Scope B/C:**
+
+| # | Model | Giấy phép | Chất lượng (SI-SNRi, tham chiếu) | Phần cứng | pip |
+|---|---|---|---|---|---|
+| 1 | `alibabasglab/MossFormer2_SS_16K` (qua `clearvoice`) | Apache 2.0, train trên dữ liệu riêng của Alibaba (KHÔNG dùng WSJ0 để train, chỉ dùng để benchmark) — **sạch nhất** | ~24,1dB (WSJ0-2mix benchmark) — cao nhất 3 lựa chọn | Model lớn nhất 3 lựa chọn, chưa có số VRAM infer công khai | `pip install clearvoice`, tự tải weight lúc chạy (đúng khuôn Demucs/NLLB hiện tại) |
+| 2 | `speechbrain/sepformer-libri2mix` | Apache 2.0, train trên Libri2Mix (gốc LibriSpeech, CC BY 4.0) — sạch | ~20,6dB | Transformer ~26M tham số, trung bình | `pip install speechbrain`, framework đã quen thuộc (cùng hệ sinh thái pyannote đang dùng) |
+| 3 | `JorisCos/ConvTasNet_Libri2Mix_sepclean_8k` (Asteroid) | **CC BY-SA 3.0 (ShareAlike)** — không dính LDC nhưng cần chủ dự án xác nhận rủi ro copyleft trước khi go, giống cách V30 đẩy quyết định chính sách lên chủ dự án | ~14,76dB — thấp hơn hẳn 2 lựa chọn trên | **Nhẹ nhất** (~5M tham số, có tiền lệ chạy CPU thời gian thực trong literature) — dự phòng nếu máy mục tiêu không đủ VRAM cho #1/#2 | `pip install asteroid` |
+
+Không có model nào công bố chính thức số VRAM/CPU cho việc **infer** một
+đoạn ngắn (vài giây–vài chục giây, khác hẳn nhu cầu training) — đúng như
+Constraint 1 đã lường trước, **phải đo thật ở Scope B/C, không suy đoán từ
+số liệu training**.
+
 - Đọc code diarization hiện có (`autodub/speech/diarize_worker.py`) để biết
   chính xác cách lấy `speaker_diarization` (bản CÓ overlap, hiện bị vứt) —
   tái dùng, không viết lại từ đầu.
