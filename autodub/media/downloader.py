@@ -152,6 +152,61 @@ def loi_do_cookie_trinh_duyet(loi: str) -> bool:
     return any(k in thap for k in DAU_HIEU_COOKIE_HONG)
 
 
+_YOUTUBE_HOSTS = ("youtube.com", "youtu.be")
+
+
+def _co_the_la_youtube(url: str) -> bool:
+    host = urlparse(url or "").netloc.lower()
+    return any(h in host for h in _YOUTUBE_HOSTS)
+
+
+def _trich_thong_tin(canonical: str, ydl_opts: dict) -> dict:
+    """Gọi yt-dlp một lượt; YouTube báo "không dùng được" thì thử lại bằng
+    client Android trước khi chịu thua (08/09/2026).
+
+    Đo thật: 2 video YouTube CÔNG KHAI thật (còn xem được bằng trình duyệt
+    thường) bị chặn ở bước giải mã bổ sung mà YouTube mới bắt thêm (n-signature
+    challenge) — client mặc định ("web") báo lỗi ``"This video is not
+    available"``, Y HỆT câu báo khi video THẬT SỰ bị xoá hoặc để riêng tư.
+    yt-dlp dùng chung một câu cho cả hai ca, không có cách nào phân biệt từ
+    nội dung lỗi — nên thử lại LUÔN khi gặp câu này thay vì cố đoán. Đã xác
+    nhận cả hai video tải được đủ (đúng file, đúng tiêu đề) khi ép sang
+    client Android.
+
+    KHÔNG đổi client Android thành mặc định: đo thật cho thấy nó bị giới hạn
+    chất lượng thấp hơn (rơi về 360p ở video đã thử, do YouTube đang thử
+    nghiệm chặn định dạng cao với vài client) — chỉ dùng khi client mặc định
+    thật sự hỏng, để không âm thầm hạ chất lượng cho mọi lượt tải.
+    """
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            return ydl.extract_info(canonical, download=True)
+    except Exception as loi_goc:
+        if (not _co_the_la_youtube(canonical)
+                or "not available" not in str(loi_goc).lower()):
+            raise
+        logger.warning(
+            "YouTube báo video không dùng được bằng client mặc định (%s) — "
+            "thử lại bằng client Android trước khi báo hỏng (có thể chỉ là "
+            "yêu cầu giải mã bổ sung mà client mặc định chưa xử lý được, "
+            "không hẳn video đã bị xoá).", str(loi_goc)[:200])
+        du_phong = dict(ydl_opts)
+        du_phong["extractor_args"] = {
+            **du_phong.get("extractor_args", {}),
+            "youtube": {"player_client": ["android"]},
+        }
+        try:
+            with yt_dlp.YoutubeDL(du_phong) as ydl:
+                info = ydl.extract_info(canonical, download=True)
+        except Exception:
+            # Báo lỗi GỐC (client mặc định) — dễ hiểu hơn lỗi của lượt dự
+            # phòng, và là lượt phản ánh đúng nhất tình trạng thật của link.
+            raise loi_goc from None
+        logger.info("Tải được bằng client Android dự phòng — client mặc "
+                   "định của YouTube đang chặn đúng video này.")
+        return info
+
+
 def _tai_bang_ydl(canonical: str, ydl_opts: dict) -> dict:
     """Gọi yt-dlp; đọc cookie trình duyệt hỏng thì thử lại KHÔNG cookie.
 
@@ -160,8 +215,7 @@ def _tai_bang_ydl(canonical: str, ydl_opts: dict) -> dict:
     thật sự đòi đăng nhập, và lúc đó lời báo phải nói được việc cần làm.
     """
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            return ydl.extract_info(canonical, download=True)
+        return _trich_thong_tin(canonical, ydl_opts)
     except Exception as e:      # phân loại rồi ném lại ngay bên dưới
         co_cookie = bool(ydl_opts.get("cookiesfrombrowser"))
         if not (co_cookie and loi_do_cookie_trinh_duyet(str(e))):
@@ -173,8 +227,7 @@ def _tai_bang_ydl(canonical: str, ydl_opts: dict) -> dict:
     khong_cookie = {k: v for k, v in ydl_opts.items()
                     if k != "cookiesfrombrowser"}
     try:
-        with yt_dlp.YoutubeDL(khong_cookie) as ydl:
-            info = ydl.extract_info(canonical, download=True)
+        info = _trich_thong_tin(canonical, khong_cookie)
     except Exception as e:      # gói lại thành câu nói được việc
         raise RuntimeError(
             f"Không tải được video ({e}).\n"
@@ -431,8 +484,7 @@ def download_one(
     ydl_opts = build_ydl_opts(output_dir, cookies_from_browser, cookies_file,
                               dinh_dang=dinh_dang)
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(canonical, download=True)
+    info = _trich_thong_tin(canonical, ydl_opts)
 
     filepath = _resolve_filepath(info, output_dir)
 

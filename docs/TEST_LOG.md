@@ -14866,3 +14866,62 @@ bình thường" để tránh khoá cứng nhầm). Sửa 1 test cũ bị vỡ v
 trỏ theo hàm `_dung_thu_muc_du_an` mới thay vì `nhap_du_an`, hành vi được
 canh không đổi). Toàn bộ suite: 2417 passed, 4 skipped (từ 2399), không có
 test nào vỡ.
+
+---
+
+## YouTube báo "không dùng được" GIẢ — dự phòng client Android (08/09/2026)
+
+Chủ dự án dùng thật trang Chép lời, báo hỏng với
+`https://www.youtube.com/watch?v=rSNQ4fXq75U` (một trong 2 video Kung Fu
+Panda đã đưa cho G1/G3 dùng thử nghe-chép) — app báo *"Video YouTube bạn
+chọn không hoạt động, đã bị xóa hoặc để ở chế độ riêng tư"*.
+
+**Đo trước khi tin câu báo lỗi.** Gọi `yt-dlp` thật (không qua app) với
+đúng link đó: cùng lỗi *"This video is not available"*. Nhưng video vẫn mở
+được bình thường bằng trình duyệt. Bật `-v` thấy dòng debug thật:
+`android_vr player response playability status: UNPLAYABLE` cộng cảnh báo
+*"No supported JavaScript runtime could be found... YouTube extraction
+without a JS runtime has been deprecated"* — YouTube mới bắt thêm bước giải
+mã chữ ký (n-signature challenge) mà client mặc định ("web") của phiên bản
+yt-dlp đang cài (2026.7.4, đã thử cả 2026.8.19 mới nhất — vẫn y hệt) không
+tự giải được nếu thiếu một trình chạy JS (deno/node) VÀ script giải mã tải
+riêng (`--remote-components ejs:github`).
+
+**Không phải lỗi sandbox.** Khác hẳn bẫy `player_client=android` từng dùng
+trong phiên làm việc này để né 403 (đó là do uy tín IP datacenter, chỉ ảnh
+hưởng môi trường phát triển) — đây là YouTube thay đổi ở tầng video, ảnh
+hưởng MỌI nơi chạy yt-dlp, kể cả bản Windows thật của người dùng. Đo chéo:
+video Rick Astley cũ tải được bình thường không cần gì thêm — YouTube chưa
+bắt 100% video, chỉ một phần (sẽ tăng dần theo thời gian).
+
+**Không chọn hướng bundle Node/deno + tự tải script giải mã từ GitHub** —
+đổi kiến trúc lớn (thêm runtime vào gói Windows, thêm một điểm tải mã từ
+xa lúc chạy) cho một vấn đề có cách né đơn giản hơn nhiều: ép
+`extractor_args: {"youtube": {"player_client": ["android"]}}` — đo thật tải
+được ĐỦ cả 2 video Kung Fu Panda (đúng tệp, đúng tiêu đề), không cần JS
+runtime, không cần tải gì thêm. Đánh đổi: client Android bị giới hạn định
+dạng thấp hơn (đo thật rơi về 360p, do YouTube đang thử nghiệm chặn định
+dạng cao với vài client — cảnh báo "SABR-only streaming experiment") — nên
+KHÔNG đổi thành client mặc định, chỉ dùng khi client mặc định hỏng thật.
+
+**Sửa**: `downloader._trich_thong_tin()` (hàm mới, `autodub/media/
+downloader.py`) — gọi yt-dlp bình thường; nếu là link YouTube VÀ lỗi chứa
+"not available" thì thử lại NGAY một lượt với client Android trước khi
+chịu thua. Không phân biệt được "video thật sự đã xoá" với "chỉ là JS
+challenge" từ nội dung câu lỗi (yt-dlp dùng chung một câu) — nên thử lại
+LUÔN, chi phí chỉ là một lượt gọi mạng thêm cho ca thật sự đã xoá (lượt dự
+phòng cũng hỏng thì báo lại đúng lỗi GỐC của client mặc định, không phải
+lỗi của lượt dự phòng — dễ hiểu hơn). Thay `yt_dlp.YoutubeDL(...).extract_info()`
+gọi trực tiếp bằng hàm này ở CẢ hai chỗ gọi yt-dlp trong file (`_tai_bang_ydl`
+— dùng bởi pipeline dub chính qua `download_video()`, và `download_one()` —
+dùng bởi Chép lời/Tải xuống/xử lý hàng loạt cloud) nên toàn bộ đường tải
+video trong app đều được che, không phải vá riêng từng trang.
+
+**Test**: 6 test mới (`tests/test_youtube_gia_bao_khong_dung_duoc.py`) —
+lỗi "not available" trên YouTube thì thử lại đúng 1 lượt bằng Android và
+giữ nguyên các tham số khác; cả hai lượt đều hỏng thì báo lỗi GỐC (không
+phải lỗi của lượt dự phòng); lỗi khác (404) không kích hoạt dự phòng; nền
+tảng khác YouTube (TikTok) dù cùng câu lỗi cũng không thử lại thêm; thành
+công ngay lượt đầu thì không tốn thêm lượt gọi nào; kiểm tới tận
+`download_one()` (đường Chép lời/Tải xuống thật dùng), không chỉ hàm nội
+bộ. Toàn bộ suite: 2423 passed, 4 skipped (từ 2417), không có test nào vỡ.
