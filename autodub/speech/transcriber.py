@@ -631,7 +631,11 @@ def _transcribe_whisper(audio_path: str, language: str, settings: Settings,
         language=whisper_lang,
         beam_size=settings.whisper_beam_size,
         vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 500},
+        # G3 (docs/MINI-SPEC_G3_VAD_Bo_Sot_Doan_On.md) — cùng lý do và số
+        # liệu đo thật với `asr_whisper_worker.py` (đường subprocess đã
+        # dùng ngưỡng này) — hai đường phải khớp nhau, sửa một mà quên
+        # đường kia là đúng lớp lỗi #2 của dự án.
+        vad_parameters={"min_silence_duration_ms": 500, "threshold": 0.3},
         word_timestamps=True,
     )
     if whisper_lang is None and getattr(info, "language", None):

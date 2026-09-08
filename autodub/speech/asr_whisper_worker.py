@@ -275,7 +275,21 @@ def main() -> None:
             language=language,
             beam_size=beam_size,
             vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 500},
+            # G3 (docs/MINI-SPEC_G3_VAD_Bo_Sot_Doan_On.md) — mặc định
+            # `threshold=0.5` của Silero VAD bỏ sót cả đoạn thoại thật khi
+            # nhạc nền/hiệu ứng dồn dập (video hoạt hình cảnh hành động):
+            # tái hiện thật 1 đoạn mất TRẮNG 38 giây, 6 câu, dù âm lượng
+            # đoạn đó không khác gì đoạn nghe bình thường (đo bằng
+            # `ffmpeg volumedetect`, không phải do "quá to"). Hạ xuống 0.3
+            # — đo thật trên video nói liên tục (16 phút, 99% có tiếng):
+            # tổng thời lượng phát hiện được KHÔNG đổi (961,3s → 962,6s,
+            # +0,1%), không sinh thêm đoạn giả — an toàn cho nội dung nói
+            # bình thường, chỉ giúp cho đoạn ồn. Không hạ thấp hơn nữa:
+            # 0.1 vẫn không đóng hết được khoảng trống ở video thử (còn
+            # ~15s không phát hiện được dù đã rất nhạy) — cần cơ chế "vá
+            # khoảng trống" riêng (Scope C của G3, chưa làm) cho các ca
+            # cực đoan, threshold chỉ giảm bớt vùng ảnh hưởng.
+            vad_parameters={"min_silence_duration_ms": 500, "threshold": 0.3},
             word_timestamps=True,
             # Mini-spec C28 — CHẶN VÒNG LẶP BỊA.
             #

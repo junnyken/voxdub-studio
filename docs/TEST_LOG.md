@@ -14640,3 +14640,61 @@ nhận rủi ro copyleft trước khi go, nhẹ phần cứng nhất). Chi tiế
 `docs/MINI-SPEC_G2_POC_ASR_Chong_Tieng.md` Scope A. Không có số liệu VRAM
 infer chính thức nào công khai cho input ngắn — vẫn phải đo thật khi có
 GPU (Scope B/C chưa làm được, thiếu GPU trong mọi sandbox tới nay).
+
+## G3 — Scope A+B thực hiện: hạ threshold VAD 0.5→0.3, đã sửa + verify (08/09/2026)
+
+**Scope A (chẩn đoán trực tiếp)**: gọi thẳng
+`faster_whisper.vad.get_speech_timestamps` trên đoạn audio 45-95s của Sing 2
+ở nhiều `threshold`. Kết quả: ở 0.5 (mặc định cũ), VAD không phát hiện chút
+giọng nói nào từ giây 13 tới 46,7 (tính từ mốc 45s — tức 58s tới 91,7s
+gốc), khớp gần đúng khoảng mất đã ghi nhận (53,8-91,5s). Hạ dần threshold
+phục hồi thêm nhưng **ngay cả ở 0.1 (rất nhạy) vẫn còn ~15 giây (66-81s
+gốc) hoàn toàn không phát hiện được** — tinh chỉnh tham số một mình KHÔNG
+đóng hết được khoảng trống trong ca cực đoan này.
+
+**Kiểm hồi quy trên video nói liên tục** (16 phút, 99% thời lượng có
+tiếng): hạ threshold 0.5→0.2 hầu như KHÔNG đổi tổng thời lượng phát hiện
+được (961,3s → 963,0s, +0,2%), số đoạn phát hiện còn GIẢM (không phải tăng
+— tức không sinh thêm đoạn giả/vụn). **An toàn để hạ threshold** trên nội
+dung nói bình thường.
+
+**Quyết định (Scope B, theo Design Choice ưu tiên đơn giản trước)**: hạ
+threshold về **0.3** (không hạ tới 0.1 vì vẫn không đóng hết khoảng trống —
+tăng rủi ro không đáng, để dành ngưỡng cực đoan cho phương án khác) ở
+**cả ba nơi dùng chung model Silero VAD**:
+- `autodub/speech/asr_whisper_worker.py:279` (Whisper, đường subprocess —
+  đường THẬT của bản `.exe`).
+- `autodub/speech/transcriber.py` (Whisper, đường in-process — chạy từ mã
+  nguồn, phải khớp đường kia, đúng lớp lỗi #2 "sửa một đường quên đường
+  kia" đã lặp lại nhiều lần).
+- `autodub/speech/asr_paraformer_worker.py:123` (Paraformer, tiếng Trung —
+  **cùng model Silero VAD, cùng rủi ro**, và tiếng Trung là một trong hai
+  ngôn ngữ chủ dự án xác nhận có gặp lỗi "thiếu câu").
+
+**Verify bằng model Whisper thật, so sánh TRƯỚC/SAU trên đúng đoạn đã mất**
+(45-95s của Sing 2, `--model small`, cùng cấu hình production khác):
+
+| | Số câu | Số từ | Nội dung |
+|---|---|---|---|
+| **TRƯỚC** (threshold 0.5) | 2 | 12 | Nhảy thẳng từ 47,6s sang 57s (trống 9,4s), rồi 1 câu duy nhất trải dài 57,0-94,2s: *"You gotta be kidding me hold still"* — chỉ 12 từ cho 37 giây, rõ ràng bỏ sót nặng |
+| **SAU** (threshold 0.3) | 7 | 35 | Thêm *"I don't know how to entrance or lock." / "Hey everybody! Good to see you!" / "Linda, I got some hot pills for you." / "Ash?"* — và câu cuối tách đúng thành 2 câu có mốc thời gian chính xác thay vì 1 câu trải dài sai |
+
+**+192% số từ** trên đúng đoạn đã xác nhận mất nội dung. Chưa phục hồi
+100% (vẫn thiếu "It is so new." "I knew it." "Look out!" "Buster?" so với
+bản không lọc VAD hoàn toàn) — khớp đúng dự đoán ở Scope A (threshold một
+mình không đóng hết khoảng trống cực đoan). **Cải thiện thật, đáng kể,
+không phải toàn vẹn.**
+
+5 test mới (`tests/test_vad_bo_sot_doan_on.py`): canh cấu hình threshold
+đúng ở cả 3 nơi + khớp nhau, canh threshold không bị đổi tiếp mà không kèm
+số liệu đo lại, và 1 test dùng model VAD thật với tín hiệu tổng hợp (không
+dùng audio Sing 2 thật — có bản quyền, không đưa vào repo) khoá đúng
+HƯỚNG tác động (threshold thấp hơn không bao giờ phát hiện ít audio hơn).
+2381 đạt / 4 bỏ qua, không hồi quy trên bộ test đầy đủ.
+
+**Scope C (vá khoảng trống, cho ca cực đoan còn lại) — CHƯA làm.** Cần
+thêm: cờ `vad_filter` điều khiển được ở CLI worker (`asr_whisper_worker.py`
+hiện không có), logic cắt audio đúng khoảng trống + nghe lại + ghép mốc
+thời gian, và ngưỡng "khoảng trống bất thường" cần audit thêm (tránh nghe
+lại nhầm đoạn im lặng thật). Độ phức tạp cao hơn hẳn Scope B — để lại làm
+riêng nếu chủ dự án muốn đóng nốt phần còn thiếu.

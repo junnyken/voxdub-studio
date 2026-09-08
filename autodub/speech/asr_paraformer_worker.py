@@ -118,9 +118,13 @@ def main() -> None:
     print(json.dumps({"ready": True}), file=proto_out, flush=True)
 
     # VAD chunking mirrors faster-whisper's vad_filter (500 ms min silence).
+    # G3 (docs/MINI-SPEC_G3_VAD_Bo_Sot_Doan_On.md) — cùng model Silero VAD,
+    # cùng bug: threshold=0.5 bỏ sót cả đoạn thoại thật khi nhạc nền/hiệu
+    # ứng dồn dập. Hạ xuống 0.3 khớp với `asr_whisper_worker.py` — đo thật
+    # xác nhận không ảnh hưởng audio nói liên tục bình thường.
     vad_cfg = sherpa_onnx.VadModelConfig()
     vad_cfg.silero_vad.model = vad_file
-    vad_cfg.silero_vad.threshold = 0.5
+    vad_cfg.silero_vad.threshold = 0.3
     vad_cfg.silero_vad.min_silence_duration = 0.5
     vad_cfg.silero_vad.min_speech_duration = 0.25
     vad_cfg.silero_vad.max_speech_duration = 15.0
