@@ -15039,3 +15039,43 @@ H1 chỉ dựng xong entity + API + UI tạo/sửa/xoá — **chưa có tác v�
 hồ sơ này**. H2 (trích flow từ video đối thủ), H3 (viết lại kịch bản, cần
 CẢ H1 và H2), H4 (dựng video, gắn hồ sơ brand vào `ProductSceneVideoJob`)
 đều ngoài phạm vi H1, chưa làm.
+
+---
+
+## H2 — Audit OCR DỪNG mini-spec tại Scope A (08/09/2026)
+
+Mini-spec H2 ("Viral Flow Blueprint từ video tham khảo") tự đặt cổng chặn
+ngay đầu: audit OCR trước khi build Flow Blueprint, và DỪNG nếu OCR chỉ trả
+vùng chữ chứ không đọc được nội dung. Làm đúng thứ tự đó trước khi viết
+dòng mã Flow Blueprint nào.
+
+**Đo thật, không chỉ đọc mã**: dựng ảnh test có chữ "SUBSCRIBE NOW FOR
+MORE", gọi thẳng RapidOCR — engine đọc đúng 100% kèm confidence 0,995. Gọi
+qua đúng hàm app dùng thật (`detect_text_regions()`, `autodub/media/
+text_regions.py`, dùng ở `style_dialog.py` cho tính năng xoá/làm mờ chữ) —
+kết quả CHỈ có `{x,y,w,h,confidence}`, không có khoá `text` nào. Đọc cả hai
+đường xử lý (`text_regions_worker.py` chạy trong `.venv-ocr`, và
+`_detect_in_process` dự phòng) xác nhận CẢ HAI đều lặp
+`for box, text, confidence in result:` rồi dùng `text` CHỈ để lọc dòng rỗng
+— không bao giờ đưa vào dict trả về. Quét toàn repo: đây là nơi DUY NHẤT
+gọi OCR trong dự án, không có đường đọc caption nào khác tồn tại song song.
+
+**Kết luận: đúng cổng chặn — OCR hiện tại là bộ PHÁT HIỆN VÙNG, không phải
+bộ ĐỌC NỘI DUNG.** Đây không phải lỗi: `text_regions.py` được build cho V5
+với đúng mục tiêu "phát hiện vùng để làm mờ", vứt `text` là quyết định
+đúng cho mục tiêu đó. H2 cần một khả năng khác (đọc nội dung) chưa từng có.
+
+**Không build tiếp** Domain (FlowBlueprint)/Engine/API/UI của H2 theo đúng
+constraint mini-spec tự đặt ra. Viết báo cáo riêng
+`docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md` — nêu chính xác gap (engine ĐÃ
+có khả năng đọc, chỉ là bị vứt ở tầng wrapper — việc đóng gap là kỹ thuật
+vừa phải, KHÔNG phải nghiên cứu mới) và ba điểm chưa kiểm chứng nếu muốn
+đóng gap: ngôn ngữ caption (RapidOCR không được truyền tham số ngôn ngữ,
+dùng mặc định thư viện), độ phủ khung hình (mẫu hiện tại "vài khung rải
+đều" đủ cho blur nhưng có thể không đủ cho dựng nhịp flow), và độ chính xác
+đọc trên video nén/chữ nhỏ (chưa từng đo, chỉ mới đo ĐỘ PHÁT HIỆN VÙNG).
+
+Không có test mới, không sửa `text_regions.py` — đây là audit đọc + đo,
+không phải mã sản phẩm; đè lên hành vi blur đang chạy đúng là rủi ro không
+cần thiết cho một báo cáo audit. Cập nhật FEATURES.md §5 với phát hiện này
+để đề xuất sau không giả định OCR đã đọc được caption.
