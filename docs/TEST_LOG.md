@@ -15308,7 +15308,10 @@ hơn hẳn với tiếng Việt** — chú thích cũ ở `chuanHoaSoKhop` lập
 dấu nên câu tiếng Việt có dấu sẽ không trùng", lập luận đó không còn đúng khi
 H2b bật; đúng ý đồ gốc của Guardrail 2/6/7 (bắt được chép nguyên văn tiếng
 Việt, trước đây LỌT) nhưng là thay đổi hành vi thật, đã ghi cảnh báo ngay tại
-hàm đó, cần theo dõi tỉ lệ bị chặn ở vài lượt H2 thật đầu tiên. Chưa đo trên
+hàm đó. **Chủ dự án quyết định GIỮ NGUYÊN mức chặt này (09/09)** — không nới
+ngưỡng, không miễn trừ cho tiếng Việt; nếu về sau chặn oan nhiều thì bàn lại
+NGƯỠNG chứ không bỏ chốt. Vẫn cần theo dõi tỉ lệ bị chặn ở vài lượt H2 thật
+đầu tiên. Chưa đo trên
 video dọc/chữ nhỏ/nền động. Bộ đọc offline có dấu (Tesseract `vie`, 1,5 MB,
 87,6%) lắp vừa chỗ cắm này nếu sau có nhu cầu, chưa làm.
 

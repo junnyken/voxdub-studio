@@ -216,7 +216,10 @@ Phần tiết kiệm chạy đúng như thiết kế: **gửi 23/71 khung** (b�
   OCR giờ có dấu đầy đủ. Đây đúng ý đồ gốc của Guardrail 2/6/7 (bắt được
   chép nguyên văn tiếng Việt, trước đây LỌT), nhưng là **thay đổi hành vi
   thật**: một beat chép nguyên văn caption nay huỷ CẢ kết quả. Đã ghi cảnh
-  báo ngay tại hàm đó. Cần theo dõi tỉ lệ bị chặn ở vài lượt H2 thật đầu tiên.
+  báo ngay tại hàm đó. **Chủ dự án đã quyết định GIỮ NGUYÊN mức chặt này
+  (09/09/2026)** — không nới ngưỡng, không miễn trừ cho tiếng Việt. Vẫn cần
+  theo dõi tỉ lệ bị chặn ở vài lượt H2 thật đầu tiên: nếu chặn oan nhiều thì
+  bàn lại NGƯỠNG (`NGUONG_TU_LIEN_TIEP`), không phải bỏ chốt.
 - **Chưa đo trên video dọc/chữ nhỏ/nền động** ngoài `tap01_clip.mp4`.
 - **Bộ đọc offline có dấu vẫn còn chỗ trống.** Tesseract `vie` (1,5 MB, 87,6%)
   lắp vừa chỗ cắm này nếu sau có nhu cầu chạy không cần mạng/không tốn Vox —
