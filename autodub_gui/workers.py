@@ -964,6 +964,46 @@ class NhapPhuDeDichWorker(QThread):
             detach_gui_logging(handler)
 
 
+class BrandProfileWorker(QThread):
+    """CRUD hồ sơ brand — mini-spec H1 (docs/PLAN.md, Phase H).
+
+    Bốn thao tác đều là một lượt gọi mạng mỏng (không có đường lui local —
+    Constraint 2 của H1 đòi hỏi lưu server để dùng lại qua nhiều thiết bị),
+    nên gộp chung MỘT worker theo tham số `action` thay vì bốn lớp gần như
+    giống hệt nhau.
+    """
+
+    finished_ok = Signal(str, object)   # action, kết quả (list | dict | None)
+    failed = Signal(str, str)           # action, thông điệp lỗi
+
+    def __init__(self, action: str, *, profile_id: str = "", fields: dict | None = None,
+                 parent=None):
+        super().__init__(parent)
+        if action not in ("list", "create", "update", "delete"):
+            raise ValueError(f"Thao tác hồ sơ brand không hợp lệ: {action!r}")
+        self._action = action
+        self._profile_id = profile_id
+        self._fields = fields or {}
+
+    def run(self) -> None:
+        from autodub.saas_client import get_client
+
+        client = get_client()
+        try:
+            if self._action == "list":
+                ket = client.list_brand_profiles()
+            elif self._action == "create":
+                ket = client.create_brand_profile(**self._fields)
+            elif self._action == "update":
+                ket = client.update_brand_profile(self._profile_id, **self._fields)
+            else:
+                client.delete_brand_profile(self._profile_id)
+                ket = None
+            self.finished_ok.emit(self._action, ket)
+        except Exception as e:  # noqa: BLE001
+            self.failed.emit(self._action, str(e))
+
+
 class TranscribeWorker(QThread):
     """Chép lời một liên kết/file — mini-spec V71.
 

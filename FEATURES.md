@@ -10,8 +10,8 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-08 · phiên bản ứng dụng `3.16.8` · 2.423 test Python +
-> 529 test Node + 74 test React
+> Cập nhật: 2026-09-08 · phiên bản ứng dụng `3.16.8` · 2.438 test Python +
+> 542 test Node + 74 test React
 
 ---
 
@@ -42,7 +42,7 @@ hay chưa:
 | Phần | Công nghệ | Vai trò |
 |---|---|---|
 | `autodub/` | Python ≥3.10, ~28.000 dòng | Lõi xử lý: tải, tách tiếng, chép lời, dịch, tạo giọng, ghép video |
-| `autodub_gui/` | PySide6 (Qt), ~30.000 dòng | Giao diện máy tính, **18 trang** |
+| `autodub_gui/` | PySide6 (Qt), ~30.000 dòng | Giao diện máy tính, **19 trang** |
 | `control_server/` | Node 20, Fastify 5, MongoDB, ~12.000 dòng | Máy chủ: ví Vox, cổng gọi mô hình AI, thống kê, quản trị |
 | `website/` | React 18, Vite, Tailwind, ~7.000 dòng | Trang bán hàng + trang quản trị |
 
@@ -525,6 +525,19 @@ Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
 **Việc kỹ thuật đã rõ hình:**
 - Hiện tiến độ lượt chạy trên máy chủ.
 
+**Sáng kiến mới bắt đầu (08/09) — Viral Flow Clone & Brand Rewrite.** Mục
+tiêu cuối: học nhịp/cấu trúc từ video đối thủ/KOL viral (KHÔNG sao chép câu
+chữ) rồi viết lại kịch bản theo hồ sơ brand riêng của từng khách hàng, dựng
+thành video hoàn chỉnh (nối vào pipeline ảnh sản phẩm C3 đã có). Bốn mini-spec:
+- **H1 — Hồ sơ Brand: ĐÃ XONG, CHẠY THẬT.** Trang **Hồ sơ Brand** (thanh bên)
+  — tạo/sửa/xoá nhiều hồ sơ (tên, sản phẩm, tone, đối tượng, USP, ràng buộc
+  không được nói) cho MỘT thiết bị. Server `/v1/brand-profiles` (xem
+  docs/API.md), cách ly theo thiết bị — có test chéo thiết bị thật (không
+  chỉ giả lập). **Chưa có tác vụ nào ĐỌC hồ sơ này** — H3 (viết kịch bản) là
+  nơi tiêu thụ dữ liệu, chưa làm.
+- H2 (trích flow từ video đối thủ), H3 (viết lại kịch bản), H4 (dựng video)
+  — **chưa làm**, không phụ thuộc lẫn nhau ngoại trừ H3 cần cả H1 và H2.
+
 **Đã giải quyết, đừng đề xuất lại:** tách `.venv-*`/`models/` ra khỏi thư mục
 ứng dụng — không cần nữa, vì app đã tự dò bản cũ nằm cùng thư mục cha (§3.1).
 Xem trước chi phí và gộp câu trước khi tính tiền cũng đã làm (V97);
@@ -551,9 +564,10 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/ARCH.md` | Kiến trúc lõi |
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 | `docs/KE-HOACH-KIEM-C50-C52.md` | Hai việc còn tồn chỉ máy chủ dự án trả lời được: che chữ trên phim dài, và "nghe chép thiếu câu" — kèm cách đo, **không tốn Vox** |
+| `docs/MINI-SPEC_H1_Ho_So_Brand_Multi_Tenant.md` | Hồ sơ Brand — nền tảng multi-tenant cho sáng kiến "Viral Flow Clone & Brand Rewrite", đã xong Scope A-D |
 
-**Quy mô test tại thời điểm cập nhật tệp này:** 2.423 test Python (4 bỏ qua —
-chỉ có nghĩa trên Windows) + 529 test Node (0 hỏng) + 74 test React (0 hỏng).
+**Quy mô test tại thời điểm cập nhật tệp này:** 2.438 test Python (4 bỏ qua —
+chỉ có nghĩa trên Windows) + 542 test Node (1 bỏ qua, 0 hỏng) + 74 test React (0 hỏng).
 Con số này tăng gần như mỗi đợt — dùng nó để hình dung quy mô, đừng dùng làm
 mốc đối chiếu.
 

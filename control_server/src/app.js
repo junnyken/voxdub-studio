@@ -106,6 +106,8 @@ async function build(opts = {}) {
   await app.register(require('./routes/holds'), { prefix: '/v1/holds' })
   await app.register(require('./routes/jobs'), { prefix: '/v1/jobs' })
   await app.register(require('./routes/billing'), { prefix: '/v1/billing' })
+  // Mini-spec H1 (docs/PLAN.md, Phase H) — hồ sơ brand, nền tảng cho H3/H4.
+  await app.register(require('./routes/brand-profiles'), { prefix: '/v1/brand-profiles' })
   await app.register(require('./routes/admin'), { prefix: '/v1/admin' })
   // Mini-spec V13: trạng thái tiến trình lồng tiếng — CHỈ khi client ở chế
   // độ SaaS (is_configured()), chưa từng gọi ở local-only.

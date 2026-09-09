@@ -14925,3 +14925,117 @@ tảng khác YouTube (TikTok) dù cùng câu lỗi cũng không thử lại thê
 công ngay lượt đầu thì không tốn thêm lượt gọi nào; kiểm tới tận
 `download_one()` (đường Chép lời/Tải xuống thật dùng), không chỉ hàm nội
 bộ. Toàn bộ suite: 2423 passed, 4 skipped (từ 2417), không có test nào vỡ.
+
+---
+
+## H1 — Hồ sơ Brand, nền tảng multi-tenant Phase H (08/09/2026)
+
+Mini-spec đầu tiên của sáng kiến mới "Viral Flow Clone & Brand Rewrite" —
+chủ dự án gửi PDF `MINI-SPEC_H1_Ho-So-Brand-Multi-Tenant.pdf`, yêu cầu thực
+hiện đúng theo kế hoạch.
+
+### Audit Before Build — hai phát hiện đổi cách hiểu chính spec
+
+Mini-spec tự yêu cầu "cần xác nhận điều này khi đọc docs/ARCH.md/docs/API.md
+thật, đừng giả định có sẵn" cho đúng phần cơ chế xác thực. Đọc code thật
+(không tin audit sơ bộ trong Context của mini-spec) lộ ra:
+
+1. **Không có model "Account" nào trong dự án.** `control_server/src/models/
+   Device.js` tự ghi ngay trong docstring: "định danh bằng machine
+   fingerprint SHA-256, **không có tài khoản người dùng**". Mọi identity
+   (Vox, cổng trợ lý AI) đều gắn vào `Device`, không có tầng account riêng.
+   Nên "owner_account_id"/"tài khoản VoxDub" của đặc tả **CHÍNH LÀ**
+   `Device._id` — không dựng model/cơ chế xác thực mới, tái dùng nguyên
+   `requireDevice` (auth.middleware.js) như audit sơ bộ đã đoán đúng hướng,
+   chỉ cần xác nhận chính xác cái gì được tái dùng. Ghi lại thành một đoạn
+   cảnh báo thường trực ở `docs/ARCH.md` §3 để mini-spec sau khỏi hỏi lại.
+2. **UI không thuộc `website/`.** Scope D của mini-spec chỉ nói "trang mới
+   (hoặc mục con)" mà không chỉ rõ ứng dụng nào. `website/` là "trang bán
+   hàng + trang quản trị" (không phải cổng khách hàng tự quản lý dữ liệu
+   của họ), còn `autodub_gui/saas_client.py` đã có sẵn các hàm gọi
+   `/v1/ai/*` bằng đúng device-token, và các trang tương tự (Hồ sơ nhân
+   vật, Ảnh sản phẩm) đều là trang trong **desktop app**. Xây UI ở đúng chỗ
+   ngay từ đầu, tránh làm nhầm app rồi phải dọn lại.
+
+### Scope A/B/C — Domain model + Service + API contract
+
+`control_server/src/models/BrandProfile.js`: `ownerDeviceId` (ObjectId ref
+Device, required, indexed), `tenBrand`, `moTaSanPham`, `doiTuongKhach`,
+`toneGiong` (văn bản tự do — Design Choice của spec, chưa đủ dữ liệu thật
+để đóng thành enum), `usp`, `rangBuocKhongDuocNoi` (mảng chuỗi).
+
+`control_server/src/routes/brand-profiles.js` (`/v1/brand-profiles`, mọi
+route qua `requireDevice`): `GET /`, `POST /`, `PUT /:id`, `DELETE /:id`.
+Ba quyết định đáng chú ý:
+- `rangBuocKhongDuocNoi` là trường **required** ở schema Fastify (mảng, có
+  thể rỗng) — Constraint 2 của H1 ("phải đi qua bước hỏi, không âm thầm bỏ
+  qua") được ép ở tầng API, không chỉ ở tầng UI (client nào bỏ qua trường
+  này đều bị chặn `400` trước cả khi chạm handler).
+- `:id` sai khuôn ObjectId → `CastError` → coi như `404`, không phải `500`
+  — cùng cách xử lý đã có ở `dub-job.service.js` cho đúng bẫy này (audit
+  tìm ra bằng `grep CastError`, không phải đoán).
+- `PUT`/`DELETE` cho **thiết bị khác** trả **cùng mã `404`** như "không tồn
+  tại" — cố ý không tiết lộ hồ sơ của thiết bị khác có tồn tại hay không.
+
+### Bắt bởi bộ canh có sẵn: hồi quy phải ĐỎ trước khi tin
+
+Đúng kỷ luật dự án ("mỗi luật quan trọng đều được gỡ ra để chứng minh test
+đỏ"), gỡ tạm điều kiện `ownerDeviceId` khỏi `find`/`findOne` của route rồi
+chạy lại bộ test thật: **đúng 3 test cách ly chéo thiết bị chuyển đỏ**
+(GET/PUT/DELETE), 10 test còn lại vẫn xanh — xác nhận bộ test bắt đúng lỗ
+hổng cần bắt, không phải xanh giả. Khôi phục lại thì cả 13 xanh.
+
+### Scope D — UI (desktop app, không phải website)
+
+Trang mới **"Hồ sơ Brand"** (`autodub_gui/pages/brand_profile_page.py`,
+`ROW_BRAND_PROFILE`, nhóm "tools" trong thanh bên — 19 trang, từ 18) —
+danh sách + form tạo/sửa (không dựng CRM phức tạp, đúng Constraint 5).
+`BrandProfileFormDialog` tách "ràng buộc không được nói" thành ô nhiều
+dòng (mỗi dòng một điều, tách ra khi lưu) — người dùng LUÔN thấy ô này khi
+mở form, đúng tinh thần Constraint 2 ở tầng giao diện.
+
+Bốn hàm mới trên `autodub/saas_client.py` (`list_brand_profiles`,
+`create_brand_profile`, `update_brand_profile`, `delete_brand_profile`) —
+`list_brand_profiles()` trả rỗng khi lỗi mạng thay vì ném lỗi (cùng nguyên
+tắc `image_providers()`: thiếu danh sách chỉ chặn trang này). Chạy trên
+`BrandProfileWorker` (QThread, `autodub_gui/workers.py`) — luật C7 (không
+gọi mạng trên luồng giao diện); một worker dùng chung cho cả 4 thao tác
+(tham số `action`) thay vì bốn lớp gần như giống hệt nhau.
+
+Không dựng "trạng thái rỗng" riêng cho ca chưa cấu hình máy chủ — để lỗi
+`OfflineError` sẵn có của `saas_client.py` ("Chưa cấu hình địa chỉ máy chủ
+VoxDub.") tự hiện ra qua đường xử lý lỗi chung, đúng cách trang Ảnh sản
+phẩm đang làm — không có đường lui offline cho tính năng này (Constraint 2:
+phải lưu server để dùng lại qua nhiều thiết bị/lượt).
+
+### Tests
+
+**Node (13 mới, `brand-profiles-route.test.js`)**: thiếu token → 401; tạo
+hồ sơ gắn đúng `ownerDeviceId` từ token dù client cố gửi id giả; thiếu
+`tenBrand`/`rangBuocKhongDuocNoi` → 400; rỗng vẫn tạo được (không bắt buộc
+nội dung, chỉ bắt buộc có mặt); một thiết bị tạo nhiều hồ sơ độc lập; GET/
+PUT/DELETE cách ly đúng giữa 2 thiết bị thật (không giả lập); chủ thật vẫn
+sửa/xoá được; id sai khuôn không vỡ 500; test hồi quy ghi lại rõ hình dạng
+lỗ hổng nếu ai gỡ điều kiện sở hữu sau này.
+
+**Python (15 mới)**: `test_saas_client_brand_profile.py` (5 — hình dạng lời
+gọi HTTP đúng method/path/payload, `rangBuocKhongDuocNoi` luôn có mặt kể cả
+khi người gọi Python không truyền gì, lỗi mạng trả rỗng không ném); `tests/
+test_brand_profile_page.py` (10 — tạo/sửa truyền đúng field và đúng
+`profile_id` của ĐÚNG hàng đang chọn xuống worker, xoá phải xác nhận trước,
+form luôn có mặt trường ràng buộc dù bỏ trống, tên brand rỗng chặn lưu,
+mục sidebar có nối đúng trang).
+
+Cập nhật `docs/API.md` (`/v1/brand-profiles`), `docs/ARCH.md` §3 (cảnh báo
+"không có tài khoản" thường trực cho spec sau), `FEATURES.md` (19 trang,
+mục sáng kiến mới §9).
+
+Toàn bộ suite: **2438 passed, 4 skipped (Python, từ 2423)**; **542 passed,
+1 skipped (Node, từ 529)** — không có test nào vỡ ở cả hai phía.
+
+### Remaining Limits / Follow-ups (đúng như mini-spec tự ghi)
+
+H1 chỉ dựng xong entity + API + UI tạo/sửa/xoá — **chưa có tác vụ nào ĐỌC
+hồ sơ này**. H2 (trích flow từ video đối thủ), H3 (viết lại kịch bản, cần
+CẢ H1 và H2), H4 (dựng video, gắn hồ sơ brand vào `ProductSceneVideoJob`)
+đều ngoài phạm vi H1, chưa làm.

@@ -79,6 +79,33 @@ Lỗi: `404 HOLD_NOT_FOUND`.
 Response: `{ committed, replayed, usedVox, chargedVox, balance, encKeyHex, autoCommitted }`
 Lỗi: `404 HOLD_NOT_FOUND`, `409 HOLD_FINISHED`.
 
+## `/v1/brand-profiles` (mọi route cần token — mini-spec H1, docs/PLAN.md)
+
+Hồ sơ brand: nền tảng cho các tác vụ viết lại kịch bản/dựng video tự động
+(chưa làm). MỘT thiết bị (không có khái niệm "tài khoản" tách rời — xem
+`docs/ARCH.md` §3) có thể tạo NHIỀU hồ sơ, mỗi hồ sơ độc lập, cách ly theo
+`ownerDeviceId` lấy TỪ token — không nhận từ client. Không có đường đọc/ghi
+nào cho thiết bị khác thấy hồ sơ không phải của nó.
+
+### `GET /` — danh sách hồ sơ của thiết bị đang gọi
+Response: `{ data: [{id,tenBrand,moTaSanPham,doiTuongKhach,toneGiong,usp,rangBuocKhongDuocNoi,createdAt,updatedAt}] }`
+
+### `POST /` — tạo hồ sơ mới
+Body: `{ tenBrand (1-120 ký tự, required), moTaSanPham?, doiTuongKhach?, toneGiong?, usp?, rangBuocKhongDuocNoi (mảng chuỗi, BẮT BUỘC có mặt — có thể rỗng) }`.
+`rangBuocKhongDuocNoi` bắt buộc CÓ MẶT (không bắt buộc có nội dung) — Constraint
+2 của H1: người gọi phải đi qua bước hỏi ràng buộc, thiếu key này → `400`
+(schema chặn trước cả handler).
+Response: `201` kèm hồ sơ vừa tạo (cùng khuôn `GET /`, không có `ownerDeviceId`).
+
+### `PUT /:id` — sửa hồ sơ (chỉ khi thuộc đúng thiết bị đang gọi)
+Body: giống `POST /`. Response: hồ sơ sau khi sửa.
+Lỗi: `404 KHONG_THAY_HO_SO` — dùng CHUNG một mã cho "không tồn tại" và
+"tồn tại nhưng của thiết bị khác", cố ý không tiết lộ hồ sơ của thiết bị
+khác có tồn tại hay không.
+
+### `DELETE /:id` — xoá hồ sơ (chỉ khi thuộc đúng thiết bị đang gọi)
+Response: `{ ok: true }`. Lỗi: `404 KHONG_THAY_HO_SO` (cùng lý do trên).
+
 ## `/v1/ai` (mọi route cần token, chặn khi `maintenance.mode`)
 
 Nguyên tắc chung 4 route dưới: idempotent theo `jobId` (retry an toàn, không

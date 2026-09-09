@@ -784,6 +784,64 @@ class SaasClient:
 
     # -------------------------------------------- telemetry (V13) --------
 
+    # ------------------------------------------------- hồ sơ brand (H1) --
+    # Mini-spec H1 (docs/PLAN.md, Phase H) — nền tảng cho H3 (viết lại kịch
+    # bản)/H4 (dựng video). "owner_account_id" của đặc tả CHÍNH LÀ thiết bị
+    # này (máy chủ tự suy ra từ token, xem control_server/src/routes/
+    # brand-profiles.js) — không có khái niệm tài khoản riêng để gõ vào đây.
+
+    def list_brand_profiles(self, timeout: float = 20.0) -> list[dict]:
+        """Danh sách hồ sơ brand của máy này. Trả rỗng khi lỗi mạng — thiếu
+        danh sách chỉ chặn trang này, không chặn việc khác đang chạy."""
+        try:
+            data = self._request("GET", "/v1/brand-profiles/", timeout=timeout)
+        except SaasError as e:
+            logger.warning(f"Không lấy được danh sách hồ sơ brand ({e})")
+            return []
+        muc = data.get("data")
+        return muc if isinstance(muc, list) else []
+
+    def create_brand_profile(
+        self, ten_brand: str, *, mo_ta_san_pham: str = "",
+        doi_tuong_khach: str = "", tone_giong: str = "", usp: str = "",
+        rang_buoc_khong_duoc_noi: list[str] | None = None,
+        timeout: float = 20.0,
+    ) -> dict:
+        """Tạo hồ sơ brand mới. ``rang_buoc_khong_duoc_noi`` BẮT BUỘC có mặt
+        (mảng, có thể rỗng) — Constraint 2 của H1: người dùng phải đi qua
+        bước hỏi ràng buộc trước khi lưu, không được lặng lẽ bỏ qua."""
+        payload = {
+            "tenBrand": ten_brand, "moTaSanPham": mo_ta_san_pham,
+            "doiTuongKhach": doi_tuong_khach, "toneGiong": tone_giong,
+            "usp": usp,
+            "rangBuocKhongDuocNoi": list(rang_buoc_khong_duoc_noi or []),
+        }
+        return self._request("POST", "/v1/brand-profiles/", timeout=timeout,
+                             json_body=payload)
+
+    def update_brand_profile(
+        self, profile_id: str, *, ten_brand: str, mo_ta_san_pham: str = "",
+        doi_tuong_khach: str = "", tone_giong: str = "", usp: str = "",
+        rang_buoc_khong_duoc_noi: list[str] | None = None,
+        timeout: float = 20.0,
+    ) -> dict:
+        """Sửa một hồ sơ brand của chính máy này. `404 KHONG_THAY_HO_SO` nếu
+        hồ sơ không tồn tại hoặc không thuộc máy này — hai ca đó máy chủ cố
+        ý trả về giống hệt nhau, không tiết lộ hồ sơ của máy khác có tồn tại
+        hay không."""
+        payload = {
+            "tenBrand": ten_brand, "moTaSanPham": mo_ta_san_pham,
+            "doiTuongKhach": doi_tuong_khach, "toneGiong": tone_giong,
+            "usp": usp,
+            "rangBuocKhongDuocNoi": list(rang_buoc_khong_duoc_noi or []),
+        }
+        return self._request("PUT", f"/v1/brand-profiles/{profile_id}",
+                             timeout=timeout, json_body=payload)
+
+    def delete_brand_profile(self, profile_id: str, timeout: float = 20.0) -> None:
+        """Xoá một hồ sơ brand của chính máy này."""
+        self._request("DELETE", f"/v1/brand-profiles/{profile_id}", timeout=timeout)
+
     def send_pipeline_event(self, run_id: str, status: str, stage: str,
                             error_stage: str = "") -> None:
         """Báo trạng thái tiến trình 1 lượt dubbing (mini-spec V13, xem

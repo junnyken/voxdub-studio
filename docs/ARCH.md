@@ -180,6 +180,13 @@ phía server: Device, ActivationKey, Order/Billing, AuditLog, ProviderConfig (đ
 `control_server/src/models/` để lấy schema chi tiết — chưa liệt kê đủ trong audit này,
 cần bổ sung khi làm mini-spec S1 "Docs & Foundation").
 
+**Không có khái niệm "tài khoản" tách khỏi thiết bị.** `Device` (định danh bằng machine
+fingerprint SHA-256) là đơn vị danh tính DUY NHẤT trong toàn hệ thống — Vox, cổng trợ lý
+AI, và `BrandProfile` (mini-spec H1) đều cách ly dữ liệu theo `Device._id`. Một mini-spec
+viết "tài khoản VoxDub" chỉ có nghĩa là "thiết bị đã đăng ký" — không có login/email/mật
+khẩu nào ở đây; cài lại app trên máy khác sinh fingerprint mới, mất quyền truy cập dữ
+liệu (Vox lẫn hồ sơ) của thiết bị cũ. Đọc kỹ trước khi viết spec nhắc tới "tài khoản".
+
 Phía client: không có DB — toàn bộ state là file trên đĩa dưới `output/VN/<timestamp>_vi/`
 (bao gồm `data/` chứa mọi artifact trung gian để resume/cache), `.env` cho settings,
 `securestore` (AES-256-GCM) cho artifact bị "hold" bởi credit system.
