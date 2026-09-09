@@ -33,14 +33,27 @@ test.before(startDb)
 test.after(stopDb)
 test.beforeEach(clearDb)
 
+// Mọi tệp route CÓ THỂ gọi remember() với một `action` mới — mini-spec H2
+// thêm flow-blueprints.js dùng lại đúng remember() (nay ở
+// assist-billing.service.js) thay vì viết lại, nên phải quét CẢ file đó,
+// không chỉ ai.js như trước khi có H2.
+const TEP_CO_THE_GOI_REMEMBER = [
+  path.join('src', 'routes', 'ai.js'),
+  path.join('src', 'routes', 'flow-blueprints.js'),
+]
+
 /** Mọi `action` mà mã nguồn thật sự gọi `remember()` với. */
 function cacActionDangDung() {
-  const src = fs.readFileSync(path.join(GOC, 'src', 'routes', 'ai.js'), 'utf8')
   const ra = new Set()
   // Bỏ dòng khai báo hàm: nó cũng khớp `remember(` nhưng không phải lượt gọi.
   const re = /remember\(\s*[\w.]+\s*,\s*[\w.]+\s*,\s*'([^']+)'/g
-  let m
-  while ((m = re.exec(src)) !== null) ra.add(m[1])
+  for (const tep of TEP_CO_THE_GOI_REMEMBER) {
+    const duong = path.join(GOC, tep)
+    if (!fs.existsSync(duong)) continue
+    const src = fs.readFileSync(duong, 'utf8')
+    let m
+    while ((m = re.exec(src)) !== null) ra.add(m[1])
+  }
   return [...ra].sort()
 }
 
@@ -82,7 +95,10 @@ test('action lạ vẫn bị chặn — enum không được nới thành "cái 
 
 test('remember() KHÔNG được ném lỗi ra ngoài — lớp đệm không giết lượt gọi', () => {
   const { thanHam, boChuoi } = require('./helpers/doc-ma')
-  const than = boChuoi(thanHam('src/routes/ai.js', 'remember'))
+  // mini-spec H2: định nghĩa thật của remember() chuyển sang
+  // assist-billing.service.js để flow-blueprints.js dùng lại — ai.js giờ chỉ
+  // còn CALL SITE, không còn định nghĩa hàm.
+  const than = boChuoi(thanHam('src/services/assist-billing.service.js', 'remember'))
 
   assert.match(than, /catch/, 'không có nhánh bắt lỗi')
   assert.doesNotMatch(than, /throw/,

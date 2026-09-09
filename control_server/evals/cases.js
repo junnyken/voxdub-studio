@@ -207,6 +207,62 @@ const CASES = [
             r.value.split('=')[0].trim().toLowerCase())],
     ],
   },
+  {
+    // Mini-spec H2 — khuôn output KHÁC hẳn (beats[], không phải
+    // results[{value,reason}]) nên `kiem` kiểm thẳng trường snake_case của
+    // MÔ HÌNH trả về (đúng khuôn `flowBlueprintOutputSchema()`), không phải
+    // khuôn camelCase đã chuẩn hoá của `parseFlowBlueprintResult()`.
+    task: 'viral_flow_blueprint',
+    ten: 'hook tiếng Anh phải ra beat mô tả, không chép nguyên câu nguồn',
+    input: {
+      languageSourceDetected: 'en',
+      samplingPolicyUsed: '0-5s=0.2s,middle=0.5s,last-5s=0.2s',
+      transcript: [
+        { start_s: 0, end_s: 2.5,
+          text: 'Stop wasting money on skincare that does nothing for you.' },
+        { start_s: 2.5, end_s: 6,
+          text: 'Here is the one ingredient dermatologists never tell you about.' },
+      ],
+      ocrEvidence: [
+        { start_s: 0.2, end_s: 0.6, status: 'ok', text: 'STOP SCROLLING' },
+      ],
+    },
+    kiem: [
+      ['beat_type nằm trong vocabulary đóng',
+        (r) => require('../src/prompts/assist').flowBlueprintOutputSchema()
+          .properties.beats.items.properties.beat_type.enum.includes(r.beat_type)],
+      ['start_s < end_s',
+        (r) => Number(r.start_s) < Number(r.end_s)],
+      ['không chép nguyên văn transcript/OCR nguồn vào các trường mô tả',
+        (r, c) => {
+          const assist = require('../src/prompts/assist')
+          const nguon = [...c.input.transcript.map((d) => d.text),
+            ...c.input.ocrEvidence.map((o) => o.text)]
+          const cacTruong = ['narrative_function_vi', 'pacing_note_vi',
+            'overlay_pattern_abstract_vi', 'spoken_pattern_abstract_vi']
+          return !cacTruong.some((t) => assist.coSaoChepNguyenVan(String(r[t] || ''), nguon))
+        }],
+    ],
+  },
+  {
+    // Mini-spec H2b — mẫu đo DUY NHẤT có ảnh. Cả tác vụ sinh ra chỉ vì một
+    // chuyện: OCR trên máy đọc tiếng Việt MẤT DẤU. Nên phép chấm ở đây phải
+    // ĐỎ khi chữ mất dấu, chứ không chỉ kiểm "có đọc ra chữ gì đó".
+    task: 'doc_chu_khung_hinh',
+    ten: 'đọc caption tiếng Việt phải RA ĐÚNG DẤU, không phải bản mất dấu',
+    anh: ['fixtures/chu_tieng_viet.png'],
+    input: { soAnh: 1 },
+    kiem: [
+      ['đúng số thứ tự ảnh', (r) => Number(r.anh) === 1],
+      ['đọc ra đúng nguyên văn CÓ DẤU',
+        (r) => (r.dong || []).some(
+          (d) => String(d).includes('Đăng ký kênh để không bỏ lỡ video mới'))],
+      ['KHÔNG trả về bản mất dấu kiểu OCR cũ',
+        (r) => !(r.dong || []).some((d) => /Dang ky kenh/i.test(String(d)))],
+      ['không dịch sang ngôn ngữ khác',
+        (r) => !(r.dong || []).some((d) => /subscribe|channel/i.test(String(d)))],
+    ],
+  },
 ]
 
 module.exports = { CASES }

@@ -54,6 +54,7 @@ Orchestrator: `pipeline.py` (`DubPipeline.run()`, ~1946 dòng).
 | Mux video | `media/video.py` | ffmpeg, auto-detect hardware encoder (NVENC→QSV→AMF→libx264, test bằng encode thật 1 frame) |
 | Đồng bộ khẩu hình (tuỳ chọn) | `media/lipsync.py`, `media/lipsync_worker.py` | MuseTalk qua subprocess `.venv-lipsync` — **NGOẠI LỆ kiến trúc: GPU-only, không có đường CPU fallback** (mọi engine khác trong bảng này đều GPU-optional). Mặc định TẮT (`DubRequest.lipsync`), phạm vi CỐ TÌNH hẹp (1 khuôn mặt, video ≤12s) — xem `docs/TEST_LOG.md` mục V32a/V32b, **CHƯA live-verify GPU thật trên đường code production, CHƯA có GUI**. |
 | "Che chữ gốc" | `media/subtitle.py` (`blur_filter`) | **Chỉ là `boxblur` ffmpeg trên rectangle người dùng tự vẽ tay trong GUI (`style_dialog.py`) — không phải OCR/inpainting tự động.** |
+| Đọc chữ trên hình (OCR) | `media/text_regions.py`, `media/text_regions_worker.py` (`.venv-ocr`), `media/doc_chu_may_chu.py` | **Hai đường tách bạch, đừng trộn.** `detect_text_regions()` chỉ tìm VÙNG chữ (cho tính năng làm mờ) — RapidOCR, offline. `read_text_regions()` đọc NỘI DUNG chữ (cho H2 Flow Blueprint) và có **bộ đọc thay được** (`bo_doc=`): mặc định đọc tại máy, hoặc đọc lại qua mô hình nhìn ảnh trên máy chủ vì **model OCR bundled không phát ra được dấu tiếng Việt** (giới hạn từ điển — xem `docs/MINI-SPEC_H2b_Doc_Chu_Co_Dau.md`). Bước dò vùng luôn chạy tại máy ở cả hai ca. |
 | Editor | `editor.py` (~1200 dòng) | Sửa từng câu: split/merge/add/delete, re-synth từng đoạn, đổi giọng riêng đoạn, lịch sử export |
 | Batch | `batch.py` | Xử lý nhiều URL, prefetch pipelining, resume an toàn (`batch_state.json`) |
 | Content/metadata | `content/generator.py` | Sinh title/description/hashtag — **chỉ chạy khi có server** (server-side) |
@@ -182,7 +183,8 @@ cần bổ sung khi làm mini-spec S1 "Docs & Foundation").
 
 **Không có khái niệm "tài khoản" tách khỏi thiết bị.** `Device` (định danh bằng machine
 fingerprint SHA-256) là đơn vị danh tính DUY NHẤT trong toàn hệ thống — Vox, cổng trợ lý
-AI, và `BrandProfile` (mini-spec H1) đều cách ly dữ liệu theo `Device._id`. Một mini-spec
+AI, `BrandProfile` (mini-spec H1) và `FlowBlueprint` (mini-spec H2) đều cách ly dữ liệu
+theo `Device._id`. Một mini-spec
 viết "tài khoản VoxDub" chỉ có nghĩa là "thiết bị đã đăng ký" — không có login/email/mật
 khẩu nào ở đây; cài lại app trên máy khác sinh fingerprint mới, mất quyền truy cập dữ
 liệu (Vox lẫn hồ sơ) của thiết bị cũ. Đọc kỹ trước khi viết spec nhắc tới "tài khoản".

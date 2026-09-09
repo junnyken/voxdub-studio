@@ -1004,6 +1004,90 @@ class BrandProfileWorker(QThread):
             self.failed.emit(self._action, str(e))
 
 
+class FlowBlueprintWorker(QThread):
+    """Trích bằng chứng + phân tích cấu trúc một video tham khảo — mini-spec
+    H2 (docs/PLAN.md, Phase H mới).
+
+    Hai giai đoạn nối tiếp trong CÙNG một luồng nền: (1) `trich_bang_chung()`
+    chạy local (tải video/chép lời/đọc caption — nặng, vài chục giây tới vài
+    phút, xem ``autodub/flow_blueprint.py``), (2) gọi máy chủ phân tích cấu
+    trúc + lưu Flow Blueprint. `progress` phát đúng 4 bước
+    "download"/"asr"/"ocr"/"analyze" — giao diện tự dịch sang câu tiếng Việt
+    hiển thị, cùng cách `TranscribeWorker` đã làm cho log kỹ thuật.
+    """
+
+    progress = Signal(str, str)   # bước, mô tả
+    finished_ok = Signal(dict)    # Flow Blueprint đã lưu (kèm beats)
+    failed = Signal(str)
+
+    def __init__(self, source: str, work_dir: str, settings: Settings, *,
+                 hold_id: str = "", parent=None):
+        super().__init__(parent)
+        self._source = source
+        self._work_dir = work_dir
+        self._settings = settings
+        self._hold_id = hold_id
+        self._cancel_event = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancel_event.set()
+
+    def run(self) -> None:
+        from autodub.flow_blueprint import trich_bang_chung
+        from autodub.saas_client import get_client, is_configured, new_job_id
+
+        if not is_configured():
+            self.failed.emit(
+                "Tính năng này cần tài khoản VoxDub — mở Cài đặt để kết nối.")
+            return
+        try:
+            bang_chung = trich_bang_chung(
+                self._source, self._work_dir, self._settings,
+                cancel_event=self._cancel_event,
+                progress=lambda step, detail: self.progress.emit(step, detail))
+            if self._cancel_event.is_set():
+                return
+            self.progress.emit("analyze", "Đang phân tích cấu trúc…")
+            client = get_client()
+            ket = client.create_flow_blueprint(
+                bang_chung, job_id=new_job_id(), hold_id=self._hold_id,
+                timeout=180.0)
+            self.finished_ok.emit(ket)
+        except Exception as e:  # noqa: BLE001 — lỗi tải/ASR/OCR/mạng thật
+            self.failed.emit(str(e))
+
+
+class FlowBlueprintCrudWorker(QThread):
+    """Danh sách/xoá Flow Blueprint đã lưu — mini-spec H2. Tách khỏi
+    `FlowBlueprintWorker` (nặng: tải video + ASR + OCR + gọi mô hình) vì đây
+    chỉ là lượt gọi mạng mỏng, cùng lý do `BrandProfileWorker` tách khỏi các
+    worker AI nặng khác."""
+
+    finished_ok = Signal(str, object)   # action, kết quả (list | None)
+    failed = Signal(str, str)           # action, thông điệp lỗi
+
+    def __init__(self, action: str, *, blueprint_id: str = "", parent=None):
+        super().__init__(parent)
+        if action not in ("list", "delete"):
+            raise ValueError(f"Thao tác Flow Blueprint không hợp lệ: {action!r}")
+        self._action = action
+        self._blueprint_id = blueprint_id
+
+    def run(self) -> None:
+        from autodub.saas_client import get_client
+
+        client = get_client()
+        try:
+            if self._action == "list":
+                ket = client.list_flow_blueprints()
+            else:
+                client.delete_flow_blueprint(self._blueprint_id)
+                ket = None
+            self.finished_ok.emit(self._action, ket)
+        except Exception as e:  # noqa: BLE001
+            self.failed.emit(self._action, str(e))
+
+
 class TranscribeWorker(QThread):
     """Chép lời một liên kết/file — mini-spec V71.
 

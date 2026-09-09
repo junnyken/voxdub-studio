@@ -273,8 +273,14 @@ async function callGemini(provider, { system, user, schema, images, maxRetries =
       }
     }
     if ([400, 401, 403, 404].includes(resp.status)) {
+      // Guardrail V89/callOpenAiCompat đã có chi tiết lỗi trong thông điệp —
+      // đường Gemini thiếu mất chi tiết này, "PROVIDER_REJECTED (HTTP 400)"
+      // không nói được VÌ SAO (vd schema/tham số sai) nên không tự sửa được,
+      // chỉ đoán mò. Cùng cách cắt 200 ký tự như callOpenAiCompat.
+      const detail = typeof resp.data === 'string'
+        ? resp.data.slice(0, 200) : JSON.stringify(resp.data || {}).slice(0, 200)
       throw new AiError('PROVIDER_REJECTED',
-        `${provider.name} từ chối request (HTTP ${resp.status})`)
+        `${provider.name} từ chối request (HTTP ${resp.status}): ${detail}`)
     }
     lastError = `HTTP ${resp.status}`
     await sleep(Math.min(2 ** (attempt + 1) * 2000, 15_000))
@@ -282,13 +288,23 @@ async function callGemini(provider, { system, user, schema, images, maxRetries =
   throw new AiError('PROVIDER_UNAVAILABLE', `Không gọi được ${provider.name} — ${lastError}`)
 }
 
-/** JSON Schema → lược đồ Gemini (không nhận `additionalProperties`). */
+/**
+ * JSON Schema → lược đồ Gemini. Không nhận `additionalProperties`, và (đo
+ * thật 09/09/2026, live verification mini-spec H2 — lần đầu có provider
+ * Gemini thật chạy qua đường này) KHÔNG nhận `maxItems` trên array: mọi
+ * request có field này bị từ chối thẳng `400 INVALID_ARGUMENT`, dù đúng
+ * cùng schema chỉ bỏ `maxItems` thì chạy được — đã cô lập bằng cách bisect
+ * từng field một, không đoán. `minItems` giữ nguyên (đã xác nhận KHÔNG gây
+ * lỗi). `resultsSchema()` (9 tác vụ trợ lý cũ) cũng dùng `maxItems` nên đây
+ * là lỗi tiềm ẩn từ trước, chỉ chưa ai chạy provider Gemini thật cho vai
+ * 'assist' để lộ ra.
+ */
 function toGeminiSchema(schema) {
   if (!schema || typeof schema !== 'object') return schema
   if (Array.isArray(schema)) return schema.map(toGeminiSchema)
   const out = {}
   for (const [k, v] of Object.entries(schema)) {
-    if (k === 'additionalProperties') continue
+    if (k === 'additionalProperties' || k === 'maxItems') continue
     out[k] = (v && typeof v === 'object') ? toGeminiSchema(v) : v
   }
   return out
@@ -894,16 +910,33 @@ async function assist({ task, input, images }) {
   // chạy, hậu quả rơi xuống người bán vài tuần sau dưới dạng án phạt.
   const chiDinh = (images || []).length ? await locNoiNhinDuocAnh(role) : null
 
+  // mini-spec H2: tác vụ có thể tự khai `outputSchema`/`parseResult` để
+  // dùng khuôn output RIÊNG thay vì `{results:[{value,reason}]}` chung —
+  // CHỈ `viral_flow_blueprint` khai hai trường này ở thời điểm viết (Flow
+  // Blueprint là timeline có cấu trúc, không phải mảng gợi ý ngắn). Tác vụ
+  // không khai gì thì đi đúng đường CŨ, không đổi hành vi.
+  const dungKhuonRieng = typeof spec.outputSchema === 'function'
+    && typeof spec.parseResult === 'function'
+
   const { content, usage, provider } = await callWithFallback(role, {
     chiDinh,
     system: spec.system,
     user: spec.buildUser(input || {}),
-    schema: assistPrompts.resultsSchema(spec.maxResults),
+    schema: dungKhuonRieng ? spec.outputSchema(spec) : assistPrompts.resultsSchema(spec.maxResults),
     images: images || [],
     maxRetries: 2,
   })
 
   const data = parseJsonObject(content)
+
+  if (dungKhuonRieng) {
+    const parsed = spec.parseResult(data, input || {})
+    if (!parsed) {
+      throw new AiError('BAD_AI_RESPONSE', 'Kết quả trả về không dùng được', 502)
+    }
+    return { ...parsed, usage, provider: provider.name, model: provider.model, role }
+  }
+
   const results = Array.isArray(data && data.results) ? data.results : []
   const sach = results
     .map((r) => ({

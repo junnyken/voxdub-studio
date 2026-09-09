@@ -94,6 +94,10 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     // kiếm lời. explain_error để 0: người đang gặp lỗi mà bị chặn vì
     // hết Vox là lúc tệ nhất để thu phí.
     'credit.cost.assist.character_name',
+    // credit.cost.assist.doc_chu_khung_hinh: đọc chữ overlay bằng mô hình
+    // nhìn ảnh (mini-spec H2b) — thêm có chủ đích. Giá theo LƯỢT GỌI (tối đa
+    // 6 khung), không nhân theo số khung: app tự gộp trước khi gửi.
+    'credit.cost.assist.doc_chu_khung_hinh',
     'credit.cost.assist.explain_error',
     'credit.cost.assist.music_suggest',
     // credit.cost.assist.packaging_check: cổng kiểm tuân thủ TikTok Shop
@@ -109,6 +113,10 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     'credit.cost.assist.series_glossary',
     'credit.cost.assist.tighten_line',
     'credit.cost.assist.video_summary',
+    // credit.cost.assist.viral_flow_blueprint: phân tích cấu trúc video tham
+    // khảo (mini-spec H2) — thêm có chủ đích, giá khởi điểm (xem chú thích ở
+    // config.service.js), không phải rò rỉ.
+    'credit.cost.assist.viral_flow_blueprint',
     'credit.cost.cloud.demucs',
     // credit.cost.cloud.dub.vox.per.minute(.demucs): giá công khai mới cho
     // API lồng tiếng đầy đủ theo phút (mini-spec V34b, xem docs/PLAN.md) —

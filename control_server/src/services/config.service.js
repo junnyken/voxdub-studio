@@ -67,6 +67,20 @@ const DEFAULTS = {
   'credit.cost.assist.scene_script': 3,
   // Cùng tác vụ nhưng có gửi ảnh: token gấp nhiều lần nên giá cao hơn.
   'credit.cost.assist.scene_script.co_anh': 8,
+  // Phân tích cấu trúc video tham khảo (mini-spec H2) — GIÁ KHỞI ĐIỂM, chưa
+  // chốt bằng số liệu chi phí thật (chưa có lượt gọi thật nào). Đặt bằng đúng
+  // mức trên cùng của các tác vụ chữ hiện có (`scene_script.co_anh`) vì đây
+  // là tác vụ có ĐẦU RA GIÀU NHẤT trong cổng trợ lý (tới 40 beat có cấu trúc,
+  // so với tối đa 6 mục ngắn của các tác vụ khác) — không phải số đo thật,
+  // chỉnh lại khi có dữ liệu token thật từ vài lượt chạy đầu (đổi được ở
+  // trang quản trị, không cần sửa mã).
+  'credit.cost.assist.viral_flow_blueprint': 8,
+  // Đọc chữ overlay trên khung hình (mini-spec H2b). Giá cho MỘT lượt gọi
+  // tối đa 6 khung, không phải mỗi khung — app tự gộp trước khi gửi. Đo thật
+  // 09/09: ~1.150 token/khung, tức một lượt đầy 6 khung ≈ 6.900 token, xấp xỉ
+  // `scene_script.co_anh` (6 ảnh, giá 8) nên đặt cùng mức. Số này CHƯA soi
+  // bằng hoá đơn thật — chỉnh ở trang quản trị khi có dữ liệu.
+  'credit.cost.assist.doc_chu_khung_hinh': 8,
   // --- Dựng bối cảnh ảnh sản phẩm (mini-spec C1) --------------------------
   // Sinh ảnh đắt hơn hẳn tác vụ chữ (một ảnh ~ vài trăm lần token một câu
   // hỏi ngắn), nên giá cao hơn nhưng vẫn dưới giá một lần sinh nhạc.

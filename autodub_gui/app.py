@@ -55,8 +55,9 @@ ROW_CHARACTERS = 15  # Hồ sơ nhân vật xuyên tập (mini-spec V62)
 ROW_TRANSCRIBE = 16  # Chép lời: giọng nói -> văn bản (mini-spec V71)
 ROW_PRODUCT_SCENE = 17  # Ảnh sản phẩm: dựng bối cảnh + cổng tuân thủ (C1)
 ROW_BRAND_PROFILE = 18  # Hồ sơ Brand: nền tảng multi-tenant Phase H (mini-spec H1)
+ROW_FLOW_BLUEPRINT = 19  # Phân tích cấu trúc video tham khảo (mini-spec H2)
 
-PAGE_COUNT = 19
+PAGE_COUNT = 20
 
 # (số thứ tự, nhãn ở thanh bên, tiêu đề trang, mô tả trang, biểu tượng, nhóm)
 PAGES: list[tuple[int, str, str, str, object, str]] = [
@@ -109,6 +110,10 @@ PAGES: list[tuple[int, str, str, str, object, str]] = [
      "Lưu sản phẩm, tone giọng và ràng buộc cho từng khách hàng — dùng lại "
      "cho các tính năng viết kịch bản/dựng video tự động",
      icons.user, "tools"),
+    (ROW_FLOW_BLUEPRINT, "Phân tích cấu trúc", "Phân tích cấu trúc video tham khảo",
+     "Đọc vai trò kể chuyện từng đoạn của một video tham khảo (mở hook, bằng "
+     "chứng, cao trào, kêu gọi hành động…) để hiểu nhịp kể chuyện",
+     icons.chart_bar, "tools"),
     # Nhóm "second" — HỆ THỐNG
     (ROW_ACCOUNT,   "Tài khoản",         "Tài khoản",
      "Số Vox còn lại, kích hoạt mã và lịch sử sử dụng",
@@ -379,6 +384,9 @@ class MainWindow(QMainWindow):
         elif row == ROW_BRAND_PROFILE:
             from autodub_gui.pages.brand_profile_page import BrandProfilePage
             page = BrandProfilePage(self.pages)
+        elif row == ROW_FLOW_BLUEPRINT:
+            from autodub_gui.pages.flow_blueprint_page import FlowBlueprintPage
+            page = FlowBlueprintPage(self._fresh_settings, self.pages)
         elif row == ROW_ACCOUNT:
             from autodub_gui.pages.account_page import AccountPage
             page = AccountPage(self._fresh_settings, self.pages)

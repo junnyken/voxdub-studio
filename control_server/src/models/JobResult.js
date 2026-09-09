@@ -24,6 +24,7 @@ const jobResultSchema = new mongoose.Schema({
       'translate', 'analyze', 'review', 'generate_post', 'translate_subtitle',
       'assist',         // mini-spec V89
       'product_scene',  // mini-spec C1
+      'flow_blueprint', // mini-spec H2 — tạo/đọc lại FlowBlueprint theo jobId
     ],
     required: true,
   },

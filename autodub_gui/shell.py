@@ -98,7 +98,7 @@ class Sidebar(QFrame):
 
         self._brand = self._build_brand()
         root.addWidget(self._brand)
-        root.addSpacing(tokens.SP_3)
+        root.addSpacing(tokens.SP_1)
         self.nav = self._build_list(main_items, "nav")
         self.nav_tools = self._build_list(tool_items, "nav2")
         self.nav2 = self._build_list(second_items, "nav2")
@@ -109,26 +109,31 @@ class Sidebar(QFrame):
         # khi cửa sổ thấp hơn tổng chiều cao chúng cần, QVBoxLayout không có gì
         # để co lại: nó xếp chồng các mục lên nhau (mục cuối của CÔNG CỤ đè lên
         # nhãn HỆ THỐNG và cả mục đầu của nhóm dưới). Màn hình 1080p là đủ để
-        # gặp lỗi này — vùng làm việc chỉ còn ~1000px trong khi thanh bên cần
-        # 1055px với số mục hiện tại, và mỗi công cụ thêm vào lại thiếu 48px nữa.
+        # gặp lỗi này — vùng làm việc chỉ còn ~1000px, và mỗi công cụ thêm vào
+        # lại ăn thêm 48px nữa. Mini-spec H2 (09/09) thêm mục CÔNG CỤ thứ 10
+        # ("Phân tích cấu trúc") đã ăn hết phần dư margin còn lại — phải bớt
+        # vài khoảng đệm cố định (SP_2→SP_1 quanh brand/divider/nhãn nhóm) để
+        # giữ đúng cam kết "không cuộn ở 1000px" thay vì nới lỏng test.
         #
         # Cho cuộn là cách xử lý tận gốc: mọi mục vẫn tới được, không phụ thuộc
-        # số mục hay chiều cao màn hình.
+        # số mục hay chiều cao màn hình — khoảng đệm chỉ là dư địa, hết dư địa
+        # thì cuộn vẫn cứu được, nhưng đang còn dư nên ưu tiên giữ trải nghiệm
+        # không phải cuộn ở màn hình phổ biến nhất.
         nav_body = QWidget()
         clear_background(nav_body)
         nav_col = QVBoxLayout(nav_body)
         nav_col.setContentsMargins(0, 0, 0, 0)
         nav_col.setSpacing(0)
         nav_col.addWidget(self.nav)
-        nav_col.addSpacing(tokens.SP_2)
+        nav_col.addSpacing(tokens.SP_1)
         self._divider_widget = _divider()
         nav_col.addWidget(self._divider_widget)
         self._tools_label = _section_label("CÔNG CỤ")
-        nav_col.addSpacing(tokens.SP_2)
+        nav_col.addSpacing(tokens.SP_1)
         nav_col.addWidget(self._tools_label)
         nav_col.addWidget(self.nav_tools)
         self._system_label = _section_label("HỆ THỐNG")
-        nav_col.addSpacing(tokens.SP_2)
+        nav_col.addSpacing(tokens.SP_1)
         nav_col.addWidget(self._system_label)
         nav_col.addWidget(self.nav2)
         nav_col.addStretch()
@@ -179,7 +184,7 @@ class Sidebar(QFrame):
         clear_background(brand)
         row = QHBoxLayout(brand)
         row.setContentsMargins(_DIVIDER_MARGIN, tokens.SP_5,
-                               _DIVIDER_MARGIN, tokens.SP_2)
+                               _DIVIDER_MARGIN, tokens.SP_1)
         row.setSpacing(tokens.SP_2)
         self._logo = QLabel()
         self._logo.setPixmap(icons.app_logo(_LOGO_PX))
@@ -331,7 +336,7 @@ class Sidebar(QFrame):
         if self._icon_only:
             return
         can_dung = self._nav_scroll.widget().sizeHint().height()
-        co_dinh = (self._brand.sizeHint().height() + tokens.SP_3
+        co_dinh = (self._brand.sizeHint().height() + tokens.SP_1
                    + self._version.sizeHint().height())
         cao_status = self.status_card.sizeHint().height() + tokens.SP_2
         cao_user = self._user_card.sizeHint().height() + tokens.SP_2

@@ -106,6 +106,49 @@ khác có tồn tại hay không.
 ### `DELETE /:id` — xoá hồ sơ (chỉ khi thuộc đúng thiết bị đang gọi)
 Response: `{ ok: true }`. Lỗi: `404 KHONG_THAY_HO_SO` (cùng lý do trên).
 
+## `/v1/flow-blueprints` (mọi route cần token — mini-spec H2, docs/PLAN.md)
+
+Phân tích cấu trúc một video tham khảo: đọc VAI TRÒ KỂ CHUYỆN từng đoạn
+(hook/nêu vấn đề/bằng chứng/cao trào/kêu gọi hành động…), KHÔNG BAO GIỜ trả
+về transcript/caption gốc nguyên văn (chặn bằng mã ở `parseFlowBlueprintResult`,
+xem `docs/MINI-SPEC_H2_Viral_Flow_Blueprint.md`). Video download + ASR + OCR
+chạy TRÊN MÁY NGƯỜI DÙNG (`autodub.flow_blueprint.trich_bang_chung`, dùng
+`read_text_regions()` của H2a — KHÔNG dùng `detect_text_regions()`); route
+này CHỈ nhận bằng chứng đã trích, gọi mô hình phân tích MỘT lượt tổng hợp
+(không phải job nền — không có xử lý nặng ở server), rồi lưu kết quả. Cùng
+quy ước cách ly theo `ownerDeviceId` như `/v1/brand-profiles`.
+
+### `GET /` — danh sách Flow Blueprint của thiết bị đang gọi
+Response: `{ data: [{id,sourceType,sourceReference,status,languageSourceDetected,analysisLanguage,evidenceSummary,samplingPolicyUsed,beats,userReviewNote,createdAt,updatedAt}] }`
+— mỗi `beat`: `{startS,endS,beatType,narrativeFunctionVi,pacingNoteVi,overlayPatternAbstractVi,spokenPatternAbstractVi,evidenceStatus}`.
+`beatType` ∈ vocabulary ĐÓNG (`hook,problem_context,tension,proof,demonstration,payoff,twist,objection,cta,transition,unknown`);
+`evidenceStatus` ∈ `no_text,unconfirmed,unavailable,failed,ok`.
+
+### `GET /:id` — một Flow Blueprint (chỉ khi thuộc đúng thiết bị đang gọi)
+Response: cùng khuôn một phần tử của `GET /`. Lỗi: `404 KHONG_THAY_BLUEPRINT`.
+
+### `DELETE /:id` — xoá (chỉ khi thuộc đúng thiết bị đang gọi)
+Response: `{ ok: true }`. Lỗi: `404 KHONG_THAY_BLUEPRINT`.
+
+### `POST /` — trích bằng chứng đã chạy ở client, gọi mô hình phân tích, lưu kết quả
+Body: `{ jobId (idempotent, 8-100 ký tự), sourceType ("url"|"file"), sourceReference (≤2000 ký tự), languageSourceDetected?, samplingPolicyUsed?, evidenceSummary?, transcript? ([{start_s,end_s,text,status?}], ≤400 mục), ocrEvidence? (cùng khuôn, ≤400 mục), holdId? }`.
+`transcript`/`ocrEvidence` CHỈ dùng tạm để gọi mô hình — KHÔNG lưu lại thô
+(Constraint/Scope B của H2). Giá lấy từ `credit.cost.assist.viral_flow_blueprint`
+(mặc định 8 Vox, giá khởi điểm — xem FEATURES.md §3.5), trừ SAU KHI phân
+tích xong (cùng khuôn `precheck`/`charge` các tác vụ AI khác).
+Response: `201` kèm Flow Blueprint vừa lưu + `creditCharged`/`balanceAfter`
+(cùng khuôn `GET /:id`).
+Lỗi: `402 INSUFFICIENT_CREDIT` (thiếu Vox, KHÔNG tạo bản ghi, KHÔNG trừ tiền);
+`503 AI_UNAVAILABLE` (mô hình lỗi/không sẵn sàng, KHÔNG tạo bản ghi, KHÔNG
+trừ tiền); `503 MAINTENANCE`.
+
+**Ghi chú khoảng trống đã biết**: entity có trường `userReviewNote` (Scope E
+của mini-spec nhắc tới việc cho người dùng ghi chú lên beat) nhưng bản đặc tả
+KHÔNG liệt kê endpoint sửa trường này trong hợp đồng API (chỉ có 4 route
+trên) — cố ý CHƯA thêm `PATCH`/`PUT` để tránh mở API ngoài phạm vi đã chốt;
+trang **Phân tích cấu trúc video tham khảo** (`autodub_gui`) hiện chỉ HIỂN
+THỊ, không có ô sửa `userReviewNote`. Xem `docs/MINI-SPEC_H2_Viral_Flow_Blueprint.md`.
+
 ## `/v1/ai` (mọi route cần token, chặn khi `maintenance.mode`)
 
 Nguyên tắc chung 4 route dưới: idempotent theo `jobId` (retry an toàn, không
@@ -181,6 +224,15 @@ thực và ví tiền.
 | `packaging_check` | `{note?}` + **2 ảnh** (gốc, mới) | 300 |
 | `scene_continuity` | `{note?}` + **tối đa 6 ảnh** cảnh | 400 |
 | `scene_script` | `{product?, scenes[]}` | 600 |
+| `doc_chu_khung_hinh` | `{soAnh}` + **tối đa 6 khung hình** | 200 |
+
+`doc_chu_khung_hinh` (mini-spec H2b) là tác vụ DUY NHẤT trả khuôn khác:
+`results: [{anh, dong[]}]` — mỗi mục là một khung hình, `dong` là các dòng chữ
+đọc được theo thứ tự trên→dưới, `dong: []` nghĩa là **khung đó không có chữ**
+(câu trả lời hợp lệ, không phải lỗi). LUÔN trả đủ `soAnh` mục theo đúng thứ tự
+`1..soAnh`, kể cả khung mô hình bỏ sót — khuyết một mục là lệch ánh xạ
+khung↔chữ của mọi khung phía sau mà không có tín hiệu nào để phát hiện.
+Giá tính theo **lượt gọi**, không nhân theo số khung.
 
 `images: [{mimeType, data}]` (base64, tối đa 6 ảnh ở tầng schema, trần riêng
 từng tác vụ do cổng trợ lý ép; **tổng mọi ảnh ≤ 3,2 MB** — vượt trả

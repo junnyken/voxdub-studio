@@ -345,6 +345,388 @@ const TASKS = {
       ].filter(Boolean).join('\n')
     },
   },
+
+  /**
+   * Phân tích cấu trúc video tham khảo thành Flow Blueprint — mini-spec H2
+   * (docs/PLAN.md, Phase H mới "Viral Flow Clone & Brand Rewrite").
+   *
+   * KHÁC HẲN mọi tác vụ ở trên: output là `beats[]` có cấu trúc (timeline +
+   * vocabulary đóng), không phải `{results:[{value,reason}]}` — dùng
+   * `outputSchema`/`parseResult` riêng (xem `assist()` trong
+   * ai-gateway.service.js: hai trường này CHỈ tác vụ này khai, 9 tác vụ còn
+   * lại không đổi hành vi).
+   *
+   * KHÔNG đọc BrandProfile, không sinh kịch bản/ảnh/voice-over — H2 chỉ mô
+   * tả CẤU TRÚC của video nguồn. H3 (chưa làm) mới kết hợp với BrandProfile.
+   */
+  viral_flow_blueprint: {
+    costKey: 'credit.cost.assist.viral_flow_blueprint',
+    // Trần theo dữ liệu ĐÃ GỘP (client gộp quan sát OCR trùng lặp liên tiếp
+    // trước khi gửi — xem `autodub/flow_blueprint.py`), không phải OCR thô.
+    maxInput: 8000,
+    // Không dùng resultsSchema(maxResults) — outputSchema() ở dưới thay thế.
+    outputSchema: () => flowBlueprintOutputSchema(),
+    // `input` (đối số 2) là NGUYÊN VĂN dữ liệu route đã gửi — dùng để so
+    // khớp sao chép (transcript + OCR text là bằng chứng nguồn cần so).
+    parseResult: (data, input) => parseFlowBlueprintResult(data, [
+      ...(Array.isArray(input && input.transcript) ? input.transcript.map((d) => d.text) : []),
+      ...(Array.isArray(input && input.ocrEvidence) ? input.ocrEvidence.map((o) => o.text) : []),
+    ]),
+    system: [
+      'Bạn phân tích CẤU TRÚC KỂ CHUYỆN của một video ngắn (tối đa 90 giây),',
+      'dựa trên bằng chứng ASR (lời nói, có mốc thời gian) và OCR (chữ hiện',
+      'trên hình, có mốc thời gian). Mục tiêu là tạo "Flow Blueprint": chia',
+      'video thành các đoạn (beat) theo VAI TRÒ KỂ CHUYỆN — hook, mở vấn đề,',
+      'bằng chứng, cao trào, lời kêu gọi hành động, v.v.',
+      '',
+      'QUY TẮC TUYỆT ĐỐI — KHÔNG SAO CHÉP NỘI DUNG NGUỒN:',
+      'Bạn PHÂN TÍCH chức năng và nhịp, KHÔNG dịch hay trích dẫn nguyên văn.',
+      'KHÔNG được chép lại câu thoại/caption gốc (kể cả một phần dài) vào',
+      'bất kỳ trường nào. Mô tả bằng NHẬN XÉT TRỪU TƯỢNG, ví dụ đúng:',
+      '"câu cảnh báo ngắn kèm lời hứa lợi ích" — ví dụ SAI: chép lại nguyên',
+      'câu thoại đó. Vi phạm quy tắc này khiến toàn bộ kết quả bị huỷ.',
+      '',
+      'BẰNG CHỨNG CÓ THỂ KHÔNG CHÍNH XÁC:',
+      'ASR (chép lời tự động) có thể nghe nhầm. OCR chữ tiếng Việt có thể',
+      'MẤT DẤU THANH hoặc sai ký tự dù nhãn "unconfirmed" hay không đi kèm —',
+      'coi OCR tiếng Việt là tín hiệu về NHỊP/VỊ TRÍ chữ xuất hiện, không',
+      'phải văn bản chính xác. Nếu bằng chứng thiếu/không chắc ở một đoạn,',
+      'đặt evidence_status phù hợp cho đoạn đó thay vì bịa nội dung.',
+      '',
+      'NGUỒN TIẾNG ANH:',
+      'Nếu bằng chứng ASR là tiếng Anh: đại từ "you" thường mang nghĩa CHUNG',
+      'CHUNG (không chỉ đích danh người xem), câu hay dùng cụm động từ',
+      '(phrasal verbs) và lời nói rút gọn — hiểu đúng Ý ĐỊNH giao tiếp rồi mô',
+      'tả bằng tiếng Việt tự nhiên, KHÔNG dịch sát từng chữ.',
+      '',
+      'ĐẦU RA: LUÔN bằng tiếng Việt (kể cả nguồn tiếng Anh), theo đúng',
+      'vocabulary beat_type đóng đã cho — không tự bịa loại beat mới. Mỗi',
+      'beat có mốc thời gian bắt đầu/kết thúc rõ ràng, không chồng nhau',
+      'quá mức. Không nhận xét chung chung kiểu "hook hay" — phải nói RÕ',
+      'vai trò kể chuyện, nhịp dựng, và pattern overlay/lời nói ở mức trừu',
+      'tượng (ví dụ: "chữ lớn giữa khung, xuất hiện đột ngột" — không phải',
+      '"chữ ABC hiện lên").',
+    ].join(' '),
+    buildUser: (input) => {
+      // Trần THEO DÒNG chỉ tránh một dòng bất thường dài — không tự giới
+      // hạn TỔNG (video càng dài, ASR/OCR càng nhiều dòng). Trần cứng cuối
+      // hàm (`cat(..., maxInput)`) mới là thứ thật sự giữ đúng cam kết
+      // `maxInput` khai ở trên, bất kể video dài bao nhiêu.
+      const doan = Array.isArray(input.transcript) ? input.transcript.slice(0, 120) : []
+      const ocr = Array.isArray(input.ocrEvidence) ? input.ocrEvidence.slice(0, 120) : []
+      const ngonNgu = cat(input.languageSourceDetected, 20) || 'không rõ'
+      const dong = [
+        `Ngôn ngữ nguồn (ASR nhận ra): ${ngonNgu}.`,
+        `Chính sách lấy mẫu OCR đã dùng: ${cat(input.samplingPolicyUsed, 200) || 'không rõ'}.`,
+        '',
+        'BẰNG CHỨNG LỜI NÓI (ASR, có mốc thời gian):',
+      ]
+      if (!doan.length) {
+        dong.push('(không có — ASR không chạy được hoặc video không có lời nói)')
+      } else {
+        for (const d of doan) {
+          dong.push(`[${cat(d.start_s, 10)}s-${cat(d.end_s, 10)}s] ${cat(d.text, 100)}`)
+        }
+      }
+      dong.push('', 'BẰNG CHỨNG CHỮ TRÊN HÌNH (OCR, có mốc thời gian và trạng thái):')
+      if (!ocr.length) {
+        dong.push('(không có quan sát OCR nào)')
+      } else {
+        for (const o of ocr) {
+          dong.push(`[${cat(o.start_s, 10)}s-${cat(o.end_s, 10)}s, ${cat(o.status, 20)}] `
+            + cat(o.text, 80))
+        }
+      }
+      // Trần cứng: giữ đúng cam kết maxInput ở trên dù video dài/nhiều bằng
+      // chứng tới đâu — cắt ở CUỐI (mất phần OCR/khung sau, không phải đầu
+      // video) là đánh đổi hợp lý vì hook/mở đầu luôn cần đủ bằng chứng nhất.
+      // Hằng số lặp lại giá trị `maxInput` khai ở trên (không tham chiếu
+      // ngược `TASKS` — object literal chưa xong lúc hàm này được ĐỊNH
+      // NGHĨA, dù gọi lúc chạy thì an toàn nhờ closure; lặp lại số cho rõ
+      // ràng hơn là dựa vào chi tiết thời điểm đó).
+      return cat(dong.join('\n'), 8000)
+    },
+  },
+
+  /**
+   * Đọc NGUYÊN VĂN chữ overlay trên khung hình video — mini-spec H2b
+   * (09/09/2026), sinh ra từ khiếu nại thật của chủ dự án: "dịch ra tiếng
+   * Việt mà không có dấu".
+   *
+   * Vì sao một việc tưởng là của OCR lại phải nhờ mô hình nhìn ảnh: bộ OCR
+   * chạy trên máy (RapidOCR, model bundled `ch_PP-OCRv4_rec_infer.onnx`) có
+   * từ điển đầu ra 6.623 ký tự mà CHỈ 2 ký tự thuộc bộ tiếng Việt có dấu
+   * (`É`, `Ó`). Các chữ `ă â đ ê ô ơ ư` và mọi dấu thanh KHÔNG nằm trong từ
+   * điển ⇒ model không thể phát ra, dù ảnh nét tới đâu. Đo thật 09/09:
+   * "Đăng ký kênh để không bỏ lỡ video mới!" → "Dang ky kenh de khong bo lo
+   * video moi", confidence VẪN 0,84-0,99 (sai một cách tự tin — không dùng
+   * confidence để phát hiện được). Đây là giới hạn TỪ ĐIỂN, không tham số
+   * nào chỉnh được; các từ điển thay thế của PaddleOCR cũng không đủ
+   * (`latin_dict` thiếu 102/134 ký tự Việt, `vi_dict` thiếu 66 chữ HOA có
+   * dấu). Mô hình nhìn ảnh đọc đúng 100% trên cùng bộ khung hình đó.
+   *
+   * App KHÔNG gửi mọi khung hình lên đây. Nó chạy OCR cục bộ trước để biết
+   * khung nào ĐỔI chữ — việc RapidOCR làm tốt dù đọc mất dấu — rồi chỉ gửi
+   * MỘT khung đại diện cho mỗi đoạn chữ khác nhau (video 60 giây: ~152
+   * khung lấy mẫu còn ~15 khung gửi đi). Xem `autodub/media/doc_chu_may_chu.py`.
+   */
+  doc_chu_khung_hinh: {
+    costKey: 'credit.cost.assist.doc_chu_khung_hinh',
+    maxInput: 200,
+    nhanAnh: true,
+    // Trần 6 = đúng trần schema của route `/v1/ai/assist`, không phải con số
+    // tự nghĩ. Gộp nhiều khung vào MỘT lượt gọi nhanh gấp ~4 lần gọi lẻ (đo
+    // thật 09/09: 0,74s/khung khi gộp 4, so với 2,3-5,1s/khung gọi từng cái).
+    soAnhToiDa: 6,
+    // Khuôn output RIÊNG (như `viral_flow_blueprint`): cần giữ được ánh xạ
+    // ảnh↔chữ theo VỊ TRÍ. Khuôn chung `{results:[{value,reason}]}` lọc bỏ
+    // mục có `value` rỗng, mà "khung này không có chữ" là câu trả lời HỢP LỆ
+    // và thường gặp — lọc mất nó là lệch toàn bộ ánh xạ khung phía sau.
+    outputSchema: () => docChuOutputSchema(),
+    parseResult: (raw, input) => parseDocChuResult(raw, input),
+    system: [
+      'Bạn là máy đọc chữ trên ảnh. Việc DUY NHẤT của bạn là chép lại chữ',
+      'nhìn thấy trong ảnh, đúng NGUYÊN VĂN.',
+      'Giữ NGUYÊN dấu tiếng Việt (ă â đ ê ô ơ ư và mọi dấu thanh) — đây là',
+      'yêu cầu quan trọng nhất; chép thiếu dấu bị coi là đọc sai.',
+      'KHÔNG dịch sang ngôn ngữ khác. Chữ tiếng Anh thì giữ tiếng Anh, chữ',
+      'tiếng Trung thì giữ tiếng Trung.',
+      'KHÔNG tóm tắt, KHÔNG diễn giải, KHÔNG sửa lỗi chính tả của chữ gốc.',
+      'KHÔNG mô tả cảnh vật, người, hay bất cứ thứ gì không phải chữ.',
+      'KHÔNG đoán chữ bị che khuất hay quá mờ — không đọc được thì bỏ qua.',
+      'Mỗi dòng chữ trong ảnh là một phần tử của mảng "dong", theo thứ tự từ',
+      'trên xuống dưới.',
+      'Ảnh thứ N ứng với "anh" = N. Trả về ĐỦ mọi ảnh được đưa, theo đúng thứ tự.',
+      'Ảnh không có chữ nào thì vẫn trả về mục của nó với "dong" là mảng rỗng',
+      '— đây là câu trả lời hợp lệ, đừng bịa chữ cho đủ.',
+    ].join(' '),
+    buildUser: (input) => {
+      const soAnh = Number(input && input.soAnh) || 0
+      return [
+        `Có ${soAnh} ảnh, là các khung hình cắt từ một video.`,
+        'Chép lại nguyên văn chữ hiển thị trên từng ảnh.',
+      ].join('\n')
+    },
+  },
+}
+
+/** Vocabulary đóng của beat_type — dùng chung cho schema VÀ validate. Đồng
+ * bộ với `models/FlowBlueprint.js` (nguồn thật của danh sách này) — import
+ * lười (require ở nơi dùng) để tránh vòng lặp require lúc nạp module. */
+function beatTypes() {
+  return require('../models/FlowBlueprint').BEAT_TYPES
+}
+
+/** JSON schema cho output của `viral_flow_blueprint` — ép mô hình trả đúng
+ * cấu trúc timeline, không phải chuỗi tự do. */
+function flowBlueprintOutputSchema() {
+  return {
+    type: 'object',
+    required: ['beats'],
+    properties: {
+      beats: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 40,
+        items: {
+          type: 'object',
+          required: ['start_s', 'end_s', 'beat_type', 'narrative_function_vi',
+            'pacing_note_vi', 'overlay_pattern_abstract_vi', 'spoken_pattern_abstract_vi'],
+          properties: {
+            start_s: { type: 'number' },
+            end_s: { type: 'number' },
+            beat_type: { type: 'string', enum: beatTypes() },
+            narrative_function_vi: { type: 'string' },
+            pacing_note_vi: { type: 'string' },
+            overlay_pattern_abstract_vi: { type: 'string' },
+            spoken_pattern_abstract_vi: { type: 'string' },
+          },
+        },
+      },
+    },
+  }
+}
+
+/** Số ảnh tối đa một lượt `doc_chu_khung_hinh` — lặp lại `soAnhToiDa` của
+ * tác vụ (object literal chưa xong lúc hàm này được ĐỊNH NGHĨA). */
+const SO_ANH_DOC_CHU_TOI_DA = 6
+
+/** JSON schema cho output của `doc_chu_khung_hinh`. Ép mô hình gắn số thứ tự
+ * ảnh vào TỪNG mục thay vì tin vào thứ tự mảng: mô hình bỏ sót một ảnh không
+ * chữ là mọi ảnh sau đó bị gán nhầm chữ, và không có cách nào phát hiện. */
+function docChuOutputSchema() {
+  return {
+    type: 'object',
+    required: ['khung'],
+    properties: {
+      khung: {
+        type: 'array',
+        minItems: 1,
+        maxItems: SO_ANH_DOC_CHU_TOI_DA,
+        items: {
+          type: 'object',
+          required: ['anh', 'dong'],
+          properties: {
+            anh: { type: 'integer' },
+            dong: { type: 'array', maxItems: 12, items: { type: 'string' } },
+          },
+        },
+      },
+    },
+  }
+}
+
+/**
+ * Chuẩn hoá output thô của `doc_chu_khung_hinh`.
+ *
+ * Trả về đúng khuôn `{ results: [...] }` để route `/v1/ai/assist` dùng lại
+ * được y nguyên (route đọc `result.results` như một mảng đục, không ép hình
+ * dạng phần tử) — không phải sửa route cho một tác vụ mới.
+ *
+ * LUÔN trả đủ `soAnh` mục theo đúng thứ tự 1..soAnh: ảnh mô hình không nhắc
+ * tới thành `dong: []` ("không có chữ"). Thà nói "khung này không chữ" còn
+ * hơn để khuyết một mục rồi bên gọi tự suy ra sai khung.
+ */
+function parseDocChuResult(raw, input) {
+  const khung = raw && Array.isArray(raw.khung) ? raw.khung : null
+  if (!khung) return null
+
+  const soAnh = Math.min(
+    Math.max(Number(input && input.soAnh) || 0, 0), SO_ANH_DOC_CHU_TOI_DA)
+  if (!soAnh) return null
+
+  const theoSo = new Map()
+  for (const muc of khung) {
+    const so = Number(muc && muc.anh)
+    if (!Number.isInteger(so) || so < 1 || so > soAnh) continue
+    // Mô hình lặp lại cùng một số ảnh: giữ mục ĐẦU, bỏ các mục sau. Gộp lại
+    // thì một lần "ảo giác" lặp sẽ nhân đôi chữ của khung đó.
+    if (theoSo.has(so)) continue
+    const dong = (Array.isArray(muc.dong) ? muc.dong : [])
+      .map((d) => String(d == null ? '' : d).trim())
+      .filter(Boolean)
+      .slice(0, 12)
+    theoSo.set(so, dong)
+  }
+
+  const results = []
+  for (let i = 1; i <= soAnh; i += 1) {
+    results.push({ anh: i, dong: theoSo.get(i) || [] })
+  }
+  return { results }
+}
+
+/**
+ * Chuẩn hoá text để so khớp N-gram — hạ chữ thường, gộp khoảng trắng, bỏ
+ * dấu câu. Không bỏ dấu thanh tiếng Việt: OCR tiếng Việt hay MẤT dấu, nên
+ * một câu tiếng Việt CÓ dấu trong beat mà khớp với OCR (đã mất dấu) sẽ
+ * KHÔNG trùng — đúng ý muốn, vì lúc đó model đang diễn giải, không sao chép.
+ *
+ * CẢNH BÁO khi H2b bật (`doc_chu_khung_hinh`): lý lẽ "OCR mất dấu nên không
+ * trùng" KHÔNG còn đúng — bằng chứng OCR lúc đó CÓ dấu đầy đủ, nên bộ chặn
+ * sao chép trở nên nhạy hơn hẳn với tiếng Việt (đúng ý đồ gốc của Guardrail
+ * 2/6/7, nhưng là thay đổi hành vi thật: một beat chép nguyên văn caption
+ * tiếng Việt trước đây LỌT, nay bị bắt và huỷ cả kết quả).
+ */
+function chuanHoaSoKhop(text) {
+  return String(text || '').toLowerCase()
+    .replace(/[.,!?;:"'“”‘’()\-–—]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Bắt lỗi SAO CHÉP NGUYÊN VĂN: chuỗi N từ liên tiếp trở lên trong text kiểm
+ * tra trùng với MỘT chuỗi N từ liên tiếp bất kỳ trong bằng chứng nguồn.
+ *
+ * Guardrail 2/6/7 của H2: model được PHÂN TÍCH, không được TRÍCH DẪN. Ngưỡng
+ * 6 từ đủ dài để không bắt oan các cụm ngắn trùng ngẫu nhiên ("không hứa
+ * điều gì"), nhưng đủ nhạy để bắt một câu hook/CTA bị chép nguyên văn.
+ */
+const NGUONG_TU_LIEN_TIEP = 6
+
+function timNgram(tuList, n) {
+  const ra = new Set()
+  for (let i = 0; i + n <= tuList.length; i += 1) {
+    ra.add(tuList.slice(i, i + n).join(' '))
+  }
+  return ra
+}
+
+//: Caption/hook/CTA thật thường NGẮN hơn hẳn một câu thoại đầy đủ (2-4 từ,
+//: vd "STOP SCROLLING", "SHOP NOW") — ngưỡng N-gram 6 từ không bao giờ bắt
+//: được ca này vì bản THÂN dòng bằng chứng đã ngắn hơn cả ngưỡng (đo thật
+//: khi viết test: bỏ sót hoàn toàn nếu chỉ dùng N-gram). Với dòng bằng
+//: chứng NGẮN hơn ngưỡng, chuyển sang kiểm CHỨA NGUYÊN VẸN (substring) thay
+//: vì N-gram — nhưng chỉ áp dụng khi dòng đó đủ dài để không phải một chữ
+//: chung chung tình cờ trùng (dưới đây: tối thiểu 2 từ).
+const TOI_THIEU_TU_DE_KIEM_NGAN = 2
+
+function coSaoChepNguyenVan(vanBanKiemTra, cacNguonBangChung, n = NGUONG_TU_LIEN_TIEP) {
+  const kiemTraChuanHoa = chuanHoaSoKhop(vanBanKiemTra)
+  const tuKiemTra = kiemTraChuanHoa.split(' ').filter(Boolean)
+  if (!tuKiemTra.length) return false
+  const ngramKiemTra = tuKiemTra.length >= n ? timNgram(tuKiemTra, n) : null
+
+  for (const nguon of cacNguonBangChung) {
+    const nguonChuanHoa = chuanHoaSoKhop(nguon)
+    const tuNguon = nguonChuanHoa.split(' ').filter(Boolean)
+    if (tuNguon.length >= n) {
+      if (!ngramKiemTra) continue   // câu kiểm ngắn hơn ngưỡng thì không có ngram để so
+      const ngramNguon = timNgram(tuNguon, n)
+      for (const g of ngramKiemTra) {
+        if (ngramNguon.has(g)) return true
+      }
+    } else if (tuNguon.length >= TOI_THIEU_TU_DE_KIEM_NGAN) {
+      // Dòng bằng chứng NGẮN (caption/hook/CTA điển hình) — chỉ cần beat
+      // CHỨA NGUYÊN VẸN dòng đó là đủ khả nghi, không cần đủ độ dài N-gram.
+      if (kiemTraChuanHoa.includes(nguonChuanHoa)) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Validate + chuẩn hoá output thô của mô hình cho `viral_flow_blueprint`.
+ *
+ * Trả `null` nếu output không dùng được (khuôn sai, beat rỗng, hoặc PHÁT
+ * HIỆN SAO CHÉP NGUYÊN VĂN) — `assist()` coi `null` là lỗi mô hình (502),
+ * đúng nguyên tắc "trả sai khuôn là LỖI, không im lặng trả kết quả rỗng"
+ * đã áp dụng cho mọi tác vụ khác.
+ *
+ * ``bangChungNguon``: mảng text bằng chứng (transcript + OCR) — truyền từ
+ * `input` gốc để so khớp sao chép. Tách khỏi `parseResult(data)` (chữ ký cố
+ * định do `assist()` gọi) bằng closure trong `viral_flow_blueprint.parseResult`
+ * phía trên — thấy ở đó `input` được đóng gói sẵn qua `assist()`.
+ */
+function parseFlowBlueprintResult(data, bangChungNguon) {
+  const beats = Array.isArray(data && data.beats) ? data.beats : []
+  if (!beats.length) return null
+
+  const cacTruongVanBan = ['narrative_function_vi', 'pacing_note_vi',
+    'overlay_pattern_abstract_vi', 'spoken_pattern_abstract_vi']
+  const sach = []
+  for (const b of beats) {
+    if (!b || typeof b !== 'object') continue
+    const startS = Number(b.start_s)
+    const endS = Number(b.end_s)
+    if (!Number.isFinite(startS) || !Number.isFinite(endS) || endS <= startS) continue
+    if (!beatTypes().includes(b.beat_type)) continue
+    for (const truong of cacTruongVanBan) {
+      if (coSaoChepNguyenVan(String(b[truong] || ''), bangChungNguon || [])) {
+        return null   // sao chép nguyên văn — huỷ TOÀN BỘ kết quả, không vá riêng beat này
+      }
+    }
+    sach.push({
+      startS, endS, beatType: b.beat_type,
+      narrativeFunctionVi: String(b.narrative_function_vi || '').trim().slice(0, 500),
+      pacingNoteVi: String(b.pacing_note_vi || '').trim().slice(0, 300),
+      overlayPatternAbstractVi: String(b.overlay_pattern_abstract_vi || '').trim().slice(0, 300),
+      spokenPatternAbstractVi: String(b.spoken_pattern_abstract_vi || '').trim().slice(0, 300),
+    })
+  }
+  if (!sach.length) return null
+  return { beats: sach }
 }
 
 /** Tên tác vụ hợp lệ — dùng cho schema của route và cho test. */
@@ -379,4 +761,8 @@ function cacheKey(task, input, images) {
 
 module.exports = {
   TASKS, TASK_NAMES, getTask, resultsSchema, cat, cacheKey, PROMPT_VERSION,
+  // mini-spec H2 — lộ ra để test đơn vị (chống sao chép nguyên văn, schema).
+  coSaoChepNguyenVan, parseFlowBlueprintResult, flowBlueprintOutputSchema,
+  // mini-spec H2b — đọc chữ overlay bằng mô hình nhìn ảnh.
+  docChuOutputSchema, parseDocChuResult, SO_ANH_DOC_CHU_TOI_DA,
 }

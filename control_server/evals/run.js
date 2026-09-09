@@ -56,7 +56,30 @@ function doKho() {
   return loi
 }
 
-async function goiThat(task, input) {
+/** Tác vụ khai `outputSchema`/`parseResult` riêng (mini-spec H2) dùng khuôn
+ * khác — trả TÊN TRƯỜNG chứa mảng cần chấm, thay vì luôn giả định "results".
+ * Đọc trực tiếp từ JSON schema (`properties` cấp 1 đầu tiên) thay vì liệt kê
+ * tay tên tác vụ ở đây — thêm tác vụ khuôn riêng sau này không phải sửa chỗ này. */
+function truongMangKetQua(spec) {
+  if (typeof spec.outputSchema !== 'function') return 'results'
+  const thuoc_tinh = Object.keys(spec.outputSchema(spec).properties || {})
+  return thuoc_tinh[0] || 'results'
+}
+
+/** Đọc ảnh của một mẫu đo thành base64. Đường dẫn tính từ thư mục `evals/`
+ * để mẫu không phụ thuộc chỗ chạy lệnh (mini-spec H2b — tác vụ đọc chữ trên
+ * ảnh không có mẫu đo nào chỉ-toàn-chữ mà có nghĩa). */
+function anhCuaMau(c) {
+  if (!Array.isArray(c.anh) || !c.anh.length) return []
+  const fs = require('node:fs')
+  const path = require('node:path')
+  return c.anh.map((p) => ({
+    mimeType: 'image/png',
+    data: fs.readFileSync(path.join(__dirname, p)).toString('base64'),
+  }))
+}
+
+async function goiThat(task, input, anh = []) {
   const spec = assist.getTask(task)
   const base = process.env.ASSIST_EVAL_BASE_URL
   const key = process.env.ASSIST_EVAL_KEY
@@ -65,25 +88,40 @@ async function goiThat(task, input) {
     'Thiếu ASSIST_EVAL_BASE_URL / ASSIST_EVAL_KEY / ASSIST_EVAL_MODEL')
 
   const axios = require('axios')
-  const schema = assist.resultsSchema(spec.maxResults)
+  const schema = typeof spec.outputSchema === 'function'
+    ? spec.outputSchema(spec) : assist.resultsSchema(spec.maxResults)
+  const truong = truongMangKetQua(spec)
   const la_google = process.env.ASSIST_EVAL_TYPE === 'google'
 
   if (la_google) {
     const url = `${base.replace(/\/$/, '')}/models/${model}:generateContent?key=${key}`
     const { data } = await axios.post(url, {
       systemInstruction: { parts: [{ text: spec.system }] },
-      contents: [{ role: 'user', parts: [{ text: spec.buildUser(input) }] }],
+      contents: [{
+        role: 'user',
+        parts: [{ text: spec.buildUser(input) },
+          ...anh.map((a) => ({ inlineData: { mimeType: a.mimeType, data: a.data } }))],
+      }],
       generationConfig: { responseMimeType: 'application/json' },
     }, { timeout: 60000 })
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}'
-    return JSON.parse(text).results || []
+    return JSON.parse(text)[truong] || []
   }
 
   const { data } = await axios.post(`${base.replace(/\/$/, '')}/chat/completions`, {
     model,
     messages: [
       { role: 'system', content: spec.system },
-      { role: 'user', content: spec.buildUser(input) },
+      {
+        role: 'user',
+        content: anh.length
+          ? [{ type: 'text', text: spec.buildUser(input) },
+            ...anh.map((a) => ({
+              type: 'image_url',
+              image_url: { url: `data:${a.mimeType};base64,${a.data}` },
+            }))]
+          : spec.buildUser(input),
+      },
     ],
     response_format: {
       type: 'json_schema',
@@ -91,7 +129,7 @@ async function goiThat(task, input) {
     },
   }, { headers: { Authorization: `Bearer ${key}` }, timeout: 60000 })
   const text = data.choices?.[0]?.message?.content || '{}'
-  return JSON.parse(text).results || []
+  return JSON.parse(text)[truong] || []
 }
 
 async function doThat() {
@@ -106,7 +144,7 @@ async function doThat() {
     }
     let ket = []
     try {
-      ket = await goiThat(c.task, c.input)
+      ket = await goiThat(c.task, c.input, anhCuaMau(c))
     } catch (err) {
       hong.push(`${c.task}/${c.ten}: gọi hỏng — ${String(err.message).slice(0, 80)}`)
       inBang([c.task, c.ten.slice(0, 32), '-', 'HỎNG'])
@@ -117,14 +155,19 @@ async function doThat() {
       inBang([c.task, c.ten.slice(0, 32), 0, 'HỎNG'])
       continue
     }
+    // Tác vụ khuôn riêng (mini-spec H2, vd viral_flow_blueprint): mục không
+    // có "value"/"reason" (vd một beat) — đưa THẲNG cho `kiem`, không ép
+    // khuôn cũ lên dữ liệu không có hình dạng đó.
+    const khuonRieng = typeof assist.getTask(c.task).outputSchema === 'function'
     let dat_mau = 0
     let tong_mau = 0
     for (const [ten_kiem, kiem] of c.kiem) {
       for (let i = 0; i < ket.length; i += 1) {
         tong_mau += 1
-        const r = { value: String(ket[i].value || ''), reason: String(ket[i].reason || '') }
+        const r = khuonRieng ? ket[i]
+          : { value: String(ket[i].value || ''), reason: String(ket[i].reason || '') }
         if (kiem(r, c, i)) dat_mau += 1
-        else hong.push(`${c.task}/${c.ten}: «${r.value.slice(0, 40)}» trượt "${ten_kiem}"`)
+        else hong.push(`${c.task}/${c.ten}: «${JSON.stringify(r).slice(0, 60)}» trượt "${ten_kiem}"`)
       }
     }
     dat += dat_mau

@@ -42,7 +42,7 @@ hay chưa:
 | Phần | Công nghệ | Vai trò |
 |---|---|---|
 | `autodub/` | Python ≥3.10, ~28.000 dòng | Lõi xử lý: tải, tách tiếng, chép lời, dịch, tạo giọng, ghép video |
-| `autodub_gui/` | PySide6 (Qt), ~30.000 dòng | Giao diện máy tính, **19 trang** |
+| `autodub_gui/` | PySide6 (Qt), ~30.000 dòng | Giao diện máy tính, **20 trang** |
 | `control_server/` | Node 20, Fastify 5, MongoDB, ~12.000 dòng | Máy chủ: ví Vox, cổng gọi mô hình AI, thống kê, quản trị |
 | `website/` | React 18, Vite, Tailwind, ~7.000 dòng | Trang bán hàng + trang quản trị |
 
@@ -214,7 +214,7 @@ nên **không tốn Vox**:
 **Chưa làm:** phân biệt người nói (diarization) trong công cụ chép lời độc
 lập — chủ dự án chủ động bỏ qua ("chỉ cần ra được text là đủ").
 
-### 3.5 Cổng trợ lý AI (9 tác vụ)
+### 3.5 Cổng trợ lý AI (11 tác vụ)
 
 Một cửa duy nhất cho mọi việc cần mô hình ngôn ngữ. **App gửi tên tác vụ,
 không gửi câu lệnh** — toàn bộ câu chữ hướng dẫn mô hình nằm trên máy chủ,
@@ -231,6 +231,8 @@ nên sửa chúng hoặc đổi mô hình không cần phát hành lại bản `
 | `packaging_check` | Kiểm ảnh dựng có còn đúng sản phẩm không | 3 Vox |
 | `scene_continuity` | Các cảnh trong video có nhìn liền mạch không (cảnh báo, không chặn) | 4 Vox |
 | `scene_script` | Gợi ý câu dẫn và nhịp cho từng cảnh | 3 Vox (**8 Vox** nếu kèm xem ảnh) |
+| `viral_flow_blueprint` | Phân tích cấu trúc video tham khảo (mini-spec H2) — chỉ gọi qua `/v1/flow-blueprints`, không qua `/v1/ai/assist` chung, vì cần lưu lại thành Flow Blueprint | 8 Vox (giá khởi điểm, chưa chốt bằng số liệu chi phí thật) |
+| `doc_chu_khung_hinh` | Đọc chữ hiện trên khung hình video, **giữ đúng dấu tiếng Việt** (mini-spec H2b) — bộ đọc chữ chạy trên máy không phát ra được dấu | 8 Vox mỗi lượt (tối đa 6 khung/lượt, app tự gộp trước khi gửi) |
 
 Có **bốn lớp chặn chi phí**: danh sách tác vụ đóng (tên lạ bị chặn ở tầng
 schema, trước cả xác thực) → trần ký tự → hạn mức ngày mỗi máy → nhớ đệm
@@ -561,8 +563,31 @@ thành video hoàn chỉnh (nối vào pipeline ảnh sản phẩm C3 đã có).
   docs/API.md), cách ly theo thiết bị — có test chéo thiết bị thật (không
   chỉ giả lập). **Chưa có tác vụ nào ĐỌC hồ sơ này** — H3 (viết kịch bản) là
   nơi tiêu thụ dữ liệu, chưa làm.
-- H2 (trích flow từ video đối thủ), H3 (viết lại kịch bản), H4 (dựng video)
-  — **chưa làm**, không phụ thuộc lẫn nhau ngoại trừ H3 cần cả H1 và H2.
+- **H2a — OCR Read Layer: ĐÃ XONG.** Audit trước khi mở H2 phát hiện OCR cũ
+  (`detect_text_regions()`) chỉ biết VÙNG chữ, không đọc được NỘI DUNG — đóng
+  gap bằng `read_text_regions()` mới (song song, không đổi hợp đồng hàm cũ).
+  Đo thật: RapidOCR đọc tiếng Việt MẤT DẤU THANH dù confidence vẫn cao
+  (0,90-0,99) — xem docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md.
+- **H2 — Viral Flow Blueprint: ĐÃ XONG, CHẠY THẬT.** Trang **Phân tích cấu
+  trúc video tham khảo** (thanh bên) — trích bằng chứng ASR+OCR TRÊN MÁY
+  NGƯỜI DÙNG (tải video → chép lời → đọc caption, lấy mẫu OCR thích ứng dày
+  hơn hẳn bộ lấy mẫu cũ ở 0-5s/5s cuối), gửi lên máy chủ để mô hình phân
+  tích VAI TRÒ KỂ CHUYỆN từng đoạn (hook/nêu vấn đề/bằng chứng/cao trào/kêu
+  gọi hành động…) rồi lưu lại. Server `/v1/flow-blueprints` (xem docs/API.md),
+  cách ly theo thiết bị. **Chặn sao chép nguyên văn bằng mã** (N-gram 6 từ +
+  so khớp cụm ngắn cho caption 1-2 từ kiểu "STOP SCROLLING") — một beat chép
+  nguyên văn huỷ CẢ kết quả, không chỉ lọc riêng beat đó. Output KHÔNG BAO
+  GIỜ chứa transcript/caption gốc, chỉ mô tả trừu tượng.
+- **H2b — Đọc chữ CÓ DẤU tiếng Việt: ĐÃ XONG, KIỂM CHỨNG THẬT.** Bộ đọc chữ
+  chạy trên máy không phát ra được dấu tiếng Việt (giới hạn từ điển của model:
+  6.623 ký tự mà chỉ 2 ký tự có dấu) nên caption ra `Dang ky kenh de khong bo
+  lo`. Nay có **bộ đọc thay được**: có máy chủ thì đọc lại bằng mô hình nhìn
+  ảnh, ra đúng `Đăng ký kênh để không bỏ lỡ`. Chỉ gửi **một khung đại diện cho
+  mỗi đoạn chữ khác nhau** (đo thật: 23/71 khung), không gửi cả video. Chưa
+  cấu hình máy chủ thì vẫn chạy, chỉ là chữ mất dấu. Tính năng làm mờ chữ
+  KHÔNG đổi gì.
+- H3 (viết lại kịch bản theo hồ sơ brand), H4 (dựng video) — **chưa làm**,
+  cần cả H1 và H2.
 
 **Đã giải quyết, đừng đề xuất lại:** tách `.venv-*`/`models/` ra khỏi thư mục
 ứng dụng — không cần nữa, vì app đã tự dò bản cũ nằm cùng thư mục cha (§3.1).
@@ -591,7 +616,9 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 | `docs/KE-HOACH-KIEM-C50-C52.md` | Hai việc còn tồn chỉ máy chủ dự án trả lời được: che chữ trên phim dài, và "nghe chép thiếu câu" — kèm cách đo, **không tốn Vox** |
 | `docs/MINI-SPEC_H1_Ho_So_Brand_Multi_Tenant.md` | Hồ sơ Brand — nền tảng multi-tenant cho sáng kiến "Viral Flow Clone & Brand Rewrite", đã xong Scope A-D |
-| `docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md` | Audit OCR dừng H2 (Flow Blueprint) + đóng gap: `read_text_regions()` mới, đọc được nội dung chữ nhưng tiếng Việt còn mất dấu — H2 vẫn CHƯA mở lại |
+| `docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md` | Audit OCR dừng H2 (Flow Blueprint) + đóng gap: `read_text_regions()` mới, đọc được nội dung chữ nhưng tiếng Việt còn mất dấu |
+| `docs/MINI-SPEC_H2_Viral_Flow_Blueprint.md` | Viral Flow Blueprint — phân tích cấu trúc video tham khảo (abstraction-first, chặn sao chép nguyên văn bằng mã), đã xong Scope A-E |
+| `docs/MINI-SPEC_H2b_Doc_Chu_Co_Dau.md` | Đọc chữ overlay CÓ DẤU tiếng Việt — vì sao OCR trên máy không thể ra dấu, đo 5 hướng chữa, và bộ đọc thay được |
 
 **Quy mô test tại thời điểm cập nhật tệp này:** 2.449 test Python (4 bỏ qua —
 chỉ có nghĩa trên Windows) + 542 test Node (1 bỏ qua, 0 hỏng) + 74 test React (0 hỏng).

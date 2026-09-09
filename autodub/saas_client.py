@@ -842,6 +842,65 @@ class SaasClient:
         """Xoá một hồ sơ brand của chính máy này."""
         self._request("DELETE", f"/v1/brand-profiles/{profile_id}", timeout=timeout)
 
+    # -------------------------------------- flow blueprint (H2, Phase H) --
+    # Mini-spec H2 (docs/PLAN.md, Phase H) — bằng chứng ASR/OCR trích ở máy
+    # người dùng (``autodub.flow_blueprint.trich_bang_chung``), gửi LÊN đây
+    # để máy chủ gọi mô hình phân tích cấu trúc rồi lưu kết quả. Một lượt
+    # tổng hợp (không phải job nền) — không có xử lý nặng phía server.
+
+    def list_flow_blueprints(self, timeout: float = 20.0) -> list[dict]:
+        """Danh sách Flow Blueprint của máy này. Trả rỗng khi lỗi mạng —
+        cùng lý do `list_brand_profiles`."""
+        try:
+            data = self._request("GET", "/v1/flow-blueprints/", timeout=timeout)
+        except SaasError as e:
+            logger.warning(f"Không lấy được danh sách Flow Blueprint ({e})")
+            return []
+        muc = data.get("data")
+        return muc if isinstance(muc, list) else []
+
+    def get_flow_blueprint(self, blueprint_id: str, timeout: float = 20.0) -> dict:
+        """Một Flow Blueprint của chính máy này. `404 KHONG_THAY_BLUEPRINT`
+        nếu không tồn tại hoặc không thuộc máy này."""
+        return self._request("GET", f"/v1/flow-blueprints/{blueprint_id}",
+                             timeout=timeout)
+
+    def delete_flow_blueprint(self, blueprint_id: str, timeout: float = 20.0) -> None:
+        """Xoá một Flow Blueprint của chính máy này."""
+        self._request("DELETE", f"/v1/flow-blueprints/{blueprint_id}", timeout=timeout)
+
+    def create_flow_blueprint(
+        self, bang_chung, *, job_id: str, hold_id: str | None = None,
+        timeout: float = 120.0,
+    ) -> dict:
+        """Gửi bằng chứng ASR/OCR đã trích để máy chủ phân tích cấu trúc và
+        lưu lại một Flow Blueprint mới.
+
+        ``bang_chung``: :class:`autodub.flow_blueprint.BangChungFlowBlueprint`
+        (hoặc bất kỳ object nào có cùng thuộc tính) — TRƯỜNG ``title`` không
+        gửi lên (entity server không có field này, chỉ dùng hiển thị cục bộ).
+        ``job_id`` idempotent theo hash bằng chứng, giống mọi lượt gọi AI
+        khác trong file này.
+        Trả về Flow Blueprint đã lưu kèm ``creditCharged``/``balanceAfter``.
+        Thiếu Vox -> :class:`InsufficientCreditError`.
+        """
+        payload = {
+            "jobId": job_id,
+            "sourceType": bang_chung.source_type,
+            "sourceReference": bang_chung.source_reference,
+            "languageSourceDetected": bang_chung.language_source_detected,
+            "samplingPolicyUsed": bang_chung.sampling_policy_used,
+            "evidenceSummary": bang_chung.evidence_summary,
+            "transcript": bang_chung.transcript,
+            "ocrEvidence": bang_chung.ocr_evidence,
+        }
+        if hold_id:
+            payload["holdId"] = hold_id
+        data = self._request("POST", "/v1/flow-blueprints/", timeout=timeout,
+                             json_body=payload)
+        self._note_usage(data)
+        return data
+
     def send_pipeline_event(self, run_id: str, status: str, stage: str,
                             error_stage: str = "") -> None:
         """Báo trạng thái tiến trình 1 lượt dubbing (mini-spec V13, xem

@@ -441,6 +441,20 @@ def detect_text_regions(image_paths: list[str], settings=None,
 # tín hiệu cho lỗi này — xem docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md.
 NGUONG_TIN_CAY_DOC = 0.70
 
+# --- Bộ đọc thay được (mini-spec H2b, 09/09/2026) ----------------------------
+#
+# Việc DÒ VÙNG chữ và việc ĐỌC NỘI DUNG chữ có nhu cầu khác hẳn nhau, nên tách
+# thành hai thứ thay được độc lập. `detect_text_regions()` (làm mờ chữ) chỉ cần
+# biết chữ NẰM ĐÂU — RapidOCR làm tốt, chạy offline, KHÔNG đổi gì ở đây.
+#
+# Chỉ đường ĐỌC mới cần đổi: RapidOCR không phát ra được dấu tiếng Việt (giới
+# hạn từ điển của model, xem chú thích ở `NGUONG_TIN_CAY_DOC` và
+# docs/MINI-SPEC_H2b_Doc_Chu_Co_Dau.md). Hằng số dưới đây để bên gọi chọn bộ
+# đọc, thay vì ghim cứng một engine trong hàm.
+BO_DOC_CUC_BO = "cuc_bo"
+BO_DOC_MAY_CHU = "may_chu"
+BO_DOC_HOP_LE = (BO_DOC_CUC_BO, BO_DOC_MAY_CHU)
+
 
 class DocChuThatBai(RuntimeError):
     """OCR đã cài nhưng lượt ĐỌC CHỮ này gọi lỗi trên MỌI khung hình được
@@ -458,14 +472,17 @@ class QuanSatChu:
     sai nếu dùng cho nội dung vì hai chữ khác nhau có thể cùng vị trí)."""
 
     text: str
-    confidence: float
+    #: ``None`` khi bộ đọc không chấm điểm tin cậy (bộ đọc máy chủ, H2b) —
+    #: KHÔNG điền 1.0 cho đủ chỗ: một điểm tin cậy bịa ra trông y hệt điểm
+    #: đo thật, và mọi thứ đọc trường này sau đó đều tin nhầm.
+    confidence: float | None
     x: float
     y: float
     w: float
     h: float
     frame_index: int
     timestamp_s: float | None
-    source: str          # "subprocess" | "in_process"
+    source: str          # "subprocess" | "in_process" | "may_chu"
     status: str          # "ok" | "unconfirmed"
 
 
@@ -484,6 +501,7 @@ class KetQuaDocChu:
 def read_text_regions(
     image_paths: list[str], settings=None, cancel_event=None,
     moc_thoi_gian: list[float] | None = None,
+    bo_doc: str = BO_DOC_CUC_BO, client=None,
 ) -> KetQuaDocChu:
     """Đọc NỘI DUNG chữ overlay tại từng khung hình — mini-spec H2a.
 
@@ -509,11 +527,23 @@ def read_text_regions(
     một video dài là chi phí thật — bên gọi (mini-spec H2 sau này) tự cân
     đối theo độ dài video cần phân tích, hàm này không tự áp đặt.
 
+    ``bo_doc`` (mini-spec H2b): chọn bộ ĐỌC nội dung. ``BO_DOC_CUC_BO`` (mặc
+    định) giữ nguyên hành vi cũ — RapidOCR tại máy, miễn phí, offline, nhưng
+    **không phát ra được dấu tiếng Việt** (giới hạn từ điển của model, xem
+    chú thích ở `NGUONG_TIN_CAY_DOC`). ``BO_DOC_MAY_CHU`` đọc bằng mô hình
+    nhìn ảnh trên máy chủ: ra dấu đúng, nhưng cần mạng + tốn Vox, nên bên gọi
+    phải tự quyết định chứ hàm này không tự ý đổi. Bước DÒ VÙNG vẫn do
+    RapidOCR chạy tại máy trong cả hai ca — máy chủ chỉ đọc lại nội dung của
+    những khung THẬT SỰ đổi chữ (xem `autodub/media/doc_chu_may_chu.py`).
+
     Ném :class:`ChuaCaiOcr` khi chưa cài bộ OCR nào (unavailable — cùng
     điều kiện với `detect_text_regions()`); ném :class:`DocChuThatBai` khi
     cả hai đường subprocess lẫn in-process đều gọi lỗi trên MỌI khung hình
     (failed — khác "chạy xong, không thấy chữ").
     """
+    if bo_doc not in BO_DOC_HOP_LE:
+        raise ValueError(
+            f"Bộ đọc không hợp lệ: {bo_doc!r} (chỉ nhận {BO_DOC_HOP_LE})")
     if not image_paths:
         return KetQuaDocChu(trang_thai="no_text", quan_sat=[])
 
@@ -556,6 +586,14 @@ def read_text_regions(
         )
         for box in all_boxes
     ]
+
+    if bo_doc == BO_DOC_MAY_CHU and quan_sat:
+        # Nhập lười: `doc_chu_may_chu` kéo theo `saas_client`, mà module này
+        # còn được dùng ở đường làm mờ chữ vốn chạy hoàn toàn offline.
+        from autodub.media.doc_chu_may_chu import doc_lai_bang_may_chu
+        quan_sat = doc_lai_bang_may_chu(
+            quan_sat, image_paths, client=client, cancel_event=cancel_event)
+
     return KetQuaDocChu(
         trang_thai=("co_chu" if quan_sat else "no_text"),
         quan_sat=quan_sat)

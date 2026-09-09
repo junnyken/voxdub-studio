@@ -25,10 +25,17 @@ test('mỗi tác vụ khai đủ trần và khoá giá', () => {
     const t = assist.getTask(ten)
     assert.ok(t.costKey.startsWith('credit.cost.assist.'), `${ten}: thiếu khoá giá`)
     assert.ok(t.maxInput > 0 && t.maxInput <= 8000, `${ten}: trần đầu vào vô lý`)
-    // Trần 6 chứ không phải 5: `scene_script` trả một câu dẫn cho MỖI cảnh,
-    // mà một video ghép được tới 6 cảnh. Trần này để chặn tác vụ đòi mô hình
-    // đẻ ra hàng chục mục, không phải để ghim một con số đẹp.
-    assert.ok(t.maxResults >= 1 && t.maxResults <= 6, `${ten}: số kết quả vô lý`)
+    // `maxResults` chỉ có nghĩa cho khuôn CHUNG {results:[{value,reason}]}.
+    // Tác vụ khuôn riêng (mini-spec H2, vd viral_flow_blueprint) không đọc
+    // trường này ở đâu cả — đặt số vào đây chỉ để "cho qua" test là dữ liệu
+    // giả, không phải cấu hình thật. Trần 6 (không phải 5): `scene_script`
+    // trả một câu dẫn cho MỖI cảnh, mà một video ghép được tới 6 cảnh.
+    if (typeof t.outputSchema !== 'function') {
+      assert.ok(t.maxResults >= 1 && t.maxResults <= 6, `${ten}: số kết quả vô lý`)
+    } else {
+      assert.strictEqual(typeof t.parseResult, 'function',
+        `${ten}: có outputSchema nhưng thiếu parseResult`)
+    }
     assert.ok(t.system.length > 80, `${ten}: mô tả vai trò quá sơ sài`)
     assert.strictEqual(typeof t.buildUser, 'function')
   }

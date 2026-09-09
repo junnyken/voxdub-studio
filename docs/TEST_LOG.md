@@ -15150,3 +15150,171 @@ phạm vi H2a); chưa chốt mật độ lấy mẫu cho H2 dùng thật (hàm k
 **H2 (Flow Blueprint) vẫn CHƯA mở lại** — H2a chỉ đóng gap kỹ thuật, không
 phải quyết định "H2 sẵn sàng chạy". Chi tiết đầy đủ ở
 `docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md` mục "Triển khai H2a".
+
+---
+
+## H2 — Viral Flow Blueprint (08-09/09/2026)
+
+Mở lại H2 sau khi H2a đóng xong gap OCR-read. Toàn bộ Scope A-E, chi tiết
+thiết kế ở `docs/MINI-SPEC_H2_Viral_Flow_Blueprint.md`.
+
+**Kiến trúc**: việc nặng (tải video, ASR, OCR) chạy TRÊN MÁY NGƯỜI DÙNG; máy
+chủ chỉ nhận bằng chứng đã trích, gọi mô hình MỘT lượt, rồi lưu. Không job
+nền, không nhận video. `transcript`/`ocrEvidence` chỉ dùng tạm để gọi mô
+hình, KHÔNG lưu thô — entity không có field nào chứa bằng chứng thô, cố ý
+(Scope B).
+
+**Chốt chống sao chép bằng MÃ, không bằng lời dặn trong prompt**:
+`coSaoChepNguyenVan()` bắt 6 từ liên tiếp trùng giữa beat và bằng chứng, cộng
+nhánh so khớp cụm ngắn cho caption 2 từ kiểu "STOP SCROLLING". Một beat chép
+nguyên văn huỷ CẢ kết quả — một lần lọt là hỏng cam kết của cả tính năng.
+
+**Lấy mẫu thích ứng** (`moc_lay_mau_thich_ung`): 0-5s đầu và 5s cuối mỗi 0,2
+giây, đoạn giữa mỗi 0,5 giây. Dày ở hai đầu vì hook/CTA là chỗ caption đổi
+nhanh nhất, và H2a đã đo được bộ lấy mẫu thưa cũ bỏ lọt HOÀN TOÀN caption
+0,5 giây (0/5 khung trúng).
+
+**Tests**: Node 23 mới (`flow-blueprints-route.test.js` 11 — cách ly thiết bị
+bằng hai thiết bị THẬT, 404 đúng cho thiết bị lạ ở cả GET/DELETE, không lộ
+transcript/OCR thô ra response; `flow-blueprint-schema.test.js` 10 —
+vocabulary đóng khớp giữa JSON schema và model Mongo, beat sai khoảng thời
+gian bị loại, kết quả rỗng trả `null` chứ không phải "ready với 0 beat";
+`ai-gateway-gemini-schema.test.js` 2). Python: `test_flow_blueprint.py`,
+`test_flow_blueprint_page.py`, `test_saas_client_flow_blueprint.py` — trong
+đó có guardrail canh H2 phải dùng `read_text_regions()` (giữ nội dung chữ)
+chứ KHÔNG phải `detect_text_regions()` (vứt nội dung chữ).
+
+**Remaining Limits**: H3/H4 chưa làm; không có endpoint sửa `userReviewNote`
+(bản đặc tả không liệt kê, cố ý không mở API ngoài phạm vi đã chốt); giá 8
+Vox là số khởi điểm chưa soi bằng chi phí token thật.
+
+---
+
+## H2b — Đọc chữ overlay CÓ DẤU tiếng Việt (09/09/2026)
+
+Sinh ra từ khiếu nại thật của chủ dự án: *"tại sao nó lại dịch ra tiếng Việt
+mà không có dấu, tôi cần nó phải có dấu"*. Chi tiết đầy đủ ở
+`docs/MINI-SPEC_H2b_Doc_Chu_Co_Dau.md`.
+
+**Loại trừ trước, kết luận sau.** Nghi can đầu là bộ dịch — loại bằng cách
+đọc mã: NLLB dịch sang `vie_Latn` bình thường; hàm
+`_canh_bao_neu_cau_dai_khong_dau` ở `translate_local_worker.py` cảnh báo về
+**dấu KẾT CÂU** (chấm/hỏi) chứ không phải dấu thanh (tên hàm dễ đọc nhầm —
+tôi đã đọc nhầm một lượt rồi tự đính chính); chỗ bỏ dấu duy nhất trong repo
+(`character_profile.py`) chỉ dùng đặt TÊN FILE.
+
+**Nguyên nhân thật — giới hạn TỪ ĐIỂN, không phải cấu hình.** Đọc thẳng từ
+điển đầu ra của model bundled (`onnxruntime` →
+`get_modelmeta().custom_metadata_map['character']`): `ch_PP-OCRv4_rec_infer
+.onnx` có 6.623 ký tự mà **CHỈ 2 ký tự** thuộc bộ tiếng Việt có dấu (`É`,
+`Ó`). Các chữ `ă â đ ê ô ơ ư` và mọi dấu thanh KHÔNG có trong từ điển ⇒ model
+không thể phát ra, dù ảnh nét tới đâu. Tái hiện: "Đăng ký kênh để không bỏ lỡ
+video mới!" → "Dang ky kenh de khong l / bo lo video 1 / moi", **tin cậy vẫn
+0,84-0,99** — sai một cách tự tin, không dùng confidence để phát hiện được.
+
+**Bẫy đã đo trước để không mất công**: đổi sang model "latin" của PaddleOCR
+KHÔNG cứu được — `latin_dict` thiếu 102/134 ký tự Việt, `ppocrv5_latin_dict`
+thiếu 90/134, `vi_dict` đủ chữ thường nhưng thiếu 66 chữ HOA có dấu.
+PaddlePaddle không phát hành model nhận dạng tiếng Việt chính thức nào.
+
+**Đo ứng viên trên 4 khung hình THẬT** cắt từ `tap01_clip.mp4`, đáp án do
+người đọc bằng mắt (không lấy từ engine nào):
+
+| Cách đọc | Đọc đúng | Dấu | Tốc độ | Nặng thêm |
+|---|---|---|---|---|
+| RapidOCR (đang dùng) | 78,5% | KHÔNG | 1,03s/khung | 0 |
+| RapidOCR cắt vùng + Tesseract `vie` | 86,5% | có, nhiễu | 1,94s/khung | 1,5 MB |
+| VietOCR (torch) | không đo được | — | — | 1,5 GB |
+| Gemini 3.8 Flash, gộp 4 khung/lượt | **100%** | đúng hết | 0,74s/khung | 0 |
+| Gemini 3.1 Flash Lite, gộp | **100%** | đúng hết | 0,79s/khung | 0 |
+
+Con số 78,5% của RapidOCR **cao giả tạo** — khớp phần chữ tiếng Anh và xương
+phụ âm, còn dấu thì trắng trơn. Tesseract phải cắt vùng chữ trước mới dùng
+được (đọc cả khung: 64% sai; cắt vùng: 33% sai); tinh chỉnh thêm 10 biến thể
+tiền xử lý chỉ nhích lên 87,6% — chạm trần. **VietOCR bị loại vì cái giá chứ
+không vì chất lượng**: venv 1,5 GB, trọng số 151,8 MB tải từ `vocr.vn` đo
+được **60 KB/s ⇒ ~42 phút**, hai lượt thử đều hết giờ nên KHÔNG có số đo chất
+lượng; package không kèm config (cũng tải từ `vocr.vn`) và ghim `gdown==4.4.0`
+dùng `pkg_resources` đã bị gỡ khỏi Python 3.12 ⇒ vỡ ngay lúc import.
+
+**Thiết kế**: `detect_text_regions()` (làm mờ chữ) KHÔNG đổi một dòng nào —
+nó chỉ cần biết chữ NẰM ĐÂU, RapidOCR làm tốt và chạy offline. Chỉ đường ĐỌC
+được thêm bộ đọc thay được: `read_text_regions(..., bo_doc=...)` với
+`BO_DOC_CUC_BO` (mặc định, giữ nguyên hành vi cũ) và `BO_DOC_MAY_CHU`.
+
+**KHÔNG gửi mọi khung hình lên máy chủ** — đây là quyết định thiết kế quan
+trọng nhất vì nó là tiền thật. Lấy mẫu thích ứng cho video 60 giây ra ~152
+khung; gửi hết là ~175.000 token mỗi lượt. RapidOCR đọc mất dấu NHƯNG vẫn
+phân biệt tốt "khung này khác khung trước", nên dùng nó chia khung thành từng
+đoạn cùng chữ, chỉ gửi MỘT khung đại diện mỗi đoạn (tối đa 6 khung/lượt gọi),
+rồi áp bản đọc đúng cho cả đoạn.
+
+**Khuôn output riêng để giữ ánh xạ ảnh↔chữ**: khuôn chung
+`{results:[{value,reason}]}` LỌC BỎ mục có `value` rỗng, mà "khung này không
+có chữ" là câu trả lời hợp lệ và thường gặp — lọc mất nó là lệch ánh xạ của
+mọi khung phía sau, không có tín hiệu nào để phát hiện. Chống bằng hai lớp:
+schema ép mô hình gắn số thứ tự ảnh vào TỪNG mục (không tin thứ tự mảng), và
+`parseDocChuResult` luôn trả đủ `soAnh` mục theo thứ tự 1..soAnh (ảnh mô hình
+bỏ sót → `dong: []`). `parseResult` trả đúng khuôn `{results:[...]}` nên route
+`/v1/ai/assist` dùng lại được y nguyên, KHÔNG sửa một dòng nào.
+
+**Không bịa điểm tin cậy**: mô hình nhìn ảnh không chấm điểm tin cậy, nên
+`QuanSatChu.confidence` đổi thành `float | None` và bộ đọc máy chủ điền
+`None`. Điền 1.0 cho đủ chỗ thì trông y hệt điểm đo thật và mọi thứ đọc
+trường này sau đó đều tin nhầm.
+
+**Hỏng thì lui, không giết cả lượt**: chưa cấu hình máy chủ / mạng lỗi / hết
+Vox ⇒ trả về nguyên bản đọc cục bộ, không ném (chữ mất dấu vẫn dùng được cho
+phân tích cấu trúc), nhưng vẫn lộ ra trong Nhật ký.
+
+**Tests**: Node 15 mới (`doc-chu-khung-hinh.test.js`) — trọng tâm là ánh xạ
+ảnh↔chữ: khung mô hình bỏ sót vẫn có mặt với `dong` rỗng, thứ tự lộn xộn được
+xếp lại đúng, mô hình lặp số ảnh thì giữ mục đầu (không nhân đôi chữ), "mọi
+khung không có chữ" là câu trả lời HỢP LỆ chứ không phải lỗi, output sai
+khuôn → `null` để cổng trợ lý báo lỗi thay vì trả rỗng âm thầm. Có test đọc
+thẳng trần `images.maxItems` trong `routes/ai.js` để `soAnhToiDa` không bao
+giờ vượt trần schema route, và test canh prompt còn đủ hai câu bắt buộc (giữ
+dấu tiếng Việt, KHÔNG dịch) — ai sửa prompt mà bỏ chúng đi thì bug gốc quay
+lại y nguyên.
+
+Python 17 mới (`tests/test_doc_chu_may_chu.py`) — chia đoạn, chỉ gửi khung đại
+diện, chia lô đúng trần 6, áp kết quả cho cả đoạn và giữ nguyên mốc thời gian,
+không bịa điểm tin cậy, máy chủ hỏng thì giữ bản cục bộ và KHÔNG đánh dấu là
+đọc từ máy chủ, mặc định vẫn là bộ đọc cục bộ. Một test canh đúng **lỗi thật
+của bản dựng đầu**: bước sắp xếp cuối xếp theo CHỮ CÁI nên phụ đề song ngữ bị
+đảo thứ tự đọc trên→dưới — tự phát hiện, tự sửa, giữ test lại.
+
+**Live Verification (không mock)**: video thật `tap01_clip.mp4` 20 giây đầu,
+lấy mẫu thật (71 khung), RapidOCR thật, Gemini 3.8 Flash thật với ĐÚNG system
+prompt + schema của máy chủ:
+
+| RapidOCR (trước) | Máy chủ (sau) |
+|---|---|
+| `Luyen nghe hoi thogi co ban` | `Luyện nghe hội thoại cơ bản` |
+| `Chu de : At the restaurant` | `Chủ đề : At the restaurant` |
+| `Cuc bgn san sang` | `Các bạn sẵn sàng` |
+| `goi mon chua?` | `gọi món chưa?` |
+
+Phần tiết kiệm chạy đúng thiết kế: **gửi 23/71 khung** (bỏ 68%), 4 lượt gọi,
+27.558 token, 77 giây.
+
+**Remaining Limits**: chia đoạn bị vụn vì nhiễu OCR — cùng một caption
+RapidOCR đọc ra ba bản khác nhau (`Cuc bgn san sang`/`Cuc ban sin sang`/`Cuc
+ban san sang`) nên tính thành ba đoạn, gửi 23 khung thay vì ~15 lý tưởng; chữa
+được bằng so khớp gần đúng nhưng CỐ Ý CHƯA LÀM vì gộp nhầm hai caption thật sự
+khác nhau sẽ áp sai chữ cho cả đoạn, mà cái giá hiện tại chỉ là ~35% chi phí.
+Giá 8 Vox/lượt là số khởi điểm. **Bộ chặn sao chép nguyên văn của H2 nay nhạy
+hơn hẳn với tiếng Việt** — chú thích cũ ở `chuanHoaSoKhop` lập luận "OCR mất
+dấu nên câu tiếng Việt có dấu sẽ không trùng", lập luận đó không còn đúng khi
+H2b bật; đúng ý đồ gốc của Guardrail 2/6/7 (bắt được chép nguyên văn tiếng
+Việt, trước đây LỌT) nhưng là thay đổi hành vi thật, đã ghi cảnh báo ngay tại
+hàm đó, cần theo dõi tỉ lệ bị chặn ở vài lượt H2 thật đầu tiên. Chưa đo trên
+video dọc/chữ nhỏ/nền động. Bộ đọc offline có dấu (Tesseract `vie`, 1,5 MB,
+87,6%) lắp vừa chỗ cắm này nếu sau có nhu cầu, chưa làm.
+
+**Phát hiện dọc đường, ngoài phạm vi H2b**: `gemini-2.5-flash` đã bị Google
+khoá với khoá mới — API trả 404 *"no longer available to new users"*, khuyên
+chuyển `gemini-3.6-flash`. Cần rà lại cấu hình nhà cung cấp trên máy chủ thật.
+Ngoài ra tham số tắt thinking khác nhau theo đời model (gặp thật, HTTP 400 nếu
+sai): `gemini-3.6-flash` chỉ nhận `thinkingLevel: "low"`; `3.7`/`3.8` nhận
+`thinkingBudget: 0` nhưng từ chối `thinkingLevel` `"none"`/`"minimal"`.

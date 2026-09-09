@@ -26,6 +26,29 @@ def probe_duration_s(video_path: str) -> float | None:
         return None
 
 
+def extract_frame(video_path: str, out_png: str, at_seconds: float = 1.0) -> str:
+    """Trích một khung hình làm PNG qua ffmpeg — mini-spec H2, chuyển vào
+    core (`autodub/`) từ bản gốc chỉ dùng nội bộ GUI
+    (`autodub_gui/style_dialog.py::extract_frame`, giữ nguyên không đụng —
+    tính năng xoá/làm mờ chữ đang chạy đúng, không có lý do sửa).
+
+    Gọi từ luồng nền — video hỏng/dài có thể làm ffmpeg treo tới 30 giây.
+    """
+    cmd = [
+        "ffmpeg", "-v", "error",
+        "-ss", str(at_seconds), "-i", video_path,
+        "-frames:v", "1", "-y", out_png,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if result.returncode != 0 or not os.path.exists(out_png):
+        # Thử lại từ đầu — video có thể ngắn hơn at_seconds.
+        cmd[cmd.index("-ss") + 1] = "0"
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0 or not os.path.exists(out_png):
+            raise RuntimeError(f"Không trích được khung hình: {result.stderr}")
+    return out_png
+
+
 @lru_cache(maxsize=None)
 def _encoder_works(*args: str) -> bool:
     """True nếu ffmpeg mã hóa được thật bằng bộ mã hóa này.
