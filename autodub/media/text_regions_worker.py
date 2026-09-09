@@ -4,10 +4,21 @@ khác) — đúng quy ước của asr_whisper_worker.py/vieneu_worker.py.
 
 CLI:
     python text_regions_worker.py --image frame1.png --image frame2.png
+    python text_regions_worker.py --image frame1.png --doc-chu   # + nội dung chữ
 
 stdout: 1 dòng JSON duy nhất
-    {"ok": true, "boxes": [{"x":..,"y":..,"w":..,"h":..,"confidence":..}, ...]}
+    {"ok": true, "boxes": [{"x":..,"y":..,"w":..,"h":..,"confidence":..}, ...],
+     "anh_loi": 0}
   | {"ok": false, "error": "..."}
+
+``--doc-chu`` (mini-spec H2a, 08/09/2026): mặc định TẮT — giữ nguyên hành
+vi cũ (vứt nội dung chữ, chỉ trả vùng) cho caller cũ
+(`text_regions.detect_text_regions`, dùng cho tính năng làm mờ/xoá chữ).
+Chỉ `text_regions.read_text_regions()` bật cờ này để mỗi box có thêm khoá
+``"text"``. Không tính "status" (ok/unconfirmed) ở đây — worker không biết
+ngưỡng tin cậy của phía gọi, tính tập trung ở `text_regions.py` cho cả
+đường subprocess lẫn in-process, tránh hai nơi định nghĩa hai ngưỡng khác
+nhau.
 """
 import argparse
 import json
@@ -26,6 +37,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", action="append", required=True,
                         dest="images")
+    parser.add_argument("--doc-chu", action="store_true", dest="doc_chu",
+                        help="Giữ nội dung chữ đã đọc (mini-spec H2a)")
     args, _thua = parser.parse_known_args()
     if _thua:
         # C53 — tiến trình cha đời MỚI gửi tham số worker này chưa biết thì bỏ
@@ -43,6 +56,7 @@ def main() -> None:
 
     engine = RapidOCR()
     boxes = []
+    anh_loi = 0
     for chi_so_anh, path in enumerate(args.images):
         try:
             with Image.open(path) as im:
@@ -50,6 +64,7 @@ def main() -> None:
             result, _elapse = engine(path)
         except Exception as e:  # noqa: BLE001 — 1 ảnh hỏng không chặn cả lượt
             print(f"[ocr-worker] bỏ qua {path}: {e}", file=sys.stderr)
+            anh_loi += 1
             continue
         if not result:
             continue
@@ -60,16 +75,24 @@ def main() -> None:
             ys = [p[1] for p in box]
             x1, x2 = min(xs), max(xs)
             y1, y2 = min(ys), max(ys)
-            boxes.append({
+            muc = {
                 # C50: box thuộc KHUNG HÌNH nào — để phía app biết chữ đó xuất
                 # hiện ở khoảng thời gian nào, thay vì che cả video.
                 "anh": chi_so_anh,
                 "x": x1 / width, "y": y1 / height,
                 "w": (x2 - x1) / width, "h": (y2 - y1) / height,
                 "confidence": float(confidence),
-            })
+            }
+            if args.doc_chu:
+                # H2a: caller đặc biệt (read_text_regions) mới nhận trường
+                # này — caller cũ (detect_text_regions, tính năng làm mờ/
+                # xoá chữ) không bật cờ --doc-chu nên không thấy khoá này,
+                # giữ nguyên contract cũ.
+                muc["text"] = text.strip()
+            boxes.append(muc)
 
-    print(json.dumps({"ok": True, "boxes": boxes}, ensure_ascii=False))
+    print(json.dumps({"ok": True, "boxes": boxes, "anh_loi": anh_loi},
+                     ensure_ascii=False))
 
 
 if __name__ == "__main__":

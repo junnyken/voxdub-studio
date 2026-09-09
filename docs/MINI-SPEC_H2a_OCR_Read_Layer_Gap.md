@@ -1,11 +1,21 @@
-# H2a — OCR Read Layer: gap chính xác (audit dừng H2 tại Scope A)
+# H2a — OCR Read Layer: gap chính xác + đóng gap (audit dừng H2 tại Scope A)
 
-> **Kết luận (08/09/2026): H2 KHÔNG được triển khai tiếp.** Audit OCR theo
-> đúng cổng chặn mà mini-spec H2 tự đặt ra ("nếu OCR chỉ trả vùng chữ, DỪNG
-> H2 ở audit") — kết quả: **đúng vậy, OCR hiện tại chỉ trả vùng chữ (toạ độ
-> + độ tin cậy + khung hình), không trả nội dung chữ đã đọc được.** Không
-> có Flow Blueprint nào được build. Đây là báo cáo gap, không phải mini-spec
-> đã hoàn thành.
+> **Cập nhật (08/09/2026, cùng ngày): GAP ĐÃ ĐÓNG — H2a XONG.** Phần đầu
+> tài liệu này (giữ nguyên bên dưới) là báo cáo audit: OCR hiện tại
+> (`detect_text_regions()`, V5) chỉ trả vùng chữ, cố ý vứt nội dung. Theo
+> đúng mini-spec H2a (spec hẹp, riêng) đã thêm `read_text_regions()` — lớp
+> ĐỌC song song, không đổi hành vi `detect_text_regions()` cho caller cũ.
+> **H2 (Flow Blueprint) vẫn CHƯA mở lại** — H2a chỉ đóng đúng gap OCR, chưa
+> có quyết định nào về ngôn ngữ/mật độ lấy mẫu cho H2 dùng thật. Chi tiết
+> triển khai, số đo live verification, và giới hạn còn lại ở mục "Triển
+> khai H2a" cuối tài liệu này và `docs/TEST_LOG.md` mục "H2a — OCR Read
+> Layer".
+
+> **Kết luận audit gốc (08/09/2026): H2 KHÔNG được triển khai tiếp** (lúc
+> viết audit này). OCR hiện tại chỉ trả vùng chữ (toạ độ + độ tin cậy +
+> khung hình), không trả nội dung chữ đã đọc được. Không có Flow Blueprint
+> nào được build. Đây là báo cáo gap ban đầu, phần dưới giữ nguyên làm bằng
+> chứng audit — xem mục "Triển khai H2a" ở cuối cho phần đã đóng.
 
 ## Câu hỏi audit (Scope A của H2)
 
@@ -100,3 +110,122 @@ lượng đọc caption "chưa kiểm chứng cho tiếng Việt, mặc định 
 diện" sang "quét dày" sẽ làm chậm hẳn bước phân tích — cần số đo thời gian
 thật trước khi chốt). Sau khi có quyết định đó, H2a (đóng gap) có thể viết
 thành mini-spec riêng, rồi H2 (Flow Blueprint) mới nối tiếp được.
+
+---
+
+## Triển khai H2a (08/09/2026, cùng ngày với audit)
+
+Chủ dự án gửi mini-spec hẹp ngay sau khi đọc báo cáo trên, chốt rõ: **chỉ
+đóng gap OCR-read, không mở lại H2**. Đã build đúng phạm vi đó.
+
+### Đo thêm trước khi build (Audit Before Build của chính H2a)
+
+Ba việc mini-spec H2a yêu cầu đo trước khi code, cả ba đều đo bằng dữ liệu
+thật (ảnh/video dựng bằng PIL/ffmpeg, gọi thẳng RapidOCR — không đoán):
+
+1. **Caller của `detect_text_regions()`**: quét toàn repo — chỉ MỘT nơi gọi
+   (`autodub_gui/style_dialog.py`), dùng đúng `{x,y,w,h,confidence[,t_start,
+   t_end]}`. Xác nhận an toàn để thêm hàm mới song song mà không đụng caller
+   này.
+2. **Ngôn ngữ**: model bundled sẵn của gói `rapidocr-onnxruntime` là
+   `ch_PP-OCRv4_rec_infer.onnx` (từ điển ký tự Trung + Latin cơ bản, KHÔNG
+   có dấu thanh tiếng Việt). Đo thật bằng câu "Đăng ký kênh để không bỏ lỡ
+   video mới!" (dựng ảnh, font DejaVu Sans có dấu đầy đủ): engine đọc ra
+   **"Dang ky kenh de khong bo lo video moi!"** — MẤT TOÀN BỘ dấu thanh,
+   nhưng confidence vẫn cao (0,951). Đo thêm trên video nén THẬT có sẵn
+   trong repo (`tap01_clip.mp4`, phụ đề cứng song ngữ Anh-Việt): cùng hiện
+   tượng, có chỗ còn sai cả ký tự gốc chứ không chỉ mất dấu (vd "Các bạn"
+   đọc ra "Cuc ban"), confidence vẫn 0,90-0,997. **Kết luận: confidence
+   KHÔNG phải tín hiệu cho lỗi mất-dấu-tiếng-Việt** — model đọc sai một
+   cách tự tin. Đây là giới hạn của MODEL bundled sẵn, không phải lỗi code;
+   không đổi/thêm model trong phạm vi H2a (Guardrail 2 — chưa chứng minh đủ
+   để mở rộng, và RapidOCR pip package hiện chỉ bundle đúng một model nhận
+   dạng).
+3. **Mật độ lấy mẫu khung hình**: bộ lấy mẫu cũ (`style_dialog.py`,
+   `_moc_lay_mau()`) rải 5-24 khung ĐỀU CẢ VIDEO, dựng cho watermark/phụ đề
+   cháy nằm yên hàng chục giây. Đo thật: dựng video 3 giây, chữ "FLASH SALE"
+   chỉ hiện từ giây 0,15 đến 0,65 (0,5 giây) — bộ lấy mẫu cũ (5 mốc:
+   0,06/0,78/1,50/2,22/2,94) **bỏ lọt HOÀN TOÀN** (0/5 khung trúng). Lấy mẫu
+   mỗi 0,2 giây bắt được (khung tại 0,2s/0,4s/0,6s đều đọc đúng "FLASH
+   SALE", confidence 0,988). Đo thêm chi phí: ~1,23 giây/khung trên CPU
+   (ảnh 640×360, đã warmup) — lấy mẫu dày cho video dài là chi phí thật,
+   không tự áp đặt mật độ trong hàm, để bên gọi (H2 sau này) tự cân đối.
+
+### Thiết kế
+
+`autodub/media/text_regions.py` thêm (không sửa dòng nào của
+`detect_text_regions()`/`merge_regions()`/`loc_theo_lap_lai()` hiện có):
+
+- `read_text_regions(image_paths, settings=None, cancel_event=None,
+  moc_thoi_gian=None) -> KetQuaDocChu` — hàm công khai mới.
+- `QuanSatChu` (dataclass): `text, confidence, x, y, w, h, frame_index,
+  timestamp_s, source, status`. MỖI khung hình một quan sát riêng — KHÔNG
+  gộp qua nhiều khung (Scope A: `merge_regions()` gộp theo VỊ TRÍ, đúng cho
+  làm mờ nhưng SAI cho nội dung — hai caption khác nhau cùng nằm đáy màn
+  hình sẽ bị gộp nhầm nếu tái dùng hàm đó cho chữ).
+- `KetQuaDocChu` (dataclass): `trang_thai` ("co_chu" | "no_text") +
+  `quan_sat`. `"unavailable"`/`"failed"` KHÔNG phải giá trị của trường này
+  — ném ngoại lệ (`ChuaCaiOcr` tái dùng nguyên; `DocChuThatBai` mới, khi
+  MỌI khung hình đưa vào đều gọi OCR lỗi).
+- `NGUONG_TIN_CAY_DOC = 0.70` — phân biệt `status="ok"`/`"unconfirmed"`
+  mỗi quan sát. Chưa hiệu chỉnh rộng (xem giới hạn ở trên: không bắt được
+  ca "tự tin nhưng sai" của tiếng Việt).
+- `text_regions_worker.py` (script độc lập, chạy trong `.venv-ocr`): thêm
+  cờ `--doc-chu` (mặc định TẮT) — bật lên mới có khoá `"text"` trong JSON
+  trả về; JSON luôn có thêm `"anh_loi"` (số khung lỗi, caller cũ bỏ qua
+  field lạ, không vỡ). `_detect_in_process`/`_detect_via_subprocess` cùng
+  thêm tham số `doc_chu`/`thong_ke` theo kiểu keyword-only mặc định giữ
+  hành vi cũ — lời gọi cũ trong `detect_text_regions()` không đổi một ký
+  tự nào.
+
+Không có UI mới (Scope B chỉ "tối thiểu nếu cần" — live verification làm
+được bằng script, không cần màn hình review).
+
+### Live Verification (bắt buộc theo Test Plan — cả 4 case, không mock)
+
+Chạy qua ĐÚNG hàm `read_text_regions()` vừa build (không phải bản nháp gọi
+RapidOCR tay):
+
+1. **Ảnh tiếng Anh rõ**: "FLASH SALE" → `status="ok"`, confidence 0,988.
+2. **Caption tiếng Việt**: xem mục "Ngôn ngữ" ở audit trên — đọc được,
+   `status="ok"` (confidence cao), nhưng NỘI DUNG sai (mất dấu/sai ký tự).
+   Không tự động phát hiện được ca này bằng ngưỡng confidence.
+3. **Video nén thật, caption ngắn 0,5 giây trong 3 giây đầu**: lấy mẫu mỗi
+   0,2 giây qua `read_text_regions()` → 3 quan sát tại t=0,2s/0,4s/0,6s,
+   đều đọc đúng "FLASH SALE" — xác nhận đường ống ĐẦY ĐỦ (trích khung +
+   đọc + gắn timestamp) hoạt động đúng khi mật độ đủ dày.
+4. **Video nén thật, nền phức tạp/motion**: `tap01_clip.mp4` (clip có sẵn
+   trong repo, dùng cho CI) — 2 khung tại t=1s/t=25s đọc ra đủ 7 dòng chữ
+   song ngữ Anh-Việt, gắn đúng timestamp theo khung nguồn.
+
+**Không đọc được chắc** (theo đúng yêu cầu "ghi tỷ lệ, không hứa đa ngôn
+ngữ"): tiếng Anh rõ 100% chính xác trong mọi ca đã thử; tiếng Việt 100%
+"đọc được" theo nghĩa có text + confidence cao, nhưng SAI ở mức ký tự
+(mất dấu, đôi chỗ sai từ) trong TẤT CẢ câu tiếng Việt đã thử — không có
+câu tiếng Việt nào ra đúng nguyên văn trong lượt đo này.
+
+### Tests
+
+12 test mới (`tests/test_read_text_regions.py`) + toàn bộ 69 test cũ của
+OCR (`test_text_regions.py` và các tệp liên quan) chạy lại xanh nguyên,
+không sửa gì. Hai hồi quy Guardrail 4 đã CHỨNG MINH đỏ trước khi phục hồi
+(gỡ tạm code, chạy test thấy đỏ đúng chỗ, khôi phục lại xanh) — đúng kỷ
+luật dự án, không chỉ tin lời tự nhận:
+- Gộp `unavailable` thành `no_text` → đỏ (`test_chua_cai_ocr_nem_ChuaCaiOcr_khong_phai_no_text`).
+- Vứt `text` dù đã bật `doc_chu=True` → đỏ (`test_doc_duoc_chu_giu_du_text_confidence_bbox_timestamp`).
+
+### Remaining Limits
+
+- **Tiếng Việt đọc được ở mức GIST, không chính xác ở mức KÝ TỰ** — cần
+  quyết định của chủ dự án nếu H2 (sau này) cần độ chính xác cao hơn:
+  đổi/thêm model nhận dạng có dấu tiếng Việt (ngoài phạm vi H2a).
+  Confidence không phải tín hiệu để tự động phát hiện ca này.
+- **Chưa chốt mật độ lấy mẫu cho H2 dùng thật** — `read_text_regions()`
+  nhận `image_paths` bất kỳ, KHÔNG tự áp đặt mật độ. H2 (nếu mở lại) phải
+  tự quyết định trade-off tốc độ/độ phủ (đo thật: ~1,23s/khung CPU) theo
+  độ dài video thật cần phân tích.
+- Không merge/dedupe caption lặp qua nhiều khung — cố ý, đúng Scope A
+  ("chưa đủ bằng chứng, không bịa thuật toán gộp"). H2 sau này cần tự
+  quyết định thuật toán gộp theo NỘI DUNG (không phải vị trí) nếu cần.
+- H2 (Flow Blueprint) vẫn CHƯA mở lại — H2a chỉ đóng đúng gap kỹ thuật
+  OCR, không phải quyết định "H2 sẵn sàng chạy".

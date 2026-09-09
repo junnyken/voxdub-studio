@@ -15079,3 +15079,74 @@ Không có test mới, không sửa `text_regions.py` — đây là audit đọc
 không phải mã sản phẩm; đè lên hành vi blur đang chạy đúng là rủi ro không
 cần thiết cho một báo cáo audit. Cập nhật FEATURES.md §5 với phát hiện này
 để đề xuất sau không giả định OCR đã đọc được caption.
+
+---
+
+## H2a — OCR Read Layer, đóng gap H2 (08/09/2026, cùng ngày với audit)
+
+Chủ dự án gửi ngay một mini-spec HẸP sau báo cáo audit H2 ở trên: chỉ đóng
+đúng gap OCR-read, không mở lại H2/FlowBlueprint. Ba việc phải đo trước khi
+code (Audit Before Build của chính H2a), cả ba đo bằng dữ liệu thật:
+
+**1. Caller của `detect_text_regions()`** — quét lại toàn repo, xác nhận
+lần nữa chỉ một nơi gọi (`style_dialog.py`), an toàn để thêm hàm song song.
+
+**2. Ngôn ngữ** — model bundled sẵn của `rapidocr-onnxruntime` là
+`ch_PP-OCRv4_rec_infer.onnx` (từ điển Trung + Latin cơ bản, KHÔNG có dấu
+tiếng Việt). Đo thật: câu "Đăng ký kênh để không bỏ lỡ video mới!" (dựng
+ảnh bằng PIL, font DejaVu Sans có dấu đầy đủ) → engine đọc ra "Dang ky
+kenh de khong bo lo video moi!" — **mất toàn bộ dấu thanh, confidence vẫn
+0,951**. Đo thêm trên video nén THẬT có sẵn trong repo (`tap01_clip.mp4`,
+phụ đề cứng song ngữ) — cùng hiện tượng, có chỗ sai cả ký tự gốc ("Các
+bạn" → "Cuc ban"), confidence vẫn 0,90-0,997. **Kết luận: confidence không
+phải tín hiệu cho lỗi mất-dấu tiếng Việt — model đọc sai một cách tự tin.**
+Không đổi/thêm model (Guardrail 2 H2a — chưa đủ bằng chứng, và pip package
+hiện chỉ bundle đúng 1 model nhận dạng).
+
+**3. Mật độ lấy mẫu khung hình** — bộ lấy mẫu cũ (`style_dialog.py`,
+5-24 khung rải đều CẢ VIDEO, dựng cho watermark/phụ đề cháy nằm yên hàng
+chục giây) có bắt được caption ngắn không? Đo thật: dựng video 3 giây,
+chữ "FLASH SALE" hiện đúng 0,5 giây (0,15s-0,65s) — bộ lấy mẫu cũ (mốc
+0,06/0,78/1,50/2,22/2,94) **bỏ lọt HOÀN TOÀN**, 0/5 khung trúng. Lấy mẫu
+mỗi 0,2 giây bắt được (3/3 khung trong khoảng đó đọc đúng, confidence
+0,988). Đo thêm chi phí: ~1,23 giây/khung trên CPU (ảnh 640×360, đã
+warmup) — lấy mẫu dày cho video dài là chi phí thật, không hàm nào tự áp
+đặt mật độ, để bên gọi tự cân đối.
+
+**Thiết kế** (không sửa dòng nào của `detect_text_regions()`/
+`merge_regions()`/`loc_theo_lap_lai()` hiện có — Guardrail 1):
+`autodub/media/text_regions.py` thêm `read_text_regions()` (hàm công khai
+mới) + `QuanSatChu`/`KetQuaDocChu` (dataclass) + `DocChuThatBai` (ngoại lệ
+mới) + `NGUONG_TIN_CAY_DOC = 0.70`. Mỗi khung hình ra MỘT quan sát riêng —
+KHÔNG gộp qua nhiều khung (Scope A: `merge_regions()` gộp theo VỊ TRÍ,
+đúng cho làm mờ nhưng SAI cho nội dung — hai caption khác nhau cùng nằm
+đáy màn hình sẽ gộp nhầm nếu tái dùng). Bốn trạng thái tách bạch: `co_chu`/
+`no_text` (giá trị của `KetQuaDocChu.trang_thai`) và `unavailable`/`failed`
+(ngoại lệ — `ChuaCaiOcr` tái dùng nguyên, `DocChuThatBai` mới khi MỌI khung
+đưa vào đều gọi OCR lỗi, không phải chỉ một khung). `text_regions_worker.py`
+thêm cờ `--doc-chu` (mặc định TẮT, giữ nguyên contract cũ) + field
+`"anh_loi"` luôn có trong JSON (caller cũ bỏ qua field lạ, không vỡ).
+
+**Live Verification (bắt buộc, cả 4 case, qua ĐÚNG hàm vừa build, không
+mock)**: (1) ảnh tiếng Anh rõ "FLASH SALE" → ok, 0,988; (2) caption tiếng
+Việt → đọc được (có text + confidence cao) nhưng SAI nội dung (mất dấu/sai
+ký tự) trong TẤT CẢ câu đã thử — không có câu tiếng Việt nào ra đúng
+nguyên văn; (3) video nén thật, caption 0,5s trong 3s đầu, lấy mẫu 0,2s
+qua `read_text_regions()` → 3 quan sát đúng tại t=0,2s/0,4s/0,6s; (4)
+`tap01_clip.mp4` (video nén thật, nội dung thật, sẵn có trong repo) — 2
+khung đọc ra đủ 7 dòng chữ song ngữ, gắn đúng timestamp nguồn.
+
+**Test**: 12 test mới (`tests/test_read_text_regions.py`) + 69 test OCR cũ
+chạy lại xanh nguyên, không sửa gì. Hai hồi quy Guardrail 4 đã **chứng
+minh đỏ trước khi phục hồi** (gỡ tạm code, chạy thấy đỏ đúng chỗ, khôi
+phục lại xanh — không chỉ tin lời tự nhận): gộp `unavailable` thành
+`no_text` → đỏ; vứt `text` dù đã bật `doc_chu=True` → đỏ. Toàn bộ suite:
+**2449 passed, 4 skipped** (từ 2438), không có test nào vỡ.
+
+**Remaining Limits**: tiếng Việt đọc được ở mức GIST, không chính xác ở
+mức KÝ TỰ (cần quyết định đổi/thêm model nếu H2 cần chính xác hơn — ngoài
+phạm vi H2a); chưa chốt mật độ lấy mẫu cho H2 dùng thật (hàm không tự áp
+đặt); không merge/dedupe caption theo nội dung (cố ý, chưa đủ bằng chứng);
+**H2 (Flow Blueprint) vẫn CHƯA mở lại** — H2a chỉ đóng gap kỹ thuật, không
+phải quyết định "H2 sẵn sàng chạy". Chi tiết đầy đủ ở
+`docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md` mục "Triển khai H2a".

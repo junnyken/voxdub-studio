@@ -7,8 +7,18 @@ không phải định dạng mới).
 
 OCR chạy 100% local (RapidOCR, ONNX Runtime — cùng họ công nghệ VieNeu/
 Paraformer đã dùng, không torch/paddlepaddle) — không gửi frame ra ngoài.
+
+``read_text_regions()`` (mini-spec H2a, 08/09/2026) là lớp ĐỌC nội dung chữ
+— khác hẳn ``detect_text_regions()`` ở trên, hàm đó CỐ Ý vứt bỏ nội dung
+chữ đã đọc được (chỉ cần vùng để làm mờ/xoá, đúng mục tiêu V5). H2a thêm
+đường đọc SONG SONG, tái dùng đúng engine/worker/subprocess hiện có, không
+đổi contract của ``detect_text_regions()`` cho caller cũ (`style_dialog.py`)
+— xem cờ ``doc_chu`` xuyên suốt tệp này: mặc định ``False`` giữ nguyên hành
+vi cũ, chỉ khi gọi từ ``read_text_regions()`` mới bật lên.
 """
 from __future__ import annotations
+
+from dataclasses import dataclass, field
 
 from autodub.utils import setup_logging
 
@@ -152,9 +162,16 @@ def _get_engine():
     return _engine
 
 
-def _detect_in_process(image_paths: list[str]) -> list[dict]:
+def _detect_in_process(image_paths: list[str], *, doc_chu: bool = False,
+                       thong_ke: dict | None = None) -> list[dict]:
     """Đường dự phòng: chạy OCR ngay trong tiến trình chính (dev, hoặc khi
     chưa cài .venv-ocr). Cần rapidocr-onnxruntime có sẵn trong venv hiện tại.
+
+    ``doc_chu`` (mini-spec H2a): mặc định ``False`` — giữ NGUYÊN hành vi cũ
+    cho `detect_text_regions()` (vứt nội dung chữ). Chỉ `read_text_regions()`
+    gọi với ``doc_chu=True`` để mỗi box có thêm khoá ``"text"``. ``thong_ke``
+    (nếu có) nhận đếm ``"anh_loi"`` — số ảnh OCR gọi lỗi, để bên gọi phân
+    biệt "chạy xong, không thấy chữ" với "toàn bộ ảnh đều gọi lỗi".
     """
     try:
         from PIL import Image
@@ -173,17 +190,20 @@ def _detect_in_process(image_paths: list[str]) -> list[dict]:
             "(hoặc scripts/setup_ocr.py) rồi quét lại") from e
 
     boxes: list[dict] = []
+    anh_loi = 0
     for chi_so_anh, image_path in enumerate(image_paths):
         try:
             with Image.open(image_path) as im:
                 width, height = im.size
         except OSError as e:
             logger.warning(f"Không đọc được ảnh để quét chữ ({e})")
+            anh_loi += 1
             continue
         try:
             result, _elapse = engine(image_path)
         except Exception as e:  # noqa: BLE001 — OCR hỏng không được chặn cả lượt
             logger.warning(f"OCR lỗi ({e}) — bỏ qua, người dùng vẫn tự vẽ tay được")
+            anh_loi += 1
             continue
         if not result:
             continue
@@ -194,12 +214,17 @@ def _detect_in_process(image_paths: list[str]) -> list[dict]:
             ys = [p[1] for p in box]
             x1, x2 = min(xs), max(xs)
             y1, y2 = min(ys), max(ys)
-            boxes.append({
+            muc = {
                 "anh": chi_so_anh,   # C50 — xem chú thích ở worker
                 "x": x1 / width, "y": y1 / height,
                 "w": (x2 - x1) / width, "h": (y2 - y1) / height,
                 "confidence": float(confidence),
-            })
+            }
+            if doc_chu:
+                muc["text"] = text.strip()
+            boxes.append(muc)
+    if thong_ke is not None:
+        thong_ke["anh_loi"] = anh_loi
     return boxes
 
 
@@ -216,12 +241,16 @@ def _han_gio(so_khung: int) -> float:
 
 
 def _detect_via_subprocess(image_paths: list[str], settings,
-                           cancel_event=None) -> list[dict] | None:
+                           cancel_event=None, *, doc_chu: bool = False,
+                           thong_ke: dict | None = None) -> list[dict] | None:
     """Đường chính: chạy OCR trong .venv-ocr cô lập (đúng convention của dự
     án — mọi engine nặng chạy subprocess riêng, xem docs/ARCH.md). Trả về
     None (không phải []) khi subprocess không dùng được, để caller biết mà
     rơi về đường in-process thay vì hiểu nhầm thành "quét xong, không thấy
     chữ".
+
+    ``doc_chu``/``thong_ke``: xem chú thích ở `_detect_in_process` — cùng
+    quy ước, mini-spec H2a.
     """
     import json
     import subprocess
@@ -234,6 +263,8 @@ def _detect_via_subprocess(image_paths: list[str], settings,
           bundled_file("autodub", "media", "text_regions_worker.py")]
     for path in image_paths:
         cmd += ["--image", path]
+    if doc_chu:
+        cmd += ["--doc-chu"]
     han = _han_gio(len(image_paths))
     try:
         if cancel_event is None:
@@ -265,6 +296,8 @@ def _detect_via_subprocess(image_paths: list[str], settings,
     if not data.get("ok"):
         logger.warning(f"Worker OCR báo lỗi: {data.get('error')}")
         return None
+    if thong_ke is not None:
+        thong_ke["anh_loi"] = int(data.get("anh_loi") or 0)
     return data.get("boxes") or []
 
 
@@ -388,3 +421,141 @@ def detect_text_regions(image_paths: list[str], settings=None,
     if moc_thoi_gian:
         merged = gan_khoang_thoi_gian(merged, moc_thoi_gian)
     return [_pad(r) for r in merged]
+
+
+# ======================================================================
+# Lớp ĐỌC nội dung chữ — mini-spec H2a (08/09/2026, đóng gap audit H2)
+# ======================================================================
+#
+# Đo thật trước khi chọn ngưỡng (không suy đoán): RapidOCR trên máy thử
+# hiếm khi trả confidence thấp — kể cả chữ mờ/tương phản thấp vẫn ra
+# ~0,96-0,99 (engine có xu hướng "đọc tự tin hoặc không phát hiện được
+# vùng nào" hơn là đọc nửa vời). Ngưỡng dưới đây là khởi điểm hợp lý theo
+# quy ước OCR phổ biến — CHƯA có đủ ca đọc-sai-mà-confidence-thấp để hiệu
+# chỉnh chặt hơn, cần thêm dữ liệu thật từ các lượt H2a chạy sau.
+#
+# Giới hạn ĐÃ ĐO, KHÔNG do ngưỡng này bắt được: chữ tiếng Việt bị RapidOCR
+# đọc MẤT DẤU THANH (model nhận dạng bundled sẵn — ch_PP-OCRv4 — không có
+# tiếng Việt trong bộ ký tự) nhưng vẫn báo confidence CAO (đo thật: 0,90-
+# 0,99 cho cả câu tiếng Việt đọc sai/mất dấu). Ngưỡng tin cậy KHÔNG phải
+# tín hiệu cho lỗi này — xem docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md.
+NGUONG_TIN_CAY_DOC = 0.70
+
+
+class DocChuThatBai(RuntimeError):
+    """OCR đã cài nhưng lượt ĐỌC CHỮ này gọi lỗi trên MỌI khung hình được
+    đưa vào — khác hẳn :class:`ChuaCaiOcr` ("chưa cài gì cả") và khác
+    trạng thái ``"no_text"`` ("đã chạy xong ít nhất 1 khung, không thấy
+    chữ"). Guardrail 4 của H2a: bốn trạng thái không được trộn vào nhau.
+    """
+
+
+@dataclass
+class QuanSatChu:
+    """Một chữ đọc được, TẠI ĐÚNG một khung hình — KHÔNG gộp qua nhiều
+    khung (Scope A của H2a: chưa đủ bằng chứng để bịa thuật toán gộp nội
+    dung, khác `merge_regions()` vốn gộp theo VỊ TRÍ cho mục đích làm mờ,
+    sai nếu dùng cho nội dung vì hai chữ khác nhau có thể cùng vị trí)."""
+
+    text: str
+    confidence: float
+    x: float
+    y: float
+    w: float
+    h: float
+    frame_index: int
+    timestamp_s: float | None
+    source: str          # "subprocess" | "in_process"
+    status: str          # "ok" | "unconfirmed"
+
+
+@dataclass
+class KetQuaDocChu:
+    """``trang_thai``: ``"co_chu"`` (thấy ít nhất 1 chữ) hoặc ``"no_text"``
+    (chạy xong, không thấy gì). ``"unavailable"``/``"failed"`` KHÔNG phải
+    giá trị của trường này — hai ca đó ném ngoại lệ (`ChuaCaiOcr`/
+    `DocChuThatBai`), vì lúc đó không có "quan_sat" nào để đặt vào đây.
+    """
+
+    trang_thai: str
+    quan_sat: list[QuanSatChu] = field(default_factory=list)
+
+
+def read_text_regions(
+    image_paths: list[str], settings=None, cancel_event=None,
+    moc_thoi_gian: list[float] | None = None,
+) -> KetQuaDocChu:
+    """Đọc NỘI DUNG chữ overlay tại từng khung hình — mini-spec H2a.
+
+    Khác `detect_text_regions()` (hàm phía trên, dùng cho tính năng làm mờ/
+    xoá chữ — KHÔNG đổi, vẫn vứt nội dung chữ như cũ): hàm này GIỮ LẠI chữ
+    đã đọc được, để mini-spec H2 (Flow Blueprint, chưa build) có bằng chứng
+    caption thật theo dòng thời gian.
+
+    Trả về **quan sát THÔ, chưa gộp** — mỗi chữ đọc được ở một khung hình là
+    MỘT mục riêng, gắn đúng ``frame_index``/``timestamp_s`` của khung đó.
+    Không tự suy luận "chữ này là cùng một caption xuất hiện xuyên suốt
+    K khung" — `merge_regions()` làm việc đó theo VỊ TRÍ, đúng cho mục đích
+    làm mờ (không cần biết nội dung) nhưng SAI ở đây: hai caption khác nhau
+    xuất hiện cùng một vùng màn hình (rất phổ biến — chữ luôn nằm đáy
+    khung) sẽ bị gộp nhầm thành một nếu gộp theo vị trí.
+
+    ``image_paths``/``moc_thoi_gian``: bên gọi tự quyết định mật độ lấy mẫu
+    khung hình — KHÔNG dùng lại mật độ thưa của `detect_text_regions()`
+    (5-24 khung rải đều CẢ VIDEO, dựng cho watermark/phụ đề cháy nằm yên
+    nhiều giây). Đo thật 08/09: caption dài 0,5 giây bị bộ lấy mẫu thưa đó
+    bỏ lọt HOÀN TOÀN (0/5 khung trúng); lấy mẫu mỗi 0,2-0,4 giây bắt được.
+    Với ~1,2 giây/khung trên CPU (đo thật, ảnh 640×360), lấy mẫu dày cho cả
+    một video dài là chi phí thật — bên gọi (mini-spec H2 sau này) tự cân
+    đối theo độ dài video cần phân tích, hàm này không tự áp đặt.
+
+    Ném :class:`ChuaCaiOcr` khi chưa cài bộ OCR nào (unavailable — cùng
+    điều kiện với `detect_text_regions()`); ném :class:`DocChuThatBai` khi
+    cả hai đường subprocess lẫn in-process đều gọi lỗi trên MỌI khung hình
+    (failed — khác "chạy xong, không thấy chữ").
+    """
+    if not image_paths:
+        return KetQuaDocChu(trang_thai="no_text", quan_sat=[])
+
+    thong_ke: dict = {}
+    nguon = "subprocess"
+    all_boxes = (_detect_via_subprocess(image_paths, settings, cancel_event,
+                                        doc_chu=True, thong_ke=thong_ke)
+                if settings else None)
+    if cancel_event is not None and cancel_event.is_set():
+        return KetQuaDocChu(trang_thai="no_text", quan_sat=[])
+    if all_boxes is None:
+        nguon = "in_process"
+        thong_ke = {}
+        try:
+            all_boxes = _detect_in_process(image_paths, doc_chu=True,
+                                           thong_ke=thong_ke)
+        except ChuaCaiOcr:
+            if settings is not None and settings.ocr_configured():
+                raise ChuaCaiOcr(
+                    "Bộ đọc chữ đã cài nhưng lượt này không chạy được — xem "
+                    "Nhật ký để biết lý do") from None
+            raise
+
+    if thong_ke.get("anh_loi", 0) >= len(image_paths):
+        raise DocChuThatBai(
+            f"Đọc chữ lỗi trên toàn bộ {len(image_paths)} khung hình đưa "
+            "vào — xem Nhật ký để biết lý do từng khung.")
+
+    quan_sat = [
+        QuanSatChu(
+            text=box["text"], confidence=box["confidence"],
+            x=box["x"], y=box["y"], w=box["w"], h=box["h"],
+            frame_index=box["anh"],
+            timestamp_s=(moc_thoi_gian[box["anh"]]
+                        if moc_thoi_gian and box["anh"] < len(moc_thoi_gian)
+                        else None),
+            source=nguon,
+            status=("ok" if box["confidence"] >= NGUONG_TIN_CAY_DOC
+                   else "unconfirmed"),
+        )
+        for box in all_boxes
+    ]
+    return KetQuaDocChu(
+        trang_thai=("co_chu" if quan_sat else "no_text"),
+        quan_sat=quan_sat)

@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-08 · phiên bản ứng dụng `3.16.8` · 2.438 test Python +
+> Cập nhật: 2026-09-08 · phiên bản ứng dụng `3.16.8` · 2.449 test Python +
 > 542 test Node + 74 test React
 
 ---
@@ -381,16 +381,24 @@ này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cu
 
   Inpainting học sâu thì vẫn chưa (cần model vài trăm MB + xử lý từng khung).
 
-  **OCR chỉ PHÁT HIỆN VÙNG, không ĐỌC NỘI DUNG chữ** (xác nhận 08/09 khi
-  audit cho mini-spec H2 — đo thật bằng RapidOCR thật, không chỉ đọc mã):
-  engine RapidOCR đọc đúng nội dung chữ nội bộ, nhưng
-  `detect_text_regions()` (`text_regions.py`/`text_regions_worker.py`) chỉ
-  giữ lại `{x,y,w,h,confidence,khung hình}` — biến `text` bị vứt ngay sau
-  khi dùng để lọc dòng rỗng, cả ở đường subprocess lẫn in-process. Đây là
-  quyết định ĐÚNG cho mục tiêu gốc (V5 — phát hiện vùng để làm mờ/xoá,
-  không cần biết chữ gì), không phải lỗi — nhưng nghĩa là **không đề xuất
-  nào được giả định "app đọc được caption/chữ trên hình"** cho tới khi có
-  một lớp đọc riêng (chưa làm — xem `docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md`).
+  **`detect_text_regions()` (dùng cho làm mờ/xoá) chỉ trả VÙNG, không trả
+  nội dung chữ** — cố ý, đúng mục tiêu gốc V5, không phải lỗi. Từ 08/09 có
+  thêm **`read_text_regions()`** (mini-spec H2a) — lớp ĐỌC song song, giữ
+  lại `text` + `confidence` + `timestamp` mỗi khung hình, KHÔNG đổi hành vi
+  hàm cũ. **Chưa nối vào bất kỳ trang/tính năng nào** — đây là hạ tầng cho
+  mini-spec H2 ("Flow Blueprint", đang tạm dừng) đọc sau này, chưa có giao
+  diện người dùng nào gọi tới hàm này.
+
+  Hai giới hạn đã ĐO THẬT (không suy đoán), phải biết trước khi dùng lớp
+  đọc này cho việc gì: (1) **tiếng Việt bị đọc MẤT DẤU THANH** (model
+  nhận dạng bundled sẵn — `ch_PP-OCRv4` — không có ký tự tiếng Việt trong
+  từ điển), và **confidence vẫn báo cao (0,90-0,99) dù đọc sai** — không
+  có tín hiệu tự động nào bắt được lỗi này; (2) **caption ngắn (dưới 1
+  giây) cần lấy mẫu khung hình DÀY hơn hẳn** mức dùng cho làm mờ (đo thật:
+  caption 0,5 giây bị bộ lấy mẫu thưa của tính năng làm mờ bỏ lọt hoàn
+  toàn 0/5 khung; lấy mẫu mỗi 0,2 giây mới bắt được) — chi phí ~1,23
+  giây/khung trên CPU, mật độ dày cho video dài là chi phí thật. Chi tiết
+  đầy đủ: `docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md`.
 - **Che chữ trên video DÀI chưa ai chạy thật.** C50 quét dày hơn theo thời
   lượng (tới 24 khung), nhưng mọi bằng chứng hiện có là test và tính tay —
   chưa có lượt nào trên phim ~40 phút. Lấy mẫu ~2 phút/khung vẫn **có thể
@@ -522,12 +530,13 @@ Các bản đề xuất trước đã mắc đúng những lỗi dưới đây. 
 6. **Đề xuất thêm bảng/cửa API/trang mới khi thứ tương đương đã có.** Ví dụ
    thống kê hiệu chỉnh đã có chỗ đứng trong bảng thống kê trợ lý sẵn có; dựng
    cửa thứ hai chỉ tạo thêm một chỗ phải nhớ mở.
-7. **"App đã đọc được caption/chữ overlay trên hình"** — CHƯA. OCR hiện tại
-   chỉ phát hiện VÙNG chữ để làm mờ/xoá (`text_regions.py`), nội dung chữ
-   đọc được bị vứt đi ngay sau khi lọc dòng rỗng — xác nhận bằng đo thật
-   08/09 (mini-spec H2, xem `docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md`).
-   Đề xuất nào cần ĐỌC nội dung chữ trên hình (dịch chữ trong ảnh, phân
-   tích caption, v.v.) đều cần một lớp mới, chưa tồn tại.
+7. **"App đã đọc được caption/chữ overlay trên hình, dùng ngay để..."** —
+   CÓ hàm đọc được (`read_text_regions()`, mini-spec H2a, `text_regions.py`)
+   nhưng **CHƯA nối vào bất kỳ trang/tính năng nào** — không có UI, không
+   có tác vụ nào gọi tới nó. Và đừng hứa chính xác cho tiếng Việt: đo thật
+   xác nhận model đọc MẤT DẤU THANH (đôi khi sai cả ký tự gốc) trong MỌI
+   câu tiếng Việt đã thử, dù confidence báo cao — xem
+   `docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md`.
 
 ---
 
@@ -582,9 +591,9 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/PRD.md` | Yêu cầu sản phẩm và các rủi ro mở |
 | `docs/KE-HOACH-KIEM-C50-C52.md` | Hai việc còn tồn chỉ máy chủ dự án trả lời được: che chữ trên phim dài, và "nghe chép thiếu câu" — kèm cách đo, **không tốn Vox** |
 | `docs/MINI-SPEC_H1_Ho_So_Brand_Multi_Tenant.md` | Hồ sơ Brand — nền tảng multi-tenant cho sáng kiến "Viral Flow Clone & Brand Rewrite", đã xong Scope A-D |
-| `docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md` | H2 (Flow Blueprint) dừng ở audit: OCR chỉ phát hiện vùng chữ, không đọc nội dung — gap chính xác + việc cần làm để đóng |
+| `docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md` | Audit OCR dừng H2 (Flow Blueprint) + đóng gap: `read_text_regions()` mới, đọc được nội dung chữ nhưng tiếng Việt còn mất dấu — H2 vẫn CHƯA mở lại |
 
-**Quy mô test tại thời điểm cập nhật tệp này:** 2.438 test Python (4 bỏ qua —
+**Quy mô test tại thời điểm cập nhật tệp này:** 2.449 test Python (4 bỏ qua —
 chỉ có nghĩa trên Windows) + 542 test Node (1 bỏ qua, 0 hỏng) + 74 test React (0 hỏng).
 Con số này tăng gần như mỗi đợt — dùng nó để hình dung quy mô, đừng dùng làm
 mốc đối chiếu.
