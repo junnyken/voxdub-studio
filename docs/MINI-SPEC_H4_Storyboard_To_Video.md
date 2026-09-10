@@ -44,6 +44,44 @@ cấu hình: C1/C2 sinh ra vì người bán bị TikTok Shop phạt do ảnh d�
 bì. Mọi ảnh SINH RA phải qua `packaging_check` trước khi vào video; ảnh người
 dùng tự chọn thì không cần (đó là ảnh của họ).
 
+## B2. Nhân vật: hệ thống KHÔNG đồng bộ được người giữa các cảnh
+
+Câu hỏi của chủ dự án 10/09, và câu trả lời là **không** — hệ thống chưa từng
+được dựng để làm việc đó.
+
+Máy sinh ảnh của dự án neo tính nhất quán vào **ảnh sản phẩm thật**:
+`prompts/product_scene.js` ra lệnh *"TUYỆT ĐỐI giữ nguyên sản phẩm trong ảnh
+gốc… Chỉ thay đổi: bối cảnh xung quanh, mặt bàn/nền, ánh sáng, bóng đổ và góc
+máy."* Nhân vật thì **không có ảnh gốc nào để neo**. Sáu bối cảnh dựng sẵn
+cũng nói lên điều đó — bối cảnh "người" duy nhất là `tay_cam`: *một bàn tay*,
+không có mặt.
+
+Bộ kiểm liền mạch `scene_continuity` cũng không cứu được: nó chỉ xét *cỡ sản
+phẩm trong khung, góc máy, tông màu, hướng ánh sáng*, và ghi rõ KHÔNG xét bao
+bì (việc của `packaging_check`). Nó **không có khái niệm nhân vật**.
+
+**Chuyện này đã suýt thành thật.** Lượt chạy H3 thật ngày 10/09 sinh ra
+visual brief *"cắt nhanh sang cảnh một người mẹ bỉm vừa bế con nhỏ vừa loay
+hoay lật chảo"* và *"Khuôn mặt mẹ bỉm lộ rõ vẻ mệt mỏi"*. Sinh ảnh theo đúng
+những mô tả đó sẽ ra **bốn người phụ nữ khác nhau đóng cùng một vai**, và
+không bộ kiểm nào trong hệ thống bắt được.
+
+### Đã chốt: hướng 1 mặc định, hướng 2 cho ai muốn có người
+
+| Hướng | Cách làm | Trạng thái |
+|---|---|---|
+| **1 — tránh nhân vật** (mặc định) | `visual_brief` tả bằng **sản phẩm, bàn tay, bối cảnh**; cần người thì chỉ nói VAI TRÒ + HÀNH ĐỘNG, cấm chi tiết nhận dạng | **đã làm** — sửa prompt, `PROMPT_VERSION` 1→2 |
+| **2 — người dùng tự đưa ảnh người thật** | Hợp với hướng "hỗn hợp": họ tự quay/chụp, hệ thống chỉ ghép. Nhất quán tuyệt đối vì là người thật | H4c/H4e lo phần gán ảnh |
+| 3 — neo nhân vật bằng ảnh tham chiếu | Cần mô hình identity-preserving + một bộ kiểm "còn đúng người không" kiểu `packaging_check` + đo thật | **không làm** — là mini-spec riêng |
+
+Lợi ích kèm theo của hướng 1: ảnh AI có mặt người còn vướng chuyện chân
+dung/đồng ý hình ảnh mà `docs/PRD.md` §9 đã ghi là rủi ro mở.
+
+**Kiểm chứng thật sau khi sửa prompt** (cùng brand, cùng bộ khung, Gemini 3.8
+thật): **0/5 đoạn** còn tả nhận dạng người. Ví dụ đoạn hook đổi từ *"Khuôn mặt
+mẹ bỉm lộ rõ vẻ mệt mỏi"* thành *"một tay người mẹ vừa cầm bình sữa vừa với
+tay tắt bếp ga đang xèo xèo chảo mỡ"* — vai trò + hành động, không nhận dạng.
+
 ## C. Guardrails
 
 1. **Chỉ kịch bản `ready`.** Đã cài ở H4a — `dung_storyboard()` ném lỗi, ở

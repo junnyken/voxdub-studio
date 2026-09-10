@@ -125,3 +125,26 @@ test('dữ liệu rỗng vẫn ra khoá hợp lệ, không nổ', () => {
   assert.ok(assist.cacheKey('music_suggest', undefined).startsWith('assist-cache-'))
   assert.ok(assist.cacheKey('music_suggest', {}).startsWith('assist-cache-'))
 })
+
+test('brand_script_rewrite: visual_brief bị CẤM tả nhận dạng người', () => {
+  // Hệ thống sinh ảnh neo tính nhất quán vào ẢNH SẢN PHẨM THẬT
+  // (`prompts/product_scene.js`: "TUYỆT ĐỐI giữ nguyên sản phẩm trong ảnh
+  // gốc"); nhân vật KHÔNG có ảnh gốc nào để neo. Bỏ luật này đi thì mô hình
+  // lại tả "khuôn mặt mẹ bỉm lộ rõ vẻ mệt mỏi" (nguyên văn lượt chạy thật
+  // 10/09 trước khi sửa), và mỗi cảnh sinh ra một người KHÁC — mà
+  // `scene_continuity` không bắt được vì nó chỉ xét cỡ sản phẩm, góc máy,
+  // tông màu, ánh sáng.
+  const sys = require('../src/prompts/assist').getTask('brand_script_rewrite').system
+  assert.match(sys, /KHÔNG mô tả khuôn mặt/i)
+  assert.match(sys, /VAI TRÒ và HÀNH ĐỘNG/i)
+  // ...và phải nói được tả bằng gì THAY THẾ, không chỉ cấm suông.
+  assert.match(sys, /SẢN PHẨM, BÀN TAY và BỐI CẢNH/i)
+})
+
+test('sửa câu chữ prompt thì PHẢI tăng PROMPT_VERSION', () => {
+  // Quên tăng thì nhớ đệm theo nội dung trả lại kết quả của prompt CŨ, và
+  // bảng theo dõi không tách được chất lượng trước/sau khi sửa.
+  const assist = require('../src/prompts/assist')
+  assert.ok(assist.PROMPT_VERSION >= 2,
+    'luật cấm tả nhận dạng người thêm ở v2 — PROMPT_VERSION phải từ 2 trở lên')
+})

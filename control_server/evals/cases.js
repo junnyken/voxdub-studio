@@ -302,6 +302,13 @@ const CASES = [
         }],
       ['lời đọc không dài quá mức đọc được trong một nhịp',
         (r) => String(r.loi_doc || '').length <= 400],
+      ['visual_brief KHÔNG tả nhận dạng người',
+        // Hệ thống sinh ảnh neo nhất quán vào ảnh sản phẩm thật; nhân vật
+        // không có gì để neo nên mỗi cảnh sẽ ra một người khác, mà
+        // `scene_continuity` không bắt được (nó chỉ xét cỡ sản phẩm, góc
+        // máy, tông màu, ánh sáng).
+        (r) => !/khuôn mặt|gương mặt|mái tóc|tóc (dài|ngắn|búi|xoăn)|\b\d{2}\s*tuổi|mặc áo|trang phục|ngoại hình/i
+          .test(String(r.visual_brief || ''))],
     ],
   },
 ]

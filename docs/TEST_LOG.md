@@ -15722,3 +15722,44 @@ cảnh sau gán sai thời gian mà không dấu hiệu gì); thời lượng �
 **Tests**: 10 mới. Một test của tôi đỏ một lượt vì đoán sai tên khoá chuyển
 cảnh (`cat_thang` trong khi mã dùng `khong`) — lỗi ở test, không phải mã.
 Toàn bộ: **Python 2.570 passed / 4 skipped / 0 fail**.
+
+---
+
+## H4 — chặn visual_brief tả nhận dạng nhân vật (10/09/2026)
+
+Chủ dự án hỏi: sinh ảnh/dựng video thì có đồng bộ được nhân vật không. Đọc mã
+để trả lời thay vì đoán — và câu trả lời là **không**, hệ thống chưa từng
+được dựng để làm việc đó.
+
+Máy sinh ảnh neo tính nhất quán vào **ảnh sản phẩm thật** (`product_scene.js`:
+"TUYỆT ĐỐI giữ nguyên sản phẩm trong ảnh gốc"); nhân vật không có ảnh gốc nào
+để neo. Sáu bối cảnh dựng sẵn xác nhận điều đó — bối cảnh "người" duy nhất là
+`tay_cam`, chỉ có *một bàn tay*. Và `scene_continuity` không cứu được vì nó
+chỉ xét cỡ sản phẩm, góc máy, tông màu, ánh sáng — **không có khái niệm nhân
+vật**.
+
+**Chuyện này đã suýt thành thật**: lượt chạy H3 thật cùng ngày sinh ra
+*"Khuôn mặt mẹ bỉm lộ rõ vẻ mệt mỏi"* và *"một người mẹ bỉm vừa bế con nhỏ
+vừa loay hoay lật chảo"*. Sinh ảnh theo đó sẽ ra bốn người phụ nữ khác nhau
+đóng cùng một vai, và không bộ kiểm nào bắt được.
+
+**Đã chốt (chủ dự án)**: hướng 1 làm mặc định — `visual_brief` tả bằng sản
+phẩm/bàn tay/bối cảnh, cần người thì chỉ nói VAI TRÒ + HÀNH ĐỘNG, cấm chi
+tiết nhận dạng; hướng 2 (người dùng tự đưa ảnh người thật) cho ai muốn có
+người. Hướng 3 (neo bằng ảnh tham chiếu) KHÔNG làm — cần mô hình
+identity-preserving + một bộ kiểm "còn đúng người không" kiểu
+`packaging_check` + đo thật, tức một mini-spec riêng.
+
+**Đã sửa prompt và TĂNG `PROMPT_VERSION` 1 → 2** — chú thích trong chính tệp
+cảnh báo hai thứ hỏng âm thầm nếu quên: nhớ đệm theo nội dung trả lại kết quả
+của prompt CŨ, và bảng theo dõi không tách được chất lượng trước/sau.
+
+**Kiểm chứng thật** (cùng brand, cùng bộ khung, Gemini 3.8 thật): **0/5 đoạn**
+còn tả nhận dạng người. Đoạn hook đổi từ *"Khuôn mặt mẹ bỉm lộ rõ vẻ mệt mỏi"*
+thành *"một tay người mẹ vừa cầm bình sữa vừa với tay tắt bếp ga đang xèo xèo
+chảo mỡ"* — vai trò + hành động, đúng thứ máy sinh ảnh giữ được.
+
+**Tests**: 2 mới (prompt còn đủ luật cấm + phải nói được tả bằng gì THAY THẾ
+chứ không cấm suông; `PROMPT_VERSION` ≥ 2). Thêm một phép kiểm vào mẫu đo để
+lượt chạy eval thật bắt được nếu mô hình vẫn tả mặt người. Node **630 passed /
+0 fail**.

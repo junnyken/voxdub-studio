@@ -70,7 +70,9 @@ function catCung(text, max) {
  *   - bảng theo dõi không tách được chất lượng trước/sau khi sửa prompt, nên
  *     sửa xong thấy tệ hơn cũng không quy được trách nhiệm.
  */
-const PROMPT_VERSION = 1
+// v2 (10/09/2026): `brand_script_rewrite` cấm `visual_brief` mô tả nhận dạng
+// người — hệ thống sinh ảnh không giữ được nhân vật nhất quán giữa các cảnh.
+const PROMPT_VERSION = 2
 
 const TASKS = {
   /**
@@ -533,6 +535,20 @@ const TASKS = {
    * chặn**. Bước chặn thật nằm ở `services/kiem-kich-ban.service.js` chạy sau
    * khi có output — vì model "hứa" đã viết khác không có nghĩa nó thực sự
    * khác (luật cứng số 2 của H3).
+   *
+   * **Vì sao `visual_brief` bị cấm mô tả nhận dạng người** (thêm 10/09): hệ
+   * thống sinh ảnh của dự án neo tính nhất quán vào ẢNH SẢN PHẨM THẬT
+   * (`prompts/product_scene.js`: "TUYỆT ĐỐI giữ nguyên sản phẩm trong ảnh
+   * gốc"), còn nhân vật thì KHÔNG có ảnh gốc nào để neo. Sinh ảnh theo mô tả
+   * "một người mẹ bỉm tóc búi cao" sẽ ra một người KHÁC ở mỗi cảnh, và bộ
+   * kiểm liền mạch `scene_continuity` không bắt được — nó chỉ xét cỡ sản
+   * phẩm, góc máy, tông màu, ánh sáng.
+   *
+   * Nên mặc định là tả bằng sản phẩm/bàn tay/bối cảnh. Ai muốn có người thì
+   * tự quay/chụp người thật rồi đưa ảnh vào (hướng "hỗn hợp" của H4) — lúc
+   * đó chi tiết nhận dạng do mô hình bịa ra lại càng chệch với ảnh thật của
+   * họ. Kèm theo: ảnh AI có mặt người còn vướng chuyện chân dung/đồng ý hình
+   * ảnh mà `docs/PRD.md` §9 đã ghi là rủi ro mở.
    */
   brand_script_rewrite: {
     costKey: 'credit.cost.assist.brand_script_rewrite',
@@ -557,6 +573,13 @@ const TASKS = {
       'Mỗi đoạn trả về ba thứ: loi_doc (lời đọc, tiếng Việt tự nhiên như người',
       'nói, không phải văn viết), caption (chữ overlay ngắn gọn), va',
       'visual_brief (tả BẰNG LỜI cần quay/dựng hình gì — bạn KHÔNG sinh ảnh).',
+      'visual_brief phải tả được bằng SẢN PHẨM, BÀN TAY và BỐI CẢNH: cận cảnh',
+      'sản phẩm, thao tác của bàn tay, mặt bàn, gian bếp, ánh sáng, đồ vật',
+      'xung quanh.',
+      'KHÔNG mô tả khuôn mặt, ngoại hình, tuổi tác, kiểu tóc hay trang phục',
+      'của người nào. Cần có người trong khung thì chỉ nói VAI TRÒ và HÀNH',
+      'ĐỘNG (ví dụ "một người đang bế con", "tay người bán mở nắp hộp"),',
+      'tuyệt đối không thêm chi tiết nhận dạng.',
       'Trả đúng số đoạn được yêu cầu, theo đúng thứ tự.',
     ].join(' '),
     buildUser: (input) => {
