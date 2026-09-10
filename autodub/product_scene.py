@@ -187,6 +187,16 @@ def dong_nhan_ai(duong_dan: str, che_do: str) -> bool:
     """
     chu = ("AI-generated — anh y tuong, khong phai san pham dang ban"
            if che_do == "CONCEPT" else "AI-generated")
+    return dong_nhan_chu(duong_dan, chu)
+
+
+def dong_nhan_chu(duong_dan: str, chu: str) -> bool:
+    """Đóng một dòng chữ lên đáy ảnh. Trả False nếu không đóng được.
+
+    Tách khỏi ``dong_nhan_ai`` để mini-spec H4d dùng lại đúng bộ lọc ffmpeg
+    này với lời nhãn khác — chép lại bộ lọc sang tệp khác thì hai chỗ trôi xa
+    nhau, mà đây là thứ luật bắt buộc phải có trên ảnh.
+    """
     tam = duong_dan + ".nhan.jpg"
     ok = _chay_ffmpeg([
         "-i", duong_dan,

@@ -411,6 +411,54 @@ vì máy chủ cố ý không giữ ảnh. Máy chủ chỉ trả nấc hiện t
 đã xin. `autodub/product_scene.py` làm đúng chuỗi này; ai gọi thẳng API mà bỏ
 bước kiểm thì tự chịu rủi ro sàn.
 
+### `POST /story-image` (mini-spec H4d, thêm 2026-09-10)
+Vẽ ảnh **minh hoạ** cho một đoạn kịch bản, CHỈ TỪ CHỮ — không có ảnh gốc.
+
+Cửa riêng, không phải một chế độ của `/product-scene`, vì cả hình dạng lượt
+gọi lẫn luật tuân thủ đều khác. Ở đó có ảnh sản phẩm thật làm neo nên luật là
+*"đừng đổi gì cả"*; ở đây không có neo nào nên luật là điều ngược lại:
+**"đừng vẽ sản phẩm nào hết"** — không hộp/chai/lọ/túi/gói có nhãn, không
+logo hay thương hiệu, không chữ hay số đọc được.
+
+Body: `{ jobId, brief, holdId?, provider? }` — `brief` ≤ 400 ký tự, là
+`visualBriefVi` của một đoạn kịch bản (prompt H3 đã cấm nó tả nhận dạng người).
+
+Response: `{ jobId, image: {mimeType, data}, daKiem: false, creditCharged, balanceAfter }`
+
+**`daKiem` LUÔN là `false`.** Cửa này cố ý không tự gọi bước kiểm: kiểm là một
+lượt gọi mô hình riêng, gộp vào đây thì một lần hỏng mạng ở bước kiểm kéo mất
+cả tấm ảnh đã trả tiền. Bên gọi phải gọi tiếp `POST /assist` với
+`kiem_anh_minh_hoa` (1 ảnh, 3 Vox) — trả `DAT` | `CO_SAN_PHAM` — rồi đóng nhãn
+AI-generated. `autodub/story_image.py` làm đúng chuỗi này.
+
+Billing: `credit.cost.image.scene` (30 Vox, dùng chung với C1). Hạn mức
+`image.daily.limit` đếm **GỘP** `product_scene` + `story_image`: đếm tách thì
+hết trần ở đường này còn nguyên trần ở đường kia, tức trần 60 thành 120 mà
+không ai quyết định điều đó.
+
+**Cùng chốt chuyển pha C2** với `/product-scene` (`image.scene.stage`), kiểm
+TRƯỚC cả `replay`. Không có cửa thứ hai lỏng hơn cho cùng một loại rủi ro.
+
+Vận chuyển — khác `/product-scene` ở đúng chỗ nhận ảnh:
+
+| `type` | Cửa gọi | Ảnh vào |
+|---|---|---|
+| `google` | `POST {base}/models/{model}:generateContent` | không có `inlineData` |
+| `openrouter_images` | `POST {base}/images` | không có `input_references` |
+| `openai_images` | `POST {base}/images/**generations**` | không |
+| `custom_images` | tự khai `imagePath` | mẫu **không được** chứa `{{image_*}}` |
+
+Với `custom_images`, phép kiểm mẫu **ngược hẳn** `/product-scene`: ở đó mẫu
+BẮT BUỘC mang ảnh gốc, ở đây mẫu KHÔNG được đòi ảnh — không có ảnh nào để
+điền, và thân yêu cầu sẽ mang nguyên chuỗi `{{image_data_uri}}` làm dữ liệu
+ảnh. Một bản khai chỉ phục vụ được một trong hai việc; cần cả hai thì thêm hai
+bản khai. Nơi gọi không dùng được bị loại kèm **lý do thật**, không phải câu
+"chọn giao thức sinh được ảnh" chỉ sai đường.
+
+Lỗi: `400` brief rỗng/quá dài, `402 INSUFFICIENT_CREDIT`, `429 DAILY_LIMIT`,
+`502 KHONG_SINH_DUOC_ANH`, `503 AI_UNAVAILABLE` / `PROVIDER_MISCONFIGURED`,
+`409 IMAGE_STAGE_OFF` / `409 IMAGE_STAGE_CALIBRATION`.
+
 ### `POST /v1/admin/providers/:id/test-now` (admin, mini-spec C5)
 Gọi THẬT một lượt nhỏ nhất tới đúng nơi gọi đó, bằng ảnh máy chủ tự vẽ.
 Vai `image` trả `{goiDuoc, coAnh, kieuAnh, kichThuocAnh}`; vai chữ trả

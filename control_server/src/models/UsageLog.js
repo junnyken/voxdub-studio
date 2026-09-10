@@ -24,7 +24,12 @@ const usageLogSchema = new mongoose.Schema({
           // 'product_scene' thêm ở mini-spec C1 — dựng bối cảnh cho ảnh sản
           // phẩm. Ghi riêng để tra được ai đã sinh ảnh nào, phục vụ đúng lúc
           // người bán bị TikTok gắn cờ và cần bằng chứng.
-          'product_scene'],
+          'product_scene',
+          // 'story_image' thêm ở mini-spec H4d — ảnh minh hoạ sinh CHỈ TỪ
+          // CHỮ. Tách khỏi 'product_scene' vì hai đường có luật tuân thủ
+          // khác nhau, nên lúc tra soát phải phân biệt được; nhưng trần ngày
+          // thì đếm GỘP cả hai (Guardrail 5).
+          'story_image'],
     required: true,
   },
   assistTask: { type: String, default: '' },

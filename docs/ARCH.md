@@ -201,15 +201,34 @@ liên tiếp** đều giả định luồng ảnh sản phẩm có thực thể 
 cái nào tồn tại, và không phải vì chưa làm kịp — mà vì đã cố ý không làm.
 Tài liệu không nói ra thì lần thứ tư sẽ lặp lại.
 
+**Đã lặp lại thật — hai lần nữa.** Lần thứ tư: spec H3 mô tả H4 là "nối
+BrandScript vào `ProductSceneVideoJob`" (10/9/2026). Lần thứ năm: spec H4 mô
+tả H4d là "sinh ảnh từ `visualBriefVi`", trong khi cửa sinh ảnh lúc đó **bắt
+buộc một ảnh sản phẩm thật** và chỉ nhận 6 tên bối cảnh dựng sẵn — H4d phải
+dựng hẳn một đường vận chuyển mới (`POST /v1/ai/story-image`) mới làm được.
+
+Bài học cụ thể cho người viết spec tiếp theo: **đọc `routes/ai.js` và
+`image-transport.service.js` trước khi viết một câu nào về ảnh.** Cái bẫy
+không nằm ở chỗ tính năng thiếu, mà ở chỗ nó tồn tại với hình dạng khác hẳn
+hình dạng người ta tưởng.
+
 ### Ranh giới máy chủ / máy người dùng
 
-**Máy chủ chỉ có hai việc, cả hai đều là lượt gọi lẻ, không trạng thái:**
+**Máy chủ chỉ có những lượt gọi LẺ, KHÔNG trạng thái — không có thực thể job
+ảnh nào:**
 
 | Cửa | Việc |
 |---|---|
-| `POST /v1/ai/product-scene` | Vẽ ảnh mới theo bối cảnh — nhận ảnh gốc, trả ảnh ra |
-| `POST /v1/ai/assist` (`packaging_check`) | Chấm: ảnh mới còn là sản phẩm thật không |
+| `POST /v1/ai/product-scene` | Vẽ ảnh mới theo bối cảnh — **nhận ảnh gốc**, trả ảnh ra. `scene` phải thuộc 6 bối cảnh dựng sẵn |
+| `POST /v1/ai/story-image` | Vẽ ảnh **minh hoạ CHỈ TỪ CHỮ** (H4d) — không có ảnh gốc, nên luật ngược lại: cấm vẽ sản phẩm/nhãn/chữ |
+| `POST /v1/ai/assist` (`packaging_check`) | Chấm: ảnh mới còn là sản phẩm thật không — **cần cả hai ảnh** |
+| `POST /v1/ai/assist` (`kiem_anh_minh_hoa`) | Chấm ảnh minh hoạ: có lỡ vẽ ra sản phẩm/nhãn/chữ không — câu hỏi NGƯỢC, vì không có ảnh gốc để so |
 | `POST /v1/ai/assist` (`scene_continuity`, `scene_script`) | Nhận xét độ liền mạch, gợi ý câu dẫn — **cảnh báo, không phải cổng chặn** |
+
+Hai đường vẽ ảnh dùng CHUNG chốt chuyển pha `image.scene.stage` và CHUNG trần
+ngày `image.daily.limit` (đếm gộp cả hai `action`). Đếm tách thì hết trần ở
+đường này còn nguyên trần ở đường kia — trần 60 thành 120 mà không ai quyết
+định điều đó.
 
 **Mọi thứ còn lại chạy trên máy người dùng** (`autodub/product_scene.py`,
 `autodub/product_video.py`, `autodub_gui/pages/product_scene_page.py`): chọn

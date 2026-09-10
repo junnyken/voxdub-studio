@@ -17,6 +17,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from autodub import story_image as sp_story  # noqa: E402
 from autodub_gui.pages import storyboard_page as sp  # noqa: E402
 
 
@@ -100,13 +101,135 @@ def test_bam_dung_khi_thieu_anh_thi_KHONG_chay_gi(page, monkeypatch):
 
 # ------------------------------------------------- không tự sinh ảnh ------
 
-def test_trang_KHONG_co_duong_sinh_anh(page):
-    # Guardrail 4 của H4. Thêm một nút "sinh ảnh giúp tôi" sau này sẽ làm
-    # test này đỏ — cố ý, vì đó là quyết định tiêu tiền, phải hỏi trước.
+def test_trang_KHONG_dung_duong_sinh_anh_cua_C1(page):
+    """H4d mở đường vẽ ảnh, nhưng KHÔNG được mở đường của C1.
+
+    `product-scene` dựng lại ảnh sản phẩm THẬT và có luật tuân thủ riêng
+    (`packaging_check` so với ảnh gốc). Ảnh minh hoạ không có ảnh gốc nào,
+    nên đi nhờ cửa đó là đi qua một bước kiểm không kiểm được gì.
+    """
     import inspect
     ma = inspect.getsource(sp)
-    for cam in ("product-scene", "product_scene", "dung_boi_canh", "image.scene"):
-        assert cam not in ma, f"trang không được tự gọi đường sinh ảnh: {cam}"
+    for cam in ("product-scene", "product_scene", "dung_boi_canh"):
+        assert cam not in ma, f"trang không được đi cửa của C1: {cam}"
+
+
+def test_nguoi_dung_tu_choi_thi_KHONG_ve_gi(page, monkeypatch):
+    # Guardrail 3 của H4d. Trước H4d test này chốt "không có đường sinh ảnh
+    # nào"; nay có đường rồi thì chốt phải chuyển thành "không tiêu tiền nếu
+    # chưa được đồng ý" — đó mới là điều thật sự cần giữ.
+    monkeypatch.setattr(sp.ConfirmDialog, "ask",
+                        staticmethod(lambda *a, **k: (False, True)))
+    monkeypatch.setattr(sp, "SinhAnhMinhHoaWorker",
+                        lambda *a, **k: pytest.fail("đã vẽ khi người dùng từ chối"))
+    page.dat_kich_ban(_kich_ban())
+    page._ve_anh([0, 1])
+
+
+def test_hop_thoai_phai_noi_ro_GIA_truoc_khi_ve(page, monkeypatch):
+    thay = {}
+
+    def _hoi(_parent, title, message, **kw):
+        thay.update(title=title, message=message, detail=kw.get("detail", ""),
+                    confirm=kw.get("confirm_label", ""))
+        return (False, True)
+
+    monkeypatch.setattr(sp.ConfirmDialog, "ask", staticmethod(_hoi))
+    page.dat_kich_ban(_kich_ban())
+    page._ve_anh([0, 1])
+
+    tong = 2 * sp.GIA_MOI_ANH
+    assert str(tong) in thay["title"], "tổng tiền phải nằm ngay trên tiêu đề"
+    assert str(tong) in thay["confirm"], "nút đồng ý phải nhắc lại con số"
+    assert str(sp.GIA_MOI_ANH) in thay["message"]
+    # Tiền trừ kể cả khi ảnh không dùng được — phải nói ra, vì đó là thứ
+    # người dùng sẽ tức nhất nếu chỉ phát hiện sau khi mất Vox.
+    assert "không dùng" in thay["message"]
+
+
+def test_hop_thoai_cho_doc_dung_goi_y_sap_duoc_ve(page, monkeypatch):
+    thay = {}
+    monkeypatch.setattr(sp.ConfirmDialog, "ask", staticmethod(
+        lambda _p, _t, _m, **kw: (thay.update(detail=kw.get("detail", "")),
+                                  (False, True))[1]))
+    kb = _kich_ban(beats=[_beat("Sáng nào cũng vội.",
+                                visualBriefVi="Bàn tay cắm điện lúc 6 giờ")])
+    page.dat_kich_ban(kb)
+    page._ve_anh([0])
+    assert "Bàn tay cắm điện lúc 6 giờ" in thay["detail"], (
+        "hỏi trả 30 Vox cho một tấm ảnh mà không cho đọc gợi ý sinh ra nó "
+        "thì lượt bấm không còn là đồng ý có hiểu biết")
+
+
+def test_hop_thoai_noi_truoc_rang_nguoi_moi_doan_mot_khac(page, monkeypatch):
+    # Guardrail 6 của H4d. Hệ thống không có khái niệm nhân vật (H4 §B2) —
+    # để người dùng tự phát hiện sau khi đã trả tiền là cách tệ nhất.
+    thay = {}
+    monkeypatch.setattr(sp.ConfirmDialog, "ask", staticmethod(
+        lambda _p, _t, _m, **kw: (thay.update(detail=kw.get("detail", "")),
+                                  (False, True))[1]))
+    page.dat_kich_ban(_kich_ban())
+    page._ve_anh([0])
+    assert "KHÁC" in thay["detail"] and "nhân vật" in thay["detail"]
+
+
+def test_dang_ve_do_thi_KHONG_ve_chong_len(page, monkeypatch):
+    """Bấm «Vẽ» ở đoạn 1 rồi bấm tiếp ở đoạn 2 khi lượt đầu chưa xong sẽ ghi
+    đè worker cũ — mà tiền của nó thì đã trừ rồi. Nút hàng loạt tự tắt, nút
+    vẽ từng dòng thì không, nên chốt phải nằm trong hàm.
+    """
+    class _DangChay:
+        def isRunning(self):
+            return True
+
+    page.dat_kich_ban(_kich_ban())
+    page._ve_worker = _DangChay()
+    monkeypatch.setattr(sp.ConfirmDialog, "ask", staticmethod(
+        lambda *a, **k: pytest.fail("còn hỏi tiếp khi đang vẽ dở")))
+    page._ve_anh([1])
+
+
+def test_kich_ban_chua_ready_thi_KHONG_ve_duoc(page):
+    page.dat_kich_ban(_kich_ban(status="blocked"))
+    assert not page.btn_ve_het.isEnabled(), (
+        "kịch bản không dựng được mà vẫn cho tiêu 30 Vox mỗi ảnh cho nó")
+
+
+def test_khong_co_goi_y_hinh_thi_nut_ve_TAT(page):
+    page.dat_kich_ban(_kich_ban(beats=[_beat("Sáng nào cũng vội.",
+                                             visualBriefVi="")]))
+    assert not page.btn_ve_het.isEnabled(), "bật nút rồi mới báo không có gợi ý"
+
+
+# ------------------------------------------- ảnh vẽ xong: ai được vào video --
+
+def _ket(chi_so, dat=True, ly_do="ổn"):
+    return sp_story.AnhMinhHoa(
+        duong_dan=f"/tmp/doan_{chi_so}.jpg", goi_y="g",
+        phan_quyet="DAT" if dat else "CO_SAN_PHAM", ly_do=ly_do,
+        da_kiem=True, da_dong_nhan=True, chi_so=chi_so)
+
+
+def test_anh_TRUOT_kiem_khong_duoc_vao_video(page, monkeypatch):
+    monkeypatch.setattr(sp.ConfirmDialog, "show_error",
+                        staticmethod(lambda *a, **k: None))
+    page.dat_kich_ban(_kich_ban())
+    me = sp_story.MeAnh(thu_muc="/tmp")
+    me.ket_qua = [_ket(0, dat=False, ly_do="có hộp có nhãn ở góc phải")]
+    page._ve_anh_xong(me)
+    assert page._anh[0] == "", "ảnh trượt kiểm mà vẫn ghép vào video"
+    assert not page.btn_dung.isEnabled()
+
+
+def test_anh_di_dung_doan_cua_no_khong_theo_thu_tu(page, monkeypatch):
+    # Vẽ riêng cho đoạn 2: nếu ghép theo thứ tự danh sách thì ảnh lên đoạn 1.
+    monkeypatch.setattr(sp.ConfirmDialog, "show_error",
+                        staticmethod(lambda *a, **k: None))
+    page.dat_kich_ban(_kich_ban())
+    me = sp_story.MeAnh(thu_muc="/tmp")
+    me.ket_qua = [_ket(1)]
+    page._ve_anh_xong(me)
+    assert page._anh == ["", "/tmp/doan_1.jpg"]
 
 
 def test_noi_ro_la_khong_ton_Vox(page):

@@ -93,6 +93,21 @@ const CASES = [
     ],
   },
   {
+    task: 'kiem_anh_minh_hoa',
+    ten: 'cổng kiểm ảnh minh hoạ — cần ẢNH THẬT nên không chấm khô được',
+    input: { note: 'người phụ nữ vội vàng rời bếp buổi sáng' },
+    // Cùng lý do với `packaging_check`: tác vụ này NHÌN ảnh, không đọc chữ,
+    // nên phần chấm khô chỉ kiểm được khuôn câu trả lời. Đánh dấu `canAnh`
+    // để bộ đo BÁO BỎ QUA thay vì âm thầm cho 100% — một mẫu luôn đạt vì
+    // không kiểm gì cả còn tệ hơn không có mẫu (bài học V93).
+    canAnh: true,
+    kiem: [
+      ['chỉ trả DAT hoặc CO_SAN_PHAM',
+        (r) => ['DAT', 'CO_SAN_PHAM'].includes(r.value.trim().toUpperCase())],
+      ['nói rõ thấy gì và nằm ở đâu', (r) => r.reason.length >= 8],
+    ],
+  },
+  {
     task: 'music_suggest',
     ten: 'video nấu ăn — nhạc phải mộc, không dồn dập',
     input: { transcript: LOI_THOAI_NAU_AN, videoTitle: 'Nấu phở bò tại nhà' },

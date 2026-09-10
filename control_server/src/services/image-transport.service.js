@@ -189,6 +189,111 @@ function dungYeuCau({ provider, prompt, image }) {
 }
 
 /**
+ * Mẫu tự khai có dùng được cho ảnh MINH HOẠ không (mini-spec H4d).
+ *
+ * Phép kiểm ở đây **ngược hẳn** `loiMauTuKhai()`, và đó là chuyện cố ý. Mẫu
+ * dựng bối cảnh BẮT BUỘC mang ảnh gốc đi theo; mẫu minh hoạ thì không có ảnh
+ * gốc nào để mang. Một bản khai chỉ phục vụ được một trong hai việc — nhét
+ * bừa mẫu kia vào thì `{{image_data_uri}}` không được điền và thân yêu cầu
+ * gửi đi mang nguyên chuỗi `{{image_data_uri}}` làm dữ liệu ảnh.
+ */
+function loiMauTuChu(p) {
+  const mau = String(p?.imageBodyTemplate || '').trim()
+  if (!mau) return 'Thiếu "Mẫu thân yêu cầu" cho giao thức tự khai.'
+  if (!String(p?.imagePath || '').trim()) {
+    return 'Thiếu "Đường dẫn cửa gọi" (ví dụ /images/generations).'
+  }
+  if (!String(p?.imageResponsePath || '').trim()) {
+    return 'Thiếu "Đường dẫn tới ảnh trong trả lời" (ví dụ data.0.b64_json).'
+  }
+  try {
+    JSON.parse(dienMau(mau, Object.fromEntries(CHO_DIEN.map((k) => [k, 'x']))))
+  } catch {
+    return 'Mẫu thân yêu cầu không phải JSON hợp lệ.'
+  }
+  const doiAnh = CHO_DIEN_ANH.filter((k) => mau.includes(`{{${k}}}`))
+  if (doiAnh.length) {
+    return `Mẫu này đang khai ${doiAnh.map((k) => `{{${k}}}`).join(' và ')}, `
+      + 'tức là nó dựng bối cảnh từ ảnh sản phẩm có sẵn. Ảnh minh hoạ không '
+      + 'có ảnh gốc nào để điền vào đó. Thêm một bản khai riêng trỏ tới cửa '
+      + 'sinh ảnh từ chữ (ví dụ /images/generations).'
+  }
+  return null
+}
+
+/**
+ * Dựng lượt gọi sinh ảnh CHỈ TỪ CHỮ — mini-spec H4d.
+ *
+ * Tách hẳn khỏi `dungYeuCau()` thay vì cho `image` thành tuỳ chọn: cả bốn
+ * giao thức đều đổi hình dạng yêu cầu khi bỏ ảnh, và với `openai_images` thì
+ * đổi cả **cửa gọi** (`/images/edits` → `/images/generations`). Gộp hai việc
+ * vào một hàm rồi rẽ nhánh bằng `if (image)` là cách chắc chắn nhất để một
+ * ngày nào đó ảnh minh hoạ lặng lẽ đi nhầm cửa sửa-ảnh.
+ *
+ * Trả `null` nếu giao thức không sinh được ảnh từ chữ.
+ */
+function dungYeuCauTuChu({ provider, prompt }) {
+  const key = provider.apiKey
+
+  if (provider.type === 'google') {
+    const base = _base(provider, 'https://generativelanguage.googleapis.com/v1beta')
+    return {
+      url: `${base}/models/${provider.model}:generateContent`,
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      body: { contents: [{ role: 'user', parts: [{ text: prompt }] }] },
+    }
+  }
+
+  if (provider.type === 'openrouter_images') {
+    const base = _base(provider, 'https://openrouter.ai/api/v1')
+    return {
+      url: `${base}/images`,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+      },
+      // Không `input_references`: không có ảnh gốc, và đưa một ảnh bất kỳ vào
+      // đây sẽ ghim phong cách của nó lên mọi khung hình.
+      body: { model: provider.model, prompt },
+    }
+  }
+
+  if (provider.type === 'custom_images') {
+    if (loiMauTuChu(provider)) return null
+    const base = _base(provider, '')
+    const duong = String(provider.imagePath).startsWith('/')
+      ? provider.imagePath : `/${provider.imagePath}`
+    const than = dienMau(provider.imageBodyTemplate,
+      { model: provider.model, prompt, api_key: key })
+    const tenHeader = provider.authHeaderName || 'Authorization'
+    const giaTriHeader = dienMau(provider.authHeaderValue || 'Bearer {{api_key}}',
+      { api_key: key })
+    return {
+      url: `${base}${duong}`,
+      headers: { 'Content-Type': 'application/json', [tenHeader]: giaTriHeader },
+      body: JSON.parse(than),
+    }
+  }
+
+  if (provider.type === 'openai_images') {
+    const base = _base(provider, 'https://api.openai.com/v1')
+    return {
+      // SINH ảnh, không phải SỬA ảnh. `/images/edits` đòi tệp ảnh vào và sẽ
+      // trả 400 cho lượt gọi không có ảnh — nhưng lỗi đó tới sau khi đã trừ
+      // tiền ở tầng trên, nên phải đi đúng cửa ngay từ đây.
+      url: `${base}/images/generations`,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${key}`,
+      },
+      body: { model: provider.model, prompt },
+    }
+  }
+
+  return null
+}
+
+/**
  * Rút ảnh khỏi trả lời. Trả `{ mimeType, data }`, hoặc `null` nếu không có
  * ảnh — kèm `{ lyDo }` khi mô hình có nói lý do (từ chối vẽ, vi phạm chính
  * sách nội dung…), vì "không có ảnh" và "từ chối vì lý do X" là hai chuyện
@@ -274,6 +379,6 @@ function loiCapVaiGiaoThuc(role, type) {
 }
 
 module.exports = {
-  GIAO_THUC, CHO_DIEN, dungYeuCau, docTraLoi, dataUri,
-  loiCapVaiGiaoThuc, loiMauTuKhai, dienMau, theoDuong,
+  GIAO_THUC, CHO_DIEN, dungYeuCau, dungYeuCauTuChu, docTraLoi, dataUri,
+  loiCapVaiGiaoThuc, loiMauTuKhai, loiMauTuChu, dienMau, theoDuong,
 }

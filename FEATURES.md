@@ -229,6 +229,7 @@ nên sửa chúng hoặc đổi mô hình không cần phát hành lại bản `
 | `series_glossary` | Rút thuật ngữ cố định cho cả bộ phim | 5 Vox |
 | `tighten_line` | Rút gọn câu dịch cho vừa thời lượng | 2 Vox |
 | `packaging_check` | Kiểm ảnh dựng có còn đúng sản phẩm không | 3 Vox |
+| `kiem_anh_minh_hoa` | Kiểm ảnh minh hoạ có lỡ vẽ ra sản phẩm/nhãn/chữ không (mini-spec H4d) — câu hỏi NGƯỢC với `packaging_check`, vì ở đây không có ảnh sản phẩm thật làm neo | 3 Vox |
 | `scene_continuity` | Các cảnh trong video có nhìn liền mạch không (cảnh báo, không chặn) | 4 Vox |
 | `scene_script` | Gợi ý câu dẫn và nhịp cho từng cảnh | 3 Vox (**8 Vox** nếu kèm xem ảnh) |
 | `viral_flow_blueprint` | Phân tích cấu trúc video tham khảo (mini-spec H2) — chỉ gọi qua `/v1/flow-blueprints`, không qua `/v1/ai/assist` chung, vì cần lưu lại thành Flow Blueprint | 8 Vox (giá khởi điểm, chưa chốt bằng số liệu chi phí thật) |
@@ -604,8 +605,16 @@ thành video hoàn chỉnh (nối vào pipeline ảnh sản phẩm C3 đã có).
   từng đoạn, mỗi đoạn giữ hình **đúng bằng thời gian đọc lời của nó** (tốc độ
   đọc đo thật bằng chính engine VieNeu), rồi dựng thành **dự án mở được trong
   Trình chỉnh sửa** — từ đó nghe thử, sửa lời, đọc lại, xuất video đều dùng
-  máy móc có sẵn. Không tốn Vox. Công cụ **không tự sinh ảnh** thay bạn: sinh
-  ảnh tốn 30 Vox mỗi tấm nên đó là quyết định của bạn, chưa mở ở bản này.
+  máy móc có sẵn. Ghép và dựng **không tốn Vox**.
+- **H4d — Nhờ vẽ ảnh minh hoạ cho đoạn còn thiếu (30 Vox/ảnh).** Đoạn nào chưa
+  có ảnh thì hiện luôn **gợi ý hình** của kịch bản và cho bấm «Vẽ». Công cụ
+  **không bao giờ tự vẽ**: luôn hỏi trước, kèm tổng tiền và đúng những gợi ý
+  sắp được vẽ. Ảnh vẽ ra là ảnh **minh hoạ** — cố ý không vẽ hộp, chai, nhãn
+  hay chữ nào, vì sản phẩm bịa trong video bán hàng là thứ khiến tài khoản bị
+  phạt; ảnh nào lỡ có thì bị **loại, không ghép vào video**. Người trong các
+  ảnh sẽ **khác nhau giữa các đoạn** — công cụ không giữ được cùng một nhân
+  vật, và nói điều đó ra trước khi bạn trả tiền. Cửa này mặc định **tắt** ở
+  máy chủ; bật nó là một quyết định về tuân thủ, không phải một cờ cấu hình.
 
 **Đã giải quyết, đừng đề xuất lại:** tách `.venv-*`/`models/` ra khỏi thư mục
 ứng dụng — không cần nữa, vì app đã tự dò bản cũ nằm cùng thư mục cha (§3.1).
@@ -640,6 +649,7 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/MINI-SPEC_H2c_Dau_Van_Tay_Bang_Chung.md` | Dấu vân tay một chiều của bằng chứng — cho H3 kiểm sao chép mà máy chủ vẫn không giữ câu chữ nguyên văn |
 | `docs/MINI-SPEC_H3_Brand_Script_Rewrite.md` | Viết kịch bản cho thương hiệu — hai lớp kiểm (tuân thủ + nguyên gốc), chặn ở cấp toàn kịch bản |
 | `docs/MINI-SPEC_H4_Storyboard_To_Video.md` | Từ kịch bản brand thành dự án video — storyboard, ghép ảnh theo thời lượng riêng, và vì sao không đồng bộ được nhân vật |
+| `docs/MINI-SPEC_H4d_Sinh_Anh_Minh_Hoa.md` | Sinh ảnh minh hoạ từ chữ — vì sao cửa ảnh cũ không làm được, và luật tuân thủ thay thế khi không có ảnh sản phẩm làm neo |
 | `docs/PILOT_PHASE_H.md` | Runbook chạy thử xuyên suốt H2→H3 trên máy thật + bốn cổng phải đóng trước khi mở H4 |
 
 **Quy mô test tại thời điểm cập nhật tệp này:** 2.449 test Python (4 bỏ qua —

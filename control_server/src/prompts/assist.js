@@ -287,6 +287,45 @@ const TASKS = {
     ].filter(Boolean).join('\n'),
   },
 
+  // --- mini-spec H4d ------------------------------------------------------
+  // Luật thay thế cho `packaging_check` ở đường ảnh minh hoạ.
+  //
+  // `packaging_check` so ảnh mới với ảnh GỐC để hỏi "còn là sản phẩm thật
+  // không". Ảnh minh hoạ không có ảnh gốc nào, nên câu hỏi đó vô nghĩa — và
+  // bỏ trống chỗ này thì H4d thành lỗ hổng chứ không phải tính năng.
+  //
+  // Câu hỏi đúng ở đây là câu ngược lại: ảnh này có LỠ vẽ ra một sản phẩm
+  // không? Vì nó sẽ nằm trong cùng một video bán hàng, cạnh sản phẩm thật —
+  // một cái hộp có nhãn do mô hình bịa ra vẫn là "sản phẩm" trong mắt máy
+  // quét của sàn, đúng điều khoản đã đẻ ra C1.
+  kiem_anh_minh_hoa: {
+    costKey: 'credit.cost.assist.kiem_anh_minh_hoa',
+    maxInput: 400,
+    maxResults: 1,
+    nhanAnh: true,
+    soAnhToiDa: 1,
+    system: [
+      'Bạn kiểm một ảnh minh hoạ do AI vẽ, sắp được ghép vào video bán hàng',
+      'cạnh ảnh sản phẩm thật. Ảnh này ĐƯỢC PHÉP có người, bối cảnh, đồ vật',
+      'thường ngày; nó KHÔNG được phép trông như đang giới thiệu một sản phẩm.',
+      'Trả về đúng một mục.',
+      'value = "DAT" khi trong ảnh không có sản phẩm đóng gói nào có nhãn,',
+      'không có logo hay thương hiệu, và không có chữ/số đọc được.',
+      'value = "CO_SAN_PHAM" khi thấy BẤT KỲ thứ nào sau đây: hộp, chai, lọ,',
+      'túi hay gói có nhãn; logo hoặc dấu hiệu thương hiệu; chữ hay số đọc',
+      'được ở bất kỳ đâu trong khung hình, kể cả chữ méo hoặc vô nghĩa.',
+      'Không chắc thì chọn CO_SAN_PHAM — đoán sai theo hướng an toàn chỉ mất',
+      'một tấm ảnh, đoán sai hướng kia là người bán bị sàn phạt.',
+      'reason: nói NGẮN GỌN thấy gì và nằm ở đâu trong ảnh (tối đa 20 chữ),',
+      'tiếng Việt.',
+    ].join(' '),
+    buildUser: (input) => [
+      'Ảnh đính kèm là ảnh minh hoạ do AI vẽ để ghép vào video bán hàng.',
+      cat(input.note, 400) ? `Gợi ý đã dùng để vẽ: ${cat(input.note, 400)}` : '',
+      'Ảnh này có sản phẩm có nhãn, logo, hay chữ đọc được không?',
+    ].filter(Boolean).join('\n'),
+  },
+
   // --- mini-spec C7 -------------------------------------------------------
   // `packaging_check` so ảnh cảnh với ảnh GỐC. Nó không thấy được chuyện các
   // cảnh lệch NHAU: mỗi cảnh là một lượt gọi độc lập, mô hình không có trí

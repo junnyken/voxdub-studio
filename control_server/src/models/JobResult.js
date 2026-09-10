@@ -26,6 +26,7 @@ const jobResultSchema = new mongoose.Schema({
       'product_scene',  // mini-spec C1
       'flow_blueprint', // mini-spec H2 — tạo/đọc lại FlowBlueprint theo jobId
       'brand_script',   // mini-spec H3 — tạo/viết lại BrandScript theo jobId
+      'story_image',    // mini-spec H4d — ảnh minh hoạ sinh từ chữ
     ],
     required: true,
   },

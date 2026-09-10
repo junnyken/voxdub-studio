@@ -90,23 +90,35 @@ test('giao diện quản trị có lựa chọn cho mọi vai', () => {
  * thì nói thẳng, đừng gọi mạng rồi đoán.
  */
 test('vai image từ chối giao thức không sinh được ảnh, TRƯỚC khi gọi mạng', () => {
-  const than = h.thanHam('src/services/ai-gateway.service.js', 'generateScene')
-  assert.ok(than.includes('transport.dungYeuCau('),
-    'generateScene không dùng bảng giao thức')
+  // H4d thêm đường sinh ảnh thứ hai (từ chữ), nên vòng gọi mạng tách ra dùng
+  // chung. Chốt này phải xét CHỖ DÙNG CHUNG đó — và xét luôn rằng cả hai
+  // đường đều đi qua nó. Chỉ soi `generateScene` thì một đường thứ ba vòng
+  // qua chốt vẫn để test xanh, đúng lớp hỏng không kêu tiếng nào.
+  const than = h.thanHam('src/services/ai-gateway.service.js', '_sinhAnhQuaCacNoi')
   // `truoc()` bắt buộc CẢ HAI phải có mặt rồi mới so thứ tự — viết tay bằng
   // `indexOf` thì -1 nhỏ hơn mọi vị trí và test xanh cả khi nhánh chặn biến
   // mất (mini-spec C8).
   h.truoc(than, 'if (!yeuCau)', 'axios.post(', 'phải chặn TRƯỚC khi gọi mạng')
+  // Soi mã THÔ ở đây, không làm sạch: `GIAO_THUC` nằm trong một template
+  // literal, mà `boChuoi()` bóc ruột chuỗi nên nó biến mất và test xanh giả.
   const i = than.indexOf('if (!yeuCau)')
-  assert.match(than.slice(i, i + 500), /GIAO_THUC/,
+  assert.match(than.slice(i, i + 700), /GIAO_THUC/,
     'thông báo phải liệt kê các giao thức dùng được')
+
+  for (const ham of ['generateScene', 'generateStoryImage']) {
+    const t = h.thanHam('src/services/ai-gateway.service.js', ham)
+    assert.ok(t.includes('_sinhAnhQuaCacNoi('),
+      `${ham} không đi qua vòng có chốt giao thức`)
+    assert.ok(!t.includes('axios.post('),
+      `${ham} tự gọi mạng, vòng qua chốt giao thức`)
+  }
 })
 
 /** Lỗi của nhà cung cấp phải tới được người cấu hình, không bị nuốt còn mã số. */
 test('mã lỗi HTTP đi kèm nguyên văn lý do nhà cung cấp trả về', () => {
   // Chuỗi thông báo bị `ma()` moi ruột, nên tìm theo BIẾN dựng câu chứ không
   // theo lời văn: `resp.data?.error?.message` mới là thứ phải có mặt.
-  const than = h.thanHam('src/services/ai-gateway.service.js', 'generateScene')
+  const than = h.thanHam('src/services/ai-gateway.service.js', '_sinhAnhQuaCacNoi')
   assert.match(than, /error\?\.message/,
     '"trả 401" một mình không cho biết là sai khoá, hết tiền, hay sai tên mô '
     + 'hình — ba việc phải xử khác hẳn nhau')

@@ -15859,3 +15859,98 @@ nếu kịch bản dài. Cách đúng là sau khi TTS chạy xong thì lấy th�
 thay cho ước lượng rồi ghép lại — chưa làm, đã ghi trong "Remaining Limits"
 của spec H4. Video 5 đoạn ~30 giây thì lệch tối đa vài giây, đủ để nghe thử
 và sửa; kịch bản dài thì nên biết trước.
+
+## H4d — Sinh ảnh minh hoạ từ chữ (10/09/2026)
+
+Chủ dự án yêu cầu làm H4d trước pilot. Trước khi viết dòng nào, đọc mã — và
+**tiền đề của spec H4 cho H4d là sai**.
+
+### Cái sai, tìm ra bằng cách đọc mã chứ không nhớ
+
+Spec H4 viết *"đoạn nào chưa có ảnh thì hiện `visualBriefVi` … hỏi có muốn
+sinh không"*, ngụ ý có đường sinh ảnh từ chữ. Không có:
+
+| Ràng buộc thật | Ở đâu |
+|---|---|
+| `required: ['jobId', 'scene', 'image']` — bắt buộc ảnh sản phẩm THẬT | `routes/ai.js` |
+| `scene` thuộc enum **6 bối cảnh dựng sẵn** | `routes/ai.js` |
+| Cả **4** giao thức vận chuyển đều bắt buộc ảnh vào; `openai_images` gọi thẳng `/images/**edits**` | `image-transport.service.js` |
+
+Đây là **lần thứ năm** mắc đúng lớp sai lầm mà `docs/ARCH.md` §4 đã đếm (mục A
+của spec H4 đếm tới lần thứ tư). Nên lần này dừng lại hỏi thay vì code theo
+spec. Chủ dự án chọn: **thêm đường sinh ảnh tự do**, và **giữ cửa
+`image.scene.stage` tắt** — dựng mã, test cục bộ, không tiêu Vox thật.
+
+### Bề mặt tuân thủ mới, và luật thay thế
+
+`packaging_check` so ảnh mới với ảnh GỐC. Ảnh minh hoạ không có ảnh gốc nên nó
+**không kiểm được gì**, mà bỏ trống chỗ đó thì H4d là lỗ hổng chứ không phải
+tính năng. Luật thay thế: ảnh minh hoạ **không được chứa sản phẩm có nhãn,
+logo, hay chữ đọc được** — vì nó nằm trong cùng một video bán hàng cạnh sản
+phẩm thật, và một cái hộp có nhãn do mô hình bịa ra vẫn là "sản phẩm" trước
+máy quét của sàn. Cấm trong câu lệnh **và** kiểm lại bằng tác vụ
+`kiem_anh_minh_hoa` — câu lệnh một mình không đủ để tin (bài học «Đo trước khi
+tin prompt»: chỉ ~1/3 luật viết trong prompt thật sự có tác dụng).
+
+### Bốn chốt guardrail của dự án bắt lỗi ngay trong lượt này
+
+Không phải đỏ ngẫu nhiên — cả bốn đều đang làm đúng việc:
+
+1. `ai-provider-roles`: tách vòng gọi mạng ra hàm dùng chung làm chốt "chặn
+   trước khi gọi mạng" mất dấu. **Viết lại chặt hơn bản cũ**: nay xét hàm dùng
+   chung *và* bắt buộc cả hai đường sinh ảnh đều đi qua nó, cấm tự gọi
+   `axios.post`. Bản cũ không cấm được một đường thứ hai vòng qua chốt.
+2. `assist-evals`: thêm tác vụ mà quên mẫu đo ⇒ đỏ. Đã thêm mẫu, đánh dấu
+   `canAnh` để bộ đo **báo bỏ qua** thay vì âm thầm cho 100% (bài học V93).
+3. `hold`: khoá giá công khai mới phải **cố ý** thêm vào danh sách cho phép.
+4. `job-result-actions`: enum `action` — đúng cái bẫy đã cắn ở H3, thiếu giá
+   trị thì `remember()` hỏng **im lặng sau khi đã trừ tiền**.
+
+### Hai lỗi thật của tôi, tìm ra trước khi chạy
+
+- `self._board.doan[i].goi_y_hinh` — trường thật là `visual_brief`. Đọc
+  dataclass mới thấy; để nguyên là `AttributeError` ngay lượt bấm đầu tiên.
+- `_ve_anh_xong` ghép kết quả với **danh sách đoạn thiếu** theo thứ tự. Vẽ
+  riêng cho đoạn 3 sẽ gán ảnh sang đoạn 1, và một đoạn hỏng giữa mẻ đẩy lệch
+  toàn bộ phần sau — **ảnh lên nhầm đoạn mà không có triệu chứng nào**. Sửa
+  bằng cách cho `AnhMinhHoa` tự mang `chi_so`, có test riêng chốt lại.
+
+- Nút «Vẽ» từng dòng KHÔNG tắt trong lúc worker đang chạy, nên bấm đoạn 1 rồi
+  bấm tiếp đoạn 2 sẽ **ghi đè worker cũ trong khi tiền của nó đã trừ** —
+  người dùng mất Vox cho những tấm ảnh không bao giờ tới nơi. Nút hàng loạt
+  tự tắt nên lỗi này chỉ lộ ở đường bấm từng dòng. Đã chặn trong hàm.
+
+### Một lỗ về sự trung thực, không phải về mã
+
+Bản đầu hỏi người dùng trả 30 Vox cho ảnh vẽ từ một gợi ý **không hiện ở đâu
+cả** — bảng không có cột đó, hộp thoại cũng không. Lượt bấm như vậy không còn
+là đồng ý có hiểu biết. Nay gợi ý hình hiện ngay trên bảng ở đoạn thiếu ảnh,
+và hộp thoại liệt kê đúng những gợi ý sắp được vẽ.
+
+### Chặt hơn C1 có chủ đích
+
+`dung_duoc` của ảnh minh hoạ **đòi đã đóng nhãn AI-generated**, còn
+`dung_duoc_de_ban` của C1 thì không. Lý do: ảnh C1 là ảnh sản phẩm THẬT của
+người bán, mất nhãn thì nó vẫn là ảnh thật; ảnh này 100% do máy vẽ, không nhãn
+là không còn gì phân biệt nó với một khung hình quay thật.
+
+### Đã chứng minh ĐỎ ĐƯỢC trước khi tin là xanh
+
+Ba chốt quan trọng nhất, phá ra rồi khôi phục:
+
+- bỏ `da_dong_nhan` khỏi `dung_duoc` ⇒ đỏ
+- bỏ nhánh dừng cả mẻ khi cửa đóng ⇒ đỏ
+- bỏ `if not dong_y: return` ⇒ đỏ (`test_nguoi_dung_tu_choi_thi_KHONG_ve_gi`)
+
+### Số
+
+- `control_server`: **645 test, 644 pass, 1 skip, 0 fail** (+14 mới).
+- Python: **2.627 passed / 4 skipped / 0 fail** (+25: 16 cho `story_image.py`,
+  9 cho giao diện — trong đó có chốt "đang vẽ dở thì không vẽ chồng lên").
+
+### Giới hạn thật
+
+**Chưa chạy thật lần nào.** Cửa `image.scene.stage` vẫn `off` theo quyết định
+của chủ dự án, nên mọi con số về chất lượng ảnh sẽ là con số **chưa đo** cho
+tới khi có người bật cửa và chạy. Pilot H2→H3 vẫn chưa chạy; spec H4 đặt H4d
+sau pilot vì đây là chỗ tiền bị đốt cho mỗi asset — giữ cửa đóng là thứ bù lại.

@@ -1164,6 +1164,37 @@ class DungDuAnWorker(QThread):
             self.failed.emit(str(e))
 
 
+class SinhAnhMinhHoaWorker(QThread):
+    """Vẽ ảnh minh hoạ cho các đoạn còn thiếu — mini-spec H4d.
+
+    Luồng riêng vì mỗi ảnh là HAI lượt gọi mạng (vẽ, rồi kiểm), mỗi lượt tới
+    120 giây. `tien_do` phát ra sau mỗi đoạn để người dùng thấy tiền đang đi
+    tới đâu — mẻ năm ảnh im lặng hai phút thì họ sẽ bấm lại lần nữa.
+    """
+
+    finished_ok = Signal(object)      # MeAnh
+    failed = Signal(str)
+    tien_do = Signal(int, int)        # đã xong, tổng
+
+    def __init__(self, goi_y_theo_doan: list, thu_muc_ra: str, *,
+                 noi_goi: str = "", parent=None):
+        super().__init__(parent)
+        self._goi_y = list(goi_y_theo_doan)
+        self._thu_muc = thu_muc_ra
+        self._noi_goi = noi_goi
+
+    def run(self) -> None:
+        from autodub.story_image import sinh_nhieu_anh
+
+        try:
+            me = sinh_nhieu_anh(
+                self._goi_y, self._thu_muc, noi_goi=self._noi_goi,
+                tien_do=lambda i, tong: self.tien_do.emit(i, tong))
+            self.finished_ok.emit(me)
+        except Exception as e:  # noqa: BLE001 — mọi lỗi phải tới được giao diện
+            self.failed.emit(str(e))
+
+
 class TranscribeWorker(QThread):
     """Chép lời một liên kết/file — mini-spec V71.
 

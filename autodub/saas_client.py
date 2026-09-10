@@ -658,6 +658,29 @@ class SaasClient:
         self._note_usage(data)
         return data
 
+    def story_image(self, brief: str, *, job_id: str,
+                    hold_id: str | None = None, provider: str = "",
+                    timeout: float = 120.0) -> dict:
+        """Vẽ ảnh minh hoạ cho một đoạn kịch bản — mini-spec H4d.
+
+        Khác ``product_scene`` ở chỗ KHÔNG có ảnh gốc: mô hình vẽ từ chữ.
+        Cũng vì thế không có ``mode`` — SAFE/CONCEPT là câu hỏi "có được đổi
+        bao bì sản phẩm thật không", mà ở đây không có sản phẩm thật nào.
+
+        Ảnh trả về **chưa qua kiểm** (``daKiem`` luôn là False). Nơi dùng phải
+        cho nó qua ``kiem_anh_minh_hoa`` rồi đóng nhãn AI-generated — xem
+        ``autodub/story_image.py``.
+        """
+        payload = {"jobId": job_id, "brief": brief[:400]}
+        if provider:
+            payload["provider"] = provider
+        if hold_id:
+            payload["holdId"] = hold_id
+        data = self._request("POST", "/v1/ai/story-image", timeout=timeout,
+                             json_body=payload)
+        self._note_usage(data)
+        return data
+
     def assist(self, task: str, input_data: dict, *, job_id: str,
                images: list[dict] | None = None,
                hold_id: str | None = None, timeout: float = 45.0) -> list[dict]:

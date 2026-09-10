@@ -27,12 +27,20 @@ from autodub_gui.pages import BasePage
 from autodub_gui.status_text import STATUS_ERROR, STATUS_OK, STATUS_WARN
 from autodub_gui.ui.buttons import GhostButton, PrimaryButton, SecondaryButton
 from autodub_gui.ui.cards import Card
+from autodub_gui.ui.modal import ConfirmDialog
 from autodub_gui.ui.table import Column, DataTable
 from autodub_gui.ui.toast import TOASTS
-from autodub_gui.workers import DungDuAnWorker, FlowBlueprintCrudWorker
+from autodub_gui.workers import (
+    DungDuAnWorker, FlowBlueprintCrudWorker, SinhAnhMinhHoaWorker,
+)
 
 _PAGE_MARGIN = 28
 _ANH_FILTER = "Ảnh (*.png *.jpg *.jpeg *.webp);;Tất cả (*.*)"
+
+#: Giá một ảnh minh hoạ, khớp `credit.cost.image.scene` phía máy chủ. Hiện ra
+#: cho người dùng thấy TRƯỚC khi bấm — đây là con số quyết định họ có bấm hay
+#: không, giấu nó đi thì lượt bấm không còn là đồng ý.
+GIA_MOI_ANH = 30
 
 _NHAN_BEAT = {
     "hook": "Mở hook", "problem_context": "Nêu vấn đề", "tension": "Tăng kịch tính",
@@ -63,6 +71,7 @@ class StoryboardPage(BasePage):
         self._anh: list[str] = []
         self._worker: DungDuAnWorker | None = None
         self._bp_worker: FlowBlueprintCrudWorker | None = None
+        self._ve_worker: SinhAnhMinhHoaWorker | None = None
         self._build()
 
     def _build(self) -> None:
@@ -74,9 +83,10 @@ class StoryboardPage(BasePage):
         card.add_header("Dựng video từ kịch bản")
         hint = QLabel(
             "Mỗi đoạn giữ hình đúng bằng thời gian đọc lời của nó. Chọn ảnh "
-            "cho từng đoạn rồi bấm «Dựng dự án» — bước này không tốn Vox. "
+            "cho từng đoạn rồi bấm «Dựng dự án» — ghép và dựng không tốn Vox. "
             "Xong sẽ mở trong Trình chỉnh sửa để bạn nghe thử, sửa lời và "
-            "xuất video.")
+            f"xuất video. Thiếu ảnh thì có thể nhờ vẽ, {GIA_MOI_ANH} Vox mỗi "
+            "tấm — công cụ luôn hỏi trước khi trừ.")
         hint.setObjectName("hint")
         hint.setWordWrap(True)
         card.body.addWidget(hint)
@@ -112,6 +122,9 @@ class StoryboardPage(BasePage):
         self.btn_chon_het = GhostButton("Chọn ảnh cho tất cả…")
         self.btn_chon_het.clicked.connect(self._chon_nhieu)
         hang.addWidget(self.btn_chon_het)
+        self.btn_ve_het = GhostButton("Vẽ ảnh cho các đoạn còn thiếu…")
+        self.btn_ve_het.clicked.connect(lambda: self._ve_anh(self._doan_thieu()))
+        hang.addWidget(self.btn_ve_het)
         hang.addStretch()
         root.addLayout(hang)
 
@@ -159,6 +172,10 @@ class StoryboardPage(BasePage):
             self._board = None
             self.status.setText(f"{STATUS_ERROR} {e}")
             self.btn_dung.setEnabled(False)
+            # Kịch bản chưa duyệt thì cũng KHÔNG được vẽ ảnh cho nó. Cổng của
+            # H4 là "chỉ kịch bản ready" — để hở đường tiêu tiền ở đây thì
+            # người dùng trả 30 Vox mỗi ảnh cho một kịch bản không dựng được.
+            self.btn_ve_het.setEnabled(False)
             self.bang.auto_state()
             return
 
@@ -170,18 +187,39 @@ class StoryboardPage(BasePage):
             self.bang.set_widget(row, 1, loi)
             self.bang.set_widget(row, 2, QLabel(_khoang_giay(d.uoc_luong)))
             duong = self._anh[i] if i < len(self._anh) else ""
-            nhan = QLabel(os.path.basename(duong) if duong
-                          else f"{STATUS_WARN} chưa có ảnh")
+            if duong:
+                nhan = QLabel(os.path.basename(duong))
+            else:
+                # Hiện GỢI Ý HÌNH ngay ở đây, không giấu trong hộp thoại: đây
+                # là thứ người dùng cần đọc để quyết có bỏ 30 Vox vẽ hay tự đi
+                # chụp một tấm.
+                nhan = QLabel(f"{STATUS_WARN} chưa có ảnh"
+                              + (f" — gợi ý: {d.visual_brief}"
+                                 if d.visual_brief else ""))
             nhan.setWordWrap(True)
             self.bang.set_widget(row, 3, nhan)
+            o = QWidget()
+            cot = QHBoxLayout(o)
+            cot.setContentsMargins(0, 0, 0, 0)
+            cot.setSpacing(tokens.SP_2)
             nut = SecondaryButton("Đổi ảnh…" if duong else "Chọn ảnh…")
             nut.clicked.connect(lambda _c=False, idx=i: self._chon_mot(idx))
-            self.bang.set_widget(row, 4, nut)
+            cot.addWidget(nut)
+            if not duong:
+                ve = GhostButton(f"Vẽ ({GIA_MOI_ANH} Vox)")
+                ve.clicked.connect(lambda _c=False, idx=i: self._ve_anh([idx]))
+                cot.addWidget(ve)
+            self.bang.set_widget(row, 4, o)
         self.bang.auto_state()
 
         du_anh = all(str(a or "").strip() for a in self._anh) and bool(self._anh)
         self.btn_dung.setEnabled(du_anh)
         thieu = sum(1 for a in self._anh if not str(a or "").strip())
+        # Chỉ bật nút vẽ khi thật sự có đoạn thiếu ảnh VÀ có gợi ý để vẽ theo.
+        # Bật nút rồi mới báo "không có gợi ý" là dạy người dùng bấm bừa.
+        self.btn_ve_het.setEnabled(any(
+            str(self._board.doan[i].visual_brief or "").strip()
+            for i in self._doan_thieu() if i < len(self._board.doan)))
         if du_anh:
             self.status.setText(
                 f"{STATUS_OK} Đủ ảnh cho {len(self._anh)} đoạn. Video sẽ dài "
@@ -221,6 +259,102 @@ class StoryboardPage(BasePage):
                         f"{len(self._anh) - len(ds)} đoạn chưa có.")
         self._ve()
 
+    # -- Vẽ ảnh (mini-spec H4d) -------------------------------------------
+    def _doan_thieu(self) -> list[int]:
+        return [i for i, a in enumerate(self._anh) if not str(a or "").strip()]
+
+    def _ve_anh(self, chi_so: list[int]) -> None:
+        """Hỏi kèm GIÁ rồi mới vẽ. Không có đường nào vẽ mà không qua đây.
+
+        Guardrail 3 của H4d. Tự bấm hộ là tiêu tiền của người ta mà không xin
+        phép, nên hộp thoại này không phải thủ tục — nó là chỗ người dùng nhìn
+        thấy con số trước khi con số bị trừ.
+        """
+        if not self._board or not chi_so:
+            return
+        # Lượt vẽ trước chưa xong mà bấm tiếp thì worker cũ bị ghi đè, còn
+        # tiền của nó thì đã trừ rồi — người dùng mất Vox cho những tấm ảnh
+        # không bao giờ tới nơi. Nút hàng loạt đã tắt, nhưng nút vẽ từng dòng
+        # thì không, nên chốt phải nằm ở đây.
+        if self._ve_worker is not None and self._ve_worker.isRunning():
+            TOASTS.info("Đang vẽ dở — đợi xong rồi hãy vẽ tiếp.")
+            return
+        goi_y = [(i, self._board.doan[i].visual_brief) for i in chi_so
+                 if i < len(self._board.doan)]
+        goi_y = [(i, g) for i, g in goi_y if str(g or "").strip()]
+        if not goi_y:
+            TOASTS.info("Kịch bản không có gợi ý hình cho đoạn này — "
+                        "chọn ảnh của bạn nhé.")
+            return
+
+        tong = len(goi_y) * GIA_MOI_ANH
+        dong_y, _ = ConfirmDialog.ask(
+            self, f"Vẽ {len(goi_y)} ảnh — hết {tong} Vox",
+            f"Mỗi ảnh tốn {GIA_MOI_ANH} Vox, tổng {tong} Vox cho "
+            f"{len(goi_y)} đoạn. Tiền trừ ngay cả khi ảnh vẽ ra không dùng "
+            "được, nên đọc gợi ý bên dưới rồi hãy quyết.",
+            kind="warning", confirm_label=f"Vẽ, trừ {tong} Vox",
+            cancel_label="Thôi",
+            # Cho họ ĐỌC ĐÚNG thứ sắp được vẽ. Hỏi trả tiền cho một tấm ảnh
+            # sinh từ gợi ý không hiện ở đâu cả thì lượt bấm không còn là
+            # đồng ý có hiểu biết.
+            detail="Sẽ vẽ theo những gợi ý này:\n"
+                   + "\n".join(f"  {i + 1}. {g}" for i, g in goi_y)
+                   + "\n\nẢnh vẽ ra là ảnh MINH HOẠ, không phải ảnh sản phẩm "
+                     "của bạn — công cụ cố ý không vẽ hộp, chai hay nhãn nào, "
+                     "vì sản phẩm bịa trong video bán hàng là thứ khiến tài "
+                     "khoản bị phạt.\n\n"
+                     "Nếu ảnh có người thì mỗi đoạn sẽ là một người KHÁC "
+                     "nhau. Công cụ không giữ được cùng một nhân vật giữa các "
+                     "cảnh.\n\n"
+                     "Ảnh nào vẽ ra mà có sản phẩm hoặc chữ đọc được sẽ bị "
+                     "loại, không ghép vào video.")
+        if not dong_y:
+            return
+
+        thu_muc = os.path.join(os.path.expanduser("~"), "VoxDub", "storyboard",
+                               "anh_minh_hoa",
+                               time.strftime("%Y%m%d_%H%M%S"))
+        self.btn_ve_het.setEnabled(False)
+        self.status.setText(f"Đang vẽ {len(goi_y)} ảnh…")
+        self._ve_worker = SinhAnhMinhHoaWorker(goi_y, thu_muc, parent=self)
+        self._ve_worker.tien_do.connect(
+            lambda i, tong_: self.status.setText(f"Đang vẽ ảnh {i + 1}/{tong_}…"))
+        self._ve_worker.finished_ok.connect(self._ve_anh_xong)
+        self._ve_worker.failed.connect(self._ve_anh_hong)
+        self._ve_worker.start()
+
+    def _ve_anh_xong(self, me) -> None:
+        """Chỉ ảnh ĐẠT mới vào video. Ảnh trượt vẫn nói ra, kèm lý do."""
+        self.btn_ve_het.setEnabled(True)
+        dat = 0
+        for ket in me.ket_qua:
+            # Đi theo `chi_so` của chính kết quả, KHÔNG theo thứ tự trong
+            # danh sách: vẽ riêng cho một đoạn, hoặc một đoạn hỏng giữa mẻ,
+            # đều làm hai thứ đó lệch nhau — và ảnh sẽ lên nhầm đoạn.
+            if ket.dung_duoc and 0 <= ket.chi_so < len(self._anh):
+                self._anh[ket.chi_so] = ket.duong_dan
+                dat += 1
+        self._ve()
+
+        truot = [k for k in me.ket_qua if not k.dung_duoc]
+        if truot:
+            # Người dùng đã trả tiền cho những tấm này — họ có quyền biết vì
+            # sao chúng không dùng được, không phải chỉ thấy một con số hụt.
+            ConfirmDialog.show_error(
+                self, f"{len(truot)} ảnh không dùng được",
+                f"Đã vẽ {len(me.ket_qua)} ảnh, {dat} ảnh dùng được. "
+                f"{len(truot)} ảnh bị loại vì không qua được bước kiểm — "
+                "Vox của những ảnh đó vẫn bị trừ vì máy chủ đã vẽ chúng.",
+                detail="\n".join(f"• {k.goi_y[:60]} → {k.ly_do}" for k in truot))
+        elif dat:
+            TOASTS.success(f"Đã vẽ xong {dat} ảnh.")
+
+    def _ve_anh_hong(self, message: str) -> None:
+        self.btn_ve_het.setEnabled(True)
+        self._ve()
+        ConfirmDialog.show_error(self, "Không vẽ được ảnh", message)
+
     # -- Dựng -------------------------------------------------------------
     def _dung(self) -> None:
         if not self._kich_ban or not self._board:
@@ -249,9 +383,10 @@ class StoryboardPage(BasePage):
 
     # -- Vòng đời ---------------------------------------------------------
     def is_running(self) -> bool:
-        return self._worker is not None and self._worker.isRunning()
+        return any(w is not None and w.isRunning()
+                   for w in (self._worker, self._ve_worker))
 
     def shutdown(self) -> None:
-        for w in (self._worker, self._bp_worker):
+        for w in (self._worker, self._bp_worker, self._ve_worker):
             if w is not None and w.isRunning():
                 w.wait(3000)

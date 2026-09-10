@@ -102,6 +102,11 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     // 6 khung), không nhân theo số khung: app tự gộp trước khi gửi.
     'credit.cost.assist.doc_chu_khung_hinh',
     'credit.cost.assist.explain_error',
+    // credit.cost.assist.kiem_anh_minh_hoa: cổng kiểm ảnh minh hoạ
+    // (mini-spec H4d) — thêm có chủ đích. Cùng giá 3 Vox với
+    // packaging_check vì cùng là bước AN TOÀN: thu đắt thì người dùng tìm
+    // cách bỏ qua, mà bỏ qua nó là đúng thứ nó sinh ra để chặn.
+    'credit.cost.assist.kiem_anh_minh_hoa',
     'credit.cost.assist.music_suggest',
     // credit.cost.assist.packaging_check: cổng kiểm tuân thủ TikTok Shop
     // (mini-spec C1) — thêm có chủ đích.

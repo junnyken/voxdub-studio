@@ -60,6 +60,10 @@ const DEFAULTS = {
   // Vẫn để rẻ: đây là bước AN TOÀN, thu đắt thì người dùng bỏ qua nó
   // (mini-spec C1).
   'credit.cost.assist.packaging_check': 3,
+  // Cùng lý do như `packaging_check`, và cùng mức giá: đây là bước AN TOÀN
+  // của đường ảnh minh hoạ (mini-spec H4d). Thu đắt thì người dùng tìm cách
+  // bỏ qua nó, mà bỏ qua nó là đúng thứ tính năng này sinh ra để chặn.
+  'credit.cost.assist.kiem_anh_minh_hoa': 3,
   // Kiểm liên tục: MỘT lượt cho cả mẻ, không nhân theo số cảnh — nhân theo
   // cảnh thì người dùng bị phạt vì làm video dài hơn, trong khi câu trả lời
   // vẫn chỉ là một câu (mini-spec C7).

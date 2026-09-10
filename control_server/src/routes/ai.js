@@ -28,6 +28,7 @@ const gateway = require('../services/ai-gateway.service')
 const prompts = require('../prompts/translate')
 const assistPrompts = require('../prompts/assist')
 const scenePrompts = require('../prompts/product_scene')
+const storyPrompts = require('../prompts/story_image')
 const imageStage = require('../services/image-stage.service')
 const { containsCjk } = require('../utils/json-repair')
 
@@ -1030,6 +1031,23 @@ module.exports = async function aiRoutes(fastify) {
     }
   })
 
+  /**
+   * Số ảnh đã sinh trong ngày của một máy — GỘP cả hai đường sinh ảnh.
+   *
+   * Guardrail 5 của H4d. Đếm tách theo `action` thì một người dùng hết trần
+   * ở đường này còn nguyên trần ở đường kia, tức là trần ngày 60 thành 120
+   * mà không ai quyết định điều đó. Cùng một loại rủi ro thì cùng một trần.
+   */
+  const ACTION_SINH_ANH = ['product_scene', 'story_image']
+  function demAnhTrongNgay(fingerprint) {
+    return UsageLog.countDocuments({
+      fingerprint,
+      action: { $in: ACTION_SINH_ANH },
+      runMode: { $ne: 'test_now' },
+      createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
+    })
+  }
+
   // -------------------------- dựng bối cảnh ảnh sản phẩm (mini-spec C1) --
   //
   // Người bán đưa MỘT ảnh sản phẩm thật, chọn bối cảnh, nhận về ảnh mới.
@@ -1113,12 +1131,7 @@ module.exports = async function aiRoutes(fastify) {
       }
     }
     if (cfg['image.daily.limit'] > 0) {
-      const daDung = await UsageLog.countDocuments({
-        fingerprint: device.fingerprint,
-        action: 'product_scene',
-        runMode: { $ne: 'test_now' },
-        createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) },
-      })
+      const daDung = await demAnhTrongNgay(device.fingerprint)
       if (daDung >= cfg['image.daily.limit']) {
         return reply.code(429).send({
           code: 'DAILY_LIMIT',
@@ -1210,6 +1223,161 @@ module.exports = async function aiRoutes(fastify) {
         assistTask: mode,
         runMode: nac.runMode,
         inputSize: 1,
+        creditCharged: paid.charged,
+        aiProvider: result.provider,
+        aiModel: result.model,
+        durationMs: Date.now() - started,
+        status: 'success',
+        ip: request.ip,
+        appVersion: device.appVersion,
+      }),
+    ])
+    return response
+  })
+
+  // ------------------------ ảnh minh hoạ cho đoạn kịch bản (mini-spec H4d) --
+  //
+  // Sinh ảnh CHỈ TỪ CHỮ, không có ảnh gốc nào. Đây là cửa khác hẳn
+  // `/product-scene` chứ không phải một chế độ của nó, vì cả hình dạng lượt
+  // gọi lẫn luật tuân thủ đều khác:
+  //
+  //   `/product-scene` có ảnh sản phẩm thật làm neo → luật là "đừng đổi gì".
+  //   `/story-image`   không có neo nào             → luật là "đừng vẽ sản
+  //                                                    phẩm nào hết".
+  //
+  // Ảnh ra đây CHƯA được coi là dùng được: máy khách còn phải cho nó qua
+  // `kiem_anh_minh_hoa` rồi đóng nhãn AI-generated. Cửa này cố ý không tự
+  // gọi bước kiểm — kiểm là một lượt gọi mô hình riêng, gộp vào đây thì một
+  // lần hỏng mạng ở bước kiểm sẽ kéo mất cả tấm ảnh đã trả tiền.
+  fastify.post('/story-image', {
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['jobId', 'brief'],
+        additionalProperties: false,
+        properties: {
+          jobId: { type: 'string', minLength: 8, maxLength: 64 },
+          brief: { type: 'string', minLength: 1, maxLength: storyPrompts.DAI_TOI_DA },
+          holdId: { type: 'string' },
+          provider: { type: 'string', maxLength: 64 },
+        },
+      },
+    },
+    preHandler: requireDevice,
+  }, async (request, reply) => {
+    const { jobId, brief, holdId, provider: tenNoiGoi = '' } = request.body
+    const device = request.device
+
+    // Cùng chốt chuyển pha C2 với `/product-scene`, và đứng TRƯỚC `replay`
+    // vì cùng một lý do: đóng cửa mà vẫn trả hàng qua khe thì không gọi là
+    // đóng. Guardrail 4 của H4d — KHÔNG mở cửa thứ hai lỏng hơn cho cùng một
+    // loại rủi ro.
+    const nac = imageStage.quyetDinh({
+      stage: await config.get('image.scene.stage'),
+      devices: await config.get('image.scene.calibration.devices'),
+      fingerprint: device.fingerprint,
+    })
+    if (!nac.choPhep) {
+      return reply.code(409).send({ code: nac.code, message: nac.message })
+    }
+
+    const cached = await replay(jobId, device.fingerprint)
+    if (cached) return cached
+
+    const cfg = await config.getMany(['credit.enabled', 'credit.cost.image.scene',
+      'image.daily.limit'])
+    const cost = cfg['credit.enabled'] ? (cfg['credit.cost.image.scene'] || 0) : 0
+
+    if (cfg['image.daily.limit'] > 0) {
+      const daDung = await demAnhTrongNgay(device.fingerprint)
+      if (daDung >= cfg['image.daily.limit']) {
+        return reply.code(429).send({
+          code: 'DAILY_LIMIT',
+          message: `Hôm nay đã dựng hết ${cfg['image.daily.limit']} ảnh. `
+            + 'Thử lại vào ngày mai.',
+        })
+      }
+    }
+
+    const lacking = await precheck(device.fingerprint, holdId, cost,
+      { action: 'story_image', jobId })
+    if (lacking) {
+      return reply.code(402).send({
+        code: 'INSUFFICIENT_CREDIT',
+        message: `Không đủ Vox. Cần ${lacking.required}, bạn có ${lacking.balance}.`,
+        balance: lacking.balance,
+        required: lacking.required,
+      })
+    }
+
+    // Chỉ đích danh nơi gọi: tìm TRƯỚC khi tính tiền, như `/product-scene`.
+    let chiDinh = null
+    if (tenNoiGoi) {
+      const noi = await gateway.timTheoTen('image', tenNoiGoi)
+      if (!noi) {
+        return reply.code(400).send({
+          code: 'KHONG_THAY_NOI_GOI',
+          message: `Không còn nơi gọi mô hình tên "${tenNoiGoi}" cho việc sinh `
+            + 'ảnh. Chọn lại nơi khác hoặc để "Tự động".',
+        })
+      }
+      chiDinh = [noi]
+    }
+
+    const started = Date.now()
+    let result
+    try {
+      result = await gateway.generateStoryImage({ brief, chiDinh })
+    } catch (err) {
+      request.log.warn({ err, jobId }, 'story-image failed')
+      UsageLog.create({
+        fingerprint: device.fingerprint,
+        jobId,
+        action: 'story_image',
+        runMode: nac.runMode,
+        status: 'error',
+        errorCode: err.code || 'AI_UNAVAILABLE',
+        errorMessage: String(err.message).slice(0, 300),
+        durationMs: Date.now() - started,
+        ip: request.ip,
+        appVersion: device.appVersion,
+      }).catch(() => {})
+      return reply.code(err.statusCode || 503).send({
+        code: err.code || 'AI_UNAVAILABLE',
+        message: err.message || 'Chưa vẽ được ảnh. Thử lại sau ít phút.',
+        retryAfter: 30,
+      })
+    }
+
+    const paid = await charge(device, {
+      holdId,
+      jobId,
+      action: 'story_image',
+      walletCost: cost,
+      internalVox: 0,
+      description: 'Vẽ ảnh minh hoạ cho đoạn kịch bản',
+      ip: request.ip,
+    })
+
+    const response = {
+      jobId,
+      image: result.image,
+      // Nói thẳng ra rằng ảnh này CHƯA qua kiểm. Trả về mỗi tấm ảnh thì phía
+      // gọi rất dễ hiểu nhầm là đã xong — mà bước kiểm mới là chỗ Guardrail 1
+      // được thi hành.
+      daKiem: false,
+      creditCharged: paid.charged,
+      balanceAfter: paid.balanceAfter,
+    }
+    await Promise.all([
+      remember(jobId, device.fingerprint, 'story_image', response, paid.charged),
+      UsageLog.create({
+        fingerprint: device.fingerprint,
+        jobId,
+        action: 'story_image',
+        runMode: nac.runMode,
+        inputSize: brief.length,
         creditCharged: paid.charged,
         aiProvider: result.provider,
         aiModel: result.model,

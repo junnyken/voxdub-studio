@@ -20,6 +20,7 @@ const {
 const prompts = require('../prompts/translate')
 const assistPrompts = require('../prompts/assist')
 const scenePrompts = require('../prompts/product_scene')
+const storyPrompts = require('../prompts/story_image')
 const transport = require('./image-transport.service')
 const visionProbe = require('./vision-probe.service')
 
@@ -634,7 +635,15 @@ async function generatePost({ scriptOriginal, scriptVi, videoTitle }) {
  * chữ) — KHÔNG có đường lui sang vai khác, vì mô hình chữ không sinh được ảnh
  * và rơi sang đó chỉ đổi một lỗi nói được thành một lỗi khó hiểu.
  */
-async function generateScene({ image, scene, mode = 'SAFE', note = '', chiDinh }) {
+/**
+ * Vòng thử từng nơi gọi mô hình ảnh — dùng chung cho dựng bối cảnh (C1) và
+ * ảnh minh hoạ (H4d).
+ *
+ * `dungYeuCauCho` quyết định hình dạng lượt gọi. Hai việc khác nhau ở đúng
+ * chỗ đó và không chỗ nào khác: cùng danh sách nơi gọi, cùng cách đọc trả
+ * lời, cùng cách ghi sổ hỏng/khoẻ cho từng nhà cung cấp.
+ */
+async function _sinhAnhQuaCacNoi({ prompt, chiDinh, dungYeuCauCho, viSao }) {
   // `chiDinh` = chỉ thử đúng một nơi gọi (nút "Thử ngay" của trang quản trị).
   const list = chiDinh || await providersFor('image')
   if (!list.length) {
@@ -642,7 +651,6 @@ async function generateScene({ image, scene, mode = 'SAFE', note = '', chiDinh }
       'Chưa cấu hình nơi gọi mô hình cho vai "image". Thêm ở trang Nơi gọi '
       + 'mô hình, vai trò "Sinh ảnh".', 503)
   }
-  const prompt = scenePrompts.buildPrompt({ scene, mode, note })
 
   let lastError = null
   for (const provider of list) {
@@ -654,16 +662,20 @@ async function generateScene({ image, scene, mode = 'SAFE', note = '', chiDinh }
       // `image-transport.service.js`. Giao thức không sinh được ảnh (vd
       // "Chuẩn OpenAI" = /chat/completions) thì nói thẳng ngay tại đây: để
       // nó đi tiếp chỉ nhận về 404 mà người cấu hình không đoán ra vì sao.
-      const yeuCau = transport.dungYeuCau({
+      const yeuCau = dungYeuCauCho({
         provider: { ...provider.toObject?.() ?? provider, apiKey },
         prompt,
-        image,
       })
       if (!yeuCau) {
+        const ten = provider.label || provider.name
+        // `viSao` cho phép bên gọi nói LÝ DO THẬT. Với ảnh minh hoạ, nơi gọi
+        // bị loại thường là một giao thức ảnh hợp lệ nhưng khai mẫu dành cho
+        // sửa-ảnh — bảo họ "chọn giao thức sinh được ảnh" là chỉ sai đường.
         throw new AiError('PROVIDER_MISCONFIGURED',
-          `Nơi gọi mô hình "${provider.label || provider.name}" đang khai giao `
-          + 'thức không sinh được ảnh. Vai "Sinh ảnh" cần một trong: '
-          + `${Object.values(transport.GIAO_THUC).join(', ')}.`, 503)
+          viSao?.({ ...provider.toObject?.() ?? provider }, ten)
+          || `Nơi gọi mô hình "${ten}" đang khai giao thức không sinh được ảnh. `
+            + 'Vai "Sinh ảnh" cần một trong: '
+            + `${Object.values(transport.GIAO_THUC).join(', ')}.`, 503)
       }
 
       const resp = await axios.post(yeuCau.url, yeuCau.body, {
@@ -696,7 +708,6 @@ async function generateScene({ image, scene, mode = 'SAFE', note = '', chiDinh }
         image: anh,
         provider: provider.name,
         model: provider.model,
-        mode,
         prompt,
       }
     } catch (err) {
@@ -707,6 +718,37 @@ async function generateScene({ image, scene, mode = 'SAFE', note = '', chiDinh }
     }
   }
   throw lastError || new AiError('AI_UNAVAILABLE', 'Không nơi nào sinh được ảnh')
+}
+
+async function generateScene({ image, scene, mode = 'SAFE', note = '', chiDinh }) {
+  const prompt = scenePrompts.buildPrompt({ scene, mode, note })
+  const ra = await _sinhAnhQuaCacNoi({
+    prompt,
+    chiDinh,
+    dungYeuCauCho: ({ provider, prompt: p }) =>
+      transport.dungYeuCau({ provider, prompt: p, image }),
+  })
+  return { ...ra, mode }
+}
+
+/**
+ * Sinh ảnh MINH HOẠ chỉ từ chữ — mini-spec H4d.
+ *
+ * Không có ảnh gốc, nên cũng không có `mode`: `SAFE`/`CONCEPT` là câu hỏi
+ * "có được đổi bao bì sản phẩm thật không", mà ở đây không có sản phẩm thật
+ * nào. Phán quyết tuân thủ của ảnh này do `kiem_anh_minh_hoa` trả lời sau khi
+ * ảnh đã sinh ra, không phải do người gọi khai trước.
+ */
+async function generateStoryImage({ brief, chiDinh }) {
+  const prompt = storyPrompts.buildPrompt({ brief })
+  return _sinhAnhQuaCacNoi({
+    prompt,
+    chiDinh,
+    dungYeuCauCho: transport.dungYeuCauTuChu,
+    viSao: (p, ten) => (p.type === 'custom_images'
+      ? `Nơi gọi mô hình "${ten}": ${transport.loiMauTuChu(p)}`
+      : ''),
+  })
 }
 
 
@@ -961,6 +1003,7 @@ module.exports = {
   AiError,
   assist,
   generateScene,
+  generateStoryImage,
   translateBatch,
   translateSubtitleBatch,
   fixCjkLeftovers,
