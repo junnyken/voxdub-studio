@@ -15763,3 +15763,59 @@ chảo mỡ"* — vai trò + hành động, đúng thứ máy sinh ảnh giữ �
 chứ không cấm suông; `PROMPT_VERSION` ≥ 2). Thêm một phép kiểm vào mẫu đo để
 lượt chạy eval thật bắt được nếu mô hình vẫn tả mặt người. Node **630 passed /
 0 fail**.
+
+---
+
+## H4c — Dựng dự án mở được trong Trình chỉnh sửa (10/09/2026)
+
+Từ storyboard + ảnh đã chọn, dựng thư mục **đúng khuôn dự án lồng tiếng** để
+mở thẳng trong Trình chỉnh sửa — nhờ vậy nghe thử từng câu, sửa lời, đọc lại
+bằng VieNeu (0 Vox), đổi giọng, ghép xuất đều dùng lại máy móc CÓ SẴN, không
+phải làm lại gì.
+
+**Audit trước khi code cứu một lần hụt**: `editor.load_work_dir()` đòi ĐỦ BA
+thứ — video nguồn trong thư mục, `data/transcript_vi.json`, và `securestore`
+không khoá. Tin theo mô tả "giao segment cho Trình chỉnh sửa" thì sẽ dựng ra
+một dự án nó **từ chối mở**, vì kịch bản không có video nguồn nào. Ta dựng
+bản trình chiếu ảnh làm video nguồn.
+
+Tên tệp cũng là bẫy: `_find_source_video()` cố ý bỏ qua mọi tệp bắt đầu bằng
+`dubbed_`/`retimed_`/`slowed_` (chúng là sản phẩm phái sinh). Đặt tên trúng
+một trong ba là dự án không mở được với một lỗi chẳng liên quan gì tới nguyên
+nhân thật. Có test canh tên.
+
+**Suýt bịa trạng thái tuân thủ.** `dung_video()` bắt mọi ảnh phải đã kiểm bao
+bì VÀ **đã đóng nhãn AI-generated LÊN ẢNH** — ba phép kiểm dựng cho ảnh do AI
+vẽ (C1). Đường dễ nhất là điền `da_kiem=True, da_dong_nhan=True` cho ảnh người
+dùng để qua cổng, nhưng ảnh họ tự chụp KHÔNG phải ảnh AI: đóng nhãn đó lên là
+nói sai sự thật, điền cờ mà không có nhãn thật là bịa hồ sơ tuân thủ.
+
+Thay vào đó thêm `ghep_anh_nguoi_dung()` với ranh giới ghi rõ, và **không đụng
+vào cổng C1** — nó nguyên vẹn cho H4d, khi ảnh thật sự do AI sinh thì phải đi
+qua đủ ba phép kiểm.
+
+Ngược lại **nhãn AI-generated trên VIDEO thì giữ**: kịch bản do mô hình viết,
+giọng đọc là giọng tổng hợp ⇒ đúng là nội dung chỉnh sửa bằng AI đáng kể theo
+quy định TikTok từ 13/5/2026. Có test canh nhãn còn nguyên.
+
+**Lời đọc và chữ trên hình tách bạch**: `text_vi` là câu nói đầy đủ (đưa cho
+TTS), `sub_vi` là caption ngắn. Gộp làm một thì hoặc phụ đề dài lê thê hoặc
+giọng đọc cụt lủn. Caption rỗng thì phụ đề lấy luôn lời đọc — để trống là mất
+chữ trên hình.
+
+**Truy nguồn**: ghi `data/nguon_kich_ban.json` (id kịch bản/blueprint/brand,
+phiên bản bộ kiểm, cảnh báo lệch nhịp). Không có thì một thư mục dự án là hộp
+đen — về sau không biết kịch bản nào đẻ ra nó.
+
+**Tests**: 16 mới. Phép kiểm quan trọng nhất là **`editor.load_work_dir()` mở
+được THẬT** dự án vừa dựng — kiểm kiểu "có tệp transcript" thì xanh cả khi
+Trình chỉnh sửa từ chối mở vì thiếu video nguồn, đúng cái bẫy làm H4c vô dụng
+mà test vẫn báo ổn.
+
+Hai lỗi của chính tôi bị test bắt: docstring còn ghi "mặc định dùng
+`dung_video()`" sau khi đã đổi — sai đúng ngay chỗ ranh giới tuân thủ; và test
+"không dùng cổng ảnh AI" ban đầu quét CHUỖI KÝ TỰ nên bắt luôn câu chú thích
+giải thích vì sao không dùng (y hệt lỗi ở test wording hôm trước) — đã viết
+lại thành kiểm HÀNH VI bằng monkeypatch.
+
+Toàn bộ: **Python 2.586 passed / 4 skipped / 0 fail**.

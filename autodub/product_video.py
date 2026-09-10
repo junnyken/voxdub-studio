@@ -415,6 +415,45 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh,
     return lenh
 
 
+def ghep_anh_nguoi_dung(duong_anh: list[str], duong_ra: str, *,
+                       giay_moi_anh, giay_chuyen: float = 0.3,
+                       kieu_chuyen: str = "mo_chong",
+                       timeout: float = 300.0) -> str:
+    """Ghép ảnh NGƯỜI DÙNG TỰ CHỌN thành video — mini-spec H4c.
+
+    **Khác `dung_video()` ở đúng một chỗ, và chỗ đó có lý do.** `dung_video()`
+    bắt mọi ảnh phải qua `kiem_lai_truoc_khi_xuat()`: đã kiểm bao bì, kết luận
+    SAFE, và **đã đóng nhãn AI-generated lên ảnh**. Ba phép kiểm đó dựng cho
+    ảnh do AI vẽ lại bối cảnh (mini-spec C1) — chúng bảo vệ người bán khỏi án
+    phạt vì ảnh AI làm sản phẩm trông khác hàng thật.
+
+    Ảnh người dùng TỰ CHỤP thì không thuộc diện đó: nó là ảnh thật của sản
+    phẩm thật. Đóng nhãn "AI-generated" lên một tấm ảnh chụp thật là **nói sai
+    sự thật**, và điền `da_dong_nhan=True` cho nó chỉ để qua cổng là bịa trạng
+    thái tuân thủ.
+
+    **Nhãn AI-generated trên VIDEO thì vẫn giữ** (`_lenh_ghep` luôn đóng, không
+    có tham số tắt): kịch bản do mô hình viết và giọng đọc là giọng tổng hợp,
+    nên video này đúng là nội dung chỉnh sửa bằng AI đáng kể.
+
+    ⚠ **Khi H4d thêm đường sinh ảnh AI**: ảnh sinh ra KHÔNG được đi qua hàm
+    này. Chúng phải qua `dung_video()` với đủ ba phép kiểm, vì lúc đó đúng là
+    ảnh AI và cổng C1 áp dụng.
+    """
+    if not duong_anh:
+        raise ValueError("Chưa chọn ảnh nào.")
+    thieu = [p for p in duong_anh if not os.path.isfile(p)]
+    if thieu:
+        raise ValueError(
+            "Không còn tệp ảnh trên máy: " + ", ".join(os.path.basename(p) for p in thieu))
+
+    lenh = _lenh_ghep(list(duong_anh), duong_ra, giay_moi_anh, giay_chuyen,
+                      kieu_chuyen)
+    if not _chay_ffmpeg(lenh, timeout=timeout):
+        raise RuntimeError("ffmpeg ghép video không thành công — xem Nhật ký.")
+    return duong_ra
+
+
 def dung_video(anh: list[AnhNguon], duong_ra: str, *,
                giay_moi_anh=GIAY_MOI_ANH,
                giay_chuyen: float = GIAY_CHUYEN_CANH,
