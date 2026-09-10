@@ -34,6 +34,20 @@ const beatSchema = new mongoose.Schema({
   evidenceStatus: { type: String, enum: EVIDENCE_STATUSES, default: 'ok' },
 }, { _id: false })
 
+/** Dấu vân tay bằng chứng (mini-spec H2c). `dayTran` = số băm chạm trần nên
+ * vùng phủ KHÔNG đầy đủ; H3 phải coi đó là "chưa kiểm đủ", không phải "sạch".
+ * `soDongBoQua` = số dòng bằng chứng chưa xác nhận đã bị loại trước khi băm. */
+const fingerprintSchema = new mongoose.Schema({
+  v: { type: Number, required: true },
+  muoi: { type: String, required: true },
+  dai: { type: [String], default: [] },
+  ngan: { type: [String], default: [] },
+  nganSoTu: { type: [Number], default: [] },
+  soDong: { type: Number, default: 0 },
+  soDongBoQua: { type: Number, default: 0 },
+  dayTran: { type: Boolean, default: false },
+}, { _id: false })
+
 const flowBlueprintSchema = new mongoose.Schema({
   ownerDeviceId: {
     type: mongoose.Schema.Types.ObjectId, ref: 'Device', required: true, index: true,
@@ -53,6 +67,18 @@ const flowBlueprintSchema = new mongoose.Schema({
   samplingPolicyUsed: { type: String, default: '', maxlength: 200 },
   beats: { type: [beatSchema], default: [] },
   userReviewNote: { type: String, default: '', maxlength: 2000 },
+  // Dấu vân tay MỘT CHIỀU của bằng chứng nguồn — mini-spec H2c, dọn đường
+  // cho H3 (kiểm kịch bản brand mới có trùng câu chữ video gốc không).
+  //
+  // KHÔNG phải là ngoại lệ của Constraint 2/Scope B: ở đây chỉ có BĂM, không
+  // có chữ, nên máy chủ vẫn không trở thành kho câu chữ nguyên văn dùng lại
+  // được. Đánh đổi kèm theo: không trưng ra được cụm gốc bên nguồn — xem
+  // `services/dau-van-tay.service.js`.
+  //
+  // KHÔNG lộ ra API: `view()` ở `routes/flow-blueprints.js` là danh sách
+  // trắng, trường này cố ý không có mặt trong đó. Đưa băm ra cho client là
+  // biến nó thành máy dò đoán câu nguồn.
+  evidenceFingerprint: { type: fingerprintSchema, default: null },
 }, { timestamps: true })
 
 module.exports = mongoose.models.FlowBlueprint

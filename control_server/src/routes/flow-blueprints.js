@@ -25,6 +25,7 @@ const assistPrompts = require('../prompts/assist')
 const gateway = require('../services/ai-gateway.service')
 const config = require('../services/config.service')
 const { replay, remember, precheck, charge } = require('../services/assist-billing.service')
+const dauVanTay = require('../services/dau-van-tay.service')
 
 function view(doc) {
   return {
@@ -95,7 +96,11 @@ module.exports = async function flowBlueprintRoutes(fastify) {
   fastify.addHook('preHandler', requireDevice)
 
   fastify.get('/', async (request) => {
+    // Bỏ `evidenceFingerprint` khỏi truy vấn danh sách (H2c): nó có thể tới
+    // hàng chục nghìn chuỗi băm mỗi bản ghi, mà `view()` không dùng tới —
+    // kéo về là phí băng thông và bộ nhớ cho mọi lần mở trang.
     const list = await FlowBlueprint.find({ ownerDeviceId: request.device._id })
+      .select('-evidenceFingerprint')
       .sort({ createdAt: -1 }).lean()
     return { data: list.map(view) }
   })
@@ -183,6 +188,14 @@ module.exports = async function flowBlueprintRoutes(fastify) {
       description: 'Phân tích cấu trúc video tham khảo', ip: request.ip,
     })
 
+    // H2c — dựng dấu vân tay MỘT CHIỀU của bằng chứng NGAY TẠI ĐÂY, chỗ duy
+    // nhất còn nhìn thấy transcript/OCR thô trước khi chúng bị bỏ đi cùng
+    // request. Không lưu chữ, chỉ lưu băm (xem dau-van-tay.service.js).
+    const bcTranscript = dauVanTay.locBangChungDaXacNhan(transcript)
+    const bcOcr = dauVanTay.locBangChungDaXacNhan(ocrEvidence)
+    const vanTay = dauVanTay.taoDauVanTay([...bcTranscript.dong, ...bcOcr.dong])
+    if (vanTay) vanTay.soDongBoQua = bcTranscript.soBoQua + bcOcr.soBoQua
+
     const doc = await FlowBlueprint.create({
       ownerDeviceId: device._id,
       sourceType,
@@ -192,6 +205,7 @@ module.exports = async function flowBlueprintRoutes(fastify) {
       evidenceSummary,
       samplingPolicyUsed,
       beats: result.beats,
+      evidenceFingerprint: vanTay,
     })
 
     const response = { ...view(doc), creditCharged: paid.charged, balanceAfter: paid.balanceAfter }

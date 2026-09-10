@@ -586,6 +586,10 @@ thành video hoàn chỉnh (nối vào pipeline ảnh sản phẩm C3 đã có).
   mỗi đoạn chữ khác nhau** (đo thật: 23/71 khung), không gửi cả video. Chưa
   cấu hình máy chủ thì vẫn chạy, chỉ là chữ mất dấu. Tính năng làm mờ chữ
   KHÔNG đổi gì.
+- **H2c — Dấu vân tay bằng chứng: ĐÃ XONG.** H3 cần so kịch bản mới với câu
+  chữ video gốc, nhưng H2 cố ý không lưu câu chữ đó. Cách gỡ: lưu **băm một
+  chiều** — phát hiện trùng được, mà máy chủ vẫn không giữ nguyên văn. Đổi
+  lại: chỉ chỉ ra được cụm trong kịch bản MỚI, không trưng ra được cụm gốc.
 - H3 (viết lại kịch bản theo hồ sơ brand), H4 (dựng video) — **chưa làm**,
   cần cả H1 và H2.
 
@@ -619,6 +623,7 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/MINI-SPEC_H2a_OCR_Read_Layer_Gap.md` | Audit OCR dừng H2 (Flow Blueprint) + đóng gap: `read_text_regions()` mới, đọc được nội dung chữ nhưng tiếng Việt còn mất dấu |
 | `docs/MINI-SPEC_H2_Viral_Flow_Blueprint.md` | Viral Flow Blueprint — phân tích cấu trúc video tham khảo (abstraction-first, chặn sao chép nguyên văn bằng mã), đã xong Scope A-E |
 | `docs/MINI-SPEC_H2b_Doc_Chu_Co_Dau.md` | Đọc chữ overlay CÓ DẤU tiếng Việt — vì sao OCR trên máy không thể ra dấu, đo 5 hướng chữa, và bộ đọc thay được |
+| `docs/MINI-SPEC_H2c_Dau_Van_Tay_Bang_Chung.md` | Dấu vân tay một chiều của bằng chứng — cho H3 kiểm sao chép mà máy chủ vẫn không giữ câu chữ nguyên văn |
 
 **Quy mô test tại thời điểm cập nhật tệp này:** 2.449 test Python (4 bỏ qua —
 chỉ có nghĩa trên Windows) + 542 test Node (1 bỏ qua, 0 hỏng) + 74 test React (0 hỏng).

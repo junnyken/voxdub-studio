@@ -15321,3 +15321,85 @@ chuyển `gemini-3.6-flash`. Cần rà lại cấu hình nhà cung cấp trên m
 Ngoài ra tham số tắt thinking khác nhau theo đời model (gặp thật, HTTP 400 nếu
 sai): `gemini-3.6-flash` chỉ nhận `thinkingLevel: "low"`; `3.7`/`3.8` nhận
 `thinkingBudget: 0` nhưng từ chối `thinkingLevel` `"none"`/`"minimal"`.
+
+---
+
+## H2c — Dấu vân tay bằng chứng, dọn đường cho H3 (10/09/2026)
+
+Audit spec H3 phát hiện một **tiền đề sai**: spec dựng toàn bộ bước kiểm
+nguyên gốc lên giả định "evidence nguồn (transcript + OCR ĐÃ LƯU ở H2)",
+nhưng mã thật thì H2 **cố ý không lưu** transcript/OCR thô (Constraint 2/
+Scope B). H3 không có gì để so sánh. Dừng lại báo gap thay vì code tiếp —
+đúng mục A.6 của chính spec đó.
+
+**Ba đường, chủ dự án chọn đường (c)**: (a) H2 lưu evidence thô — đảo ngược
+Scope B, biến máy chủ thành kho câu chữ nguyên văn của người khác, trong khi
+H3 chính là mảnh rủi ro pháp lý nhất; (b) H3 tải lại video trích lại — server
+không lưu video, `sourceReference` chỉ là URL hoặc TÊN FILE nên ca `file` gần
+như không tái tạo được; (c) **lưu dấu vân tay MỘT CHIỀU** — giữ được lời hứa
+"không lưu câu chữ nguồn" mà vẫn phát hiện trùng.
+
+**Đánh đổi của (c), ghi rõ từ đầu**: không giữ chữ ⇒ KHÔNG trưng ra được cụm
+gốc bên nguồn. Mục Desktop UI của spec H3 (đòi side-by-side với nguồn) phải
+sửa theo — đây là hệ quả của lựa chọn, không phải thiếu sót triển khai. Thứ
+người dùng cần để sửa vẫn còn: họ biết chính xác câu nào TRONG KỊCH BẢN CỦA
+HỌ bị chặn.
+
+**Thiết kế**: `services/dau-van-tay.service.js` — băm SHA-256 cắt 12 ký tự
+hex. Cụm 6 từ cho dòng dài (bằng ĐÚNG `NGUONG_TU_LIEN_TIEP` của gate H2 — hai
+bộ chặn lệch ngưỡng thì có ca H2 bắt mà H3 tha); dòng 2-5 từ (caption/CTA kiểu
+"STOP SCROLLING") băm cả dòng kèm số từ rồi bên kiểm sinh mọi cửa sổ cùng độ
+dài, tương đương phép "chứa nguyên vẹn" của gate H2 ở mức TỪ; dòng 1 từ bỏ có
+chủ đích (một từ đơn trùng nhau là chuyện bình thường của ngôn ngữ). Muối
+riêng từng bản ghi nên không dò chéo được bằng kho câu có sẵn bên ngoài.
+Bằng chứng OCR `unconfirmed` KHÔNG vào vân tay — băm câu máy đọc-không-chắc
+vào rồi H3 sẽ chặn kịch bản vì trùng với một câu vốn có thể đã đọc sai.
+
+**Chuẩn hoá gom về MỘT nguồn sự thật**: `chuanHoaSoKhop` chuyển từ
+`prompts/assist.js` sang service mới, `assist.js` nhập lại. Hai bản chuẩn hoá
+song song là bảo đảm chúng trôi lệch nhau sau vài lần sửa.
+
+**Ba trạng thái tách bạch**: `kiemDuoc: false` (CHƯA kiểm được) khác hẳn
+`trung: false` (đã kiểm, không trùng). Thiếu vân tay hoặc vân tay khác phiên
+bản thuật toán ⇒ `kiemDuoc: false`, H3 phải dịch thành `unconfirmed` chứ
+không phải `clear`. Chạm trần số băm thì ĐÁNH DẤU `dayTran`, không cắt âm
+thầm — cắt mà không nói ra là vùng phủ thủng, và một câu chép nguyên văn rơi
+đúng phần bị cắt sẽ lọt qua trong im lặng.
+
+**Tính chất bảo mật, KHÔNG nói quá**: băm có muối thì không đọc ngược ra văn
+bản (máy chủ không còn là kho copy-ready) và không dò được bằng kho câu bên
+ngoài. NHƯNG người có CẢ database (nên có luôn muối) LẪN video gốc thì vẫn
+xác nhận được "video này ứng với bản ghi kia". Đây là chống TÍCH TRỮ NGUYÊN
+VĂN, không phải chống kẻ tấn công có chủ đích.
+
+**Số đo thật (đo trước, chốt trần sau)** — lượt đo đầu dùng bộ sinh ngẫu
+nhiên tự viết bị mất chính xác số học nên ra số thấp giả, đã làm lại bằng
+nguồn ngẫu nhiên thật:
+
+| Ca | Số băm | Dung lượng | Dựng | Kiểm 20 beat |
+|---|---|---|---|---|
+| Thường ngày (40 dòng × 18 từ) | 520 | 8 KB | 7 ms | 4 ms |
+| Nhiều (150 × 18) | 1.950 | 29 KB | 16 ms | 6 ms |
+| Kịch trần schema (800 × 25) | 16.000 | 234 KB | 72 ms | 37 ms |
+| Cực đoan (800 × 80) | 20.000 (chạm trần) | 293 KB | 82 ms | 73 ms |
+
+Trần chốt **20.000 băm** từ số đo trên. Va chạm giả: 48 bit, với 20.000 băm
+lưu sẵn và 300 cụm đem hỏi thì kỳ vọng ≈ 2×10⁻⁸. `GET /v1/flow-blueprints`
+thêm `.select('-evidenceFingerprint')` — kéo hàng chục nghìn chuỗi băm về mỗi
+lần mở trang là phí vô ích vì `view()` không dùng tới.
+
+**Tests**: 13 đơn vị + 2 tầng route. Quan trọng nhất là test **dấu vân tay
+không chứa chữ nào của nguồn** — đỏ nghĩa là máy chủ đã quay lại thành kho
+câu chữ nguyên văn. Kèm test KHÔNG báo nhầm với 3 câu diễn đạt lại hợp lệ:
+báo nhầm thì người dùng học cách bỏ qua cảnh báo, hỏng cả bộ chặn. Toàn bộ
+Node: **595 passed, 0 fail** (từ 580).
+
+**Remaining Limits**: chưa có lượt H2 THẬT nào chạy end-to-end trên prod nên
+chưa có FlowBlueprint thật nào mang dấu vân tay — cần chạy một lượt thật
+trước khi H3 bắt đầu, nếu không live verification của H3 sẽ bị làm cho có.
+Ngưỡng 6 từ **kế thừa** từ gate H2, chưa hiệu chỉnh bằng output mô hình thật:
+ba ca paraphrase trong test là VIẾT TAY, H3 phải đo lại bằng kịch bản mô hình
+thật sinh ra rồi mới chốt. Bản ghi FlowBlueprint tạo TRƯỚC 10/09 không có dấu
+vân tay ⇒ H3 phải coi là `unconfirmed`, không vá ngược được vì evidence gốc
+đã bỏ đi. Chưa xử lý ca xoá FlowBlueprint khi đã có BrandScript tham chiếu
+(thuộc phạm vi H3). Chi tiết: `docs/MINI-SPEC_H2c_Dau_Van_Tay_Bang_Chung.md`.

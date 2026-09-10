@@ -142,6 +142,15 @@ Lỗi: `402 INSUFFICIENT_CREDIT` (thiếu Vox, KHÔNG tạo bản ghi, KHÔNG tr
 `503 AI_UNAVAILABLE` (mô hình lỗi/không sẵn sàng, KHÔNG tạo bản ghi, KHÔNG
 trừ tiền); `503 MAINTENANCE`.
 
+**Dấu vân tay bằng chứng (mini-spec H2c)**: bản ghi có thêm trường nội bộ
+`evidenceFingerprint` — băm MỘT CHIỀU của transcript/OCR nguồn, dựng ngay lúc
+tạo rồi bằng chứng thô vẫn bị bỏ như cũ (Scope B không đổi: máy chủ vẫn không
+giữ câu chữ nguyên văn). Trường này **KHÔNG có trong bất kỳ response nào** —
+đưa băm ra cho client là biến nó thành máy dò đoán câu nguồn. `GET /` cũng
+loại nó khỏi truy vấn. H3 dùng nó để kiểm kịch bản brand mới có trùng câu chữ
+video gốc không; nó chỉ ra được cụm trong kịch bản MỚI, **không** trưng ra
+được cụm gốc bên nguồn.
+
 **Ghi chú khoảng trống đã biết**: entity có trường `userReviewNote` (Scope E
 của mini-spec nhắc tới việc cho người dùng ghi chú lên beat) nhưng bản đặc tả
 KHÔNG liệt kê endpoint sửa trường này trong hợp đồng API (chỉ có 4 route

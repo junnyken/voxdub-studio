@@ -121,6 +121,52 @@ test('tạo blueprint -> gắn đúng ownerDeviceId, KHÔNG lộ transcript/OCR 
   assert.equal(doc.beats.length, 1)
 })
 
+test('H2c: lưu dấu vân tay bằng chứng, KHÔNG lưu chữ, KHÔNG lộ ra API', async () => {
+  gtGiaThanhCong()
+  const a = await thietBiMoi('Máy A')
+
+  const res = await goi('POST', '/v1/flow-blueprints/', a.token, than('jvt1'.repeat(2)))
+  assert.equal(res.statusCode, 201)
+  const body = res.json()
+  assert.ok(!('evidenceFingerprint' in body),
+    'dấu vân tay KHÔNG được ra API — đưa băm cho client là biến nó thành máy dò câu nguồn')
+
+  const doc = await FlowBlueprint.findById(body.id).lean()
+  const vt = doc.evidenceFingerprint
+  assert.ok(vt, 'phải lưu dấu vân tay khi có bằng chứng')
+  assert.ok(vt.dai.length + vt.ngan.length > 0)
+
+  // Chữ của nguồn tuyệt đối không được nằm lại trong bản ghi.
+  const caBanGhi = JSON.stringify(doc).toLowerCase()
+  for (const tu of ['stop wasting money', 'actually works', 'stop scrolling']) {
+    assert.ok(!caBanGhi.includes(tu), `bản ghi còn giữ nguyên văn: "${tu}"`)
+  }
+
+  // ...nhưng vẫn phải dùng được để bắt trùng (đây là lý do nó tồn tại).
+  const dvt = require('../src/services/dau-van-tay.service')
+  assert.equal(dvt.timTrungLap('Stop scrolling now and read this', vt).trung, true)
+})
+
+test('H2c: bằng chứng OCR chưa xác nhận KHÔNG vào dấu vân tay', async () => {
+  // Băm câu máy đọc-không-chắc vào rồi H3 sẽ chặn kịch bản vì trùng với một
+  // câu có thể vốn đã đọc sai.
+  gtGiaThanhCong()
+  const a = await thietBiMoi('Máy A')
+  const body = {
+    ...than('jvt2'.repeat(2)),
+    transcript: [],
+    ocrEvidence: [
+      { start_s: 0, end_s: 1, status: 'unconfirmed', text: 'chu nay may doc khong chac dau' },
+    ],
+  }
+  const res = await goi('POST', '/v1/flow-blueprints/', a.token, body)
+  assert.equal(res.statusCode, 201)
+
+  const doc = await FlowBlueprint.findById(res.json().id).lean()
+  assert.equal(doc.evidenceFingerprint, null,
+    'không còn bằng chứng đã xác nhận nào thì KHÔNG dựng dấu vân tay rỗng')
+})
+
 test('thiếu sourceReference -> 400 (schema chặn)', async () => {
   const a = await thietBiMoi('Máy A')
   const { sourceReference, ...con } = than('j2'.repeat(4))

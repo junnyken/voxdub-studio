@@ -617,23 +617,21 @@ function parseDocChuResult(raw, input) {
 }
 
 /**
- * Chuẩn hoá text để so khớp N-gram — hạ chữ thường, gộp khoảng trắng, bỏ
- * dấu câu. Không bỏ dấu thanh tiếng Việt: OCR tiếng Việt hay MẤT dấu, nên
- * một câu tiếng Việt CÓ dấu trong beat mà khớp với OCR (đã mất dấu) sẽ
- * KHÔNG trùng — đúng ý muốn, vì lúc đó model đang diễn giải, không sao chép.
+ * Phép chuẩn hoá dùng cho mọi so khớp chống sao chép. Định nghĩa nằm ở
+ * `services/dau-van-tay.service.js` (mini-spec H2c) — MỘT nguồn sự thật duy
+ * nhất, vì gate H2 dưới đây và bộ kiểm của H3 phải chuẩn hoá y hệt nhau; hai
+ * bản song song là bảo đảm chúng trôi lệch nhau sau vài lần sửa, và lúc đó
+ * không ai biết bộ chặn nào mới là bộ đang bảo vệ mình.
  *
- * CẢNH BÁO khi H2b bật (`doc_chu_khung_hinh`): lý lẽ "OCR mất dấu nên không
- * trùng" KHÔNG còn đúng — bằng chứng OCR lúc đó CÓ dấu đầy đủ, nên bộ chặn
- * sao chép trở nên nhạy hơn hẳn với tiếng Việt (đúng ý đồ gốc của Guardrail
- * 2/6/7, nhưng là thay đổi hành vi thật: một beat chép nguyên văn caption
- * tiếng Việt trước đây LỌT, nay bị bắt và huỷ cả kết quả).
+ * CẢNH BÁO hành vi (từ khi H2b `doc_chu_khung_hinh` bật): trước đây OCR tiếng
+ * Việt MẤT dấu nên một câu có dấu gần như không bao giờ khớp bằng chứng —
+ * người ta từng coi đó là "model đang diễn giải, không sao chép". Lý lẽ đó
+ * KHÔNG còn đúng: bằng chứng nay có dấu đầy đủ nên bộ chặn nhạy hơn hẳn với
+ * tiếng Việt (đúng ý đồ gốc của Guardrail 2/6/7, nhưng là thay đổi thật —
+ * một beat chép nguyên văn caption tiếng Việt trước đây LỌT, nay huỷ cả kết
+ * quả). Chủ dự án đã chốt GIỮ NGUYÊN mức chặt này (09/09).
  */
-function chuanHoaSoKhop(text) {
-  return String(text || '').toLowerCase()
-    .replace(/[.,!?;:"'“”‘’()\-–—]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
+const { chuanHoaSoKhop } = require('../services/dau-van-tay.service')
 
 /**
  * Bắt lỗi SAO CHÉP NGUYÊN VĂN: chuỗi N từ liên tiếp trở lên trong text kiểm
