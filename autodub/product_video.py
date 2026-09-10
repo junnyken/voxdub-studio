@@ -330,11 +330,34 @@ def goi_y_kich_ban(anh: list[AnhNguon], *, san_pham: str = "",
             for r in (ket or []) if str(r.get("value", "")).strip()]
 
 
-def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh: float,
+def _chuan_hoa_giay(anh: list[str], giay_moi_anh) -> list[float]:
+    """Cho phép truyền MỘT thời lượng dùng chung, hoặc thời lượng RIÊNG mỗi ảnh.
+
+    Ảnh sản phẩm (C-series) chia đều là hợp lý — chúng chỉ là ảnh tĩnh xem
+    lướt. Nhưng video dựng từ kịch bản (mini-spec H4) thì mỗi cảnh phải giữ
+    hình đúng bằng thời gian đọc lời của nó: đoạn hook hai câu ngắn và đoạn
+    bằng chứng bốn câu dài mà giữ bằng nhau thì hoặc hụt tiếng hoặc thừa hình.
+    """
+    if isinstance(giay_moi_anh, (int, float)):
+        return [float(giay_moi_anh)] * len(anh)
+    ds = [float(g) for g in giay_moi_anh]
+    if len(ds) != len(anh):
+        raise ValueError(
+            f"Có {len(anh)} ảnh nhưng {len(ds)} thời lượng — lệch nhau thì "
+            "mọi cảnh phía sau gán sai thời gian mà không có dấu hiệu gì.")
+    if any(g <= 0 for g in ds):
+        raise ValueError("Thời lượng mỗi ảnh phải lớn hơn 0.")
+    return ds
+
+
+def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh,
                giay_chuyen: float, kieu_chuyen: str = "mo_chong") -> list[str]:
     """Dựng lệnh ffmpeg cho một video trình chiếu.
 
     Tách riêng để test đọc được lệnh mà không phải chạy ffmpeg thật.
+
+    `giay_moi_anh`: một số (mọi ảnh bằng nhau) HOẶC một danh sách thời lượng
+    riêng từng ảnh — xem `_chuan_hoa_giay`.
 
     `kieu_chuyen` phải là một khoá trong `KIEU_CHUYEN` — khoá lạ thì NÉM LỖI
     chứ không âm thầm rơi về mờ chồng: người dùng chọn một kiểu rồi nhận về
@@ -342,11 +365,12 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh: float,
     """
     if kieu_chuyen not in KIEU_CHUYEN:
         raise ValueError(f"Không có kiểu chuyển cảnh «{kieu_chuyen}»")
+    giay = _chuan_hoa_giay(anh, giay_moi_anh)
     ten_ffmpeg = KIEU_CHUYEN[kieu_chuyen][1]
     lenh: list[str] = ["ffmpeg", "-y"]
-    for duong in anh:
+    for duong, g in zip(anh, giay):
         # `-loop 1` biến ảnh tĩnh thành luồng hình; `-t` cắt đúng độ dài cần.
-        lenh += ["-loop", "1", "-t", f"{giay_moi_anh:.3f}", "-i", duong]
+        lenh += ["-loop", "1", "-t", f"{g:.3f}", "-i", duong]
 
     loc = []
     for i in range(len(anh)):
@@ -368,7 +392,11 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh: float,
     else:
         for i in range(1, len(anh)):
             sau = f"x{i}"
-            mocs = (giay_moi_anh - giay_chuyen) * i
+            # Mốc chuyển cảnh cộng dồn theo thời lượng THẬT của các ảnh
+            # trước đó, trừ đi phần chồng lấn của mỗi lần chuyển. Với thời
+            # lượng đều nhau công thức này rút gọn đúng về `(giay-chuyen)*i`
+            # của bản cũ.
+            mocs = sum(giay[:i]) - giay_chuyen * i
             loc.append(f"[{truoc}][v{i}]xfade=transition={ten_ffmpeg}:"
                        f"duration={giay_chuyen:.3f}:offset={mocs:.3f}[{sau}]")
             truoc = sau
@@ -379,7 +407,7 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh: float,
     loc.append(
         f"[{truoc}]drawtext=text='{NHAN_VIDEO}':fontcolor=white:"
         "fontsize=h/28:box=1:boxcolor=black@0.55:boxborderw=8:"
-        f"x=(w-text_w)/2:y=16:enable='lte(t,{giay_moi_anh:.3f})'[ra]")
+        f"x=(w-text_w)/2:y=16:enable='lte(t,{giay[0]:.3f})'[ra]")
 
     lenh += ["-filter_complex", ";".join(loc), "-map", "[ra]"]
     lenh += video_codec_args()
@@ -388,7 +416,7 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh: float,
 
 
 def dung_video(anh: list[AnhNguon], duong_ra: str, *,
-               giay_moi_anh: float = GIAY_MOI_ANH,
+               giay_moi_anh=GIAY_MOI_ANH,
                giay_chuyen: float = GIAY_CHUYEN_CANH,
                kieu_chuyen: str = "mo_chong",
                timeout: float = 300.0) -> str:

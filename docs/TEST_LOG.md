@@ -15693,3 +15693,32 @@ dùng phát hiện sau khi đã dựng xong video. Có test canh KHÔNG báo nh�
 video theo dòng thời gian này, giao diện storyboard. Và **pilot H2→H3 vẫn
 chưa chạy** — H4a không phụ thuộc kết quả pilot (nó là phép tính thuần),
 nhưng ba phần còn lại thì có.
+
+---
+
+## H4b — Ghép ảnh theo thời lượng RIÊNG từng ảnh (10/09/2026)
+
+`product_video.dung_video()` vốn chia ĐỀU thời lượng cho mọi ảnh — hợp lý cho
+ảnh sản phẩm (C-series, ảnh tĩnh xem lướt) nhưng sai cho video dựng từ kịch
+bản: đoạn hook hai câu ngắn và đoạn bằng chứng bốn câu dài mà giữ hình bằng
+nhau thì hoặc hụt tiếng hoặc thừa hình.
+
+`_lenh_ghep()` nay nhận MỘT số (như cũ) HOẶC danh sách thời lượng riêng.
+
+**Chỗ dễ sai âm thầm nhất là mốc chuyển cảnh.** Công thức cũ `(giây −
+chuyển) × i` chỉ đúng khi mọi ảnh dài bằng nhau; với thời lượng riêng phải
+cộng dồn thời lượng THẬT của các ảnh trước đó. Sai chỗ này thì **không có lỗi
+nào để thấy** — video vẫn dựng ra bình thường, chỉ lệch dần hình so với tiếng
+về cuối. Test rút thẳng `offset=` trong chuỗi filter ffmpeg ra để so, và có
+một test riêng canh công thức mới **rút gọn đúng về công thức cũ** khi mọi ảnh
+đều nhau — nếu không thì đã âm thầm đổi hành vi của C1 đang chạy.
+
+Nhãn video cũng phải bật theo thời lượng ảnh ĐẦU (`lte(t, giay[0])`), không
+phải thời lượng chung — dùng nhầm thì nhãn kéo sang cảnh sau hoặc tắt sớm.
+
+Chặn sai đầu vào: số thời lượng lệch số ảnh ⇒ NÉM LỖI (lệch một cái là mọi
+cảnh sau gán sai thời gian mà không dấu hiệu gì); thời lượng ≤ 0 ⇒ ném lỗi.
+
+**Tests**: 10 mới. Một test của tôi đỏ một lượt vì đoán sai tên khoá chuyển
+cảnh (`cat_thang` trong khi mã dùng `khong`) — lỗi ở test, không phải mã.
+Toàn bộ: **Python 2.570 passed / 4 skipped / 0 fail**.
