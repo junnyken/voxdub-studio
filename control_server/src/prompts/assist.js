@@ -656,6 +656,29 @@ const SO_ANH_DOC_CHU_TOI_DA = 6
  * không thể dài hơn nguồn. */
 const SO_DOAN_KICH_BAN_TOI_DA = 40
 
+/**
+ * Giới hạn độ dài từng trường của một đoạn kịch bản, **đọc thẳng từ
+ * `models/BrandScript.js`** — MỘT nguồn sự thật duy nhất.
+ *
+ * Trước đây con số nằm ở hai chỗ (schema Mongoose và bước chuẩn hoá này) và
+ * chỉ có một test canh chúng khớp nhau. Nhưng test chỉ báo SAU KHI ai đó đã
+ * sửa lệch; đọc thẳng thì không có cách nào lệch được. Nới `maxlength` trong
+ * model là chỗ cắt tự đi theo.
+ *
+ * Nhập lười (require ở trong hàm) để tránh vòng lặp require lúc nạp module —
+ * cùng cách `beatTypes()` đang làm với `FlowBlueprint`.
+ */
+function tranDoDaiBeat() {
+  const beatSchema = require('../models/BrandScript').schema.path('beats').schema
+  const ra = {}
+  for (const ten of ['voiceoverTextVi', 'captionSuggestionVi', 'visualBriefVi']) {
+    const max = beatSchema.path(ten).options.maxlength
+    if (!max) throw new Error(`models/BrandScript.js: ${ten} thiếu maxlength`)
+    ra[ten] = max
+  }
+  return ra
+}
+
 /** JSON schema cho output của `brand_script_rewrite`. */
 function brandScriptOutputSchema() {
   return {
@@ -699,16 +722,18 @@ function parseBrandScriptResult(raw, input) {
   if (!beatsNguon.length) return null
   if (doan.length !== beatsNguon.length) return null
 
-  // Cắt theo ĐÚNG `maxlength` của `models/BrandScript.js`. JSON schema gửi mô
-  // hình không chặn độ dài, nên một lượt trả lời dài dòng sẽ làm Mongoose ném
-  // lỗi validation lúc lưu — SAU KHI đã trừ Vox. Người dùng mất tiền, sổ máy
-  // chủ ghi "thành công", app nhận 500 không hiểu nổi (đúng lớp lỗi mà chú
-  // thích ở `models/JobResult.js` đã cảnh báo). Cắt ở đây là chỗ rẻ nhất.
+  // Cắt theo ĐÚNG `maxlength` của `models/BrandScript.js` (đọc thẳng từ đó,
+  // không chép lại con số). JSON schema gửi mô hình không chặn độ dài, nên
+  // một lượt trả lời dài dòng sẽ làm Mongoose ném lỗi validation lúc lưu —
+  // SAU KHI đã trừ Vox: người dùng mất tiền, sổ máy chủ ghi "thành công", app
+  // nhận 500 không hiểu nổi (đúng lớp lỗi mà `models/JobResult.js` đã cảnh
+  // báo). Cắt ở đây là chỗ rẻ nhất.
+  const tran = tranDoDaiBeat()
   const beats = doan.map((d, i) => ({
     beatType: beatsNguon[i]?.beatType || 'unknown',
-    voiceoverTextVi: catCung(d?.loi_doc, 1500),
-    captionSuggestionVi: catCung(d?.caption, 300),
-    visualBriefVi: catCung(d?.visual_brief, 600),
+    voiceoverTextVi: catCung(d?.loi_doc, tran.voiceoverTextVi),
+    captionSuggestionVi: catCung(d?.caption, tran.captionSuggestionVi),
+    visualBriefVi: catCung(d?.visual_brief, tran.visualBriefVi),
   }))
 
   // Đoạn rỗng hoàn toàn = model bỏ trống một nhịp. Không lưu, để bên gọi
@@ -932,4 +957,5 @@ module.exports = {
   docChuOutputSchema, parseDocChuResult, SO_ANH_DOC_CHU_TOI_DA,
   // mini-spec H3 — viết lại kịch bản cho brand.
   brandScriptOutputSchema, parseBrandScriptResult, SO_DOAN_KICH_BAN_TOI_DA,
+  tranDoDaiBeat, catCung,
 }

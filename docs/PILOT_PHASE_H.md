@@ -127,6 +127,20 @@ mô hình, trong `control_server/tests/brand-scripts-route.test.js`:
 Coi "mô hình tự nhiên không copy trong một lần thử" là bằng chứng thì sai —
 nên ca qua giao diện là bổ sung, không phải chỗ dựa.
 
+## Bước 4b — số liệu để định giá lại
+
+**Đừng sửa giá trước pilot** khi chưa có số liệu token thật. Giá 12 Vox hiện
+tại là PHẲNG theo số đoạn, trong khi kịch bản 40 đoạn tốn hơn hẳn 5 đoạn — đó
+là vấn đề định giá thật, không phải bug, và sửa giữa pilot là phá phạm vi.
+
+Máy chủ đã tự ghi mỗi lượt gọi mô hình của H2/H3: số đoạn, nhà cung cấp + tên
+mô hình, token vào/ra, thời gian chạy, Vox đã trừ, phán quyết. Lượt **viết lại
+đoạn** cũng được ghi, nên đếm được số lần regenerate.
+
+Người quản trị lấy bằng `GET /v1/admin/analytics/assist?days=7` (cần
+`X-Admin-Token`). Gom đủ **10–20 lượt thật** rồi mới viết mini-spec định giá
+riêng — không quyết bằng phỏng đoán.
+
 ## Bước 5 — gom bằng chứng
 
 ```

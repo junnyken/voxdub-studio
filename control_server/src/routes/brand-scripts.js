@@ -216,6 +216,7 @@ module.exports = async function brandScriptRoutes(fastify) {
     }
 
     let result
+    const batDau = Date.now()
     try {
       result = await gateway.assist({
         task: 'brand_script_rewrite',
@@ -267,6 +268,15 @@ module.exports = async function brandScriptRoutes(fastify) {
         // Ghi lại phán quyết để đếm được tỉ lệ bị chặn — nếu không, không ai
         // biết bộ kiểm đang gắt hay đang dễ dãi khi đi hiệu chỉnh ngưỡng.
         verdict: daKiem.status,
+        // Số liệu để về sau chốt lại GIÁ: hiện thu 12 Vox phẳng, trong khi
+        // kịch bản 40 đoạn tốn hơn hẳn 5 đoạn. Không ghi từ bây giờ thì tới
+        // lúc cần định giá lại sẽ không có gì để dựa vào ngoài phỏng đoán.
+        inputSize: (blueprint.beats || []).length,
+        aiProvider: result.provider,
+        aiModel: result.model,
+        promptTokens: result.usage?.promptTokens || 0,
+        completionTokens: result.usage?.completionTokens || 0,
+        durationMs: Date.now() - batDau,
         creditCharged: paid.charged,
         status: 'success',
         ip: request.ip,
@@ -353,7 +363,9 @@ module.exports = async function brandScriptRoutes(fastify) {
     }
 
     let result
+    let batDauLai = Date.now()
     try {
+      batDauLai = Date.now()
       result = await gateway.assist({
         task: 'brand_script_rewrite',
         input: dungInput(blueprint, brand, {
@@ -393,7 +405,31 @@ module.exports = async function brandScriptRoutes(fastify) {
     await doc.save()
 
     const response = { ...view(doc), creditCharged: paid.charged, balanceAfter: paid.balanceAfter }
-    await remember(jobId, device.fingerprint, 'brand_script', response, paid.charged)
+    await Promise.all([
+      remember(jobId, device.fingerprint, 'brand_script', response, paid.charged),
+      // Lượt viết lại TRƯỚC ĐÂY không ghi sổ gì cả — nghĩa là "số lần
+      // regenerate" (một trong những số liệu cần để định giá lại) không đếm
+      // được, và hạn mức ngày cũng không thấy các lượt này.
+      require('../models/UsageLog').create({
+        fingerprint: device.fingerprint,
+        jobId,
+        action: 'assist',
+        assistTask: 'brand_script_rewrite',
+        assistRole: result.role,
+        assistPromptVersion: assistPrompts.PROMPT_VERSION,
+        verdict: daKiem.status,
+        inputSize: (blueprint.beats || []).length,
+        aiProvider: result.provider,
+        aiModel: result.model,
+        promptTokens: result.usage?.promptTokens || 0,
+        completionTokens: result.usage?.completionTokens || 0,
+        durationMs: Date.now() - batDauLai,
+        creditCharged: paid.charged,
+        status: 'success',
+        ip: request.ip,
+        appVersion: device.appVersion,
+      }).catch(() => {}),
+    ])
     return response
   })
 }

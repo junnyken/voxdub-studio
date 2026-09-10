@@ -194,6 +194,7 @@ module.exports = async function flowBlueprintRoutes(fastify) {
     }
 
     let result
+    const batDau = Date.now()
     try {
       result = await gateway.assist({
         task: 'viral_flow_blueprint',
@@ -253,7 +254,16 @@ module.exports = async function flowBlueprintRoutes(fastify) {
         assistTask: 'viral_flow_blueprint',
         assistRole: result.role,
         assistPromptVersion: assistPrompts.PROMPT_VERSION,
-        durationMs: 0,
+        // Trước ghi cứng `durationMs: 0` và bỏ trống mọi số liệu khác — tức
+        // là không có gì để dựa vào khi cần định giá lại hay tìm lượt chạy
+        // chậm. Ghi thật từ đây.
+        inputSize: (transcript || []).length + (ocrEvidence || []).length,
+        aiProvider: result.provider,
+        aiModel: result.model,
+        promptTokens: result.usage?.promptTokens || 0,
+        completionTokens: result.usage?.completionTokens || 0,
+        durationMs: Date.now() - batDau,
+        creditCharged: paid.charged,
         status: 'success',
         ip: request.ip,
         appVersion: device.appVersion,

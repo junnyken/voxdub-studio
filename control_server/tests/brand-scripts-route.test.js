@@ -405,6 +405,44 @@ test('script ready bằng phiên bản bộ kiểm CŨ -> đọc lại thành un
   assert.equal((await goi('GET', '/v1/brand-scripts/', a.token)).json().data[0].status, 'unconfirmed')
 })
 
+test('ghi đủ SỐ LIỆU ĐỊNH GIÁ vào sổ, cả lượt tạo lẫn lượt viết lại', async () => {
+  // Giá hiện là 12 Vox PHẲNG trong khi kịch bản 40 đoạn tốn hơn hẳn 5 đoạn.
+  // Không ghi số liệu từ bây giờ thì tới lúc cần định giá lại sẽ không có gì
+  // để dựa vào ngoài phỏng đoán. Và lượt "viết lại đoạn" trước đây không ghi
+  // sổ gì cả — số lần regenerate không đếm được.
+  mock.method(gateway, 'assist', async () => ({
+    beats: [
+      { beatType: 'hook', voiceoverTextVi: 'Câu mới một', captionSuggestionVi: 'a', visualBriefVi: 'b' },
+      { beatType: 'cta', voiceoverTextVi: 'Câu mới hai', captionSuggestionVi: 'a', visualBriefVi: 'b' },
+    ],
+    usage: { promptTokens: 1234, completionTokens: 567 },
+    provider: 'nha-cung-cap-X', model: 'mo-hinh-Y', role: 'assist',
+  }))
+  const a = await thietBiMoi('Máy A')
+  const bp = await blueprintCo(a.device._id)
+  const br = await hoSoBrand(a.device._id)
+  const UsageLog = require('../src/models/UsageLog')
+
+  const id = (await goi('POST', '/v1/brand-scripts/', a.token,
+    than('jsL'.repeat(4), bp._id, br._id))).json().id
+
+  const so = await UsageLog.findOne({ assistTask: 'brand_script_rewrite' }).lean()
+  assert.ok(so, 'lượt tạo phải ghi sổ')
+  assert.equal(so.inputSize, 2, 'phải ghi số đoạn — đây là thứ chi phối chi phí')
+  assert.equal(so.aiProvider, 'nha-cung-cap-X')
+  assert.equal(so.aiModel, 'mo-hinh-Y')
+  assert.equal(so.promptTokens, 1234)
+  assert.equal(so.completionTokens, 567)
+  assert.ok(so.durationMs >= 0 && so.durationMs < 60000)
+  assert.equal(so.creditCharged, 12)
+  assert.equal(so.verdict, 'ready', 'ghi phán quyết để đếm tỉ lệ bị chặn')
+
+  await goi('POST', `/v1/brand-scripts/${id}/regenerate-beat`, a.token,
+    { jobId: 'jrF'.repeat(4), beatIndex: 0 })
+  const soLuot = await UsageLog.countDocuments({ assistTask: 'brand_script_rewrite' })
+  assert.equal(soLuot, 2, 'lượt viết lại cũng phải ghi sổ, nếu không thì không đếm được')
+})
+
 test('cùng jobId gọi lại -> trả kết quả cũ, KHÔNG gọi mô hình lần 2', async () => {
   const fn = gtSach()
   const a = await thietBiMoi('Máy A')

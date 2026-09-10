@@ -159,6 +159,17 @@ def dung_bao_cao(client) -> str:
     phan.append(f"\nTóm tắt bằng chứng đã lưu cùng blueprint: "
                 f"*{bp.get('evidenceSummary')}*")
 
+    phan.append("\n### Số liệu để định giá lại (nằm ở MÁY CHỦ)\n")
+    phan.append("Script này chạy bằng token THIẾT BỊ nên không đọc được sổ máy "
+                "chủ. Mỗi lượt gọi mô hình của H2/H3 đã ghi sẵn: số đoạn "
+                "(`inputSize`), nhà cung cấp + tên mô hình, token vào/ra, thời "
+                "gian chạy, Vox đã trừ, và phán quyết (`ready`/`blocked`/"
+                "`unconfirmed`).")
+    phan.append("\nNgười quản trị lấy bằng `GET /v1/admin/analytics/assist"
+                "?days=7` (cần `X-Admin-Token`). Cần khoảng **10–20 lượt thật** "
+                "rồi mới viết mini-spec định giá — giá 12 Vox hiện tại là "
+                "PHẲNG theo số đoạn, mà kịch bản 40 đoạn tốn hơn hẳn 5 đoạn.")
+
     # --- 7. Bốn cổng mở H4 ------------------------------------------------
     phan.append(_muc("7. Bốn cổng mở H4"))
     cong = [

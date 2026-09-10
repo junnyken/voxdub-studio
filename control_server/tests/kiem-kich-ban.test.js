@@ -189,28 +189,42 @@ test('chuẩn hoá CẮT văn bản dài, không để Mongoose vỡ sau khi đ�
   assert.ok(ra.beats[0].visualBriefVi.length <= 600)
 })
 
-test('giới hạn cắt PHẢI khớp maxlength của model — đổi một chỗ là đỏ', () => {
-  // Chốt bền hơn phép kiểm ở trên: ai nới `maxlength` trong model mà quên
-  // sửa chỗ cắt (hoặc ngược lại) sẽ làm test này đỏ ngay, thay vì để lỗi
-  // xuất hiện ở production dưới dạng "trừ tiền rồi vỡ".
-  const BrandScript = require('../src/models/BrandScript')
-  const beatSchema = BrandScript.schema.path('beats').schema
+test('giới hạn cắt ĐỌC THẲNG từ schema — không chép lại con số ở nơi thứ hai', () => {
+  // Con số chỉ được nằm ở MỘT chỗ (`models/BrandScript.js`). Chép lại nó vào
+  // bước chuẩn hoá rồi dựa vào test để canh hai bên khớp nhau là yếu hơn:
+  // test chỉ báo SAU KHI ai đó đã sửa lệch. Đọc thẳng thì không lệch được.
   const assist = require('../src/prompts/assist')
+  const beatSchema = require('../src/models/BrandScript').schema.path('beats').schema
 
-  const gioiHan = {}
+  const tran = assist.tranDoDaiBeat()
   for (const ten of ['voiceoverTextVi', 'captionSuggestionVi', 'visualBriefVi']) {
-    const opt = beatSchema.path(ten).options
-    assert.ok(opt.maxlength, `${ten} phải có maxlength`)
-    gioiHan[ten] = opt.maxlength
+    assert.equal(tran[ten], beatSchema.path(ten).options.maxlength,
+      `${ten}: trần đọc ra không khớp schema`)
   }
 
-  const ra = assist.parseBrandScriptResult({
-    doan: [{ loi_doc: 'x'.repeat(9000), caption: 'x'.repeat(9000),
-             visual_brief: 'x'.repeat(9000) }],
-  }, { beats: [{ beatType: 'hook' }] })
+  // Nới schema thì chỗ cắt phải tự đi theo, không cần sửa gì thêm.
+  const cu = beatSchema.path('captionSuggestionVi').options.maxlength
+  beatSchema.path('captionSuggestionVi').options.maxlength = 42
+  try {
+    const ra = assist.parseBrandScriptResult(
+      { doan: [{ loi_doc: 'a', caption: 'x'.repeat(500), visual_brief: 'b' }] },
+      { beats: [{ beatType: 'hook' }] })
+    assert.equal(ra.beats[0].captionSuggestionVi.length, 42,
+      'đổi maxlength mà chỗ cắt không đi theo => vẫn còn hai nguồn sự thật')
+  } finally {
+    beatSchema.path('captionSuggestionVi').options.maxlength = cu
+  }
+})
 
-  for (const [ten, max] of Object.entries(gioiHan)) {
-    assert.equal(ra.beats[0][ten].length, max,
-      `${ten}: cắt ở ${ra.beats[0][ten].length} nhưng model cho tối đa ${max}`)
+test('thiếu maxlength trong schema thì BÁO LỖI, không im lặng bỏ cắt', () => {
+  // Bỏ cắt âm thầm là quay lại đúng lỗi "trừ tiền rồi vỡ".
+  const assist = require('../src/prompts/assist')
+  const beatSchema = require('../src/models/BrandScript').schema.path('beats').schema
+  const cu = beatSchema.path('visualBriefVi').options.maxlength
+  beatSchema.path('visualBriefVi').options.maxlength = undefined
+  try {
+    assert.throws(() => assist.tranDoDaiBeat(), /thiếu maxlength/)
+  } finally {
+    beatSchema.path('visualBriefVi').options.maxlength = cu
   }
 })

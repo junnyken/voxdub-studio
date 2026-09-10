@@ -15589,3 +15589,36 @@ nó quét cả hai tệp, chứ không hạ con số.
 - **Không có nhớ đệm theo NỘI DUNG** cho H3 (chỉ có idempotency theo `jobId`).
   Cố ý: cùng blueprint + brand mà người dùng bấm lại là họ muốn một phương án
   KHÁC, không phải bản cũ. Khác với các tác vụ hỏi-đáp nơi nhớ đệm là đúng.
+
+---
+
+## H3 — gộp nguồn giới hạn + thu số liệu định giá (10/09/2026, sau góp ý)
+
+**Một nguồn sự thật cho giới hạn độ dài.** Bản vá trước hardcode `1500/300/600`
+ở bước chuẩn hoá rồi viết test canh chúng khớp `maxlength` của Mongoose. Chủ
+dự án chỉ ra làm vậy chưa tới: test chỉ báo SAU KHI ai đó đã sửa lệch. Nay
+`tranDoDaiBeat()` **đọc thẳng `maxlength` từ `models/BrandScript.js`** nên
+không còn cách nào lệch. Test đổi theo cho khớp ý định mới: nó **đổi
+`maxlength` trong schema lúc chạy** rồi kiểm chỗ cắt có tự đi theo không —
+tức kiểm TÍNH CHẤT một-nguồn, không phải kiểm hai con số bằng nhau. Thêm test:
+thiếu `maxlength` thì NÉM LỖI, không im lặng bỏ cắt (bỏ cắt âm thầm là quay
+lại đúng lỗi "trừ tiền rồi vỡ").
+
+**Lỗ hổng thứ ba, tìm ra từ yêu cầu đo đạc.** `UsageLog` đã có sẵn đúng các
+trường cần (`inputSize`, `aiProvider`, `aiModel`, `promptTokens`,
+`completionTokens`, `durationMs`) nhưng route H2/H3 **không điền chúng**: H2
+ghi cứng `durationMs: 0` và bỏ trống mọi số liệu khác; H3 bỏ trống toàn bộ; và
+endpoint **viết lại đoạn KHÔNG ghi sổ gì cả** — nghĩa là số lần regenerate
+không đếm được, và hạn mức ngày cũng không thấy các lượt đó.
+
+Chạy pilot trước khi sửa thì sẽ có báo cáo trông đầy đủ nhưng **không một số
+liệu nào dùng để định giá lại được**. Nay cả hai route ghi đủ, kèm test canh
+từng trường — ai bỏ chúng đi sẽ đỏ, thay vì để pilot mất dữ liệu trong im lặng.
+
+**Giá giữ nguyên 12 Vox phẳng, cố ý.** Sửa giá giữa pilot là phá phạm vi, và
+chưa có token data thật để quyết. Runbook thêm bước 4b: dữ liệu nằm ở
+`GET /v1/admin/analytics/assist?days=7`, gom đủ 10-20 lượt thật rồi mới viết
+mini-spec định giá riêng.
+
+**Tests**: 3 mới. Toàn bộ **Node 628 passed / 0 fail**, **Python 2.537 passed
+/ 4 skipped**.
