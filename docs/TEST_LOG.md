@@ -15622,3 +15622,74 @@ mini-spec định giá riêng.
 
 **Tests**: 3 mới. Toàn bộ **Node 628 passed / 0 fail**, **Python 2.537 passed
 / 4 skipped**.
+
+---
+
+## H4a — Storyboard (10/09/2026)
+
+Chủ dự án yêu cầu bắt đầu H4 dù pilot H2→H3 chưa chạy. Audit trước khi code
+tìm được **một tiền đề sai ở mức chặn**, y hệt ca H3.
+
+**`ProductSceneVideoJob` KHÔNG tồn tại — và đã cố ý không làm.** Dòng mô tả
+H4 trong spec H3 ("nối BrandScript vào ProductSceneVideoJob") mô tả một hệ
+thống khác. `docs/ARCH.md` §4 có hẳn một mục cho chuyện này: ngày 21/8/2026
+**ba bản đề bài liên tiếp** đều giả định luồng ảnh sản phẩm có thực thể phía
+máy chủ (`image_id`, `ProductSceneVideoJob`, `/video-job/{id}/export`), không
+cái nào tồn tại, và mục đó kết bằng câu *"Tài liệu không nói ra thì lần thứ
+tư sẽ lặp lại"*. Đây chính là lần thứ tư.
+
+Ranh giới đã chốt: máy chủ chỉ có các cửa gọi LẺ, KHÔNG trạng thái; chọn ảnh,
+sắp thứ tự, ghép video bằng ffmpeg đều chạy trên máy người dùng. Nghĩa là H4
+gần như **không cần endpoint máy chủ mới nào** — rẻ hơn và đơn giản hơn hẳn
+so với hình dung ban đầu.
+
+**Phạm vi đã làm (H4a)**: chỉ phần storyboard — phép tính thuần, chạy trên
+máy người dùng, **không tốn Vox, không gọi mô hình** (có test đọc mã nguồn
+canh: nối cổng AI hay HTTP vào đây là biến một bước chỉnh-cho-vừa-ý thành một
+bước tính tiền). Phần sinh ảnh/giọng/video DỪNG lại chờ spec.
+
+**Vì sao cần**: `product_video.dung_video()` ghép ảnh với thời lượng ĐỒNG ĐỀU
+cho mọi ảnh. Kịch bản thì đoạn hook hai câu ngắn và đoạn bằng chứng bốn câu
+dài — giữ hình bằng nhau thì hoặc hụt tiếng hoặc thừa hình.
+
+**Cổng của H4 nằm ở tầng thấp nhất**: `dung_storyboard()` NÉM LỖI khi kịch
+bản chưa `ready`, không phải chỉ tắt một cái nút trên giao diện. Kịch bản
+`blocked` mà đi tiếp thành video là đúng thứ cả H3 dựng ra để chặn.
+
+**Đo tốc độ đọc bằng chính engine sẽ đọc**, không đoán hằng số. VieNeu ONNX,
+4 giọng dựng sẵn × 4 câu kiểu kịch bản quảng cáo:
+
+| Số âm tiết | Đo được (giây) | Mô hình dự đoán |
+|---|---|---|
+| 2 | 1,44 | 1,40 |
+| 11 | 5,88 | 5,93 |
+| 15 | 7,88 | 7,95 |
+| 21 | 11,04 | 10,97 |
+
+Khớp tuyến tính: **giây ≈ 0,39 + 0,504 × số âm tiết**. Phần phụ trội cố định
+là có thật chứ không phải sai số — câu 2 âm tiết mất 0,72 giây/âm tiết trong
+khi câu 21 âm tiết chỉ 0,53, vì khoảng lặng đầu/cuối không co lại theo độ dài
+câu. Mô hình tuyến tính thuần (không phụ trội) sẽ cho hai con số bằng nhau,
+tức là sai.
+
+**Giọng đọc chênh nhau 1,21 lần** (0,473 - 0,575 giây/âm tiết trên 4 giọng),
+nên hàm trả về một KHOẢNG chứ không một con số lẻ tới hai chữ số thập phân —
+đưa con số giả vờ chính xác thì người dùng dựng hình khít theo nó rồi lệch
+tiếng.
+
+**Kiểm chéo trên câu CHƯA từng dùng để khớp** (5 câu × 3 giọng): sai lệch
+tuyệt đối trung bình **3,3%**, cả 5 câu đều rơi trong khoảng ước lượng. Không
+có bước này thì hai hằng số chỉ chứng minh được chúng khớp với chính dữ liệu
+đã sinh ra chúng — vòng tròn. Số đo giữ lại thành test.
+
+**So nhịp với video nguồn**: cả điểm của H2 là học NHỊP, nên kịch bản dài gấp
+rưỡi nguồn (hoặc ngắn hơn 1,5 lần) thì cảnh báo ngay tại đây, không để người
+dùng phát hiện sau khi đã dựng xong video. Có test canh KHÔNG báo nhầm khi
+độ dài xấp xỉ — báo nhầm thì người dùng học cách bỏ qua cảnh báo.
+
+**Tests**: 23 mới (`tests/test_storyboard.py`).
+
+**Chưa làm, chờ spec H4**: sinh ảnh cho từng đoạn, đọc lời bằng TTS, ghép
+video theo dòng thời gian này, giao diện storyboard. Và **pilot H2→H3 vẫn
+chưa chạy** — H4a không phụ thuộc kết quả pilot (nó là phép tính thuần),
+nhưng ba phần còn lại thì có.
