@@ -205,8 +205,13 @@ class BrandProfilePage(BasePage):
         self.log.append_log(text, level)
         nhan = {"list": "tải danh sách", "create": "tạo hồ sơ",
                "update": "lưu hồ sơ", "delete": "xoá hồ sơ"}.get(action, action)
+        # Nói ĐÚNG chuyện gì xảy ra. Câu "kiểm tra kết nối mạng" cứng ở đây
+        # từng làm người dùng đi kiểm mạng (đang tốt) rồi thử lại mãi, trong
+        # khi nguyên nhân thật nằm sau nút «Chi tiết».
+        from autodub_gui.dub_constants import friendly_server_error
+
         ConfirmDialog.show_error(self, f"Không {nhan} được",
-                                 "Kiểm tra kết nối mạng rồi thử lại.",
+                                 friendly_server_error(message),
                                  detail=message)
 
     def _render_table(self) -> None:

@@ -15954,3 +15954,77 @@ Ba chốt quan trọng nhất, phá ra rồi khôi phục:
 của chủ dự án, nên mọi con số về chất lượng ảnh sẽ là con số **chưa đo** cho
 tới khi có người bật cửa và chạy. Pilot H2→H3 vẫn chưa chạy; spec H4 đặt H4d
 sau pilot vì đây là chỗ tiền bị đốt cho mỗi asset — giữ cửa đóng là thứ bù lại.
+
+## Lỗi thật ở lượt pilot đầu: "Lỗi máy chủ (HTTP 201)" (10/09/2026)
+
+Chủ dự án cài v3.17.0, mở trang Hồ sơ Brand, điền hồ sơ đầu tiên, bấm Lưu.
+App báo **"Không tạo hồ sơ được — Kiểm tra kết nối mạng rồi thử lại"**. Mạng
+tốt. Bấm «Chi tiết» mới ra nguyên nhân thật: **`Lỗi máy chủ (HTTP 201)`**.
+
+`201 Created` là mã **THÀNH CÔNG**, và là mã đúng chuẩn cho việc tạo mới.
+
+### Hai lỗi chồng lên nhau
+
+**Lỗi 1 — máy khách chỉ chấp nhận đúng `200`.** `_request()` và
+`_parse_response()` đều viết `if resp.status_code == 200`. Ba cửa trả `201`,
+và **cả ba đều là Phase H**: hồ sơ brand (H1), Flow Blueprint (H2),
+BrandScript (H3) ⇒ lỗi này **chặn toàn bộ pilot**.
+
+Hậu quả không dừng ở câu báo sai:
+
+- Hồ sơ **đã được tạo** trên máy chủ mà người dùng thấy lỗi ⇒ bấm lại ⇒ **bản
+  trùng**.
+- H2/H3 nặng hơn: hai cửa đó **đã trừ Vox** rồi mới trả `201`. Tức là **trừ
+  tiền xong báo hỏng** — đúng lớp lỗi đã phải bịt hai lần ở H3, nay tới từ
+  cửa khác.
+
+**Lỗi 2 — câu báo lỗi chỉ sai đường.** `brand_profile_page` gắn CỨNG câu
+"Kiểm tra kết nối mạng rồi thử lại" cho mọi loại hỏng; `flow_blueprint_page`
+gắn cứng "Thử lại sau." Người dùng đi kiểm mạng (đang tốt), thử lại, hỏng
+tiếp. Nguyên nhân thật nằm sau nút «Chi tiết» — nơi không ai bấm trước.
+
+### Vì sao KHÔNG test nào bắt được
+
+Đây là phần đáng học nhất. Cả hai phía đều có test và đều xanh:
+
+- `brand-profiles-route.test.js` kiểm `reply.code(201)` — đúng.
+- `test_saas_client_brand_profile.py` **giả lập nguyên hàm `_request`** và trả
+  thẳng dict — nên nhánh xét mã HTTP **chưa từng được chạy**.
+
+Mỗi bên đúng với hợp đồng nó tự tưởng tượng. **Đường nối giữa hai bên chưa ai
+đi qua.** Không có lượt chạy thật nào thì nó không lộ ra — và nó lộ ra ở đúng
+thao tác ĐẦU TIÊN của pilot.
+
+### Đã sửa
+
+- `_la_thanh_cong(ma)` = `200 <= ma < 300`, dùng ở cả `_request` lẫn
+  `_parse_response`. `_doc_than()` coi `204`/thân rỗng là thành công hợp lệ,
+  không phải dữ liệu hỏng.
+- `friendly_server_error()` dịch mã lỗi máy chủ thành việc cần làm. Không
+  nhận ra thì **trả lại nguyên văn**, không đoán bừa là lỗi mạng — chỉ đúng
+  ba dấu hiệu thật sự về đường truyền mới được nói câu đó.
+
+### Test
+
+`tests/test_ma_thanh_cong_khop_may_chu.py` (24) đi **thẳng vào `_request`**
+với response giả, không giả lập `_request` nữa. Kèm chốt **quét mã route**:
+mọi `reply.code(2xx)` trong `control_server/src/routes/*.js` đều phải được
+máy khách chấp nhận — thêm một cửa trả `202` sau này mà máy khách chưa biết
+là đỏ ngay. Có thêm chốt chống-xanh-suông: nếu một ngày mọi route đều về
+`200` thì phép quét thành vô nghĩa, nên có test riêng đòi phải tồn tại mã 2xx
+khác 200.
+
+`tests/test_loi_may_chu_noi_dung.py` (22): sáu nguyên nhân không liên quan
+đường truyền thì **không được nhắc tới mạng**.
+
+### Một lỗi của tôi trong chính lượt sửa này
+
+Bản test hồi quy đầu tiên cho lỗi 2 **quét mã nguồn** tìm chữ
+`friendly_server_error`. Khi tôi cố tình phá phần thân hàm, dòng `import` còn
+sót lại vẫn khớp ⇒ **test vẫn xanh**. Đây là lần thứ ba mắc đúng lớp sai này
+(hai lần trước ở H4b và H4c). Đã viết lại thành test hành vi — gọi thật
+`_on_worker_failed` với lỗi `BAD_TOKEN` rồi bắt nội dung hộp thoại — và chứng
+minh nó đỏ.
+
+Cả hai bộ đều đã gỡ ra chứng minh ĐỎ trước khi khôi phục: hạ `_la_thanh_cong`
+về `ma == 200` ⇒ 9 test đỏ.

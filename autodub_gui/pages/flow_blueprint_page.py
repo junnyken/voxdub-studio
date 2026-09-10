@@ -351,7 +351,12 @@ class FlowBlueprintPage(BasePage):
             return
         text, level = error_line(message)
         self.log.append_log(text, level)
-        ConfirmDialog.show_error(self, "Không xoá được", "Thử lại sau.", detail=message)
+        # "Thử lại sau" là lời khuyên SAI cho phần lớn nguyên nhân: hết hạn
+        # đăng nhập hay thiết bị bị khoá thì thử lại bao nhiêu lần cũng vậy.
+        from autodub_gui.dub_constants import friendly_server_error
+
+        ConfirmDialog.show_error(self, "Không xoá được",
+                                 friendly_server_error(message), detail=message)
 
     def _render_history(self) -> None:
         self.history_table.clear_rows()

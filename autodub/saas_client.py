@@ -121,6 +121,41 @@ def new_job_id() -> str:
     return str(uuid.uuid4())
 
 
+def _la_thanh_cong(ma: int) -> bool:
+    """Mọi mã 2xx đều là THÀNH CÔNG, không riêng 200.
+
+    Lỗi thật chủ dự án gặp ngày 10/09/2026: lưu hồ sơ brand đầu tiên báo
+    "Lỗi máy chủ (HTTP 201)". `201 Created` là mã ĐÚNG CHUẨN cho việc tạo mới
+    và máy chủ dùng nó ở ba cửa — hồ sơ brand (H1), Flow Blueprint (H2),
+    BrandScript (H3) — nhưng máy khách chỉ chấp nhận đúng `200`.
+
+    Hậu quả không dừng ở một câu báo sai: hồ sơ ĐÃ được tạo trên máy chủ mà
+    người dùng thấy lỗi, nên bấm lưu lại là sinh bản trùng. Với H2/H3 thì nặng
+    hơn — hai cửa đó **đã trừ Vox** rồi mới trả 201, tức là trừ tiền xong báo
+    hỏng, đúng lớp lỗi đã phải bịt hai lần ở H3.
+
+    Vì sao test không bắt được: test máy chủ kiểm `201`, test máy khách dựng
+    response giả `200`. Hai bên đều xanh, còn ĐƯỜNG NỐI giữa chúng thì chưa
+    ai đi qua. `tests/test_ma_thanh_cong_khop_may_chu.py` quét mã route để
+    chốt lại chỗ nối đó.
+    """
+    return 200 <= ma < 300
+
+
+def _doc_than(resp) -> dict:
+    """Đọc thân JSON của một lượt gọi thành công.
+
+    `204 No Content` (và mọi thân rỗng) là thành công HỢP LỆ, không phải dữ
+    liệu hỏng — trả dict rỗng thay vì ném lỗi.
+    """
+    if resp.status_code == 204 or not (resp.content or b"").strip():
+        return {}
+    try:
+        return resp.json()
+    except ValueError as e:
+        raise SaasError("Máy chủ trả về dữ liệu không đọc được.") from e
+
+
 class SaasClient:
     """Máy khách HTTP tới máy chủ VoxDub. An toàn khi dùng từ nhiều luồng.
 
@@ -213,11 +248,8 @@ class SaasClient:
                 "Không kết nối được máy chủ VoxDub. Kiểm tra mạng rồi thử lại."
             ) from e
 
-        if resp.status_code == 200:
-            try:
-                return resp.json()
-            except ValueError as e:
-                raise SaasError("Máy chủ trả về dữ liệu không đọc được.") from e
+        if _la_thanh_cong(resp.status_code):
+            return _doc_than(resp)
 
         try:
             data = resp.json()
@@ -405,11 +437,8 @@ class SaasClient:
         """Diễn giải 1 response HTTP thô thành dict hoặc ném SaasError —
         cùng luật mã lỗi với ``_request`` (402/DEVICE_BLOCKED/MAINTENANCE/
         429), tách riêng vì multipart/stream không đi qua ``_request``."""
-        if resp.status_code == 200:
-            try:
-                return resp.json()
-            except ValueError as e:
-                raise SaasError("Máy chủ trả về dữ liệu không đọc được.") from e
+        if _la_thanh_cong(resp.status_code):
+            return _doc_than(resp)
         self._raise_saas_error(resp)
 
     def _raise_saas_error(self, resp) -> None:

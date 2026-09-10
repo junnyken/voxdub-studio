@@ -267,6 +267,55 @@ def friendly_error(message: str) -> tuple[str, str] | None:
     return None
 
 
+#: Lỗi máy chủ của các trang Phase H (hồ sơ brand, phân tích cấu trúc, viết
+#: kịch bản). Cặp (dấu hiệu trong thông báo, câu nói cho người dùng).
+#:
+#: Vì sao cần riêng bảng này: trước đây trang Hồ sơ Brand hiện câu "Kiểm tra
+#: kết nối mạng rồi thử lại" CỨNG cho mọi loại hỏng — hết hạn đăng nhập, dữ
+#: liệu sai, máy chủ lỗi đều bị đổ cho mạng, còn nguyên nhân thật thì nằm sau
+#: nút «Chi tiết». Người dùng đi kiểm mạng (đang tốt), thử lại, hỏng tiếp, và
+#: không có đường nào để biết phải làm gì. Đổ lỗi cho mạng chỉ đúng ở ĐÚNG
+#: một ca, nên chỉ ca đó được nói câu đó.
+LOI_MAY_CHU: list[tuple[str, str]] = [
+    ("BAD_TOKEN", "Phiên kết nối với máy chủ đã hết hiệu lực. Mở Cài đặt và "
+                  "kết nối lại tài khoản VoxDub."),
+    ("Token không hợp lệ", "Phiên kết nối với máy chủ đã hết hiệu lực. Mở "
+                           "Cài đặt và kết nối lại tài khoản VoxDub."),
+    ("401", "Máy chủ không nhận ra máy này. Mở Cài đặt và kết nối lại."),
+    ("chưa cấu hình", "Chưa nối tài khoản VoxDub — mở Cài đặt để kết nối."),
+    ("cần tài khoản VoxDub", "Chưa nối tài khoản VoxDub — mở Cài đặt để kết nối."),
+    ("FST_ERR_VALIDATION", "Dữ liệu chưa hợp lệ — xem «Chi tiết» để biết ô nào."),
+    ("must NOT have more than", "Có ô vượt quá độ dài cho phép — xem «Chi tiết»."),
+    ("must have required property", "Còn ô bắt buộc chưa điền — xem «Chi tiết»."),
+    ("Thiết bị này đã bị khóa", "Thiết bị này đang bị khoá. Liên hệ hỗ trợ "
+                               "kèm mã máy ở trang Tài khoản."),
+    ("đang bảo trì", "Máy chủ đang bảo trì. Thử lại sau ít phút."),
+    ("Không đủ Vox", "Không đủ Vox cho lượt này. Mở trang Tài khoản để nạp thêm."),
+    ("DAILY_LIMIT", "Hôm nay đã dùng hết hạn mức. Thử lại vào ngày mai."),
+    ("IMAGE_STAGE", "Tính năng dựng ảnh chưa mở cho máy này."),
+    # Ba dấu hiệu dưới đây MỚI thật sự là chuyện đường truyền.
+    ("Không kết nối được máy chủ", "Không gọi được máy chủ — kiểm tra kết nối "
+                                   "mạng rồi thử lại."),
+    ("timed out", "Máy chủ phản hồi quá chậm — thử lại sau ít phút."),
+    ("timeout", "Máy chủ phản hồi quá chậm — thử lại sau ít phút."),
+]
+
+
+def friendly_server_error(message: str) -> str:
+    """Nói ĐÚNG chuyện gì xảy ra với một lượt gọi máy chủ.
+
+    Không nhận ra thì trả lại nguyên văn thông báo, KHÔNG đoán bừa là lỗi
+    mạng: một câu sai hướng khiến người dùng đi sửa nhầm chỗ, còn tệ hơn một
+    câu kỹ thuật khó đọc nhưng đúng.
+    """
+    thap = (message or "").lower()
+    for dau_hieu, cau in LOI_MAY_CHU:
+        if dau_hieu.lower() in thap:
+            return cau
+    goc = (message or "").strip()
+    return goc or "Máy chủ trả về lỗi không rõ nguyên nhân."
+
+
 def friendly_assist_error(message: str) -> str:
     """Lỗi của cổng trợ lý, nói bằng tiếng người (mini-spec V89).
 
