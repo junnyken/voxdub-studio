@@ -13,6 +13,7 @@ MÁY CHỦ tính, app chỉ hiển thị lại.
 """
 from __future__ import annotations
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
 )
@@ -98,6 +99,10 @@ def _tom_tat_co(beat: dict) -> str:
 
 class BrandScriptPage(BasePage):
     """Viết kịch bản cho thương hiệu từ nhịp kể chuyện đã phân tích."""
+
+    #: Lối sang mini-spec H4 — dựng video từ kịch bản. Chỉ phát khi kịch bản
+    #: đã `ready`, vì nút gọi nó chỉ sáng ở trạng thái đó.
+    storyboard_requested = Signal(dict)
 
     def __init__(self, settings_provider, parent: QWidget | None = None):
         super().__init__(parent)
@@ -401,6 +406,7 @@ class BrandScriptPage(BasePage):
         self._del_worker = w
 
     def _use_script(self) -> None:
-        # H4 (dựng video) chưa làm. Nói thẳng là chưa có, KHÔNG mở một màn
-        # hình rỗng rồi để người dùng tự đoán mình bấm sai chỗ.
-        TOASTS.info("Bước dựng video từ kịch bản chưa mở — sẽ có ở bản sau.")
+        # Nút này CHỈ sáng khi trạng thái `ready` (xem `_render_script`), nên
+        # tới được đây nghĩa là kịch bản đã qua cả hai lớp kiểm.
+        if self._hien_tai:
+            self.storyboard_requested.emit(self._hien_tai)

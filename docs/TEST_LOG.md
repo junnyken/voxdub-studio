@@ -15819,3 +15819,43 @@ giải thích vì sao không dùng (y hệt lỗi ở test wording hôm trước
 lại thành kiểm HÀNH VI bằng monkeypatch.
 
 Toàn bộ: **Python 2.586 passed / 4 skipped / 0 fail**.
+
+---
+
+## H4e — Giao diện dựng video từ kịch bản (10/09/2026)
+
+Trang **Dựng video**, mở từ nút «Dùng kịch bản này» ở trang Viết kịch bản —
+nút đó trước đây chỉ báo "sẽ có ở bản sau", nay dẫn thật.
+
+**Không tốn Vox và không có đường sinh ảnh.** Ghép ảnh + tính thời lượng chạy
+trên máy; giọng đọc do Trình chỉnh sửa lo bằng VieNeu cũng chạy trên máy. Có
+test quét mã nguồn canh trang KHÔNG gọi đường sinh ảnh — thêm một nút "sinh
+ảnh giúp tôi" sau này sẽ làm test đỏ, cố ý, vì đó là quyết định tiêu tiền (30
+Vox mỗi tấm) và phải hỏi trước.
+
+**Thiếu ảnh thì nút TẮT**, không phải bấm được rồi mới báo lỗi — bấm được
+nghĩa là người dùng đã kỳ vọng nó chạy. Kèm test gọi thẳng hàm dựng khi thiếu
+ảnh để chắc nó cũng không chạy.
+
+**Thời gian hiện ra là KHOẢNG** ("khoảng 7–10 giây"), cả theo đoạn lẫn tổng.
+Bốn giọng dựng sẵn đọc chênh nhau 1,21 lần (đo thật ở H4a) — hiện một con số
+là để người dùng dựng hình khít theo rồi lệch tiếng.
+
+**Cảnh báo lệch nhịp** từ storyboard hiện luôn trên trang: cả điểm của H2 là
+học nhịp video tham khảo, nên kịch bản dài gấp rưỡi nguồn phải nói ra ở đây,
+không đợi tới lúc xem lại video.
+
+**Tests**: 16 mới. Chốt guardrail của dự án lại bắt được một lỗi thật: thêm
+trang thứ 22 mà quên cập nhật số trang trong FEATURES.md ⇒
+`test_so_trang_giao_dien_khop` đỏ. Đã sửa cho đủ.
+
+Toàn bộ: **Python 2.602 passed / 4 skipped / 0 fail**.
+
+### Giới hạn thật, ghi ra để không ai bất ngờ
+
+Dòng thời gian dựng từ **ước lượng**, còn TTS đọc thật sẽ lệch trong khoảng
+±15%. Video ghép theo storyboard nên **hình lệch dần so với tiếng về cuối**
+nếu kịch bản dài. Cách đúng là sau khi TTS chạy xong thì lấy thời lượng THẬT
+thay cho ước lượng rồi ghép lại — chưa làm, đã ghi trong "Remaining Limits"
+của spec H4. Video 5 đoạn ~30 giây thì lệch tối đa vài giây, đủ để nghe thử
+và sửa; kịch bản dài thì nên biết trước.

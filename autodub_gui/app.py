@@ -57,8 +57,9 @@ ROW_PRODUCT_SCENE = 17  # Ảnh sản phẩm: dựng bối cảnh + cổng tuân
 ROW_BRAND_PROFILE = 18  # Hồ sơ Brand: nền tảng multi-tenant Phase H (mini-spec H1)
 ROW_FLOW_BLUEPRINT = 19  # Phân tích cấu trúc video tham khảo (mini-spec H2)
 ROW_BRAND_SCRIPT = 20  # Viết kịch bản cho thương hiệu (mini-spec H3)
+ROW_STORYBOARD = 21    # Dựng video từ kịch bản (mini-spec H4e)
 
-PAGE_COUNT = 21
+PAGE_COUNT = 22
 
 # (số thứ tự, nhãn ở thanh bên, tiêu đề trang, mô tả trang, biểu tượng, nhóm)
 PAGES: list[tuple[int, str, str, str, object, str]] = [
@@ -124,6 +125,10 @@ PAGES: list[tuple[int, str, str, str, object, str]] = [
      "Học nhịp kể chuyện từ video đã phân tích rồi viết kịch bản mới cho "
      "thương hiệu của bạn — tự đối chiếu để không trùng câu chữ nguồn",
      icons.edit, "hidden"),
+    (ROW_STORYBOARD, "Dựng video", "Dựng video từ kịch bản",
+     "Gán ảnh cho từng đoạn rồi dựng thành dự án mở được trong Trình chỉnh "
+     "sửa — không tốn Vox",
+     icons.image, "hidden"),
     # Nhóm "second" — HỆ THỐNG
     (ROW_ACCOUNT,   "Tài khoản",         "Tài khoản",
      "Số Vox còn lại, kích hoạt mã và lịch sử sử dụng",
@@ -402,6 +407,11 @@ class MainWindow(QMainWindow):
         elif row == ROW_BRAND_SCRIPT:
             from autodub_gui.pages.brand_script_page import BrandScriptPage
             page = BrandScriptPage(self._fresh_settings, self.pages)
+            page.storyboard_requested.connect(self.open_storyboard)
+        elif row == ROW_STORYBOARD:
+            from autodub_gui.pages.storyboard_page import StoryboardPage
+            page = StoryboardPage(self._fresh_settings, self.pages)
+            page.open_editor_requested.connect(self.open_editor)
         elif row == ROW_ACCOUNT:
             from autodub_gui.pages.account_page import AccountPage
             page = AccountPage(self._fresh_settings, self.pages)
@@ -478,6 +488,12 @@ class MainWindow(QMainWindow):
         page = self._page_widgets.get(ROW_HOME)
         if page is not None and hasattr(page, "dropzone"):
             page.dropzone.browse()
+
+    def open_storyboard(self, kich_ban: dict) -> None:
+        """Mở trang dựng video với một kịch bản đã duyệt (mini-spec H4e)."""
+        self.switch_page(ROW_STORYBOARD)
+        trang = self._ensure_page(ROW_STORYBOARD)
+        trang.dat_kich_ban(kich_ban)
 
     def open_editor(self, work_dir: str) -> None:
         """Mở một dự án trong Trình chỉnh sửa."""

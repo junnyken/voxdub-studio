@@ -1134,6 +1134,36 @@ class BrandScriptWorker(QThread):
             self.failed.emit(self._action, str(e))
 
 
+class DungDuAnWorker(QThread):
+    """Dựng dự án video từ kịch bản brand — mini-spec H4e.
+
+    Chạy luồng riêng vì bước ghép ảnh gọi ffmpeg: video vài chục giây với
+    chuyển cảnh mất từ vài giây tới vài chục giây trên máy chậm, để ở luồng
+    giao diện là app đứng hình và người dùng tưởng hỏng.
+    """
+
+    finished_ok = Signal(object)      # KetQuaDungDuAn
+    failed = Signal(str)
+
+    def __init__(self, kich_ban: dict, anh: list, work_dir: str, *,
+                 blueprint: dict | None = None, parent=None):
+        super().__init__(parent)
+        self._kich_ban = kich_ban
+        self._anh = list(anh)
+        self._work_dir = work_dir
+        self._blueprint = blueprint
+
+    def run(self) -> None:
+        from autodub.du_an_tu_kich_ban import dung_du_an
+
+        try:
+            ket = dung_du_an(self._kich_ban, self._anh, self._work_dir,
+                             blueprint=self._blueprint)
+            self.finished_ok.emit(ket)
+        except Exception as e:  # noqa: BLE001 — mọi lỗi phải tới được giao diện
+            self.failed.emit(str(e))
+
+
 class TranscribeWorker(QThread):
     """Chép lời một liên kết/file — mini-spec V71.
 
