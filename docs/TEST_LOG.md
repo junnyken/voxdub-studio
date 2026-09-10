@@ -15482,3 +15482,54 @@ một lượt H2 thật để có `FlowBlueprint` thật; `regenerate-beat` tín
 lượt đầy đủ dù chỉ lấy một đoạn (giao diện đã nói thẳng); giá 12 Vox phẳng
 trong khi kịch bản 40 đoạn tốn hơn hẳn 5 đoạn; ngưỡng mới đo trên MỘT brand và
 MỘT nguồn; H4 chưa làm nên nút "Dùng kịch bản này" chỉ báo "sẽ có ở bản sau".
+
+---
+
+## Chuẩn bị pilot Phase H — làm cho kiểm chứng được (10/09/2026)
+
+Sau khi H3 lên prod, rà lại quy trình live verification thì lộ ra **ba chỗ
+không quan sát được**, tức là có chạy pilot cũng không kết luận được gì.
+
+**1. Dấu vân tay H2c không quan sát được từ ngoài.** Tôi đã cố ý giấu nó khỏi
+API (đưa mảng băm cho client là biến nó thành máy dò đoán câu nguồn), nhưng
+giấu CẢ phần metadata thì không ai kiểm được nó có được tạo hay không, và giao
+diện cũng không giải thích được vì sao kịch bản bị "chưa kiểm được". Nay
+`view()` trả **metadata** (`v`, `soBam`, `soDong`, `soDongBoQua`, `dayTran`)
+và tuyệt đối không kèm `muoi`/`dai`/`ngan` — có test chốt cả hai chiều.
+
+Ở API danh sách, hai mảng băm cố ý không nạp cho nhẹ, nên `soBam` trả `null`
+chứ KHÔNG trả 0: trả 0 là nói dối, người đọc sẽ tưởng bản ghi không có băm nào
+trong khi chỉ là chưa nạp về. `GET /:id` mới có con số thật.
+
+**2. Số khung tiết kiệm được không ghi ở đâu cả.** Lời hứa "chỉ gửi khung đại
+diện" là tiền thật (~1.150 token mỗi khung) mà không có cách nào kiểm chứng.
+Nay `doc_chu_may_chu` ghi Nhật ký `N khung lấy mẫu -> M đoạn -> gửi K khung
+(J đọc được)`, và số khung lấy mẫu đi luôn vào `evidenceSummary` để nó LƯU
+cùng blueprint thay vì mất theo một lượt chạy.
+
+**3. Lỗi thật do chính thay đổi trên tạo ra, đã bắt kịp.** Ba biến của nhánh
+OCR (`anh_paths`, `moc_lay_duoc`, `chon_bo_doc`) nằm TRONG `if moc:`, mà phần
+tóm tắt ở cuối hàm lại đọc chúng ⇒ video không đọc được thời lượng thì ném
+**NameError**, đúng vào lúc mọi thứ đã trục trặc sẵn. Đã chuyển khai báo ra
+ngoài + thêm test hồi quy, và **chứng minh test đỏ trước khi phục hồi** (gỡ
+bản vá → đỏ đúng chỗ → khôi phục → xanh), không chỉ tin lời tự nhận.
+
+**Script gom bằng chứng** `scripts/bao_cao_pilot_phase_h.py` — gom sáu trong
+bảy loại bằng chứng cần cho quyết định mở H4, có 9 test riêng canh hai chuyện:
+KHÔNG rò transcript/caption gốc lẫn nội dung USP ra báo cáo (báo cáo mà phá
+cam kết H2c thì chính nó thành bản sao copy-ready), và KHÔNG kết luận "ĐẠT"
+khi thiếu bằng chứng — một báo cáo tô hồng còn tệ hơn không có, vì nó thành
+cái cớ để mở H4 sớm. Cổng 2 (chữ có dấu) script **cố ý không tự kết luận**:
+nó chỉ biết caption đọc ra là gì nếu bằng chứng còn lưu, mà H2c cố ý không
+lưu — phải nhìn màn hình lúc chạy.
+
+**Runbook** `docs/PILOT_PHASE_H.md`, trong đó sửa một mâu thuẫn của kế hoạch
+pilot ban đầu: chọn video **tiếng Anh** thì KHÔNG đóng được cổng 2 vì caption
+tiếng Anh không có dấu nào để đọc. Ưu tiên video bán hàng có phụ đề Việt cháy
+sẵn; hoặc chạy hai video; `tap01_clip.mp4` trong repo (song ngữ) đóng được
+cổng 2 nhưng cấu trúc kể chuyện yếu nên chỉ hợp kiểm đường chạy.
+
+Runbook cũng ghi mẹo cho ca gate "claim cấm": **đừng đặt cụm cấm rồi mới
+sinh** — đo thật 10/09 cho thấy mô hình tự né được (viết "Đầu ngày mở mắt ra"
+thay vì "bữa sáng"), nên gate không kích hoạt. Phải sinh trước rồi mới thêm
+cụm cấm lấy từ chính kịch bản đó.

@@ -128,13 +128,23 @@ test('H2c: lưu dấu vân tay bằng chứng, KHÔNG lưu chữ, KHÔNG lộ ra
   const res = await goi('POST', '/v1/flow-blueprints/', a.token, than('jvt1'.repeat(2)))
   assert.equal(res.statusCode, 201)
   const body = res.json()
-  assert.ok(!('evidenceFingerprint' in body),
-    'dấu vân tay KHÔNG được ra API — đưa băm cho client là biến nó thành máy dò câu nguồn')
-
   const doc = await FlowBlueprint.findById(body.id).lean()
   const vt = doc.evidenceFingerprint
   assert.ok(vt, 'phải lưu dấu vân tay khi có bằng chứng')
   assert.ok(vt.dai.length + vt.ngan.length > 0)
+
+  // API trả METADATA (để kiểm được là vân tay CÓ được tạo, và để giao diện
+  // giải thích được vì sao kịch bản "chưa kiểm được")...
+  assert.ok(body.evidenceFingerprint, 'phải lộ metadata dấu vân tay')
+  assert.equal(body.evidenceFingerprint.soBam, vt.dai.length + vt.ngan.length)
+  assert.equal(body.evidenceFingerprint.dayTran, false)
+  // ...nhưng TUYỆT ĐỐI không lộ muối và hai mảng băm: đưa chúng cho client là
+  // biến nó thành máy dò đoán câu nguồn.
+  for (const cam of ['muoi', 'dai', 'ngan']) {
+    assert.ok(!(cam in body.evidenceFingerprint), `lộ trường cấm: ${cam}`)
+  }
+  assert.ok(!JSON.stringify(body).includes(vt.muoi), 'muối lọt ra API')
+  assert.ok(!JSON.stringify(body).includes(vt.dai[0]), 'băm lọt ra API')
 
   // Chữ của nguồn tuyệt đối không được nằm lại trong bản ghi.
   const caBanGhi = JSON.stringify(doc).toLowerCase()
@@ -145,6 +155,26 @@ test('H2c: lưu dấu vân tay bằng chứng, KHÔNG lưu chữ, KHÔNG lộ ra
   // ...nhưng vẫn phải dùng được để bắt trùng (đây là lý do nó tồn tại).
   const dvt = require('../src/services/dau-van-tay.service')
   assert.equal(dvt.timTrungLap('Stop scrolling now and read this', vt).trung, true)
+})
+
+test('H2c: API danh sách để soBam TRỐNG chứ không báo 0', async () => {
+  // Danh sách cố ý không nạp hai mảng băm cho nhẹ. Trả `soBam: 0` ở đó là nói
+  // dối — người đọc sẽ tưởng bản ghi không có băm nào, trong khi chỉ là chưa
+  // nạp về.
+  gtGiaThanhCong()
+  const a = await thietBiMoi('Máy A')
+  await goi('POST', '/v1/flow-blueprints/', a.token, than('jvt3'.repeat(2)))
+
+  const ds = (await goi('GET', '/v1/flow-blueprints/', a.token)).json().data
+  assert.equal(ds.length, 1)
+  assert.ok(ds[0].evidenceFingerprint, 'danh sách vẫn phải cho biết CÓ vân tay')
+  assert.equal(ds[0].evidenceFingerprint.soBam, null)
+  assert.equal(ds[0].evidenceFingerprint.dayTran, false)
+  assert.ok(!JSON.stringify(ds).includes('"muoi"'), 'muối lọt ra API danh sách')
+
+  // ...còn GET /:id thì có con số thật.
+  const mot = (await goi('GET', `/v1/flow-blueprints/${ds[0].id}`, a.token)).json()
+  assert.ok(mot.evidenceFingerprint.soBam > 0)
 })
 
 test('H2c: bằng chứng OCR chưa xác nhận KHÔNG vào dấu vân tay', async () => {

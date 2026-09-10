@@ -633,6 +633,7 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/MINI-SPEC_H2b_Doc_Chu_Co_Dau.md` | Đọc chữ overlay CÓ DẤU tiếng Việt — vì sao OCR trên máy không thể ra dấu, đo 5 hướng chữa, và bộ đọc thay được |
 | `docs/MINI-SPEC_H2c_Dau_Van_Tay_Bang_Chung.md` | Dấu vân tay một chiều của bằng chứng — cho H3 kiểm sao chép mà máy chủ vẫn không giữ câu chữ nguyên văn |
 | `docs/MINI-SPEC_H3_Brand_Script_Rewrite.md` | Viết kịch bản cho thương hiệu — hai lớp kiểm (tuân thủ + nguyên gốc), chặn ở cấp toàn kịch bản |
+| `docs/PILOT_PHASE_H.md` | Runbook chạy thử xuyên suốt H2→H3 trên máy thật + bốn cổng phải đóng trước khi mở H4 |
 
 **Quy mô test tại thời điểm cập nhật tệp này:** 2.449 test Python (4 bỏ qua —
 chỉ có nghĩa trên Windows) + 542 test Node (1 bỏ qua, 0 hỏng) + 74 test React (0 hỏng).

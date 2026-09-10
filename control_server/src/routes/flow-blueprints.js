@@ -48,8 +48,33 @@ function view(doc) {
       evidenceStatus: b.evidenceStatus,
     })),
     userReviewNote: doc.userReviewNote,
+    // H2c — CHỈ metadata của dấu vân tay, KHÔNG bao giờ kèm `muoi`/`dai`/
+    // `ngan`. Đưa mảng băm ra cho client là biến nó thành máy dò đoán câu
+    // nguồn; nhưng giấu cả phần metadata thì không ai kiểm được dấu vân tay
+    // có được tạo hay không, và người dùng cũng không hiểu vì sao kịch bản
+    // của mình bị "chưa kiểm được".
+    evidenceFingerprint: doc.evidenceFingerprint
+      ? thongTinVanTay(doc.evidenceFingerprint) : null,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
+  }
+}
+
+/**
+ * Metadata dấu vân tay cho API — TUYỆT ĐỐI không kèm `muoi`/`dai`/`ngan`.
+ *
+ * `soBam` là `null` khi hai mảng băm không được nạp (API danh sách cố ý bỏ
+ * chúng khỏi truy vấn). Trả 0 ở đó là NÓI DỐI: người đọc sẽ tưởng bản ghi
+ * không có băm nào, trong khi thực ra chỉ là chưa nạp về.
+ */
+function thongTinVanTay(vt) {
+  const coMangBam = Array.isArray(vt.dai) && Array.isArray(vt.ngan)
+  return {
+    v: vt.v,
+    soBam: coMangBam ? vt.dai.length + vt.ngan.length : null,
+    soDong: vt.soDong,
+    soDongBoQua: vt.soDongBoQua,
+    dayTran: vt.dayTran,
   }
 }
 
@@ -96,11 +121,12 @@ module.exports = async function flowBlueprintRoutes(fastify) {
   fastify.addHook('preHandler', requireDevice)
 
   fastify.get('/', async (request) => {
-    // Bỏ `evidenceFingerprint` khỏi truy vấn danh sách (H2c): nó có thể tới
-    // hàng chục nghìn chuỗi băm mỗi bản ghi, mà `view()` không dùng tới —
-    // kéo về là phí băng thông và bộ nhớ cho mọi lần mở trang.
+    // Bỏ hai mảng BĂM khỏi truy vấn danh sách (H2c): mỗi bản ghi có thể tới
+    // hàng chục nghìn chuỗi, kéo về cho mọi lần mở trang là phí vô ích. Phần
+    // metadata vẫn về, riêng `soBam` sẽ là `null` (xem `thongTinVanTay`) —
+    // cần con số đó thì gọi `GET /:id`.
     const list = await FlowBlueprint.find({ ownerDeviceId: request.device._id })
-      .select('-evidenceFingerprint')
+      .select('-evidenceFingerprint.dai -evidenceFingerprint.ngan')
       .sort({ createdAt: -1 }).lean()
     return { data: list.map(view) }
   })

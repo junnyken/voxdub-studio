@@ -172,6 +172,14 @@ def doc_lai_bang_may_chu(quan_sat: list, image_paths: list[str], *,
             dong = [str(d).strip() for d in (muc.get("dong") or []) if str(d).strip()]
             doc_duoc[khung_cua_anh[so - 1]] = dong
 
+    # Ghi lại đúng con số đã tiết kiệm được. Không có dòng này thì không ai
+    # kiểm chứng được lời hứa "chỉ gửi khung đại diện" — mà đó là tiền thật:
+    # mỗi khung gửi đi tốn ~1.150 token.
+    logger.info(
+        "Đọc chữ qua máy chủ: %d khung lấy mẫu -> %d đoạn chữ khác nhau -> "
+        "gửi %d khung (%d khung đọc được kết quả)",
+        len(image_paths), len(doan), len(dai_dien), len(doc_duoc))
+
     if not doc_duoc:
         return quan_sat
 

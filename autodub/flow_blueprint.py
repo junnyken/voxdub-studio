@@ -199,9 +199,13 @@ def trich_bang_chung(
     chinh_sach = ta_chinh_sach_lay_mau(dai_giay)
 
     ocr_evidence: list[dict] = []
+    # Khai báo TRƯỚC nhánh `if moc`: video không đọc được thời lượng thì `moc`
+    # rỗng, và phần tóm tắt ở cuối hàm vẫn đọc ba biến này. Để chúng bên trong
+    # nhánh là ném NameError đúng vào lúc mọi thứ đã trục trặc sẵn.
+    anh_paths: list[str] = []
+    moc_lay_duoc: list[float] = []
+    chon_bo_doc = ""
     if moc:
-        anh_paths: list[str] = []
-        moc_lay_duoc: list[float] = []
         with tempfile.TemporaryDirectory(prefix="voxdub_flow_ocr_") as khung_dir:
             for i, t in enumerate(moc):
                 if cancel_event is not None and cancel_event.is_set():
@@ -257,9 +261,14 @@ def trich_bang_chung(
             "Không có lời nói lẫn chữ overlay nào đọc được từ video này — "
             "không đủ bằng chứng để phân tích cấu trúc.")
 
+    # Số khung lấy mẫu đi vào tóm tắt: nó LƯU cùng blueprint nên về sau còn
+    # đối chiếu được "lấy mẫu bao nhiêu / còn lại bao nhiêu quan sát", thay vì
+    # chỉ nằm trong Nhật ký của một lượt chạy rồi mất.
     tom_tat = (f"ASR: {len(transcript)} câu"
               + (f" (ngôn ngữ: {ngon_ngu})" if ngon_ngu else " (chưa nhận ra ngôn ngữ)")
-              + f". OCR: {len(ocr_evidence)} quan sát.")
+              + f". OCR: {len(ocr_evidence)} quan sát"
+              + f" từ {len(moc_lay_duoc)} khung lấy mẫu."
+              + (f" Bộ đọc: {chon_bo_doc}." if anh_paths else ""))
     if canh_bao:
         tom_tat += " " + " ".join(canh_bao)
 

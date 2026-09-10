@@ -240,3 +240,36 @@ def test_khong_co_gi_ca_thi_bao_loi_ro(tmp_path, monkeypatch):
 
     with pytest.raises(TranscribeError, match="không đủ bằng chứng"):
         fb.trich_bang_chung(out, str(tmp_path / "work"), Settings())
+
+
+def test_video_khong_doc_duoc_thoi_luong_van_tra_ve_duoc(monkeypatch, tmp_path):
+    """Không đọc được thời lượng -> không lấy mẫu khung nào -> phần tóm tắt
+    vẫn phải dựng được.
+
+    Lỗi thật của bản dựng đầu: ba biến của nhánh OCR (`anh_paths`,
+    `moc_lay_duoc`, `chon_bo_doc`) nằm TRONG `if moc:`, nên ca này ném
+    NameError — đúng vào lúc mọi thứ đã trục trặc sẵn, tức lúc tệ nhất.
+    """
+    import autodub.flow_blueprint as fb
+
+    media = tmp_path / "v.mp4"
+    media.write_bytes(b"khong phai video that")
+
+    import autodub.speech.transcriber as transcriber_mod
+    import autodub.transcribe_tool as tt_mod
+    import autodub.media.video as video_mod
+
+    monkeypatch.setattr(
+        tt_mod, "prepare_audio",
+        lambda source, out_dir, settings=None: (str(media), "Tên", str(media)))
+    monkeypatch.setattr(transcriber_mod, "transcribe", _gia_lap_asr)
+    # probe hỏng -> 0 giây -> không có mốc lấy mẫu nào
+    monkeypatch.setattr(video_mod, "probe_duration_s", lambda p: None)
+
+    bc = fb.trich_bang_chung("nguon", str(tmp_path), Settings())
+
+    assert bc.ocr_evidence == []
+    assert "0 khung lấy mẫu" in bc.evidence_summary
+    # Không có khung nào thì KHÔNG khoe tên bộ đọc — nói có bộ đọc chạy trong
+    # khi nó chưa hề chạy là báo cáo sai.
+    assert "Bộ đọc" not in bc.evidence_summary
