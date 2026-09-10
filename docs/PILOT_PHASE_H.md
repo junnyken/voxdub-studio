@@ -12,22 +12,18 @@ Chạy trên **máy Windows** có app — workspace Linux không chạy được
 | Ví còn Vox | H2 tốn 8, H2b tốn 8 mỗi lô 6 khung, H3 tốn 12. Một pilot đủ hai ca gate ≈ 60-80 Vox |
 | Đã cài bộ OCR | Chưa cài thì bước đọc chữ báo "chưa cài", không phải "không có chữ" |
 
-## Chọn video — chỗ này quyết định pilot có đóng được cổng 2 không
+## Chọn video — **hai video, không phải một**
 
-Cổng 2 đòi *"H2b đọc đúng caption **có dấu** trên máy người dùng"*. **Video
-caption tiếng Anh không đóng được cổng này** — không có dấu nào để đọc.
+Cổng 2 đòi *"H2b đọc đúng caption **có dấu** trên máy người dùng"*. Video
+caption tiếng Anh **không đóng được cổng này** — không có dấu nào để đọc. Mà
+video tiếng Việt thì thường không có cấu trúc bán hàng rõ để đánh giá chất
+lượng phân tích nhịp. Nên chuẩn là **hai video, mỗi cái kiểm một thứ**:
 
-Nên chọn, theo thứ tự ưu tiên:
-
-1. **Video bán hàng có phụ đề Việt cháy sẵn**, 30–60 giây, cấu trúc rõ
-   (hook → vấn đề → bằng chứng → kết quả → kêu gọi). Đóng được **cả bốn cổng**
-   trong một lượt.
-2. **Hai video**: một tiếng Anh cấu trúc rõ (đánh giá chất lượng nhịp + H3),
-   một có caption Việt (đóng cổng 2). Tốn gấp đôi nhưng tách bạch nguyên nhân
-   khi có gì sai.
-3. `tap01_clip.mp4` sẵn trong repo — phụ đề cháy song ngữ Anh–Việt, đóng được
-   cổng 2, **nhưng** là video dạy tiếng Anh nên cấu trúc kể chuyện yếu; chỉ
-   hợp để kiểm ĐƯỜNG CHẠY, không hợp để đánh giá chất lượng phân tích nhịp.
+| Mục tiêu kiểm | Video phù hợp |
+|---|---|
+| **H2b** — OCR tiếng Việt có dấu trên máy thật | Video bán hàng có caption Việt **cháy sẵn**, ưu tiên caption hook xuất hiện trong 0–5 giây đầu |
+| **H2** — Anh → Việt, chất lượng phân tích nhịp | Video nguồn tiếng Anh có hook → vấn đề → bằng chứng → kết quả → kêu gọi rõ ràng |
+| Dự phòng kỹ thuật | `tap01_clip.mp4` trong repo (song ngữ) — dùng để kiểm ĐƯỜNG CHẠY, **không** dùng để kết luận chất lượng kể chuyện |
 
 Tránh cho lượt đầu: chữ quá nhỏ, khung rung mạnh, caption ẩn (không cháy vào
 hình). Pilot đầu kiểm đường chạy, không phải cố làm khó OCR.
@@ -51,6 +47,38 @@ Kiểm kết quả: hook có rơi vào 0–5 giây đầu không; có phân bi�
 bằng chứng / cao trào / kêu gọi hành động không; cột tình trạng bằng chứng có
 giá trị rõ ràng chứ không phải trống.
 
+## Bước 1b — kiểm metadata dấu vân tay (H2c)
+
+Chạy sau khi có blueprint, trước khi sang H3:
+
+```
+python3 scripts/bao_cao_pilot_phase_h.py
+```
+
+Ở mục 2 của báo cáo phải thấy `soBam` > 0, `soDong` khớp số dòng bằng chứng,
+`dayTran` = không. Nếu **không có dấu vân tay**, H3 sẽ luôn ra `unconfirmed`
+và cổng 3 không đóng được — dừng lại, đừng chạy tiếp H3 cho tốn Vox.
+
+Kiểm thêm bằng mắt (đây là điểm dễ hiểu sai): endpoint **danh sách** trả
+`soBam: null`, endpoint **chi tiết** mới trả con số thật. `null` nghĩa là
+"chưa nạp ở đây", KHÁC hẳn `0` nghĩa là "đã nạp và chắc chắn không có băm
+nào". Thấy `0` ở danh sách là có lỗi.
+
+## Bước 1c — kiểm chi phí và độ phủ
+
+Ba con số phải khớp nhau, lấy từ Nhật ký + tóm tắt blueprint:
+
+| Con số | Lấy ở đâu | Ý nghĩa |
+|---|---|---|
+| Số khung **lấy mẫu** | Nhật ký + `evidenceSummary` | RapidOCR quét trên máy, **miễn phí** |
+| Số **đoạn chữ khác nhau** | Nhật ký | sau khi gộp các khung trùng nội dung |
+| Số khung **thật sự gửi lên** | Nhật ký | đây mới là thứ **tốn Vox** |
+
+Câu hỏi vận hành phải trả lời được sau bước này: *"vì sao lượt này tốn ngần
+ấy, và công cụ đã bỏ bao nhiêu khung thay vì gửi tất cả?"*. Không có ba con
+số này thì "sàng 23/71 khung" chỉ là một dòng log của lập trình viên, không
+phải bằng chứng người vận hành kiểm lại được về sau.
+
 ## Bước 2 — chuẩn bị hồ sơ thương hiệu
 
 Cần đủ **bốn trường bắt buộc**: mô tả sản phẩm, đối tượng khách, giọng điệu,
@@ -73,12 +101,22 @@ Một lượt "mọi thứ xanh" không chứng minh được gate hoạt độn
 
 | Ca | Thao tác | Kết quả bắt buộc |
 |---|---|---|
-| **Claim cấm** | Thêm vào hồ sơ brand một cụm mà kịch bản vừa rồi CÓ dùng (mở kịch bản ra, chọn một cụm bất kỳ trong lời đọc), rồi bấm **Viết lại đoạn** đó | Đoạn chuyển `violated`, chỉ đúng cụm + đúng câu ràng buộc, **cả kịch bản** thành `blocked`, nút "Dùng kịch bản này" **tắt** |
+| **Claim cấm** | **Sinh trước → cấm sau → tạo lại** (năm bước dưới bảng) | Đoạn chuyển `violated`, chỉ đúng cụm + đúng câu ràng buộc, **cả kịch bản** thành `blocked`, nút "Dùng kịch bản này" **tắt** |
 | **Sao chép sát** | Khó ép qua giao diện — mô hình thường tự tránh | Đã có test tự động chứng minh gate bắt fixture chép nguyên văn (xem dưới) |
 
-Mẹo cho ca claim cấm: đừng đặt cụm cấm rồi mới sinh — mô hình sẽ tự né và bạn
-không kích hoạt được gate. Sinh trước, rồi mới thêm cụm cấm lấy từ chính kịch
-bản đó.
+**Trình tự bắt buộc cho ca claim cấm** — đặt cụm cấm TRƯỚC khi sinh là sai:
+
+1. Sinh BrandScript bình thường.
+2. Mở kịch bản, lấy **đúng một cụm thật sự xuất hiện** trong lời đọc.
+3. Thêm cụm đó vào `rangBuocKhongDuocNoi` của hồ sơ brand.
+4. Bấm **Viết lại đoạn** chứa cụm đó.
+5. Xác nhận gate chặn đúng cụm đó.
+
+Vì sao không được cấm trước: mô hình tốt sẽ **tự né ngay từ lời nhắc** (đo
+thật 10/09 — nó viết "Đầu ngày mở mắt ra" thay vì cụm bị cấm). Khi gate không
+kích hoạt, bạn không phân biệt được hai khả năng: (a) lớp phòng đầu chạy tốt,
+hay (b) lớp chặn sau sinh đã hỏng nhưng bị che. Trình tự trên tách bạch được
+hai lớp.
 
 **Ca sao chép sát** đã được chứng minh bằng test không phụ thuộc may mắn của
 mô hình, trong `control_server/tests/brand-scripts-route.test.js`:

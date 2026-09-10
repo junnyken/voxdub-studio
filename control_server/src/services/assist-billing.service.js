@@ -143,4 +143,52 @@ async function charge(device, { holdId, jobId, action, walletCost, internalVox,
   }
 }
 
-module.exports = { replay, remember, precheck, charge }
+/**
+ * Đếm số lượt trợ lý một máy đã dùng HÔM NAY — lớp chặn chi phí thứ 3.
+ *
+ * Chuyển từ `routes/ai.js` sang đây (mini-spec H3) để `flow-blueprints` và
+ * `brand-scripts` dùng chung. Hai route đó gọi thẳng `gateway.assist()` chứ
+ * không đi qua `/v1/ai/assist`, nên trước đây chúng **thiếu hẳn lớp hạn mức
+ * ngày**: rate-limit theo phút chỉ chặn được người bấm dồn dập, không chặn
+ * được một vòng lặp hỏng chạy cả ngày.
+ *
+ * Lượt "Thử ngay" của trang quản trị KHÔNG tính: đó là phép kiểm cấu hình của
+ * người quản trị, không phải người dùng đang tiêu hạn mức của mình.
+ */
+async function assistUsedToday(fingerprint, task) {
+  const UsageLog = require('../models/UsageLog')
+  const dau_ngay = new Date()
+  dau_ngay.setHours(0, 0, 0, 0)
+  const dieu_kien = {
+    fingerprint,
+    action: 'assist',
+    runMode: { $ne: 'test_now' },
+    createdAt: { $gte: dau_ngay },
+  }
+  if (task) dieu_kien.assistTask = task
+  return UsageLog.countDocuments(dieu_kien)
+}
+
+/**
+ * Kiểm cả hạn mức RIÊNG của tác vụ lẫn hạn mức CHUNG. Trả `null` khi còn
+ * lượt, hoặc `{ tran, message }` khi đã hết — bên gọi tự trả 429.
+ *
+ * Hạn mức riêng đi trước hạn mức chung: tác vụ miễn phí (như `explain_error`)
+ * không bị giá Vox chặn nên cần trần riêng.
+ */
+async function kiemHanMucNgay(config, fingerprint, task) {
+  const cfg = await config.getMany(['assist.daily.limit', `assist.daily.limit.${task}`])
+  const tranRieng = cfg[`assist.daily.limit.${task}`]
+  if (tranRieng > 0 && (await assistUsedToday(fingerprint, task)) >= tranRieng) {
+    return { tran: tranRieng,
+      message: `Hôm nay đã dùng hết ${tranRieng} lượt cho việc này. Thử lại vào ngày mai.` }
+  }
+  const tranChung = cfg['assist.daily.limit']
+  if (tranChung > 0 && (await assistUsedToday(fingerprint, '')) >= tranChung) {
+    return { tran: tranChung,
+      message: `Hôm nay đã dùng hết ${tranChung} lượt trợ lý. Thử lại vào ngày mai.` }
+  }
+  return null
+}
+
+module.exports = { replay, remember, precheck, charge, assistUsedToday, kiemHanMucNgay }

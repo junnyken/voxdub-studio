@@ -31,8 +31,13 @@ const thanHam = (ten) => h.thanHam('src/services/ai-gateway.service.js', ten)
 // -- Thử ngay không được đụng vào tiền của ai --------------------------------
 
 test('lượt thử ngay KHÔNG tính vào hạn mức ngày', () => {
+  // Ba chỗ đếm hạn mức: trợ lý theo ngày, ảnh theo ngày, ảnh CONCEPT theo
+  // ngày. Chỗ "trợ lý theo ngày" đã chuyển sang `assist-billing.service.js`
+  // (mini-spec H3) để `flow-blueprints`/`brand-scripts` dùng chung — quét cả
+  // hai tệp, vì điều cần giữ là "MỌI chỗ đếm đều loại lượt thử ngay ra",
+  // không phải "chúng nằm ở tệp nào".
   const src = doc('src/routes/ai.js')
-  // Ba chỗ đếm hạn mức: trợ lý theo ngày, ảnh theo ngày, ảnh CONCEPT theo ngày.
+    + doc('src/services/assist-billing.service.js')
   const soLanLoc = (src.match(/runMode: \{ \$ne: 'test_now' \}/g) || []).length
   assert.equal(soLanLoc, 3,
     `mới ${soLanLoc}/3 chỗ đếm hạn mức loại lượt thử ngay ra`)

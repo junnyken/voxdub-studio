@@ -38,25 +38,14 @@ const { containsCjk } = require('../utils/json-repair')
  * bấm dồn dập nhưng không chặn được một vòng lặp hỏng chạy cả ngày, hay một
  * máy gọi đều đặn suốt 24 tiếng. Đếm theo ngày là lớp chặn còn thiếu.
  */
-async function assistUsedToday(fingerprint, task) {
-  const dau_ngay = new Date()
-  dau_ngay.setHours(0, 0, 0, 0)
-  // Lượt "Thử ngay" của trang quản trị KHÔNG tính: nó là phép kiểm cấu hình
-  // của người quản trị, không phải người dùng đang tiêu hạn mức của mình.
-  const dieu_kien = {
-    fingerprint,
-    action: 'assist',
-    runMode: { $ne: 'test_now' },
-    createdAt: { $gte: dau_ngay },
-  }
-  if (task) dieu_kien.assistTask = task
-  return UsageLog.countDocuments(dieu_kien)
-}
+// Định nghĩa chuyển sang `assist-billing.service.js` (mini-spec H3) để
+// `flow-blueprints`/`brand-scripts` dùng chung — hai route đó gọi thẳng
+// `gateway.assist()` nên trước đây thiếu hẳn lớp hạn mức ngày.
 
 // `replay`/`remember`/`precheck`/`charge`: tách sang assist-billing.service.js
 // (mini-spec H2) để `routes/flow-blueprints.js` dùng lại đúng logic billing
 // thay vì viết lại — xem chú thích đầy đủ ở tệp đó.
-const { replay, remember, precheck, charge } = require('../services/assist-billing.service')
+const { replay, remember, precheck, charge, assistUsedToday } = require('../services/assist-billing.service')
 
 module.exports = async function aiRoutes(fastify) {
   const { requireDevice } = require('../middleware/auth.middleware')

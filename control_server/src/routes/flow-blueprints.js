@@ -24,7 +24,7 @@ const FlowBlueprint = require('../models/FlowBlueprint')
 const assistPrompts = require('../prompts/assist')
 const gateway = require('../services/ai-gateway.service')
 const config = require('../services/config.service')
-const { replay, remember, precheck, charge } = require('../services/assist-billing.service')
+const { replay, remember, precheck, charge, kiemHanMucNgay } = require('../services/assist-billing.service')
 const dauVanTay = require('../services/dau-van-tay.service')
 
 function view(doc) {
@@ -172,6 +172,15 @@ module.exports = async function flowBlueprintRoutes(fastify) {
     const spec = assistPrompts.getTask('viral_flow_blueprint')
     const cfg = await config.getMany(['credit.enabled', spec.costKey])
     const cost = cfg['credit.enabled'] ? (cfg[spec.costKey] || 0) : 0
+
+    // Lớp chặn chi phí thứ 3 (hạn mức ngày). Route này gọi thẳng
+    // `gateway.assist()` nên không đi qua chỗ kiểm của `/v1/ai/assist` —
+    // thiếu lớp này thì rate-limit theo phút chỉ chặn được người bấm dồn
+    // dập, không chặn được một vòng lặp hỏng chạy cả ngày.
+    const hetHanMuc = await kiemHanMucNgay(config, device.fingerprint, 'viral_flow_blueprint')
+    if (hetHanMuc) {
+      return reply.code(429).send({ code: 'DAILY_LIMIT', message: hetHanMuc.message })
+    }
 
     const lacking = await precheck(device.fingerprint, holdId, cost,
       { action: 'flow_blueprint', jobId })

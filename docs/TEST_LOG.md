@@ -15533,3 +15533,59 @@ Runbook cũng ghi mẹo cho ca gate "claim cấm": **đừng đặt cụm cấm 
 sinh** — đo thật 10/09 cho thấy mô hình tự né được (viết "Đầu ngày mở mắt ra"
 thay vì "bữa sáng"), nên gate không kích hoạt. Phải sinh trước rồi mới thêm
 cụm cấm lấy từ chính kịch bản đó.
+
+---
+
+## H3 — làm cho ổn định (10/09/2026)
+
+Audit H3 sau khi lên prod, tìm được **hai lỗ hổng thật** chứ không phải việc
+dọn dẹp cho đẹp.
+
+**1. Trừ tiền rồi vỡ — lỗi có thật, không phải giả định.** `models/BrandScript
+.js` giới hạn `captionSuggestionVi` 300 ký tự / `voiceoverTextVi` 1500 /
+`visualBriefVi` 600, nhưng JSON schema gửi mô hình KHÔNG chặn độ dài và
+`parseBrandScriptResult` cũng không cắt. Một lượt trả lời dài dòng ⇒ Mongoose
+ném lỗi validation lúc `create()` — **SAU KHI** đã `charge()`. Người dùng mất
+Vox, sổ máy chủ ghi "thành công", app nhận 500 không hiểu nổi. Đúng lớp lỗi mà
+chú thích ở `models/JobResult.js` đã cảnh báo từ 22/8.
+
+Trong lúc sửa lại lòi ra **lỗi lệch một ký tự**: hàm `cat()` sẵn có thêm dấu
+`…` khi cắt nên `cat(x, 1500)` trả về **1501** ký tự — vẫn vượt `maxlength`,
+vẫn vỡ. `cat()` vốn dựng cho việc cắt ĐẦU VÀO (dư một ký tự không ai chết).
+Thêm `catCung()` bảo đảm không bao giờ dài quá trần, dùng cho văn bản sắp GHI
+XUỐNG trường có giới hạn cứng.
+
+Test đầu tiên tôi viết cho lỗi này **sai chỗ**: nó mock luôn `gateway.assist`
+nên bỏ qua bước chuẩn hoá, tức đang kiểm một tình huống không xảy ra được
+trong thực tế. Đã thay bằng hai test đúng tầng: một test cắt thật ở
+`parseBrandScriptResult`, và một chốt bền hơn — **giới hạn cắt phải KHỚP
+`maxlength` đọc thẳng từ Mongoose schema**, nên ai nới một bên mà quên bên kia
+sẽ đỏ ngay thay vì để lỗi hiện ở production dưới dạng "trừ tiền rồi vỡ".
+
+**2. Thiếu hẳn lớp chặn chi phí thứ 3.** `/v1/flow-blueprints` (H2) và
+`/v1/brand-scripts` (H3) gọi thẳng `gateway.assist()` chứ không qua
+`/v1/ai/assist`, nên **không hề kiểm hạn mức ngày** — trong khi Constraint 9
+của H3 đòi đủ bốn lớp. Rate-limit theo phút chỉ chặn được người bấm dồn dập,
+không chặn được một vòng lặp hỏng chạy cả ngày.
+
+Chuyển `assistUsedToday` từ `routes/ai.js` sang `assist-billing.service.js`
+(đúng chỗ `replay`/`precheck`/`charge` đã ở) + thêm `kiemHanMucNgay()`, rồi
+gắn vào **cả ba** chỗ gọi (H2 tạo blueprint, H3 tạo kịch bản, H3 viết lại
+đoạn). Kiểm TRƯỚC khi chạm ví tiền và trước khi gọi mô hình.
+
+Việc chuyển hàm làm một chốt sẵn có đỏ: `test-now-va-soi-tay.test.js` đếm số
+chỗ loại "lượt thử ngay" khỏi hạn mức, đếm trong `routes/ai.js` và thấy 2/3.
+Ý định của chốt vẫn đúng (MỌI chỗ đếm đều phải loại lượt thử ngay ra) nên sửa
+nó quét cả hai tệp, chứ không hạ con số.
+
+**Tests**: 4 mới. Toàn bộ Node **626 passed / 0 fail**.
+
+**Còn lại, chưa làm — ghi ra để không quên**:
+- `regenerate-beat` vẫn tính tiền một lượt đầy đủ dù chỉ lấy một đoạn (mô hình
+  sinh cả kịch bản rồi ta bỏ phần thừa). Giao diện đã nói thẳng.
+- Giá 12 Vox **phẳng** theo số đoạn: kịch bản 40 đoạn tốn hơn hẳn 5 đoạn mà
+  thu cùng giá — đúng chỗ hở biên mà `scene_script.co_anh` từng phải tách giá.
+  Chưa có số liệu token thật của kịch bản dài để chốt.
+- **Không có nhớ đệm theo NỘI DUNG** cho H3 (chỉ có idempotency theo `jobId`).
+  Cố ý: cùng blueprint + brand mà người dùng bấm lại là họ muốn một phương án
+  KHÁC, không phải bản cũ. Khác với các tác vụ hỏi-đáp nơi nhớ đệm là đúng.

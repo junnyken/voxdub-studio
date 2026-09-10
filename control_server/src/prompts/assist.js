@@ -50,6 +50,19 @@ function cat(text, max) {
 }
 
 /**
+ * Cắt CỨNG: kết quả không bao giờ dài quá `max` ký tự, kể cả dấu `…`.
+ *
+ * Khác `cat()` ở đúng một ký tự, mà một ký tự đó là ranh giới giữa chạy được
+ * và vỡ: `cat(x, 1500)` trả về 1501 ký tự nên vẫn vượt `maxlength` của
+ * Mongoose. `cat()` dựng cho việc cắt ĐẦU VÀO (dư một ký tự không ai chết);
+ * hàm này dành cho văn bản sắp GHI XUỐNG một trường có giới hạn cứng.
+ */
+function catCung(text, max) {
+  const s = String(text == null ? '' : text).trim()
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s
+}
+
+/**
  * Phiên bản của BỘ PROMPT. Sửa câu chữ hướng dẫn mô hình thì TĂNG số này.
  *
  * Hai việc phụ thuộc vào nó, cả hai đều hỏng âm thầm nếu quên tăng:
@@ -686,11 +699,16 @@ function parseBrandScriptResult(raw, input) {
   if (!beatsNguon.length) return null
   if (doan.length !== beatsNguon.length) return null
 
+  // Cắt theo ĐÚNG `maxlength` của `models/BrandScript.js`. JSON schema gửi mô
+  // hình không chặn độ dài, nên một lượt trả lời dài dòng sẽ làm Mongoose ném
+  // lỗi validation lúc lưu — SAU KHI đã trừ Vox. Người dùng mất tiền, sổ máy
+  // chủ ghi "thành công", app nhận 500 không hiểu nổi (đúng lớp lỗi mà chú
+  // thích ở `models/JobResult.js` đã cảnh báo). Cắt ở đây là chỗ rẻ nhất.
   const beats = doan.map((d, i) => ({
     beatType: beatsNguon[i]?.beatType || 'unknown',
-    voiceoverTextVi: String(d?.loi_doc || '').trim(),
-    captionSuggestionVi: String(d?.caption || '').trim(),
-    visualBriefVi: String(d?.visual_brief || '').trim(),
+    voiceoverTextVi: catCung(d?.loi_doc, 1500),
+    captionSuggestionVi: catCung(d?.caption, 300),
+    visualBriefVi: catCung(d?.visual_brief, 600),
   }))
 
   // Đoạn rỗng hoàn toàn = model bỏ trống một nhịp. Không lưu, để bên gọi

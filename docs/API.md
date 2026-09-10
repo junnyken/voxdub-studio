@@ -139,8 +139,15 @@ tích xong (cùng khuôn `precheck`/`charge` các tác vụ AI khác).
 Response: `201` kèm Flow Blueprint vừa lưu + `creditCharged`/`balanceAfter`
 (cùng khuôn `GET /:id`).
 Lỗi: `402 INSUFFICIENT_CREDIT` (thiếu Vox, KHÔNG tạo bản ghi, KHÔNG trừ tiền);
-`503 AI_UNAVAILABLE` (mô hình lỗi/không sẵn sàng, KHÔNG tạo bản ghi, KHÔNG
-trừ tiền); `503 MAINTENANCE`.
+`429 DAILY_LIMIT`; `503 AI_UNAVAILABLE` (mô hình lỗi/không sẵn sàng, KHÔNG tạo
+bản ghi, KHÔNG trừ tiền); `503 MAINTENANCE`.
+
+**Hạn mức ngày (thêm 10/09)**: `/v1/flow-blueprints` và `/v1/brand-scripts`
+gọi thẳng cổng trợ lý chứ không đi qua `/v1/ai/assist`, nên trước đó **thiếu
+hẳn lớp chặn chi phí thứ 3** — rate-limit theo phút chỉ chặn được người bấm
+dồn dập, không chặn được một vòng lặp hỏng chạy cả ngày. Nay cả hai đều kiểm
+`assist.daily.limit` (và `assist.daily.limit.<task>` nếu có), kiểm TRƯỚC khi
+chạm tới ví tiền và trước khi gọi mô hình.
 
 **Dấu vân tay bằng chứng (mini-spec H2c)**: bản ghi có thêm trường nội bộ
 `evidenceFingerprint` — băm MỘT CHIỀU của transcript/OCR nguồn, dựng ngay lúc
@@ -203,7 +210,8 @@ của thiết bị khác — dùng chung mã, cố ý không tiết lộ);
 `400 HO_SO_BRAND_THIEU` kèm mảng `thieu` (hồ sơ brand chưa đủ `moTaSanPham`/
 `doiTuongKhach`/`toneGiong`/`usp` — máy chủ **cố ý không tự bịa** phần thiếu,
 và KHÔNG gọi mô hình khi thiếu); `400 BLUEPRINT_RONG`;
-`402 INSUFFICIENT_CREDIT`; `503 AI_UNAVAILABLE`; `503 MAINTENANCE`.
+`402 INSUFFICIENT_CREDIT`; `429 DAILY_LIMIT`; `503 AI_UNAVAILABLE`;
+`503 MAINTENANCE`.
 
 ### `POST /:id/regenerate-beat` — viết lại MỘT đoạn
 Body: `{ jobId, beatIndex (≥0), holdId? }`.

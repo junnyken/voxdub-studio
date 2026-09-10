@@ -168,3 +168,49 @@ test('kiểm là THUẦN VĂN BẢN — không gọi mô hình', () => {
   assert.ok(!/ai-gateway|require\(.*gateway/.test(src),
     'bộ kiểm không được phụ thuộc cổng gọi mô hình')
 })
+
+// --------------------------------------------- cắt độ dài trước khi lưu ----
+
+test('chuẩn hoá CẮT văn bản dài, không để Mongoose vỡ sau khi đã trừ tiền', () => {
+  // JSON schema gửi mô hình không chặn độ dài, còn `models/BrandScript.js`
+  // thì có `maxlength`. Không cắt ở tầng chuẩn hoá thì một lượt trả lời dài
+  // dòng làm Mongoose ném lỗi lúc lưu — SAU KHI đã trừ Vox: người dùng mất
+  // tiền, sổ máy chủ ghi "thành công", app nhận 500 không hiểu nổi.
+  const assist = require('../src/prompts/assist')
+  const input = { beats: [{ beatType: 'hook' }] }
+  const ra = assist.parseBrandScriptResult({
+    doan: [{ loi_doc: 'x'.repeat(5000), caption: 'y'.repeat(5000),
+             visual_brief: 'z'.repeat(5000) }],
+  }, input)
+
+  assert.ok(ra, 'văn bản dài không được coi là output hỏng')
+  assert.ok(ra.beats[0].voiceoverTextVi.length <= 1500)
+  assert.ok(ra.beats[0].captionSuggestionVi.length <= 300)
+  assert.ok(ra.beats[0].visualBriefVi.length <= 600)
+})
+
+test('giới hạn cắt PHẢI khớp maxlength của model — đổi một chỗ là đỏ', () => {
+  // Chốt bền hơn phép kiểm ở trên: ai nới `maxlength` trong model mà quên
+  // sửa chỗ cắt (hoặc ngược lại) sẽ làm test này đỏ ngay, thay vì để lỗi
+  // xuất hiện ở production dưới dạng "trừ tiền rồi vỡ".
+  const BrandScript = require('../src/models/BrandScript')
+  const beatSchema = BrandScript.schema.path('beats').schema
+  const assist = require('../src/prompts/assist')
+
+  const gioiHan = {}
+  for (const ten of ['voiceoverTextVi', 'captionSuggestionVi', 'visualBriefVi']) {
+    const opt = beatSchema.path(ten).options
+    assert.ok(opt.maxlength, `${ten} phải có maxlength`)
+    gioiHan[ten] = opt.maxlength
+  }
+
+  const ra = assist.parseBrandScriptResult({
+    doan: [{ loi_doc: 'x'.repeat(9000), caption: 'x'.repeat(9000),
+             visual_brief: 'x'.repeat(9000) }],
+  }, { beats: [{ beatType: 'hook' }] })
+
+  for (const [ten, max] of Object.entries(gioiHan)) {
+    assert.equal(ra.beats[0][ten].length, max,
+      `${ten}: cắt ở ${ra.beats[0][ten].length} nhưng model cho tối đa ${max}`)
+  }
+})

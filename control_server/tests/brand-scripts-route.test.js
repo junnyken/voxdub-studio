@@ -337,6 +337,39 @@ test('regenerate-beat khi Blueprint gốc đã bị xoá -> 409, hạ về uncon
 
 // ------------------------------------------------------------ guardrail ----
 
+test('hết hạn mức ngày -> 429, KHÔNG gọi mô hình, KHÔNG trừ tiền', async () => {
+  // Lớp chặn chi phí thứ 3. Route này gọi thẳng `gateway.assist()` nên không
+  // đi qua chỗ kiểm của `/v1/ai/assist` — thiếu lớp này thì rate-limit theo
+  // phút chỉ chặn người bấm dồn dập, không chặn một vòng lặp hỏng chạy cả ngày.
+  const fn = gtSach()
+  const a = await thietBiMoi('Máy A')
+  const bp = await blueprintCo(a.device._id)
+  const br = await hoSoBrand(a.device._id)
+
+  const config = require('../src/services/config.service')
+  const goc = config.getMany
+  config.getMany = async (khoa) => {
+    const ra = await goc.call(config, khoa)
+    if ('assist.daily.limit' in ra) ra['assist.daily.limit'] = 1
+    return ra
+  }
+  const UsageLog = require('../src/models/UsageLog')
+  await UsageLog.create({ fingerprint: a.device.fingerprint, jobId: 'cu-1234',
+    action: 'assist', assistTask: 'brand_script_rewrite', status: 'success' })
+
+  try {
+    const res = await goi('POST', '/v1/brand-scripts/', a.token,
+      than('jsK'.repeat(4), bp._id, br._id))
+    assert.equal(res.statusCode, 429)
+    assert.equal(res.json().code, 'DAILY_LIMIT')
+    assert.equal(fn.mock.callCount(), 0, 'không được gọi mô hình khi đã hết hạn mức')
+    const device = await require('../src/models/Device').findById(a.device._id)
+    assert.equal(device.balance, 1000, 'không được trừ Vox')
+  } finally {
+    config.getMany = goc
+  }
+})
+
 test('HỒI QUY: không có đường nào cho client đặt status = ready', async () => {
   gtSach()
   const a = await thietBiMoi('Máy A')
