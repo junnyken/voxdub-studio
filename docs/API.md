@@ -158,6 +158,64 @@ trên) — cố ý CHƯA thêm `PATCH`/`PUT` để tránh mở API ngoài phạm
 trang **Phân tích cấu trúc video tham khảo** (`autodub_gui`) hiện chỉ HIỂN
 THỊ, không có ô sửa `userReviewNote`. Xem `docs/MINI-SPEC_H2_Viral_Flow_Blueprint.md`.
 
+## `/v1/brand-scripts` (mọi route cần token — mini-spec H3)
+
+Viết kịch bản MỚI cho một thương hiệu, lấy nhịp kể chuyện từ một
+`FlowBlueprint` (H2) và giọng điệu/USP/ràng buộc từ một `BrandProfile` (H1).
+Cả hai tham chiếu phải thuộc ĐÚNG thiết bị đang gọi — máy chủ kiểm chéo cả
+hai, không chỉ kiểm bản ghi mới.
+
+**`status` CHỈ do engine tính, không có endpoint nào cho client đặt.** Sau khi
+mô hình viết xong, máy chủ chạy hai lớp kiểm **thuần văn bản** (không gọi
+thêm mô hình):
+- **tuân thủ** — kịch bản có chứa cụm trong `rangBuocKhongDuocNoi` không;
+- **nguyên gốc** — kịch bản có trùng câu chữ video nguồn không, đối chiếu qua
+  `evidenceFingerprint` (băm một chiều, mini-spec H2c).
+
+Bảng ưu tiên: có đoạn nào `flagged`/`violated` ⇒ **cả kịch bản** `blocked`;
+không có nhưng có đoạn chưa kiểm được ⇒ `unconfirmed`; tất cả sạch ⇒ `ready`.
+
+`flaggedExcerpt` chỉ chứa cụm **trong kịch bản mới**. Không có cụm gốc bên
+nguồn: bằng chứng nguồn lưu dạng băm một chiều, không đọc ngược ra chữ được.
+`complianceExcerpt`/`complianceRule` thì có đủ chữ cả hai phía vì ràng buộc do
+chính người dùng nhập.
+
+### `GET /` — danh sách kịch bản của thiết bị đang gọi
+Response: `{ data: [{id,flowBlueprintId,brandProfileId,status,originalityCheckVersion,beats,createdAt,updatedAt}] }`
+— mỗi `beat`: `{beatType,voiceoverTextVi,captionSuggestionVi,visualBriefVi,originalityFlag,flaggedExcerpt,lyDoChuaKiem,complianceFlag,complianceExcerpt,complianceRule}`.
+`originalityFlag` ∈ `clear|flagged|unconfirmed`; `complianceFlag` ∈ `clear|violated`;
+`lyDoChuaKiem` ∈ `khong_co_dau_van_tay|khac_phien_ban|day_tran|bang_chung_khong_du|""`.
+
+Kịch bản `ready` được duyệt bằng **phiên bản bộ kiểm CŨ** hơn phiên bản hiện
+tại sẽ trả về `unconfirmed` khi đọc lại (bản ghi trong DB giữ nguyên lịch sử).
+Một script duyệt bằng luật cũ mà `ready` vĩnh viễn là nói dối người dùng.
+
+### `GET /:id` — một kịch bản. Lỗi: `404 KHONG_THAY_KICH_BAN`
+### `DELETE /:id` — xoá. Response `{ ok: true }`
+
+### `POST /` — sinh kịch bản mới
+Body: `{ jobId (idempotent, 8-100 ký tự), flowBlueprintId, brandProfileId, holdId? }`.
+Giá `credit.cost.assist.brand_script_rewrite` (mặc định 12 Vox), trừ SAU KHI
+viết xong.
+Response `201` kèm kịch bản + `creditCharged`/`balanceAfter`.
+Lỗi: `404 KHONG_THAY_BLUEPRINT` / `404 KHONG_THAY_HO_SO` (không tồn tại HOẶC
+của thiết bị khác — dùng chung mã, cố ý không tiết lộ);
+`400 HO_SO_BRAND_THIEU` kèm mảng `thieu` (hồ sơ brand chưa đủ `moTaSanPham`/
+`doiTuongKhach`/`toneGiong`/`usp` — máy chủ **cố ý không tự bịa** phần thiếu,
+và KHÔNG gọi mô hình khi thiếu); `400 BLUEPRINT_RONG`;
+`402 INSUFFICIENT_CREDIT`; `503 AI_UNAVAILABLE`; `503 MAINTENANCE`.
+
+### `POST /:id/regenerate-beat` — viết lại MỘT đoạn
+Body: `{ jobId, beatIndex (≥0), holdId? }`.
+Chỉ thay đúng đoạn được yêu cầu, nhưng **chạy lại cả hai lớp kiểm cho TOÀN BỘ
+kịch bản** — đoạn mới có thể vô tình trùng với bằng chứng mà một đoạn khác (đã
+từng sạch) không hề đụng tới; chỉ kiểm đoạn vừa sửa sẽ tạo ra trạng thái "nửa
+vá" trông sạch nhưng chưa từng được xác nhận lại toàn bộ. Vì vậy trạng thái
+trả về có thể đổi ở đoạn khác.
+Lỗi: `400 DOAN_KHONG_TON_TAI`; `409 NGUON_DA_MAT` (Flow Blueprint hoặc hồ sơ
+brand gốc đã bị xoá — kịch bản bị hạ về `unconfirmed`, KHÔNG được giữ `ready`
+vì không còn gì để kiểm lại).
+
 ## `/v1/ai` (mọi route cần token, chặn khi `maintenance.mode`)
 
 Nguyên tắc chung 4 route dưới: idempotent theo `jobId` (retry an toàn, không

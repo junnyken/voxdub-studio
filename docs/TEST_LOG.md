@@ -15403,3 +15403,82 @@ thật sinh ra rồi mới chốt. Bản ghi FlowBlueprint tạo TRƯỚC 10/09 
 vân tay ⇒ H3 phải coi là `unconfirmed`, không vá ngược được vì evidence gốc
 đã bỏ đi. Chưa xử lý ca xoá FlowBlueprint khi đã có BrandScript tham chiếu
 (thuộc phạm vi H3). Chi tiết: `docs/MINI-SPEC_H2c_Dau_Van_Tay_Bang_Chung.md`.
+
+---
+
+## H3 — Viết kịch bản cho thương hiệu, có guardrail chống sao chép (10/09/2026)
+
+Chi tiết đầy đủ: `docs/MINI-SPEC_H3_Brand_Script_Rewrite.md`.
+
+**Audit trước khi code đã đảo một tiền đề của spec gốc** — spec dựng bước kiểm
+nguyên gốc lên "evidence đã lưu ở H2", mà H2 cố ý không lưu. Xử lý bằng H2c
+(dấu vân tay một chiều) trước, rồi mới code H3. Hệ quả phải chấp nhận: KHÔNG
+trưng ra được cụm gốc bên nguồn, nên mục Desktop UI của spec đã sửa theo —
+chỉ tô đúng cụm trong kịch bản MỚI, và nói thẳng là không có chữ gốc để trưng
+(đừng để người dùng tưởng hệ thống giấu thông tin).
+
+**Hai lớp kiểm, bản chất khác nhau nên KHÔNG gộp**: tuân thủ so với
+`rangBuocKhongDuocNoi` do CHÍNH người dùng nhập ⇒ trưng được cả cụm vi phạm
+lẫn câu ràng buộc kích hoạt nó; nguyên gốc so với băm một chiều của nguồn ⇒
+chỉ trưng được cụm bên kịch bản mới. Cả hai **thuần so khớp văn bản, không gọi
+mô hình** (có test đọc thẳng mã nguồn canh chuyện này — nối cổng AI vào bộ
+kiểm sẽ biến "viết lại một đoạn phải kiểm lại toàn bộ" thành hoá đơn nhân theo
+mỗi lần bấm).
+
+**Bốn nguyên nhân `unconfirmed` tách bạch** (`khong_co_dau_van_tay`,
+`khac_phien_ban`, `day_tran`, `bang_chung_khong_du`) — mỗi cái một câu RIÊNG
+trên giao diện. Gộp thành một câu "chưa kiểm được" thì người dùng không biết
+mình có làm gì được không: hai ca đầu là vô phương, hai ca sau chạy lại H2 là
+xong.
+
+**Ba chốt guardrail của dự án bắn đúng khi tôi thêm tác vụ mới** (đã sửa đủ cả
+ba, không nới chốt): FEATURES.md thiếu dòng giá, `evals/cases.js` thiếu mẫu
+đo, `tests/hold.test.js` thiếu khoá giá công khai. Thêm một chốt thứ tư bắt
+được lỗi thật của tôi: `JobResult.action` chưa khai `'brand_script'` nên
+`remember()` hỏng ÂM THẦM **sau khi đã trừ tiền** — đúng lớp lỗi mà chú thích
+trong `models/JobResult.js` đã cảnh báo từ 22/8.
+
+**Hai chốt giao diện cũng bắt được lỗi của tôi**: dùng emoji trong chữ hiển
+thị (dự án cấm, có `status_text.py` để thay), và thêm mục thứ 21 vào thanh bên
+làm tràn 45px ở màn 1080p. Không thu nhỏ thanh bên — chuyển trang H3 sang nhóm
+`hidden` và đặt lối vào ở cuối trang «Phân tích cấu trúc», vốn cũng **đúng
+luồng hơn**: chưa phân tích nhịp thì chưa viết kịch bản được.
+
+**Sửa một lỗi thiết kế của chính bản dựng đầu**: `regenerate-beat` gọi mô hình
+với đầu vào Y HỆT lượt trước ⇒ mô hình trả gần như y hệt ⇒ nút "viết lại"
+trông như hỏng trong khi vẫn tính tiền mỗi lần bấm. Nay gửi kèm số đoạn đang
+sửa, các đoạn đang giữ, và LÝ DO phải làm lại (cụm bị cấm nào / cụm trùng nào)
+để nó tránh đúng chỗ đã sai. Có test canh.
+
+**Tests**: Node 27 mới (`kiem-kich-ban.test.js` 12 + `brand-scripts-route
+.test.js` 15), Python 28 mới (`test_saas_client_brand_script.py` 7 +
+`test_brand_script_page.py` 21). Toàn bộ: **Python 2.527 passed / 4 skipped**,
+**Node 622 passed / 1 skipped, 0 fail**.
+
+**Live Verification (không mock)** — gọi Gemini 3.8 Flash THẬT bằng đúng system
+prompt + schema của máy chủ, rồi cho đúng `kiemToanBo()` chấm trên chính output
+đó (hồ sơ brand thật, bằng chứng nguồn tiếng Việt thật, 5 beat):
+
+| Ca | Kết quả |
+|---|---|
+| Kịch bản bình thường | `ready` — **0 báo nhầm** trên 5 đoạn × 3 trường |
+| Mô hình LỠ viết cụm bị cấm | bắt đúng «máy rửa bát» ⇒ **cả kịch bản** `blocked` |
+| Ép mô hình bám sát nguồn | bắt đúng «link ở giỏ hàng nha mọi» ⇒ `blocked` |
+
+~4,4 giây và ~1.200 token mỗi lượt. Chất lượng đọc tay: đúng giọng "như bạn bè
+mách nhau", dùng đúng USP, đúng đối tượng, tiếng Việt tự nhiên.
+
+**Dữ liệu hiệu chỉnh ngưỡng** (Success Criteria #7 của spec đòi số đo thật,
+không phải số đoán): ngưỡng 6 từ KHÔNG báo nhầm trên văn bản mô hình thật. Hai
+ca suýt trùng đều là cụm cũng có trong **USP của chính brand** — tức là chữ
+của người dùng, không phải chép từ nguồn, nên không báo là ĐÚNG. Ca chép thật
+bị bắt là một câu CTA nguyên văn. **Phát hiện kèm theo**: mô hình chỉ sao chép
+khi bộ khung Blueprint chứa sẵn câu nguồn — gate H2 chặn ở đầu vào, gate H3
+bắt lại ở đầu ra, hai lớp bọc nhau đúng ý đồ chứ không phải một lớp thừa.
+
+**Remaining Limits**: chưa chạy end-to-end qua app thật trên prod (kiểm chứng
+trên gọi thẳng mô hình + engine, chưa qua HTTP/billing/giao diện) — vẫn cần
+một lượt H2 thật để có `FlowBlueprint` thật; `regenerate-beat` tính tiền một
+lượt đầy đủ dù chỉ lấy một đoạn (giao diện đã nói thẳng); giá 12 Vox phẳng
+trong khi kịch bản 40 đoạn tốn hơn hẳn 5 đoạn; ngưỡng mới đo trên MỘT brand và
+MỘT nguồn; H4 chưa làm nên nút "Dùng kịch bản này" chỉ báo "sẽ có ở bản sau".

@@ -42,7 +42,7 @@ hay chưa:
 | Phần | Công nghệ | Vai trò |
 |---|---|---|
 | `autodub/` | Python ≥3.10, ~28.000 dòng | Lõi xử lý: tải, tách tiếng, chép lời, dịch, tạo giọng, ghép video |
-| `autodub_gui/` | PySide6 (Qt), ~30.000 dòng | Giao diện máy tính, **20 trang** |
+| `autodub_gui/` | PySide6 (Qt), ~30.000 dòng | Giao diện máy tính, **21 trang** |
 | `control_server/` | Node 20, Fastify 5, MongoDB, ~12.000 dòng | Máy chủ: ví Vox, cổng gọi mô hình AI, thống kê, quản trị |
 | `website/` | React 18, Vite, Tailwind, ~7.000 dòng | Trang bán hàng + trang quản trị |
 
@@ -214,7 +214,7 @@ nên **không tốn Vox**:
 **Chưa làm:** phân biệt người nói (diarization) trong công cụ chép lời độc
 lập — chủ dự án chủ động bỏ qua ("chỉ cần ra được text là đủ").
 
-### 3.5 Cổng trợ lý AI (11 tác vụ)
+### 3.5 Cổng trợ lý AI (12 tác vụ)
 
 Một cửa duy nhất cho mọi việc cần mô hình ngôn ngữ. **App gửi tên tác vụ,
 không gửi câu lệnh** — toàn bộ câu chữ hướng dẫn mô hình nằm trên máy chủ,
@@ -233,6 +233,7 @@ nên sửa chúng hoặc đổi mô hình không cần phát hành lại bản `
 | `scene_script` | Gợi ý câu dẫn và nhịp cho từng cảnh | 3 Vox (**8 Vox** nếu kèm xem ảnh) |
 | `viral_flow_blueprint` | Phân tích cấu trúc video tham khảo (mini-spec H2) — chỉ gọi qua `/v1/flow-blueprints`, không qua `/v1/ai/assist` chung, vì cần lưu lại thành Flow Blueprint | 8 Vox (giá khởi điểm, chưa chốt bằng số liệu chi phí thật) |
 | `doc_chu_khung_hinh` | Đọc chữ hiện trên khung hình video, **giữ đúng dấu tiếng Việt** (mini-spec H2b) — bộ đọc chữ chạy trên máy không phát ra được dấu | 8 Vox mỗi lượt (tối đa 6 khung/lượt, app tự gộp trước khi gửi) |
+| `brand_script_rewrite` | Viết lại kịch bản cho thương hiệu từ nhịp kể chuyện của video tham khảo (mini-spec H3) — chỉ gọi qua `/v1/brand-scripts` vì kết quả phải qua hai lớp kiểm rồi mới lưu | 12 Vox (giá khởi điểm) |
 
 Có **bốn lớp chặn chi phí**: danh sách tác vụ đóng (tên lạ bị chặn ở tầng
 schema, trước cả xác thực) → trần ký tự → hạn mức ngày mỗi máy → nhớ đệm
@@ -590,8 +591,15 @@ thành video hoàn chỉnh (nối vào pipeline ảnh sản phẩm C3 đã có).
   chữ video gốc, nhưng H2 cố ý không lưu câu chữ đó. Cách gỡ: lưu **băm một
   chiều** — phát hiện trùng được, mà máy chủ vẫn không giữ nguyên văn. Đổi
   lại: chỉ chỉ ra được cụm trong kịch bản MỚI, không trưng ra được cụm gốc.
-- H3 (viết lại kịch bản theo hồ sơ brand), H4 (dựng video) — **chưa làm**,
-  cần cả H1 và H2.
+- **H3 — Viết kịch bản cho thương hiệu: ĐÃ XONG.** Trang **Viết kịch bản**
+  (thanh bên): chọn một lượt phân tích cấu trúc + một hồ sơ thương hiệu →
+  máy chủ viết kịch bản mới (lời đọc, chữ trên hình, mô tả cần quay gì cho
+  từng đoạn), rồi chạy **hai lớp kiểm** trước khi cho dùng: có chứa cụm bạn
+  đã cấm không, và có trùng câu chữ video nguồn không. Một đoạn bẩn là **chặn
+  cả kịch bản**, và nút "Dùng kịch bản này" chỉ sáng khi sạch — không có nút
+  bỏ qua cảnh báo. Đoạn bị chặn hiện đúng cụm gây chặn để biết sửa ở đâu.
+  Viết lại một đoạn thì kiểm lại TOÀN BỘ, không tạo trạng thái nửa vá.
+- H4 (dựng video từ kịch bản) — **chưa làm**.
 
 **Đã giải quyết, đừng đề xuất lại:** tách `.venv-*`/`models/` ra khỏi thư mục
 ứng dụng — không cần nữa, vì app đã tự dò bản cũ nằm cùng thư mục cha (§3.1).
@@ -624,6 +632,7 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/MINI-SPEC_H2_Viral_Flow_Blueprint.md` | Viral Flow Blueprint — phân tích cấu trúc video tham khảo (abstraction-first, chặn sao chép nguyên văn bằng mã), đã xong Scope A-E |
 | `docs/MINI-SPEC_H2b_Doc_Chu_Co_Dau.md` | Đọc chữ overlay CÓ DẤU tiếng Việt — vì sao OCR trên máy không thể ra dấu, đo 5 hướng chữa, và bộ đọc thay được |
 | `docs/MINI-SPEC_H2c_Dau_Van_Tay_Bang_Chung.md` | Dấu vân tay một chiều của bằng chứng — cho H3 kiểm sao chép mà máy chủ vẫn không giữ câu chữ nguyên văn |
+| `docs/MINI-SPEC_H3_Brand_Script_Rewrite.md` | Viết kịch bản cho thương hiệu — hai lớp kiểm (tuân thủ + nguyên gốc), chặn ở cấp toàn kịch bản |
 
 **Quy mô test tại thời điểm cập nhật tệp này:** 2.449 test Python (4 bỏ qua —
 chỉ có nghĩa trên Windows) + 542 test Node (1 bỏ qua, 0 hỏng) + 74 test React (0 hỏng).

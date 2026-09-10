@@ -40,6 +40,7 @@ test.beforeEach(clearDb)
 const TEP_CO_THE_GOI_REMEMBER = [
   path.join('src', 'routes', 'ai.js'),
   path.join('src', 'routes', 'flow-blueprints.js'),
+  path.join('src', 'routes', 'brand-scripts.js'),
 ]
 
 /** Mọi `action` mà mã nguồn thật sự gọi `remember()` với. */

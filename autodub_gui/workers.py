@@ -1088,6 +1088,52 @@ class FlowBlueprintCrudWorker(QThread):
             self.failed.emit(self._action, str(e))
 
 
+class BrandScriptWorker(QThread):
+    """Mọi thao tác với kịch bản brand — mini-spec H3.
+
+    Gộp cả bốn thao tác vào MỘT worker (tham số ``action``) vì chúng chỉ khác
+    nhau ở dòng gọi client — dựng bốn lớp gần như giống hệt nhau là thứ H1 đã
+    tránh. Lượt `create`/`regenerate` chậm (máy chủ gọi mô hình rồi chạy hai
+    lớp kiểm) nên bắt buộc phải ở luồng riêng.
+    """
+
+    finished_ok = Signal(str, object)   # action, kết quả
+    failed = Signal(str, str)           # action, thông điệp lỗi
+
+    def __init__(self, action: str, *, script_id: str = "",
+                 flow_blueprint_id: str = "", brand_profile_id: str = "",
+                 beat_index: int = 0, parent=None):
+        super().__init__(parent)
+        if action not in ("list", "delete", "create", "regenerate"):
+            raise ValueError(f"Thao tác kịch bản không hợp lệ: {action!r}")
+        self._action = action
+        self._script_id = script_id
+        self._flow_blueprint_id = flow_blueprint_id
+        self._brand_profile_id = brand_profile_id
+        self._beat_index = beat_index
+
+    def run(self) -> None:
+        from autodub.saas_client import get_client, new_job_id
+
+        client = get_client()
+        try:
+            if self._action == "list":
+                ket = client.list_brand_scripts()
+            elif self._action == "delete":
+                client.delete_brand_script(self._script_id)
+                ket = None
+            elif self._action == "create":
+                ket = client.create_brand_script(
+                    self._flow_blueprint_id, self._brand_profile_id,
+                    job_id=new_job_id())
+            else:
+                ket = client.regenerate_brand_script_beat(
+                    self._script_id, self._beat_index, job_id=new_job_id())
+            self.finished_ok.emit(self._action, ket)
+        except Exception as e:  # noqa: BLE001 — mọi lỗi phải tới được giao diện
+            self.failed.emit(self._action, str(e))
+
+
 class TranscribeWorker(QThread):
     """Chép lời một liên kết/file — mini-spec V71.
 

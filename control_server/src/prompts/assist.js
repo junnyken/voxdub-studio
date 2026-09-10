@@ -508,6 +508,93 @@ const TASKS = {
       ].join('\n')
     },
   },
+
+  /**
+   * Viết lại kịch bản cho brand từ Flow Blueprint — mini-spec H3.
+   *
+   * Đầu vào là **mô tả trừu tượng** (Blueprint chỉ có vai trò kể chuyện từng
+   * đoạn, không có câu chữ gốc — H2 đã chặn điều đó bằng mã) cộng hồ sơ
+   * brand. Model viết nội dung MỚI, không dịch lại thứ gì.
+   *
+   * Lời dặn "đừng sao chép" trong prompt là **lớp phòng ĐẦU, không phải lớp
+   * chặn**. Bước chặn thật nằm ở `services/kiem-kich-ban.service.js` chạy sau
+   * khi có output — vì model "hứa" đã viết khác không có nghĩa nó thực sự
+   * khác (luật cứng số 2 của H3).
+   */
+  brand_script_rewrite: {
+    costKey: 'credit.cost.assist.brand_script_rewrite',
+    maxInput: 6000,
+    outputSchema: () => brandScriptOutputSchema(),
+    parseResult: (raw, input) => parseBrandScriptResult(raw, input),
+    system: [
+      'Bạn là người viết kịch bản video ngắn cho một thương hiệu.',
+      'Bạn được cho: (1) bộ khung nhịp kể chuyện của một video tham khảo —',
+      'CHỈ là mô tả vai trò từng đoạn, KHÔNG phải lời thoại; và (2) hồ sơ',
+      'thương hiệu cần viết cho.',
+      'Việc của bạn: viết kịch bản HOÀN TOÀN MỚI cho thương hiệu đó, giữ đúng',
+      'số đoạn và đúng vai trò kể chuyện của từng đoạn.',
+      'Bộ khung chỉ để học NHỊP. Tuyệt đối KHÔNG diễn đạt lại nó thành câu,',
+      'KHÔNG mượn cấu trúc câu đặc trưng của nó, KHÔNG coi nó là văn bản để',
+      'dịch lại. Nội dung phải nói về sản phẩm của thương hiệu này.',
+      'Bám sát mô tả sản phẩm, đối tượng khách, giọng điệu và USP được cho.',
+      'Tránh mọi cụm từ bị cấm được liệt kê — không dùng chúng dù dưới dạng',
+      'biến thể.',
+      'KHÔNG hứa công dụng chữa bệnh. KHÔNG dùng từ tuyệt đối kiểu "tốt nhất",',
+      '"số một" trừ khi hồ sơ thương hiệu cho phép rõ ràng.',
+      'Mỗi đoạn trả về ba thứ: loi_doc (lời đọc, tiếng Việt tự nhiên như người',
+      'nói, không phải văn viết), caption (chữ overlay ngắn gọn), va',
+      'visual_brief (tả BẰNG LỜI cần quay/dựng hình gì — bạn KHÔNG sinh ảnh).',
+      'Trả đúng số đoạn được yêu cầu, theo đúng thứ tự.',
+    ].join(' '),
+    buildUser: (input) => {
+      const brand = input?.brand || {}
+      const beats = Array.isArray(input?.beats) ? input.beats : []
+      const cam = Array.isArray(brand.rangBuocKhongDuocNoi)
+        ? brand.rangBuocKhongDuocNoi.filter(Boolean) : []
+      const dong = [
+        `Thương hiệu: ${cat(brand.tenBrand, 120)}`,
+        brand.moTaSanPham ? `Sản phẩm: ${cat(brand.moTaSanPham, 1200)}` : '',
+        brand.doiTuongKhach ? `Đối tượng khách: ${cat(brand.doiTuongKhach, 600)}` : '',
+        brand.toneGiong ? `Giọng điệu cần giữ: ${cat(brand.toneGiong, 200)}` : '',
+        brand.usp ? `Điểm mạnh cần làm nổi bật: ${cat(brand.usp, 600)}` : '',
+        cam.length
+          ? `TUYỆT ĐỐI KHÔNG được nói (kể cả biến thể):\n${cam.map((c) => `- ${cat(String(c), 200)}`).join('\n')}`
+          : '',
+        '',
+        `Bộ khung nhịp gồm ${beats.length} đoạn, theo thứ tự:`,
+        ...beats.map((b, i) => [
+          `${i + 1}. [${b?.beatType || 'unknown'}]`,
+          b?.narrativeFunctionVi ? `vai trò: ${cat(b.narrativeFunctionVi, 300)}` : '',
+          b?.pacingNoteVi ? `nhịp: ${cat(b.pacingNoteVi, 200)}` : '',
+        ].filter(Boolean).join(' | ')),
+        ...phanVietLai(input),
+      ].filter(Boolean)
+      return cat(dong.join('\n'), 6000)
+    },
+  },
+}
+
+/**
+ * Phần thêm vào lời nhắc khi người dùng bấm "viết lại đoạn N".
+ *
+ * Không có phần này thì lượt gọi lại có đầu vào **y hệt** lượt trước, và mô
+ * hình trả về gần như y hệt — nút "viết lại" trông như hỏng, người dùng bấm
+ * mãi và trả tiền mỗi lần. Đưa các đoạn hiện có vào cũng để đoạn viết lại còn
+ * ăn khớp với những đoạn đang giữ, thay vì rời rạc.
+ */
+function phanVietLai(input) {
+  const so = Number(input?.vietLaiDoan)
+  if (!Number.isInteger(so) || so < 1) return []
+  const dangCo = Array.isArray(input?.doanDangCo) ? input.doanDangCo : []
+  const ly_do = cat(input?.lyDoVietLai, 200)
+  return [
+    '',
+    `YÊU CẦU LÀM LẠI: viết lại ĐOẠN ${so}.`,
+    ly_do ? `Lý do phải làm lại: ${ly_do}` : '',
+    'Đoạn mới phải KHÁC HẲN bản cũ về câu chữ, không phải sửa vài từ.',
+    'Các đoạn còn lại đang được giữ nguyên, viết sao cho ăn khớp với chúng:',
+    ...dangCo.map((d, i) => `${i + 1}. ${cat(String(d || ''), 200)}`),
+  ].filter(Boolean)
 }
 
 /** Vocabulary đóng của beat_type — dùng chung cho schema VÀ validate. Đồng
@@ -550,6 +637,68 @@ function flowBlueprintOutputSchema() {
 /** Số ảnh tối đa một lượt `doc_chu_khung_hinh` — lặp lại `soAnhToiDa` của
  * tác vụ (object literal chưa xong lúc hàm này được ĐỊNH NGHĨA). */
 const SO_ANH_DOC_CHU_TOI_DA = 6
+
+/** Trần số đoạn của một kịch bản brand — khớp `maxItems` của `beats` trong
+ * `flowBlueprintOutputSchema()`: kịch bản có đúng số đoạn của Blueprint nên
+ * không thể dài hơn nguồn. */
+const SO_DOAN_KICH_BAN_TOI_DA = 40
+
+/** JSON schema cho output của `brand_script_rewrite`. */
+function brandScriptOutputSchema() {
+  return {
+    type: 'object',
+    required: ['doan'],
+    properties: {
+      doan: {
+        type: 'array',
+        minItems: 1,
+        maxItems: SO_DOAN_KICH_BAN_TOI_DA,
+        items: {
+          type: 'object',
+          required: ['loi_doc', 'caption', 'visual_brief'],
+          properties: {
+            loi_doc: { type: 'string' },
+            caption: { type: 'string' },
+            visual_brief: { type: 'string' },
+          },
+        },
+      },
+    },
+  }
+}
+
+/**
+ * Chuẩn hoá output thô của `brand_script_rewrite` sang khuôn camelCase.
+ *
+ * **Ép đúng số đoạn của Blueprint.** Model trả thiếu hoặc thừa đoạn là kịch
+ * bản không còn khớp nhịp nguồn — mà `beatType` của mỗi đoạn lấy từ Blueprint
+ * theo VỊ TRÍ, nên lệch một đoạn là mọi đoạn sau đó gắn sai vai trò. Thà báo
+ * lỗi để gọi lại còn hơn lưu một kịch bản lệch khung mà không ai biết.
+ *
+ * Cờ nguyên gốc/tuân thủ **không** đặt ở đây — chúng do
+ * `services/kiem-kich-ban.service.js` tính sau, trên chính văn bản này.
+ */
+function parseBrandScriptResult(raw, input) {
+  const doan = raw && Array.isArray(raw.doan) ? raw.doan : null
+  if (!doan) return null
+
+  const beatsNguon = Array.isArray(input?.beats) ? input.beats : []
+  if (!beatsNguon.length) return null
+  if (doan.length !== beatsNguon.length) return null
+
+  const beats = doan.map((d, i) => ({
+    beatType: beatsNguon[i]?.beatType || 'unknown',
+    voiceoverTextVi: String(d?.loi_doc || '').trim(),
+    captionSuggestionVi: String(d?.caption || '').trim(),
+    visualBriefVi: String(d?.visual_brief || '').trim(),
+  }))
+
+  // Đoạn rỗng hoàn toàn = model bỏ trống một nhịp. Không lưu, để bên gọi
+  // biết mà gọi lại — im lặng nhận là ra một kịch bản thủng giữa chừng.
+  if (beats.some((b) => !b.voiceoverTextVi && !b.captionSuggestionVi)) return null
+
+  return { beats }
+}
 
 /** JSON schema cho output của `doc_chu_khung_hinh`. Ép mô hình gắn số thứ tự
  * ảnh vào TỪNG mục thay vì tin vào thứ tự mảng: mô hình bỏ sót một ảnh không
@@ -763,4 +912,6 @@ module.exports = {
   coSaoChepNguyenVan, parseFlowBlueprintResult, flowBlueprintOutputSchema,
   // mini-spec H2b — đọc chữ overlay bằng mô hình nhìn ảnh.
   docChuOutputSchema, parseDocChuResult, SO_ANH_DOC_CHU_TOI_DA,
+  // mini-spec H3 — viết lại kịch bản cho brand.
+  brandScriptOutputSchema, parseBrandScriptResult, SO_DOAN_KICH_BAN_TOI_DA,
 }

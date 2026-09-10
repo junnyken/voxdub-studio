@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
 )
@@ -77,6 +77,11 @@ def _giay_thanh_mm_ss(giay: float) -> str:
 
 class FlowBlueprintPage(BasePage):
     """Phân tích cấu trúc MỘT video tham khảo, xem lại/xoá các lượt đã lưu."""
+
+    #: Lối vào mini-spec H3. Trang «Viết kịch bản» KHÔNG nằm trên thanh bên
+    #: (đã kín ở màn 1080p) và cũng không nên nằm đó: chưa phân tích nhịp thì
+    #: chưa viết kịch bản được, nên lối vào đúng chỗ là ngay sau kết quả này.
+    brand_script_requested = Signal()
 
     def __init__(self, settings_provider, parent: QWidget | None = None):
         super().__init__(parent)
@@ -142,6 +147,9 @@ class FlowBlueprintPage(BasePage):
         self.btn_stop.setEnabled(False)
         hanh_dong.addWidget(self.btn_stop)
         hanh_dong.addStretch()
+        self.btn_brand_script = SecondaryButton("Viết kịch bản cho thương hiệu…")
+        self.btn_brand_script.clicked.connect(self.brand_script_requested.emit)
+        hanh_dong.addWidget(self.btn_brand_script)
         root.addLayout(hanh_dong)
 
         self.status = QLabel("")

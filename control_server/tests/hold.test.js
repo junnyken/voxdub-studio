@@ -93,6 +93,9 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     // Vox/câu của dịch — mục đích là chặn vòng lặp hỏng, không phải
     // kiếm lời. explain_error để 0: người đang gặp lỗi mà bị chặn vì
     // hết Vox là lúc tệ nhất để thu phí.
+    // credit.cost.assist.brand_script_rewrite: viết lại kịch bản cho brand
+    // (mini-spec H3) — thêm có chủ đích.
+    'credit.cost.assist.brand_script_rewrite',
     'credit.cost.assist.character_name',
     // credit.cost.assist.doc_chu_khung_hinh: đọc chữ overlay bằng mô hình
     // nhìn ảnh (mini-spec H2b) — thêm có chủ đích. Giá theo LƯỢT GỌI (tối đa

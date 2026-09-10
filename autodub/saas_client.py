@@ -901,6 +901,77 @@ class SaasClient:
         self._note_usage(data)
         return data
 
+    # --------------------------------------- brand script (H3, Phase H) --
+    # Mini-spec H3 — viết lại kịch bản cho brand từ nhịp kể chuyện của một
+    # Flow Blueprint. Máy chủ giữ TOÀN BỘ phần quyết định: sinh kịch bản, hai
+    # lớp kiểm (tuân thủ + nguyên gốc), và tính trạng thái. App KHÔNG được
+    # đặt trạng thái, cũng không có đường nào bỏ qua bước kiểm — nếu app tự
+    # quyết được thì mọi guardrail của H3 chỉ còn là trang trí.
+
+    def list_brand_scripts(self, timeout: float = 20.0) -> list[dict]:
+        """Danh sách kịch bản của máy này. Trả rỗng khi lỗi mạng — thiếu danh
+        sách chỉ chặn trang này, không chặn việc khác đang chạy."""
+        try:
+            data = self._request("GET", "/v1/brand-scripts/", timeout=timeout)
+        except SaasError as e:
+            logger.warning(f"Không lấy được danh sách kịch bản brand ({e})")
+            return []
+        muc = data.get("data")
+        return muc if isinstance(muc, list) else []
+
+    def get_brand_script(self, script_id: str, timeout: float = 20.0) -> dict:
+        """Một kịch bản của chính máy này. `404 KHONG_THAY_KICH_BAN` nếu
+        không tồn tại hoặc thuộc máy khác."""
+        return self._request("GET", f"/v1/brand-scripts/{script_id}",
+                             timeout=timeout)
+
+    def delete_brand_script(self, script_id: str, timeout: float = 20.0) -> None:
+        """Xoá một kịch bản của chính máy này."""
+        self._request("DELETE", f"/v1/brand-scripts/{script_id}", timeout=timeout)
+
+    def create_brand_script(
+        self, flow_blueprint_id: str, brand_profile_id: str, *, job_id: str,
+        hold_id: str | None = None, timeout: float = 180.0,
+    ) -> dict:
+        """Sinh kịch bản mới từ một Flow Blueprint + một hồ sơ brand.
+
+        Cả hai id phải thuộc CHÍNH máy này (máy chủ kiểm chéo, trả `404` nếu
+        không). Hồ sơ brand thiếu trường bắt buộc -> `400 HO_SO_BRAND_THIEU`
+        kèm danh sách `thieu` — máy chủ cố ý KHÔNG tự bịa nội dung còn thiếu.
+        Trả về kịch bản đã lưu kèm ``creditCharged``/``balanceAfter``.
+        """
+        payload = {
+            "jobId": job_id,
+            "flowBlueprintId": flow_blueprint_id,
+            "brandProfileId": brand_profile_id,
+        }
+        if hold_id:
+            payload["holdId"] = hold_id
+        data = self._request("POST", "/v1/brand-scripts/", timeout=timeout,
+                             json_body=payload)
+        self._note_usage(data)
+        return data
+
+    def regenerate_brand_script_beat(
+        self, script_id: str, beat_index: int, *, job_id: str,
+        hold_id: str | None = None, timeout: float = 180.0,
+    ) -> dict:
+        """Viết lại MỘT đoạn của kịch bản.
+
+        Máy chủ chạy lại cả hai lớp kiểm cho TOÀN BỘ kịch bản, không chỉ đoạn
+        vừa sửa — nên trạng thái trả về có thể đổi ở đoạn khác. Nguồn (Flow
+        Blueprint hoặc hồ sơ brand) đã bị xoá -> `409 NGUON_DA_MAT` và kịch
+        bản bị hạ về "chưa kiểm được".
+        """
+        payload = {"jobId": job_id, "beatIndex": int(beat_index)}
+        if hold_id:
+            payload["holdId"] = hold_id
+        data = self._request(
+            "POST", f"/v1/brand-scripts/{script_id}/regenerate-beat",
+            timeout=timeout, json_body=payload)
+        self._note_usage(data)
+        return data
+
     def send_pipeline_event(self, run_id: str, status: str, stage: str,
                             error_stage: str = "") -> None:
         """Báo trạng thái tiến trình 1 lượt dubbing (mini-spec V13, xem

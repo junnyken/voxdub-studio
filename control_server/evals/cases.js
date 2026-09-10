@@ -263,6 +263,47 @@ const CASES = [
         (r) => !(r.dong || []).some((d) => /subscribe|channel/i.test(String(d)))],
     ],
   },
+  {
+    // Mini-spec H3 — khuôn output riêng (`doan[]`), `kiem` nhận thẳng trường
+    // snake_case của MÔ HÌNH, không phải khuôn camelCase đã chuẩn hoá.
+    //
+    // Mẫu này cố tình đặt ràng buộc "tốt nhất" để đo LỚP PHÒNG ĐẦU (model tự
+    // tránh trong lúc sinh). Lớp CHẶN thật nằm ở `kiem-kich-ban.service.js`
+    // chạy sau — mẫu đo không thay thế nó được, vì model "hứa" tránh không có
+    // nghĩa nó thực sự tránh.
+    task: 'brand_script_rewrite',
+    ten: 'viết đúng số đoạn, đúng brand, không đụng cụm bị cấm',
+    input: {
+      brand: {
+        tenBrand: 'Bếp Nhà Vui',
+        moTaSanPham: 'Nồi chiên không dầu dung tích 5 lít cho gia đình 3-4 người',
+        doiTuongKhach: 'Mẹ bỉm sữa 25-35 tuổi ở thành phố, ít thời gian nấu ăn',
+        toneGiong: 'Gần gũi, như bạn bè mách nhau, không hô hào',
+        usp: 'Làm nóng nhanh trong 3 phút, lòng nồi chống dính rửa được bằng máy',
+        rangBuocKhongDuocNoi: ['tốt nhất', 'số một', 'chữa bệnh'],
+      },
+      beats: [
+        { beatType: 'hook', narrativeFunctionVi: 'Nêu một nỗi bực quen thuộc của người xem', pacingNoteVi: 'Rất nhanh, câu cực ngắn' },
+        { beatType: 'proof', narrativeFunctionVi: 'Đưa bằng chứng cụ thể rằng vấn đề giải quyết được', pacingNoteVi: 'Chậm lại, cho người xem kịp nhìn' },
+        { beatType: 'cta', narrativeFunctionVi: 'Mời hành động, nhẹ nhàng không thúc ép', pacingNoteVi: 'Ngắn, dứt khoát' },
+      ],
+    },
+    kiem: [
+      ['đủ ba trường cho mỗi đoạn',
+        (r) => Boolean(String(r.loi_doc || '').trim())
+          && Boolean(String(r.caption || '').trim())
+          && Boolean(String(r.visual_brief || '').trim())],
+      ['KHÔNG chứa cụm bị cấm',
+        (r, c) => {
+          const kiem = require('../src/services/kiem-kich-ban.service')
+          const cam = c.input.brand.rangBuocKhongDuocNoi
+          return !['loi_doc', 'caption', 'visual_brief']
+            .some((t) => kiem.timViPham(String(r[t] || ''), cam).viPham)
+        }],
+      ['lời đọc không dài quá mức đọc được trong một nhịp',
+        (r) => String(r.loi_doc || '').length <= 400],
+    ],
+  },
 ]
 
 module.exports = { CASES }

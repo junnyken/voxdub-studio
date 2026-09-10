@@ -56,8 +56,9 @@ ROW_TRANSCRIBE = 16  # Chép lời: giọng nói -> văn bản (mini-spec V71)
 ROW_PRODUCT_SCENE = 17  # Ảnh sản phẩm: dựng bối cảnh + cổng tuân thủ (C1)
 ROW_BRAND_PROFILE = 18  # Hồ sơ Brand: nền tảng multi-tenant Phase H (mini-spec H1)
 ROW_FLOW_BLUEPRINT = 19  # Phân tích cấu trúc video tham khảo (mini-spec H2)
+ROW_BRAND_SCRIPT = 20  # Viết kịch bản cho thương hiệu (mini-spec H3)
 
-PAGE_COUNT = 20
+PAGE_COUNT = 21
 
 # (số thứ tự, nhãn ở thanh bên, tiêu đề trang, mô tả trang, biểu tượng, nhóm)
 PAGES: list[tuple[int, str, str, str, object, str]] = [
@@ -114,6 +115,15 @@ PAGES: list[tuple[int, str, str, str, object, str]] = [
      "Đọc vai trò kể chuyện từng đoạn của một video tham khảo (mở hook, bằng "
      "chứng, cao trào, kêu gọi hành động…) để hiểu nhịp kể chuyện",
      icons.chart_bar, "tools"),
+    # Nhóm "hidden": có trong PAGES (để có tiêu đề/điều hướng) nhưng KHÔNG
+    # lên thanh bên — thanh bên đã kín ở màn 1080p, thêm mục thứ 21 là bắt
+    # người dùng cuộn mới thấy hết (có test canh: test_sidebar_no_overlap).
+    # Lối vào đặt ở cuối trang «Phân tích cấu trúc», và đó cũng đúng luồng
+    # hơn: chưa phân tích nhịp thì chưa viết kịch bản được.
+    (ROW_BRAND_SCRIPT, "Viết kịch bản", "Viết kịch bản cho thương hiệu",
+     "Học nhịp kể chuyện từ video đã phân tích rồi viết kịch bản mới cho "
+     "thương hiệu của bạn — tự đối chiếu để không trùng câu chữ nguồn",
+     icons.edit, "hidden"),
     # Nhóm "second" — HỆ THỐNG
     (ROW_ACCOUNT,   "Tài khoản",         "Tài khoản",
      "Số Vox còn lại, kích hoạt mã và lịch sử sử dụng",
@@ -387,6 +397,11 @@ class MainWindow(QMainWindow):
         elif row == ROW_FLOW_BLUEPRINT:
             from autodub_gui.pages.flow_blueprint_page import FlowBlueprintPage
             page = FlowBlueprintPage(self._fresh_settings, self.pages)
+            page.brand_script_requested.connect(
+                lambda: self.switch_page(ROW_BRAND_SCRIPT))
+        elif row == ROW_BRAND_SCRIPT:
+            from autodub_gui.pages.brand_script_page import BrandScriptPage
+            page = BrandScriptPage(self._fresh_settings, self.pages)
         elif row == ROW_ACCOUNT:
             from autodub_gui.pages.account_page import AccountPage
             page = AccountPage(self._fresh_settings, self.pages)

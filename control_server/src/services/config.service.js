@@ -81,6 +81,12 @@ const DEFAULTS = {
   // `scene_script.co_anh` (6 ảnh, giá 8) nên đặt cùng mức. Số này CHƯA soi
   // bằng hoá đơn thật — chỉnh ở trang quản trị khi có dữ liệu.
   'credit.cost.assist.doc_chu_khung_hinh': 8,
+  // Viết lại kịch bản cho brand (mini-spec H3) — ĐẦU RA GIÀU NHẤT của cổng
+  // trợ lý: tới 40 đoạn, mỗi đoạn ba trường văn bản. Đặt cao hơn
+  // `viral_flow_blueprint` (8) vì sinh văn bản dài tốn nhiều token hơn hẳn
+  // phân tích cấu trúc. CHƯA soi bằng hoá đơn thật — chỉnh ở trang quản trị
+  // khi có dữ liệu token của vài lượt chạy đầu.
+  'credit.cost.assist.brand_script_rewrite': 12,
   // --- Dựng bối cảnh ảnh sản phẩm (mini-spec C1) --------------------------
   // Sinh ảnh đắt hơn hẳn tác vụ chữ (một ảnh ~ vài trăm lần token một câu
   // hỏi ngắn), nên giá cao hơn nhưng vẫn dưới giá một lần sinh nhạc.
