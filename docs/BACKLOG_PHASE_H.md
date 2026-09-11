@@ -87,6 +87,23 @@ loại thì tôn trọng `settings.output_dir`. Người dùng đặt `D:\Videos
 
 **Mức**: trung bình. **Ước**: nhỏ.
 
+### B7. `_lenh_ghep`/`_chay_ffmpeg` gọi `"ffmpeg"` trần, không qua `duong_dan_ffmpeg()`
+
+Tìm ra khi soi kết quả live của RS-20. `product_video._lenh_ghep()` và
+`product_scene._chay_ffmpeg()` gọi thẳng `"ffmpeg"` — tức dựa vào PATH.
+
+Trong GUI thì **không sao**: app nối `bin/` vào PATH lúc khởi động. Nhưng
+docstring của chính `ffmpeg_deps.duong_dan_ffmpeg()` đã ghi: *"bản đóng gói
+đã nối `bin` vào PATH lúc khởi động, nhưng **CLI và test thì không**."*
+
+⇒ Máy KHÔNG có ffmpeg hệ thống (đúng máy chủ dự án — preflight cho thấy nó
+dùng bản trong `bin/`), chạy bất cứ thứ gì ngoài GUI mà đụng `product_video`
+sẽ hỏng với một lỗi "không tìm thấy tệp" trần, thay vì câu nói rõ của dự án.
+
+Chạm thật: `scripts/pilot_h4_cuc_bo.py` đi qua đúng đường này.
+
+**Mức**: trung bình — GUI không ảnh hưởng, chỉ CLI/script. **Ước**: nhỏ.
+
 ### ✅ B6. ĐÃ SỬA 11/09 — `UsageLog.create` không bọc `.catch` ở nhánh THÀNH CÔNG — `ai.js:1375`
 
 `Promise.all([remember(...), UsageLog.create({...})])`. `remember()` đã được
@@ -182,7 +199,23 @@ Ngày 10/09 vô hại vì test đều xanh, nhưng thiết kế đang không b�
 5. **B3, B4, B5, RS-15–RS-22** — nhóm trải nghiệm và dọn dẹp.
 6. **D1** rồi mới tới **H4d calibration** (sinh ảnh có tính tiền thật).
 
-> **RS-20 nay app tự trả lời.** Trước đây phải nhờ chủ dự án gõ lệnh ffmpeg
-> rồi dán kết quả; nay `preflight._check_drawtext()` chạy đúng bộ lọc dùng
-> thật và hiện kết quả ngay trong app. Ở workspace Linux nó luôn xanh (ffmpeg
-> có fontconfig) — nên chỉ lượt mở app trên Windows mới cho câu trả lời thật.
+> **RS-20 ĐÃ XÁC MINH TRÊN WINDOWS THẬT — 11/09/2026 14:33.**
+>
+> Chủ dự án chạy v3.17.10 trên máy Windows của họ, kết quả:
+>
+>     [OK] Đóng nhãn chữ lên hình: Dựng được chữ lên khung hình.
+>          Đã kiểm lúc 11/09/2026 14:33 bằng:
+>          C:\Users\…\VoxDub-Studio-v3.17.10-win64\bin\ffmpeg.EXE
+>
+> Ba điều con số này chứng minh, và một điều nó KHÔNG chứng minh:
+>
+> 1. `drawtext` chạy được với bản ffmpeg **đi kèm app** — rủi ro thiếu
+>    fontconfig không hiện thực hoá trên bản người dùng đang dùng.
+> 2. Bản được kiểm đúng là bản **app sẽ dùng lúc chạy thật**: app nối
+>    `bin/` vào PATH lúc khởi động (`app.py:1051`), nên `shutil.which()` của
+>    preflight và lệnh `"ffmpeg"` trần lúc ghép video cùng trỏ về một tệp.
+> 3. Phần chẩn đoán (đường dẫn + mốc thời gian) làm được đúng việc của nó:
+>    không có nó thì "đã kiểm, đạt" không nói được là kiểm bản NÀO.
+>
+> **Không chứng minh**: máy có sẵn một bản ffmpeg khác trên PATH hệ thống sẽ
+> ra sao — PATH hệ thống đứng SAU `bin/` nên ca đó chưa được đo.

@@ -16758,3 +16758,58 @@ ffmpeg + mốc thời gian) **khi đạt** — đó chính là thứ cần để
 là lặp lại đúng cái hố ban đầu.
 
 Python: **2.732 passed / 0 fail**.
+
+## RS-20 ĐÃ XÁC MINH TRÊN WINDOWS THẬT (11/09/2026 14:33)
+
+Chủ dự án chạy v3.17.10 trên máy Windows của họ:
+
+```
+[OK] FFmpeg: Bản đầy đủ, có bộ ghi phụ đề.
+[OK] FFprobe: Sẵn sàng.
+[OK] Đóng nhãn chữ lên hình: Dựng được chữ lên khung hình.
+     Đã kiểm lúc 11/09/2026 14:33 bằng:
+     C:\Users\…\VoxDub-Studio-v3.17.10-win64\bin\ffmpeg.EXE
+[OK] Dung lượng đĩa: Còn 31 GB trống.
+[OK] Bộ nhớ RAM: 16 GB.
+[OK] Bộ giọng đọc VieNeu: Đã cài.
+[OK] Bộ nghe (Whisper): Đã cài trong .venv-whisper.
+```
+
+### Ba điều chứng minh được
+
+1. `drawtext` **chạy được** với bản ffmpeg đi kèm app. Rủi ro thiếu
+   fontconfig không hiện thực hoá trên bản người dùng đang dùng.
+2. Bản được kiểm **đúng là bản app dùng lúc chạy thật**: app nối `bin/` vào
+   PATH lúc khởi động (`app.py:1051`), nên `shutil.which()` của preflight và
+   lệnh `"ffmpeg"` trần lúc ghép video cùng trỏ về một tệp. Kiểm nhầm binary
+   thì cả mục kiểm vô nghĩa — đây là chỗ tôi đã soi lại sau khi có kết quả.
+3. Phần chẩn đoán làm đúng việc: không có nó thì "đã kiểm, đạt" không nói
+   được là kiểm bản NÀO. Đúng đề xuất của chủ dự án.
+
+### Một điều KHÔNG chứng minh
+
+Máy có sẵn một bản ffmpeg khác trên PATH hệ thống sẽ ra sao. PATH hệ thống
+đứng **sau** `bin/` nên ca đó chưa được đo. Nói ra để không ai đọc kết quả
+này rộng hơn thứ nó đo.
+
+### B7 — phát hiện mới, tìm ra khi soi kết quả live
+
+`product_video._lenh_ghep()` và `product_scene._chay_ffmpeg()` gọi thẳng
+`"ffmpeg"` chứ không qua `ffmpeg_deps.duong_dan_ffmpeg()`.
+
+Trong GUI không sao (PATH đã có `bin/`). Nhưng docstring của chính
+`duong_dan_ffmpeg()` đã ghi: *"bản đóng gói đã nối `bin` vào PATH lúc khởi
+động, nhưng **CLI và test thì không**."*
+
+Máy chủ dự án **không có ffmpeg hệ thống** — preflight cho thấy nó dùng bản
+trong `bin/`. Nên chạy bất cứ thứ gì ngoài GUI mà đụng `product_video` sẽ
+hỏng với lỗi "không tìm thấy tệp" trần. Chạm thật:
+`scripts/pilot_h4_cuc_bo.py` đi qua đúng đường này.
+
+Ghi vào backlog (🔴 B7, mức trung bình) thay vì sửa ngay: nó không chặn pilot
+H2→H3 đang chờ, và sửa đúng cách là thống nhất cả hai chỗ gọi.
+
+### Ghi chú vận hành
+
+Máy chủ dự án có **16 GB RAM, 31 GB đĩa trống**, VieNeu và Whisper đã cài —
+đủ để chạy pilot H2→H3 đầy đủ.
