@@ -157,3 +157,33 @@ def test_app_co_muc_phan_tich_cau_truc_va_noi_dung_trang():
     assert "FlowBlueprintPage" in nguon
     assert app_mod.ROW_FLOW_BLUEPRINT in app_mod._PAGE_BY_ROW, (
         "hàng mới phải có mặt trong PAGES thì mới hiện lên thanh bên")
+
+
+# ---------------------------------------------------------------------------
+# Bố cục vỡ vì chữ dài — lỗi thật, ảnh chụp của chủ dự án 11/09/2026.
+#
+# Khi sửa chỗ hiện sai giá, tôi làm dòng mô tả chi phí dài từ 3 lên 6 dòng.
+# Trang này lúc đó KHÔNG có vùng cuộn, mà nội dung đã cao hơn một màn hình
+# 800px (thẻ mô tả + hàng nút + nhật ký + bảng đoạn + bảng lịch sử) — Qt ép
+# mọi thứ nhỏ lại và chữ bị cắt, đè lên ô nhập liên kết.
+
+def test_trang_CO_vung_cuon_de_chu_dai_khong_ep_vo_bo_cuc(page):
+    from PySide6.QtWidgets import QScrollArea
+
+    assert page.findChildren(QScrollArea), (
+        "trang cao hơn một màn hình mà không có vùng cuộn — chữ dài thêm là "
+        "bố cục vỡ, không có dấu hiệu nào lúc viết mã")
+
+
+def test_dong_chi_phi_ngan_gon_va_van_co_con_so_nguoi_dung_can(page):
+    """Con số người dùng cần là TỔNG. Phần giải thích cách tính thuộc về tài
+    liệu, không thuộc về một nhãn trong thẻ."""
+    from PySide6.QtWidgets import QLabel
+
+    chu = [w.text() for w in page.findChildren(QLabel)
+           if "Vox" in (w.text() or "")]
+    assert chu, "mất luôn dòng báo giá"
+    gia = max(chu, key=len)
+    assert "32 Vox" in gia, "phải nói TỔNG, không chỉ nói 8 Vox"
+    assert len(gia) < 240, (
+        f"dòng báo giá dài {len(gia)} ký tự — chính độ dài này làm vỡ bố cục")

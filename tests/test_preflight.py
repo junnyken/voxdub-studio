@@ -183,3 +183,72 @@ def test_drawtext_nam_trong_bo_kiem_chung(settings, monkeypatch):
     monkeypatch.setattr(pf.shutil, "which", lambda _x: None)
     khoa = {r.key for r in pf.run_preflight(settings)}
     assert "drawtext" in khoa
+
+
+# ---------------------------------------------------------------------------
+# Xem kết quả kiểm hệ thống BẤT CỨ LÚC NÀO — chủ dự án 11/09.
+#
+# Bộ kiểm chạy lúc mở app nhưng `_apply_preflight` **return sớm khi mọi thứ
+# đạt** — đúng cho việc dùng hằng ngày (đừng làm phiền khi mọi thứ ổn), nhưng
+# sai khi người dùng cần XÁC NHẬN một khả năng cụ thể: không có chỗ nào để
+# xem. Chủ dự án hỏi đúng câu đó sau khi tôi bảo họ đi xem một kết quả mà app
+# không hiện ra ở đâu cả.
+
+def test_trang_tro_giup_co_cho_XEM_ket_qua_kiem():
+    import pytest as _pytest
+    _pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    from autodub.config import Settings
+    from autodub_gui.pages.help_page import HelpPage
+
+    QApplication.instance() or QApplication([])
+    trang = HelpPage(lambda: Settings())
+    trang._chay_kiem_he_thong()
+    chu = trang._ket_kiem.text()
+
+    assert "FFmpeg" in chu
+    # Phải hiện CẢ mục đạt — nếu chỉ hiện lỗi thì nó lặp lại đúng cái hố ban
+    # đầu: người dùng không xác nhận được thứ đang chạy tốt.
+    assert "Đóng nhãn chữ lên hình" in chu
+
+
+def test_ket_qua_kiem_hien_ca_phan_CHAN_DOAN_khi_dat():
+    """Phần chẩn đoán (đường dẫn ffmpeg + mốc thời gian) nằm ở `advice`, mà
+    `advice` thường chỉ hiện khi hỏng. Với mục này nó phải hiện cả khi đạt —
+    đó chính là thứ cần để truy lại về sau."""
+    import pytest as _pytest
+    _pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    from autodub.config import Settings
+    from autodub_gui.pages.help_page import HelpPage
+
+    QApplication.instance() or QApplication([])
+    trang = HelpPage(lambda: Settings())
+    trang._chay_kiem_he_thong()
+    chu = trang._ket_kiem.text()
+
+    if "Đóng nhãn chữ lên hình" in chu and "[OK]" in chu:
+        assert "Đã kiểm lúc" in chu, "thiếu mốc thời gian"
+        assert "ffmpeg" in chu.lower(), "thiếu đường dẫn ffmpeg đã dùng"
+
+
+def test_bo_kiem_hong_thi_NOI_RA_khong_de_trong(monkeypatch):
+    import pytest as _pytest
+    _pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    from autodub.config import Settings
+    from autodub_gui.pages import help_page as hp
+
+    QApplication.instance() or QApplication([])
+    trang = hp.HelpPage(lambda: Settings())
+
+    def _no(*a, **k):
+        raise RuntimeError("đĩa lỗi")
+
+    monkeypatch.setattr("autodub.preflight.run_preflight", _no)
+    trang._chay_kiem_he_thong()
+    assert "đĩa lỗi" in trang._ket_kiem.text()
+    assert trang._nut_kiem.isEnabled(), "hỏng mà khoá luôn nút thì hết đường thử lại"

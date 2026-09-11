@@ -19,9 +19,9 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QVBoxLayout, QWidget,
+    QFileDialog, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from autodub_gui import icons, tokens
@@ -31,6 +31,7 @@ from autodub_gui.ui.buttons import GhostButton, IconButton, PrimaryButton, Secon
 from autodub_gui.ui.cards import Card
 from autodub_gui.ui.inputs import LabeledLineEdit
 from autodub_gui.ui.modal import ConfirmDialog
+from autodub_gui.ui.style import clear_background
 from autodub_gui.ui.table import Column, DataTable
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.widgets import LogPanel
@@ -103,7 +104,24 @@ class FlowBlueprintPage(BasePage):
 
     # ------------------------------------------------------------ dựng UI --
     def _build(self) -> None:
-        root = QVBoxLayout(self)
+        # Cả trang nằm trong vùng cuộn: nội dung ở đây cao hơn hẳn một màn
+        # hình 800px (thẻ mô tả + hàng nút + nhật ký + bảng đoạn + lịch sử).
+        # Không có vùng cuộn thì Qt ép mọi thứ nhỏ lại và chữ bị cắt đè lên
+        # nhau — đúng thứ xảy ra khi một dòng mô tả dài thêm vài dòng.
+        ngoai = QVBoxLayout(self)
+        ngoai.setContentsMargins(0, 0, 0, 0)
+        vung_cuon = QScrollArea(self)
+        vung_cuon.setWidgetResizable(True)
+        vung_cuon.setFrameShape(QScrollArea.Shape.NoFrame)
+        vung_cuon.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        clear_background(vung_cuon)
+        clear_background(vung_cuon.viewport())
+        than = QWidget()
+        clear_background(than)
+        vung_cuon.setWidget(than)
+        ngoai.addWidget(vung_cuon)
+
+        root = QVBoxLayout(than)
         root.setContentsMargins(_PAGE_MARGIN, tokens.SP_2, _PAGE_MARGIN, tokens.SP_5)
         root.setSpacing(tokens.SP_4)
 
@@ -132,13 +150,14 @@ class FlowBlueprintPage(BasePage):
         chon.addStretch()
         card.body.addLayout(chon)
 
+        # Ngắn gọn CÓ CHỦ ĐÍCH. Bản trước dài sáu dòng và ép vỡ bố cục thẻ
+        # (chữ đè lên ô nhập, ảnh chụp của chủ dự án 11/09) — trang này không
+        # có vùng cuộn lúc đó. Con số người dùng cần là TỔNG; phần giải thích
+        # cách tính nằm ở FEATURES.md và runbook pilot.
         cost_hint = QLabel(
-            "Chi phí gồm HAI phần: 8 Vox cho lượt phân tích cấu trúc, cộng "
-            "8 Vox cho mỗi lô 6 khung hình phải nhờ máy chủ đọc chữ có dấu. "
-            "Video ~60 giây thường có khoảng 15 caption khác nhau ⇒ 3 lô ⇒ "
-            "tổng khoảng 32 Vox. Trừ SAU KHI chạy xong. Video dài hơn 90 giây "
-            "vẫn chạy được nhưng đoạn giữa có thể bỏ sót vài caption chớp "
-            "nhanh, và càng nhiều caption khác nhau thì càng nhiều lô.")
+            "Video ~60 giây tốn khoảng 32 Vox: 8 Vox phân tích cấu trúc, cộng "
+            "8 Vox mỗi lô 6 khung hình cần máy chủ đọc chữ có dấu. Trừ SAU KHI "
+            "chạy xong.")
         cost_hint.setObjectName("hint")
         cost_hint.setWordWrap(True)
         card.body.addWidget(cost_hint)

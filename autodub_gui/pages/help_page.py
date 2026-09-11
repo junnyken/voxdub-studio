@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget,
 )
@@ -20,7 +20,7 @@ from autodub_gui.dub_constants import FRIENDLY_ERRORS, MODEL_SIZES
 from autodub_gui.pages import BasePage
 from autodub_gui.shortcuts import ALL_SHORTCUTS
 from autodub_gui.system_open import open_file, open_folder
-from autodub_gui.ui.buttons import GhostButton
+from autodub_gui.ui.buttons import GhostButton, SecondaryButton
 from autodub_gui.ui.collapsible import CollapsibleSection
 from autodub_gui.ui.labels import ElidedLabel
 from autodub_gui.ui.toast import TOASTS
@@ -125,6 +125,7 @@ class HelpPage(BasePage):
 
         layout.addWidget(self._build_quick_start())
         layout.addWidget(self._build_install())
+        layout.addWidget(self._build_kiem_he_thong())
         layout.addWidget(self._build_problems())
         layout.addWidget(self._build_shortcuts())
         layout.addWidget(self._build_about())
@@ -191,6 +192,66 @@ class HelpPage(BasePage):
         column.addLayout(head)
         column.addWidget(_body_label(description))
         return column
+
+    def _build_kiem_he_thong(self) -> QWidget:
+        """Xem kết quả kiểm hệ thống BẤT CỨ LÚC NÀO.
+
+        Vì sao cần chỗ này: bộ kiểm chạy lúc mở app nhưng **chỉ hiện khi có
+        lỗi hoặc cảnh báo** — mọi thứ đạt thì nó im lặng. Đúng cho việc dùng
+        hằng ngày (không nên làm phiền khi mọi thứ ổn), nhưng sai khi người
+        dùng cần **xác nhận** một khả năng cụ thể: không có chỗ nào để xem.
+
+        Chủ dự án hỏi đúng câu đó ngày 11/09 — "tôi không thấy chỗ này coi ở
+        đâu" — sau khi tôi bảo họ đi xem một kết quả mà app không hiện.
+        """
+        section = CollapsibleSection("Kiểm tra hệ thống", expanded=False)
+        section.add_widget(_body_label(
+            "Máy này có đủ thứ cần để chạy không. Bấm «Kiểm tra lại» để chạy "
+            "ngay — bộ kiểm cũng tự chạy lúc mở ứng dụng, nhưng lúc đó nó chỉ "
+            "lên tiếng khi có vấn đề."))
+        self._nut_kiem = SecondaryButton("Kiểm tra lại")
+        self._nut_kiem.clicked.connect(self._chay_kiem_he_thong)
+        hang = QHBoxLayout()
+        hang.addWidget(self._nut_kiem)
+        hang.addStretch()
+        boc = QWidget()
+        clear_background(boc)
+        boc.setLayout(hang)
+        section.add_widget(boc)
+
+        self._ket_kiem = QLabel("Chưa chạy.")
+        self._ket_kiem.setWordWrap(True)
+        self._ket_kiem.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._ket_kiem.setStyleSheet(
+            f"color: {tokens.TEXT_SECONDARY}; font-size: {tokens.FS_BODY}px; "
+            f"background: transparent;")
+        section.add_widget(self._ket_kiem)
+        return section
+
+    def _chay_kiem_he_thong(self) -> None:
+        from autodub.preflight import run_preflight
+        from autodub_gui.status_text import STATUS_ERROR, STATUS_OK, STATUS_WARN
+
+        self._nut_kiem.setEnabled(False)
+        self._ket_kiem.setText("Đang kiểm…")
+        try:
+            ket = run_preflight(self._safe_settings())
+        except Exception as e:  # noqa: BLE001 — báo ra, đừng để trống trơn
+            self._ket_kiem.setText(f"{STATUS_ERROR} Không chạy được bộ kiểm: {e}")
+            self._nut_kiem.setEnabled(True)
+            return
+
+        dau = {"ok": STATUS_OK, "warn": STATUS_WARN, "fail": STATUS_ERROR}
+        dong = []
+        for r in ket:
+            dong.append(f"{dau.get(r.level, '')} {r.title}: {r.message}")
+            # Hiện lời khuyên CẢ KHI ĐẠT: với mục đóng nhãn chữ, phần đó mang
+            # đường dẫn ffmpeg thật và mốc thời gian — thứ cần để truy lại.
+            if r.advice:
+                dong.append(f"     {r.advice}")
+        self._ket_kiem.setText("\n".join(dong))
+        self._nut_kiem.setEnabled(True)
 
     def _build_problems(self) -> QWidget:
         section = CollapsibleSection("Khắc phục sự cố", expanded=False)

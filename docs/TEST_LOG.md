@@ -16711,3 +16711,50 @@ trong mã.
 | Đổi nhầm `C1`→`RS-1`, `C6`→`RS-6` | đỏ 1 (chốt thứ ba) |
 | Đổi kiểm drawtext sang hỏi `-filters` | đỏ 1 |
 | Gỡ drawtext khỏi `run_preflight` | đỏ 1 |
+
+## Ba điểm từ lượt chạy thật đầu tiên trên Windows (11/09/2026)
+
+Chủ dự án cài v3.17.9 và báo ba việc. Hai trong ba là lỗi của tôi.
+
+### 1. Bố cục vỡ ở trang Phân tích cấu trúc — TÔI GÂY RA
+
+Khi sửa chỗ hiện sai giá (8 Vox → ~32 Vox), tôi làm dòng mô tả chi phí dài
+từ **3 lên 6 dòng** mà không nhìn lại bố cục. Trang đó **không có vùng cuộn**,
+mà nội dung đã cao hơn một màn hình 800px (thẻ mô tả + hàng nút + nhật ký +
+bảng đoạn + bảng lịch sử) ⇒ Qt ép mọi thứ nhỏ lại, chữ bị cắt và **đè lên ô
+nhập liên kết**.
+
+Sửa **cả hai nguyên nhân**, không chỉ triệu chứng:
+
+- Rút dòng chi phí về một câu mang đúng con số người dùng cần (TỔNG ~32 Vox);
+  phần giải thích cách tính thuộc về tài liệu, không thuộc một nhãn trong thẻ.
+- **Thêm vùng cuộn cho cả trang** — đã có tiền lệ ở 5 trang khác. Lần sau chữ
+  dài thêm sẽ không làm vỡ bố cục nữa.
+
+Hai test, tái hiện đúng ca cũ (chữ dài + bỏ vùng cuộn) ⇒ **đỏ cả hai**.
+
+Bài học: sửa câu chữ trong giao diện **là** thay đổi bố cục. Tôi đã coi nó
+như sửa nội dung thuần.
+
+### 2. Hồ sơ Brand lưu được — xác nhận live đầu tiên của bản vá 201
+
+Chính chỗ chặn toàn bộ pilot lúc trước. Nay chạy đúng trên máy thật.
+
+### 3. "Tôi không thấy chỗ này coi ở đâu" — vì KHÔNG CÓ chỗ nào để xem
+
+Tôi bảo chủ dự án đi xem kết quả mục «Đóng nhãn chữ lên hình». Nhưng
+`_apply_preflight` **return sớm khi mọi thứ đạt** — bộ kiểm chạy lúc mở app
+và **chỉ lên tiếng khi có lỗi hoặc cảnh báo**.
+
+Thiết kế đó đúng cho việc dùng hằng ngày (đừng làm phiền khi mọi thứ ổn),
+nhưng **sai** khi người dùng cần **xác nhận** một khả năng cụ thể. Tôi bảo họ
+đi xem một thứ mà app không hiện ra ở đâu cả.
+
+Dựng chỗ xem chủ động: **Trợ giúp → Kiểm tra hệ thống → «Kiểm tra lại»**,
+hiện **đủ mọi mục kể cả mục đạt**, và hiện cả phần chẩn đoán (đường dẫn
+ffmpeg + mốc thời gian) **khi đạt** — đó chính là thứ cần để truy lại.
+
+3 test, trong đó một chốt rằng nó phải hiện **cả mục đạt**: chỉ hiện mục lỗi
+là lặp lại đúng cái hố ban đầu.
+
+Python: **2.732 passed / 0 fail**.
