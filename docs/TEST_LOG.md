@@ -16386,3 +16386,62 @@ nhánh cũ ⇒ **5 test đỏ**.
 Trong đó `test_trang_thai_me_phan_ba_ca_khong_phai_hai` chốt ca dễ sót nhất:
 ảnh vẽ được nhưng **không đoạn nào đạt** vẫn phải là `hong_ca_me`, không phải
 `hong_mot_phan` — vì người dùng vẫn chẳng có ảnh nào, dù đã mất tiền.
+
+## Pilot H4 cục bộ — chạy THẬT trọn chuỗi (11/09/2026)
+
+`scripts/pilot_h4_cuc_bo.py` — 0 Vox, không cần máy chủ, không cần mô hình
+trả tiền. Đi trọn thứ H4 hứa bằng đồ thật:
+
+    kịch bản `ready` → ảnh → slideshow (ffmpeg) → Trình chỉnh sửa
+    → giọng đọc (VieNeu) → xuất video CÓ TIẾNG
+
+Vì sao cần một lượt chạy thật thay vì thêm test: **ba lỗi nặng nhất của H4
+đều lọt qua bộ test** vì test tiêm hàm giả ghi 9 byte làm "video". Test chỉ
+chứng minh được thứ nó dám chạy.
+
+### Kết quả
+
+| Bước | Kết quả |
+|---|---|
+| Dựng dự án (H4a+b+c) | ĐẠT — dòng thời gian 19,31s, video 19,30s, **lệch 0,010s** |
+| Trình chỉnh sửa mở dự án | ĐẠT — đọc đủ 3 câu |
+| Cổng xuất lúc CHƯA có giọng (H4c-2) | ĐẠT — nhận ra sẽ ra video CÂM, 3/3 câu thiếu |
+| Đọc bằng VieNeu (0 Vox) | ĐẠT — mọi câu có giọng |
+| Xuất video, **đo mức âm thật** | ĐẠT — mean **−19,8 dB**, max −1,5 dB |
+
+### Lỗi pilot tìm ra ngay lượt đầu — không test nào bắt được
+
+Bốn cổng đầu ĐẠT, rồi bước xuất vỡ:
+
+> *"Thư mục này chứa giọng đọc tạo theo cơ chế gộp câu đời cũ. Hãy chạy tiếp
+> dự án một lần để tạo lại giọng theo từng câu, rồi mới xuất video."*
+
+`editor._check_render_mode()` chặn khi `data/segments/` có `.wav` mà không có
+dấu `.render_mode` khớp `DubPipeline.RENDER_MODE` — nó canh dự án đời cũ đọc
+theo cơ chế gộp câu. Dấu đó **do `DubPipeline` ghi**, mà dự án dựng từ kịch
+bản **không đi qua pipeline lần nào**.
+
+Câu báo lỗi đúng với ca nó canh, nhưng ở đây nó bảo người dùng làm một việc
+**không tồn tại** cho loại dự án này — không có "chạy tiếp dự án" nào cho một
+dự án dựng từ storyboard.
+
+Sửa ở `dung_du_an()`: khai luôn cơ chế đọc ngay lúc dựng, vì đó là nơi **biết
+rõ** dự án này đọc theo từng câu từ đầu. Hai test hồi quy, đã chứng minh đỏ.
+
+### Một lỗi của tôi trong chính pilot
+
+Lượt chạy đầu báo **"video xuất ra KHÔNG CÓ TIẾNG — −999 dB"**. Sai: video có
+luồng aac và bản trộn nặng 1,79 MB. Nguyên nhân là phép đo của tôi truyền
+`-v error` cho ffmpeg, trong khi `volumedetect` in kết quả ở mức `info` — hạ
+mức log là mất luôn số đo.
+
+Suýt báo cho chủ dự án một lỗi sản phẩm không tồn tại. Chỉ tránh được nhờ mở
+tệp ra xem thay vì tin con số của chính mình. Đã ghi lý do ngay tại chỗ sửa.
+
+### Giới hạn còn lại, đo được
+
+Video cuối dài **20,31s** trong khi slideshow nguồn 19,30s — giọng đọc thật
+dài hơn ước lượng khoảng **5%**. Nằm trong giới hạn ±15% đã ghi ở H4a, và
+`merge_video` nới video theo tiếng nên không cụt. Nhưng nó xác nhận điều spec
+H4 đã nói: **hợp đồng H4c-1 bảo đảm video khớp TRANSCRIPT, không phải khớp
+giọng đọc thật.** Khớp giọng thật là việc của một lát sau khi TTS chạy.

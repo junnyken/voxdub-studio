@@ -236,3 +236,72 @@ def test_nut_XUAT_that_su_di_qua_cong_nay(monkeypatch):
 
     ee.VoiceAndExportMixin._export(trang)
     assert goi, "_export không hỏi cổng giọng đọc"
+
+
+# ---------------------------------------------------------------------------
+# Lỗi tìm ra bằng PILOT H4 CỤC BỘ (11/09/2026), không phải bằng test.
+#
+# `editor._check_render_mode()` chặn xuất khi `data/segments/` có tệp .wav mà
+# không có dấu `.render_mode` khớp `DubPipeline.RENDER_MODE` — nó canh những
+# dự án đời cũ đọc theo cơ chế gộp câu. Dấu đó do `DubPipeline` ghi, mà dự án
+# dựng từ kịch bản KHÔNG đi qua pipeline lần nào.
+#
+# Người dùng: dựng dự án → đọc bằng VieNeu → bấm Xuất → nhận "Thư mục này
+# chứa giọng đọc tạo theo cơ chế gộp câu đời cũ. Hãy chạy tiếp dự án một
+# lần…" — một việc KHÔNG TỒN TẠI cho loại dự án này. Câu báo lỗi đúng với ca
+# nó canh, nhưng chỉ sai đường hoàn toàn ở đây.
+#
+# Không test nào bắt được vì chưa lượt nào đi tới bước xuất.
+
+def test_du_an_H4c_khai_dung_co_che_doc_theo_tung_cau(tmp_path):
+    from autodub import du_an_tu_kich_ban as da
+    from autodub.pipeline import DubPipeline
+
+    anh = []
+    for i in range(2):
+        p = tmp_path / f"a{i}.png"
+        p.write_bytes(b"x")
+        anh.append(str(p))
+    kb = {"id": "s1", "status": "ready", "beats": [
+        {"beatType": "hook", "voiceoverTextVi": f"Câu {i} đủ dài để đo.",
+         "captionSuggestionVi": "c", "visualBriefVi": "v"} for i in range(2)]}
+
+    goi = {}
+    ket = da.dung_du_an(
+        kb, anh, str(tmp_path / "duan"),
+        ghep_video=lambda p, r, *, giay_moi_anh, **k: (
+            goi.update(giay=list(giay_moi_anh)), open(r, "wb").write(b"v"))[0],
+        do_thoi_luong=lambda _p: sum(goi["giay"]))
+
+    dau = os.path.join(ket.work_dir, "data", "segments", ".render_mode")
+    assert os.path.isfile(dau), (
+        "thiếu dấu cơ chế đọc — người dùng sẽ bị chặn ở bước Xuất với lời "
+        "khuyên 'chạy tiếp dự án một lần', việc không tồn tại cho dự án này")
+    with open(dau, encoding="utf-8") as f:
+        assert f.read().strip().splitlines()[0] == DubPipeline.RENDER_MODE
+
+
+def test_cong_render_mode_cho_du_an_H4c_di_qua(tmp_path):
+    """Kiểm HÀNH VI của chính cổng đã chặn, không chỉ kiểm có tệp."""
+    from autodub import du_an_tu_kich_ban as da
+    from autodub.editor import _check_render_mode
+    from autodub.utils import seg_wav_path
+
+    anh = [str(tmp_path / "a.png")]
+    (tmp_path / "a.png").write_bytes(b"x")
+    kb = {"id": "s1", "status": "ready", "beats": [
+        {"beatType": "hook", "voiceoverTextVi": "Một câu đủ dài để đo thử.",
+         "captionSuggestionVi": "c", "visualBriefVi": "v"}]}
+    goi = {}
+    ket = da.dung_du_an(
+        kb, anh, str(tmp_path / "duan"),
+        ghep_video=lambda p, r, *, giay_moi_anh, **k: (
+            goi.update(giay=list(giay_moi_anh)), open(r, "wb").write(b"v"))[0],
+        do_thoi_luong=lambda _p: sum(goi["giay"]))
+
+    # Sau khi đọc xong, thư mục có .wav — đúng ca mà cổng kia canh.
+    seg_dir = os.path.join(ket.work_dir, "data", "segments")
+    with open(seg_wav_path(seg_dir, 1), "wb") as f:
+        f.write(b"RIFF....WAVEfmt ")
+
+    _check_render_mode(ket.work_dir)   # không được ném

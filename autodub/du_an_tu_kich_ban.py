@@ -182,6 +182,28 @@ def dung_du_an(
 
     from autodub.workdir import data_path
 
+    # Khai luôn CƠ CHẾ ĐỌC của dự án này — tìm ra bằng pilot H4 cục bộ 11/09.
+    #
+    # `editor._check_render_mode()` chặn xuất khi thư mục `segments/` có tệp
+    # .wav mà không có dấu `.render_mode` khớp `DubPipeline.RENDER_MODE`; nó
+    # đang canh những dự án đời cũ đọc theo cơ chế gộp câu. Dấu đó do
+    # `DubPipeline` ghi — mà dự án dựng từ kịch bản **không đi qua pipeline**
+    # lần nào, nên nó không bao giờ có dấu.
+    #
+    # Hậu quả: người dùng dựng dự án, đọc bằng VieNeu, bấm Xuất, rồi nhận
+    # "Thư mục này chứa giọng đọc tạo theo cơ chế gộp câu đời cũ. Hãy chạy
+    # tiếp dự án một lần…" — một việc **không tồn tại** cho loại dự án này.
+    # Câu báo lỗi đúng với ca nó canh, nhưng chỉ sai đường hoàn toàn ở đây.
+    #
+    # Dự án này đọc theo TỪNG CÂU ngay từ đầu, nên khai đúng như vậy.
+    from autodub.pipeline import DubPipeline
+
+    dau = data_path(work_dir, os.path.join("segments", ".render_mode"),
+                    create_dir=True)
+    os.makedirs(os.path.dirname(dau), exist_ok=True)
+    with open(dau, "w", encoding="utf-8") as f:
+        f.write(f"{DubPipeline.RENDER_MODE}\n")
+
     duong_transcript = data_path(work_dir, "transcript_vi.json", create_dir=True)
     segments = [_segment_tu_doan(d, i + 1) for i, d in enumerate(board.doan)]
     with open(duong_transcript, "w", encoding="utf-8") as f:
