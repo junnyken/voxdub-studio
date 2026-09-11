@@ -203,10 +203,14 @@ xanh") mãi phút thứ 4 mới chạy. Prod nhận mã **trước khi** test xo
 Ngày 10/09 vô hại vì test đều xanh, nhưng thiết kế đang không bảo vệ được
 điều nó tuyên bố. **Đáng một mini-spec riêng, không nên vá vội.**
 
-### D4. Bảo mật vận hành
+### D4. Bảo mật vận hành — ⏸ CHỦ DỰ ÁN HOÃN LẠI (11/09)
 
 - Thu hồi token GitHub cũ `…CjoKKY`.
 - Hai remote còn nhúng token dạng chữ thường trong URL.
+
+**Đừng tự làm.** Chủ dự án đã quyết hoãn: còn nhiều việc khác đang chạy dở, và
+thu hồi token giữa chừng thì chặn luôn đường push/deploy của những việc đó.
+Chờ họ báo mới làm — đây là quyết định của họ, không phải mục bị bỏ quên.
 
 ---
 
@@ -217,7 +221,8 @@ Ngày 10/09 vô hại vì test đều xanh, nhưng thiết kế đang không b�
    số liệu thật.
 3. **RS-1–RS-6** — nhóm H3, đều đụng trạng thái `ready` và tiền. Kiểm chứng từng
    cái trước khi sửa.
-5. **B3, B4, B5, RS-15–RS-22** — nhóm trải nghiệm và dọn dẹp.
+5. ~~**B3, B4, B5**~~ ✅ **xong 11/09** — cùng đợt với B7 và lỗi cp1252.
+   Còn **RS-15–RS-22** — nhóm trải nghiệm và dọn dẹp.
 6. **D1** rồi mới tới **H4d calibration** (sinh ảnh có tính tiền thật).
 
 > **RS-20 ĐÃ XÁC MINH TRÊN WINDOWS THẬT — 11/09/2026 14:33.**
