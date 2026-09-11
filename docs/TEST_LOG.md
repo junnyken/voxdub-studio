@@ -16509,7 +16509,7 @@ Kèm bốn lát đã biết trước chưa làm: khớp video với **giọng đ
 đo được lệch ~5%), định giá lại theo token thật, chốt deploy bị webhook đi
 vòng qua, và thu hồi token GitHub cũ.
 
-## B1 + B2 + B6 + C8 + C9 (11/09/2026)
+## RS: B1 + B2 + B6 + RS-8 + RS-9 (11/09/2026)
 
 Năm mục đầu của backlog, theo đúng thứ tự chủ dự án chốt.
 
@@ -16556,14 +16556,14 @@ không bao giờ ném, và **kêu to** khi hỏng (sổ dùng là thứ `kiemHan
 đếm — mất bản ghi là trần ngày hụt mà không ai biết). Áp cho cả `ai.js`,
 `flow-blueprints.js`, `brand-scripts.js` — 9 chỗ.
 
-### C8 + C9 — script báo cáo pilot
+### RS-8 + RS-9 — script báo cáo pilot
 
-**C8**: `__file__.rsplit("/scripts/", 1)[0]` — sản phẩm CHỈ chạy Windows, nơi
+**RS-8**: `__file__.rsplit("/scripts/", 1)[0]` — sản phẩm CHỈ chạy Windows, nơi
 `__file__` dùng `\`, nên phép tách không tìm thấy gì và `sys.path` nhận
 nguyên đường dẫn **tệp .py**. `cai_dat.bat` cũng không `pip install -e .` ⇒
 `ModuleNotFoundError: autodub` ngay dòng import đầu.
 
-**C9**: `list_flow_blueprints()` nuốt mọi `SaasError` rồi trả `[]`, nên token
+**RS-9**: `list_flow_blueprints()` nuốt mọi `SaasError` rồi trả `[]`, nên token
 hết hạn ⇒ báo cáo in *"CHƯA CÓ FLOW BLUEPRINT NÀO. Pilot chưa chạy được bước
 H2"* rồi dừng sớm. Một sự cố **xác thực** bị trình bày thành một kết luận
 **nghiệp vụ** — người đọc sẽ chạy lại pilot từ đầu, tốn Vox.
@@ -16594,3 +16594,48 @@ hỏi chỉ là "client này nói chuyện được không".
 | C8/C9 → bỏ phép kiểm kết nối | 3 test |
 
 Node: **654 pass / 0 fail**. Python: **2.720 passed / 0 fail**.
+
+## RS-20 — kiểm đóng nhãn chữ, đưa vào bộ kiểm hệ thống (11/09/2026)
+
+Chủ dự án hỏi: *"tôi làm cách nào cho bạn biết nó có ổn trên Windows"*.
+
+Câu trả lời đúng không phải là bắt họ gõ lệnh ffmpeg rồi dán kết quả — mà là
+**app tự kiểm và tự nói**. Dự án đã có sẵn `autodub/preflight.py`, thêm một
+mục vào đó là mọi người dùng đều được lợi, không chỉ lượt chẩn đoán này.
+
+### Vì sao phải CHẠY THẬT, không chỉ hỏi danh sách bộ lọc
+
+`drawtext` **có mặt** không nghĩa là nó **chạy được**: bộ lọc cần tìm một
+phông chữ, mà dự án không chỉ đích danh `fontfile` ở hai chỗ —
+`product_video._lenh_ghep()` (nhãn trên VIDEO) và
+`product_scene.dong_nhan_chu()` (nhãn trên ẢNH).
+
+Trên Linux ffmpeg thường có `libfontconfig` nên tự dò ra phông. **Đó chính là
+lý do lỗi này không thể phát hiện được ở workspace** — ở đây nó luôn xanh.
+
+Hậu quả trên máy thiếu fontconfig khác hẳn nhau ở hai chỗ:
+
+| Chỗ | Hậu quả |
+|---|---|
+| Ghép video từ ảnh | **hỏng cả lượt** — nhãn nằm trên luồng RA chính |
+| Đóng nhãn ảnh | ảnh bị loại, không dùng được |
+
+Nhãn "AI-generated" là thứ TikTok bắt buộc từ 13/5/2026, nên đây không phải
+chuyện thẩm mỹ.
+
+### Bản vá
+
+`_check_drawtext()` vẽ một khung 64×64 rồi **chạy đúng bộ lọc dùng thật** —
+kể cả `box=1` và cỡ chữ theo chiều cao khung. Hỏng thì mang **nguyên văn**
+lỗi ffmpeg lên giao diện, vì "không đóng được nhãn" một mình không cho người
+dùng biết phải cài lại bản nào.
+
+### Test
+
+4 test. Hai chốt đáng nói, cả hai đã chứng minh đỏ:
+
+- `test_drawtext_kiem_bang_cach_CHAY_THAT_khong_chi_hoi_danh_sach` — đổi sang
+  hỏi `-filters` ⇒ **đỏ**. Hỏi danh sách chỉ biết bộ lọc có mặt, không biết
+  nó chạy được, mà chính đó mới là chỗ hỏng.
+- `test_drawtext_nam_trong_bo_kiem_chung` — gỡ khỏi `run_preflight` ⇒ **đỏ**.
+  Đúng lớp sai "chốt thân hàm mà quên chốt chỗ gọi" đã mắc bốn lần.

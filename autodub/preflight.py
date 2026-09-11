@@ -53,6 +53,7 @@ def run_preflight(settings: Settings | None = None) -> list[CheckResult]:
     checks = (
         _check_ffmpeg,
         _check_ffprobe,
+        _check_drawtext,
         lambda s: _check_disk(s),
         lambda s: _check_ram(s),
         _check_vieneu,
@@ -119,6 +120,70 @@ def _check_ffmpeg(settings: Settings) -> CheckResult:
                    "cập nhật PATH trỏ tới bản mới.")
     return CheckResult(key="ffmpeg", title=title, level="ok",
                        message="Bản đầy đủ, có bộ ghi phụ đề.")
+
+
+def _check_drawtext(settings: Settings) -> CheckResult:
+    """FFmpeg có ĐÓNG được nhãn chữ lên hình không — mục C20.
+
+    Vì sao phải chạy thật chứ không chỉ hỏi "có bộ lọc drawtext không":
+    `drawtext` có mặt không có nghĩa là nó chạy được. Bộ lọc cần tìm một
+    phông chữ, và dự án **không chỉ đích danh `fontfile`** ở hai chỗ:
+
+      * `product_video._lenh_ghep()` — nhãn "AI-generated" trên VIDEO;
+      * `product_scene.dong_nhan_chu()` — nhãn trên ẢNH.
+
+    Trên Linux, ffmpeg thường có `libfontconfig` nên nó tự dò ra phông và
+    chạy tốt — đó là lý do lỗi này **không thể phát hiện được ở workspace**.
+    Bản ffmpeg trên máy Windows mà thiếu fontconfig thì `drawtext` trả lỗi
+    *"Cannot find a valid font for the family Sans"*, và hậu quả khác nhau
+    hẳn ở hai chỗ:
+
+      * ghép video: **cả lượt ghép hỏng** (nhãn nằm trên luồng RA chính);
+      * đóng nhãn ảnh: ảnh bị loại, không dùng được.
+
+    Nhãn "AI-generated" là thứ TikTok bắt buộc từ 13/5/2026, nên đây không
+    phải chuyện thẩm mỹ.
+    """
+    title = "Đóng nhãn chữ lên hình"
+    local_ffmpeg = os.path.join(app_root(), "bin", "ffmpeg.exe")
+    ffmpeg_cmd = shutil.which("ffmpeg") or (
+        local_ffmpeg if os.path.isfile(local_ffmpeg) else None)
+    if not ffmpeg_cmd:
+        return CheckResult(
+            key="drawtext", title=title, level="warn",
+            message="Chưa kiểm được vì máy chưa có FFmpeg.",
+            advice="Xem mục FFmpeg phía trên.")
+
+    # Vẽ một khung 64×64 rồi thử đóng chữ lên — y hệt bộ lọc dùng thật, kể cả
+    # phần `box=1` và cỡ chữ theo chiều cao khung.
+    try:
+        ra = subprocess.run(
+            [ffmpeg_cmd, "-hide_banner", "-v", "error", "-f", "lavfi",
+             "-i", "color=c=black:s=64x64:d=1", "-vf",
+             "drawtext=text='AI-generated':fontcolor=white:fontsize=h/8:"
+             "box=1:boxcolor=black@0.5:x=2:y=2",
+             "-frames:v", "1", "-f", "null", "-"],
+            capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return CheckResult(
+            key="drawtext", title=title, level="warn",
+            message=f"Chưa kiểm được ({e}).",
+            advice="Chạy lại ứng dụng; nếu vẫn vậy, gửi tệp log cho hỗ trợ.")
+
+    if ra.returncode == 0:
+        return CheckResult(key="drawtext", title=title, level="ok",
+                           message="Đóng được nhãn AI-generated lên hình.")
+
+    loi = (ra.stderr or "").strip().splitlines()
+    loi = loi[-1][:200] if loi else "không rõ"
+    return CheckResult(
+        key="drawtext", title=title, level="fail",
+        message=f"FFmpeg không đóng được nhãn chữ lên hình ({loi}).",
+        advice="Bản FFmpeg đang cài thiếu phần dò phông chữ (fontconfig). "
+               "Thay bằng bản ĐẦY ĐỦ (ffmpeg-release-full từ gyan.dev), giải "
+               "nén đè lên bản cũ. Thiếu nó thì bước ghép video từ ảnh sẽ "
+               "hỏng, và nhãn «AI-generated» — thứ TikTok bắt buộc — không "
+               "đóng lên được.")
 
 
 def _check_ffprobe(settings: Settings) -> CheckResult:

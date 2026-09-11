@@ -81,7 +81,7 @@ chờ 3 giây.
 
 ### B5. Thư mục ra đóng cứng `~/VoxDub` — `storyboard_page.py:323,413`
 
-`self._settings_provider` nhận vào rồi **không dùng ở đâu cả**. Trang C1 cùng
+`self._settings_provider` nhận vào rồi **không dùng ở đâu cả**. Trang C1 (ảnh sản phẩm) cùng
 loại thì tôn trọng `settings.output_dir`. Người dùng đặt `D:\Videos` thì dự
 án vẫn nằm ở `C:\Users\…\VoxDub` và **không hiện ở trang Dự án**.
 
@@ -100,32 +100,37 @@ ghi sổ ⇒ app nhận 500, ảnh mất, **30 Vox đã trừ**. `/product-scene
 
 ## 🟡 Còn mở — agent báo, CHƯA kiểm chứng
 
+> Mã `RS-<n>` = phát hiện của đợt **rà soát**, KHÔNG phải số mini-spec. Tiền
+> tố riêng là cố ý: bản đầu dùng `C<n>` và đụng ngay không gian số mini-spec
+> đã có của dự án (C1, C2, C6, C17… đều là mini-spec thật) — chốt
+> `test_so_mini_spec_khong_trung` bắt được.
+
 Phải **đo trước khi sửa**. Xếp theo mức nghiêm trọng agent gán.
 
 | Mã | Việc | Tệp |
 |---|---|---|
-| C1 | Sửa ràng buộc brand KHÔNG hạ `ready` ⇒ kịch bản chứa cụm mới cấm vẫn `ready` vĩnh viễn | `brand-scripts.js:86` |
-| C2 | Xoá blueprint/brand chỉ bị phát hiện ở `regenerate`, không ở `GET`/`list` | `brand-scripts.js` |
-| C3 | Trừ 12 Vox cho blueprint **không đời nào** ra `ready` (thiếu vân tay) | `brand-scripts.js:176` |
-| C4 | GUI bật lại nút giữa lúc chạy ⇒ trừ tiền hai lần | `brand_script_page.py:289` |
-| C5 | Sau `409`, GUI giữ trạng thái cũ và mở lại được cổng H4 | `brand_script_page.py:303` |
-| C6 | Nhánh `409` hạ `blocked` xuống `unconfirmed` — mất phán quyết đã có | `brand-scripts.js:326` |
-| C7 | `rangBuocKhongDuocNoi` không có `maxItems` | `brand-profiles.js` |
-| ~~C8~~ | ✅ **ĐÃ SỬA 11/09** — đường dẫn dựng bằng `os.path` | `bao_cao_pilot_phase_h.py` |
-| ~~C9~~ | ✅ **ĐÃ SỬA 11/09** — hỏi máy chủ trước khi kết luận | `bao_cao_pilot_phase_h.py` |
-| C10 | Danh sách rỗng vì mất mạng trông y hệt "chưa có gì" | `saas_client.py:848,906` |
-| C11 | Lỗi kiểm dữ liệu về tới người dùng chỉ còn câu trống không (`details` bị bỏ) | `app.js:153` |
-| C12 | Bộ chặn sao chép huỷ kết quả nhưng báo "thử lại sau" | `flow-blueprints.js:210` |
-| C13 | `UsageLog.create(...).catch(()=>{})` ⇒ trần ngày tắt hẳn mà không ai biết | `flow-blueprints.js:261` |
-| C14 | `doc_chu_may_chu` dựng `SaasClient()` mới thay vì `get_client()` ⇒ đăng ký lại thiết bị mỗi lượt | `doc_chu_may_chu.py:140` |
-| C15 | Cột "Trạng thái" hiện tiếng Anh (`ready`/`queued`/`failed`) | `flow_blueprint_page.py:368` |
-| C16 | Ảnh AI của H4d đi qua cửa mà H4b cấm; `bam` bị vứt ⇒ mất phép kiểm C6 | `storyboard_page.py:335` |
-| C17 | Đoạn không có lời đọc ⇒ `ValueError` không nói đoạn nào | `product_video.py:348` |
-| C18 | Hết hạn mức **trợ lý** ⇒ vẽ xong mà ảnh nào cũng bị loại (hai trần tách rời) | `ai.js` |
-| C19 | `_anh_kiem_tam.jpg` để lại trong thư mục ảnh kết quả | `story_image.py:141` |
-| C20 | `drawtext` không truyền `fontfile` — **phải thử trên Windows đóng gói** | `product_video.py:408` |
-| C21 | `/story-image` khai `preHandler: requireDevice` trong khi plugin đã có hook ⇒ xác thực hai lần | `ai.js:1267` |
-| C22 | Ảnh minh hoạ dùng chung khoá giá với ảnh sản phẩm | `ai.js:1288` |
+| RS-1 | Sửa ràng buộc brand KHÔNG hạ `ready` ⇒ kịch bản chứa cụm mới cấm vẫn `ready` vĩnh viễn | `brand-scripts.js:86` |
+| RS-2 | Xoá blueprint/brand chỉ bị phát hiện ở `regenerate`, không ở `GET`/`list` | `brand-scripts.js` |
+| RS-3 | Trừ 12 Vox cho blueprint **không đời nào** ra `ready` (thiếu vân tay) | `brand-scripts.js:176` |
+| RS-4 | GUI bật lại nút giữa lúc chạy ⇒ trừ tiền hai lần | `brand_script_page.py:289` |
+| RS-5 | Sau `409`, GUI giữ trạng thái cũ và mở lại được cổng H4 | `brand_script_page.py:303` |
+| RS-6 | Nhánh `409` hạ `blocked` xuống `unconfirmed` — mất phán quyết đã có | `brand-scripts.js:326` |
+| RS-7 | `rangBuocKhongDuocNoi` không có `maxItems` | `brand-profiles.js` |
+| ~~RS-8~~ | ✅ **ĐÃ SỬA 11/09** — đường dẫn dựng bằng `os.path` | `bao_cao_pilot_phase_h.py` |
+| ~~RS-9~~ | ✅ **ĐÃ SỬA 11/09** — hỏi máy chủ trước khi kết luận | `bao_cao_pilot_phase_h.py` |
+| RS-10 | Danh sách rỗng vì mất mạng trông y hệt "chưa có gì" | `saas_client.py:848,906` |
+| RS-11 | Lỗi kiểm dữ liệu về tới người dùng chỉ còn câu trống không (`details` bị bỏ) | `app.js:153` |
+| RS-12 | Bộ chặn sao chép huỷ kết quả nhưng báo "thử lại sau" | `flow-blueprints.js:210` |
+| RS-13 | `UsageLog.create(...).catch(()=>{})` ⇒ trần ngày tắt hẳn mà không ai biết | `flow-blueprints.js:261` |
+| RS-14 | `doc_chu_may_chu` dựng `SaasClient()` mới thay vì `get_client()` ⇒ đăng ký lại thiết bị mỗi lượt | `doc_chu_may_chu.py:140` |
+| RS-15 | Cột "Trạng thái" hiện tiếng Anh (`ready`/`queued`/`failed`) | `flow_blueprint_page.py:368` |
+| RS-16 | Ảnh AI của H4d đi qua cửa mà H4b cấm; `bam` bị vứt ⇒ mất phép kiểm C6 | `storyboard_page.py:335` |
+| RS-17 | Đoạn không có lời đọc ⇒ `ValueError` không nói đoạn nào | `product_video.py:348` |
+| RS-18 | Hết hạn mức **trợ lý** ⇒ vẽ xong mà ảnh nào cũng bị loại (hai trần tách rời) | `ai.js` |
+| RS-19 | `_anh_kiem_tam.jpg` để lại trong thư mục ảnh kết quả | `story_image.py:141` |
+| ~~RS-20~~ | ✅ **ĐÃ SỬA 11/09** — app TỰ KIỂM: thêm mục «Đóng nhãn chữ lên hình» vào bộ kiểm hệ thống, chạy thật bộ lọc chứ không chỉ hỏi danh sách | `preflight.py` |
+| RS-21 | `/story-image` khai `preHandler: requireDevice` trong khi plugin đã có hook ⇒ xác thực hai lần | `ai.js:1267` |
+| RS-22 | Ảnh minh hoạ dùng chung khoá giá với ảnh sản phẩm | `ai.js:1288` |
 
 ---
 
@@ -169,14 +174,15 @@ Ngày 10/09 vô hại vì test đều xanh, nhưng thiết kế đang không b�
 
 ## Thứ tự đề xuất
 
-1. ~~**B1, B2, B6**~~ ✅ **xong 11/09** — cùng đợt với C8, C9.
+1. ~~**B1, B2, B6**~~ ✅ **xong 11/09** — cùng đợt với RS-8, RS-9.
 2. **Pilot H2→H3** của chủ dự án. ← **đang ở đây**. Mọi thứ dưới đây nên đợi
    số liệu thật.
-3. **C1–C6** — nhóm H3, đều đụng trạng thái `ready` và tiền. Kiểm chứng từng
+3. **RS-1–RS-6** — nhóm H3, đều đụng trạng thái `ready` và tiền. Kiểm chứng từng
    cái trước khi sửa.
-5. **B3, B4, B5, C15–C22** — nhóm trải nghiệm và dọn dẹp.
+5. **B3, B4, B5, RS-15–RS-22** — nhóm trải nghiệm và dọn dẹp.
 6. **D1** rồi mới tới **H4d calibration** (sinh ảnh có tính tiền thật).
 
-> **C20 chỉ kiểm được trên máy Windows đóng gói.** Ở workspace Linux lệnh
-> chạy rc=0 vì ffmpeg có fontconfig; bản ffmpeg của người dùng thiếu
-> fontconfig thì cả lượt ghép hỏng. Đây là mục **phải nhờ chủ dự án thử**.
+> **RS-20 nay app tự trả lời.** Trước đây phải nhờ chủ dự án gõ lệnh ffmpeg
+> rồi dán kết quả; nay `preflight._check_drawtext()` chạy đúng bộ lọc dùng
+> thật và hiện kết quả ngay trong app. Ở workspace Linux nó luôn xanh (ffmpeg
+> có fontconfig) — nên chỉ lượt mở app trên Windows mới cho câu trả lời thật.
