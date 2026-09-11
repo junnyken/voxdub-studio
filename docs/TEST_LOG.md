@@ -16265,3 +16265,70 @@ không chứng minh gì về thời lượng thật.
 `dung_video()` của ảnh sản phẩm dùng chung `_lenh_ghep` nên cũng thiếu
 `chuyen × (n−1)`. Ở đó không có transcript để lệch theo nên hậu quả chỉ là
 video ngắn hơn yêu cầu; bản vá sửa luôn cho cả hai.
+
+## H4c-2 — Chặn xuất video CÂM (11/09/2026)
+
+### Chuỗi dẫn tới video câm, đã tự truy lại từng bước
+
+Dự án do `dung_du_an()` dựng ra có transcript và video nền nhưng
+`data/segments/` **rỗng**. Bấm «Xuất video» ngay — đúng luồng mà chính
+docstring của H4c quảng cáo:
+
+1. `_export` chỉ hỏi lại khi có câu vừa sửa (`_dirty_ids`) hoặc giọng chưa áp
+   dụng — dự án mới dựng thì **cả hai đều rỗng** ⇒ đi thẳng;
+2. `build_merged_audio` (`media/audio.py:520-522`) ghi
+   `Segment file not found ... skipping` cho **từng** câu rồi dựng nền im lặng;
+3. `merge_video` vẫn mux ra tệp bình thường.
+
+`dubbed_video.mp4` có hình, có phụ đề, **không có tiếng**, không một lỗi hay
+cảnh báo nào. Người dùng tin là dự án hợp lệ.
+
+Máy **biết** thiếu giọng từ trước khi chạy — đúng lớp lỗi đã phải sửa ở trang
+Hồ sơ Brand: nói ra điều người dùng làm được, đừng tạo một kết quả vô dụng
+rồi để họ tự suy đoán.
+
+### Bản vá
+
+`editor.kiem_san_sang_xuat(work_dir, target) -> SanSangXuat` ở **tầng lõi**,
+không nhét vào giao diện. Phân biệt ba trạng thái chứ không phải hai:
+
+| | |
+|---|---|
+| `xuat_duoc` | mọi câu đã có giọng |
+| thiếu một phần | nói rõ **bao nhiêu / câu số mấy** |
+| `cam_hoan_toan` | không câu nào có giọng — câu nói khác hẳn |
+
+Tệp giọng **0 byte cũng tính là thiếu**: ffmpeg ghi hụt vẫn để lại tệp rỗng,
+mà rỗng thì bước trộn bỏ qua y hệt như không có.
+
+Giao diện chặn **cứng** và nêu đúng nút bấm được: *"Sang thẻ «Giọng đọc» rồi
+bấm «Lưu tất cả và đọc lại» — bước đó chạy trên máy, không tốn Vox."* Bấm
+đồng ý thì mở luôn thẻ đó.
+
+**Đếm hỏng thì KHÔNG chặn**: chặn nhầm còn tệ hơn — người dùng có video hợp
+lệ mà không xuất được. Hỏng thì ghi Nhật ký rồi để luồng cũ chạy tiếp.
+
+**0 câu không rơi vào nhánh này**: `_load_segments` đã chặn sẵn với câu nói
+đúng chuyện ("Danh sách câu thoại trống hoặc sai định dạng"). Bảo người dùng
+đi đọc lại một dự án không có câu nào là chỉ sai đường.
+
+### Một lỗ tôi tự tìm ra giữa chừng
+
+Gỡ **chỗ gọi** `_chan_neu_thieu_giong()` khỏi `_export()` mà **không test nào
+đỏ** — nghĩa là cổng có thể tồn tại đầy đủ và vẫn bị đi vòng qua. Đây là lần
+thứ tư mắc lớp sai "chốt thân hàm mà quên chốt chỗ gọi". Đã thêm
+`test_nut_XUAT_that_su_di_qua_cong_nay`.
+
+Nay cả hai lớp đều đỏ được:
+
+| Gỡ ra thứ gì | Đỏ |
+|---|---|
+| Thân hàm (`xuat_duoc` → luôn True) | 1 test |
+| Chỗ gọi trong `_export` | 1 test |
+
+### Test
+
+`tests/test_h4c2_san_sang_xuat.py` (10), trong đó
+`test_du_an_H4c_THAT_vua_dung_xong_thi_bi_chan` gọi thẳng `dung_du_an()` như
+người dùng rồi hỏi cổng xuất — chỗ lỗi đã trốn, vì mọi test H4c trước chỉ
+chứng minh dự án **mở** được, chưa ai hỏi nó có xuất ra tiếng không.

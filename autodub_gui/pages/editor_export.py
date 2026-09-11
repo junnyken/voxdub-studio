@@ -263,6 +263,55 @@ class VoiceAndExportMixin:
         TOASTS.info("Bấm «Ghi lại phụ đề vào video» để thấy kiểu chữ mới trên "
                     "video ngay, không cần xuất lại cả phim.")
 
+    def _chan_neu_thieu_giong(self) -> bool:
+        """Chặn xuất khi còn câu chưa có giọng đọc — mini-spec H4c-2.
+
+        Trả True nghĩa là ĐÃ chặn. Máy biết thiếu giọng từ trước khi chạy,
+        nên phải nói ra kèm việc bấm được, thay vì dựng một video CÂM rồi để
+        người dùng tự đoán vì sao không có tiếng.
+
+        Dự án dựng từ kịch bản (H4c) rơi đúng vào ca này: có transcript, có
+        video nền, `data/segments/` rỗng. Hai chốt hỏi lại sẵn có
+        (`has_pending_voice_change`, `_dirty_ids`) đều rỗng nên nó đi thẳng
+        qua, rồi mỗi câu bị `build_merged_audio` lặng lẽ bỏ qua.
+        """
+        from autodub.editor import kiem_san_sang_xuat
+
+        try:
+            san_sang = kiem_san_sang_xuat(self._work_dir, self._state.target)
+        except Exception as e:  # noqa: BLE001 — không đếm được thì đừng chặn
+            # Chặn nhầm còn tệ hơn: người dùng có video hợp lệ mà không xuất
+            # được. Đếm hỏng thì ghi Nhật ký rồi để luồng cũ chạy tiếp.
+            self.log.append_log(f"Không kiểm được giọng đọc trước khi xuất ({e})", 30)
+            return False
+
+        if san_sang.xuat_duoc:
+            return False
+
+        if san_sang.cam_hoan_toan:
+            tieu_de = "Chưa có giọng đọc nào"
+            loi = (f"Cả {san_sang.tong_cau} câu đều chưa có giọng đọc. Xuất "
+                   "bây giờ sẽ ra một video KHÔNG CÓ TIẾNG.")
+        else:
+            tieu_de = f"Còn {len(san_sang.thieu_giong)} câu chưa có giọng đọc"
+            loi = (f"{len(san_sang.thieu_giong)}/{san_sang.tong_cau} câu chưa "
+                   "có giọng đọc. Những câu đó sẽ IM LẶNG trong video xuất ra.")
+
+        dong_y, _ = ConfirmDialog.ask(
+            self, tieu_de,
+            loi + "\n\nSang thẻ «Giọng đọc» rồi bấm «Lưu tất cả và đọc lại» "
+            "để tạo giọng cho các câu này. Bước đó chạy trên máy, không tốn "
+            "Vox.",
+            kind="warning",
+            confirm_label="Mở thẻ Giọng đọc",
+            cancel_label="Đóng",
+            detail="Câu chưa có giọng: "
+                   + ", ".join(str(i) for i in san_sang.thieu_giong[:60])
+                   + (" …" if len(san_sang.thieu_giong) > 60 else ""))
+        if dong_y:
+            self._show_tab("voice")
+        return True
+
     def _export(self) -> None:
         from autodub_gui.workers import RebuildWorker
 
@@ -282,6 +331,8 @@ class VoiceAndExportMixin:
             if not confirmed:
                 self._show_tab("voice")
                 return
+        if self._chan_neu_thieu_giong():
+            return
         if self._dirty_ids:
             confirmed, _ = ConfirmDialog.ask(
                 self, "Còn câu chưa đọc lại",

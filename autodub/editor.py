@@ -1082,6 +1082,57 @@ def _segments_dir(work_dir: str) -> str:
     return data_path(work_dir, "segments")
 
 
+@dataclass
+class SanSangXuat:
+    """Dự án này xuất video ra có tiếng không — mini-spec H4c-2.
+
+    ``thieu_giong`` là danh sách ``id`` câu CHƯA có tệp giọng đọc trên đĩa.
+    """
+
+    tong_cau: int
+    thieu_giong: list[int]
+
+    @property
+    def xuat_duoc(self) -> bool:
+        return self.tong_cau > 0 and not self.thieu_giong
+
+    @property
+    def cam_hoan_toan(self) -> bool:
+        """Không câu nào có giọng — xuất ra sẽ là video CÂM hoàn toàn."""
+        return self.tong_cau > 0 and len(self.thieu_giong) == self.tong_cau
+
+
+def kiem_san_sang_xuat(work_dir: str, target: TargetLang) -> SanSangXuat:
+    """Đếm những câu chưa có giọng đọc trước khi cho xuất video.
+
+    **Vì sao cần** (lỗi thật, H4c-2): dự án do `du_an_tu_kich_ban.dung_du_an()`
+    dựng ra có transcript và video nền, nhưng **không có tệp giọng nào** —
+    `data/segments/` rỗng. Bấm «Xuất video» ngay lúc đó thì:
+
+      * `_export` chỉ hỏi lại khi có câu vừa sửa hoặc giọng chưa áp dụng, mà
+        dự án mới dựng thì cả hai đều rỗng ⇒ đi thẳng;
+      * `build_merged_audio` ghi log ``Segment file not found ... skipping``
+        cho TỪNG câu rồi dựng một nền im lặng;
+      * `merge_video` vẫn mux ra tệp bình thường.
+
+    Kết quả: `dubbed_video.mp4` có hình, có phụ đề, **không có tiếng**, không
+    một lỗi hay cảnh báo nào. Người dùng tin là dự án hợp lệ.
+
+    Máy BIẾT thiếu giọng ngay từ trước khi chạy — nên phải nói ra, kèm việc
+    người dùng bấm được, thay vì dựng một tệp câm rồi để họ tự đoán.
+    """
+    segments, _ = _load_segments(work_dir, target)
+    seg_dir = _segments_dir(work_dir)
+    thieu = []
+    for seg in segments:
+        duong = seg_wav_path(seg_dir, seg["id"])
+        # Tệp rỗng cũng là thiếu: ffmpeg ghi hụt vẫn để lại một tệp 0 byte, và
+        # 0 byte thì `wav_duration_s` trả 0 rồi bước trộn cũng bỏ qua y hệt.
+        if not os.path.exists(duong) or os.path.getsize(duong) == 0:
+            thieu.append(int(seg["id"]))
+    return SanSangXuat(tong_cau=len(segments), thieu_giong=thieu)
+
+
 def _load_segments(work_dir: str, target: TargetLang) -> tuple[list[dict], str]:
     """Đọc danh sách câu thoại và trả về kèm đường dẫn tệp."""
     path = _transcript_path(work_dir, target)
