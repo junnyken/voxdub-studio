@@ -20,6 +20,34 @@ from autodub.utils import setup_logging
 
 logger = setup_logging("autodub_gui.workers")
 
+#: Lỗi của LẬP TRÌNH — câu của chúng không có nghĩa gì với người dùng.
+#: `AttributeError("'NoneType' object has no attribute 'strip'")` nói đúng
+#: chuyện gì xảy ra với máy, và tuyệt đối không nói gì với người đang chờ.
+_LOI_LAP_TRINH = (AttributeError, KeyError, TypeError, IndexError, NameError)
+
+
+def _ghi_loi(e: BaseException) -> str:
+    """Ghi TRACEBACK vào Nhật ký rồi trả câu cho giao diện.
+
+    Vì sao cần (lỗi thật 11/09/2026): chủ dự án phân tích một video, chờ gần
+    300 giây, rồi nhận đúng một dòng — *"Dừng lại: 'NoneType' object has no
+    attribute 'strip'"*. Cả 21 worker trong tệp này đều làm
+    `self.failed.emit(_ghi_loi(e))`, tức **vứt mất traceback**. Không có traceback
+    thì không ai định vị được lỗi: tôi đã tái hiện hai lượt chạy thật với
+    chính video đó mà không chạm được vào nó.
+
+    Lỗi không định vị được là lỗi không sửa được. Một dòng log ở đây rẻ hơn
+    nhiều giờ dò tìm.
+    """
+    logger.exception("Tác vụ nền hỏng: %s", e)
+    cau = str(e).strip()
+    if isinstance(e, _LOI_LAP_TRINH):
+        return (f"Lỗi ngoài dự tính ({type(e).__name__}: {cau}). Đây là lỗi "
+                "của phần mềm, không phải do bạn làm sai. Chi tiết đã ghi vào "
+                "Nhật ký — mở Trợ giúp › Mở thư mục ứng dụng, lấy tệp "
+                "`logs/voxdub.log` gửi cho người hỗ trợ.")
+    return cau
+
 
 # --- Lọc log cho người dùng --------------------------------------------------
 # GuiLogHandler chỉ chuyển những gì người dùng cần thấy lên khung Nhật ký.
@@ -93,7 +121,7 @@ class DubWorker(QThread):
         except PipelineCancelled:
             self.cancelled.emit()
         except Exception as e:  # noqa: BLE001 — surfaced to the user verbatim
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -135,7 +163,7 @@ class ExportWorker(QThread):
         except PipelineCancelled:
             self.cancelled.emit()
         except Exception as e:  # noqa: BLE001 — surfaced to the user verbatim
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -198,7 +226,7 @@ class SaveAllWorker(QThread):
         except PipelineCancelled:
             self.cancelled.emit()
         except Exception as e:  # noqa: BLE001 — surfaced to the user verbatim
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -247,7 +275,7 @@ class RebuildWorker(QThread):
         except PipelineCancelled:
             self.cancelled.emit()
         except Exception as e:  # noqa: BLE001
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -295,7 +323,7 @@ class SubtitleWorker(QThread):
         except PipelineCancelled:
             self.cancelled.emit()
         except Exception as e:  # noqa: BLE001
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -343,7 +371,7 @@ class SegmentPreviewWorker(QThread):
                 self.finished_ok.emit(out)
         except Exception as e:  # noqa: BLE001
             if not self._cancel_event.is_set():
-                self.failed.emit(str(e))
+                self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -409,7 +437,7 @@ class BatchWorker(QThread):
         except PipelineCancelled:
             self.cancelled.emit()
         except Exception as e:  # noqa: BLE001
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
         finally:
             if synth_cache is not None:
                 synth_cache.close()
@@ -441,7 +469,7 @@ class ProjectScanWorker(QThread):
         try:
             self.ready.emit(scan(self._output_dir, self._running_dir))
         except Exception as e:  # noqa: BLE001 — hiện thành màn hình lỗi
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
 
 
 class ThumbnailWorker(QRunnable):
@@ -653,7 +681,7 @@ class DownloadWorker(QThread):
                     self.item_status.emit(i, total, url, "failed", str(e)[:200])
             self.finished_ok.emit(success, failed)
         except Exception as e:  # noqa: BLE001 — e.g. thư mục lưu không tạo được
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -723,7 +751,7 @@ class TimelineThumbnailWorker(QThread):
                 self.ready.emit(results)
         except Exception as e:  # noqa: BLE001
             if not self._cancel_event.is_set():
-                self.failed.emit(str(e))
+                self.failed.emit(_ghi_loi(e))
 
 
 class ExportAudioWorker(QThread):
@@ -784,7 +812,7 @@ class ExportAudioWorker(QThread):
             self.finished_ok.emit(self._output_path)
         except Exception as e:  # noqa: BLE001
             if not self._cancel_event.is_set():
-                self.failed.emit(str(e))
+                self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -820,7 +848,7 @@ class PrefetchWorker(QThread):
                 self.finished_ok.emit(path)
         except Exception as e:  # noqa: BLE001
             if not self._cancel_event.is_set():
-                self.failed.emit(str(e))
+                self.failed.emit(_ghi_loi(e))
 
 
 class ExportSubsFileWorker(QThread):
@@ -875,7 +903,7 @@ class ExportSubsFileWorker(QThread):
                 self.finished_ok.emit(self._output_path)
         except Exception as e:  # noqa: BLE001
             if not self._cancel_event.is_set():
-                self.failed.emit(str(e))
+                self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -917,7 +945,7 @@ class SubtitleTranslateWorker(QThread):
                     self._settings)
             self.finished_ok.emit(result)
         except Exception as e:  # noqa: BLE001
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -959,7 +987,7 @@ class NhapPhuDeDichWorker(QThread):
                 dich_mode=self._mode, settings=self._settings)
             self.finished_ok.emit(ket)
         except Exception as e:  # noqa: BLE001
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -1054,7 +1082,7 @@ class FlowBlueprintWorker(QThread):
                 timeout=180.0)
             self.finished_ok.emit(ket)
         except Exception as e:  # noqa: BLE001 — lỗi tải/ASR/OCR/mạng thật
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
 
 
 class FlowBlueprintCrudWorker(QThread):
@@ -1161,7 +1189,7 @@ class DungDuAnWorker(QThread):
                              blueprint=self._blueprint)
             self.finished_ok.emit(ket)
         except Exception as e:  # noqa: BLE001 — mọi lỗi phải tới được giao diện
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
 
 
 class SinhAnhMinhHoaWorker(QThread):
@@ -1192,7 +1220,7 @@ class SinhAnhMinhHoaWorker(QThread):
                 tien_do=lambda i, tong: self.tien_do.emit(i, tong))
             self.finished_ok.emit(me)
         except Exception as e:  # noqa: BLE001 — mọi lỗi phải tới được giao diện
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
 
 
 class TranscribeWorker(QThread):
@@ -1242,7 +1270,7 @@ class TranscribeWorker(QThread):
                     i, tong, muc.source, muc.status, muc.error))
             self.finished_ok.emit(ket_qua)
         except Exception as e:  # noqa: BLE001 — lỗi tải/ASR thật, báo nguyên văn
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
         finally:
             detach_gui_logging(handler)
 
@@ -1276,7 +1304,7 @@ class AssistWorker(QThread):
             ket = get_client().assist(self._task, self._input,
                                       job_id=new_job_id(), timeout=60.0)
         except Exception as e:  # noqa: BLE001 — nơi gọi hiện lời thân thiện
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
             return
         if not ket:
             self.failed.emit("Trợ lý chưa trả lời được. Thử lại sau ít phút.")
@@ -1416,7 +1444,7 @@ class MusicSfxWorker(QThread):
             else:  # pragma: no cover - lỗi lập trình, không phải người dùng
                 self.failed.emit(f"Loại thao tác không hợp lệ: {self._kind}")
         except Exception as e:  # noqa: BLE001
-            self.failed.emit(str(e))
+            self.failed.emit(_ghi_loi(e))
 
 
 class CloudBatchWorker(QThread):
@@ -1514,7 +1542,7 @@ class ProductSceneWorker(QThread):
                 noi_goi=self._noi_goi)
         except Exception as e:  # noqa: BLE001 — lỗi phải lên tới người dùng
             logger.warning(f"Dựng bối cảnh hỏng: {e}")
-            self.hong.emit(str(e))
+            self.hong.emit(_ghi_loi(e))
             return
         self.xong.emit(phien)
 
@@ -1577,7 +1605,7 @@ class ProductVideoWorker(QThread):
                 kieu_chuyen=self._kieu_chuyen)
         except Exception as e:  # noqa: BLE001 — lý do phải tới người dùng
             logger.warning(f"Ghép video sản phẩm hỏng: {e}")
-            self.hong.emit(str(e))
+            self.hong.emit(_ghi_loi(e))
             return
         self.xong.emit(duong)
 
@@ -1633,6 +1661,6 @@ class CatTepWorker(QThread):
             phan = cat_deu(self._duong_dan, phut=self._phut)
         except Exception as e:  # noqa: BLE001 — lý do phải tới người dùng
             logger.warning(f"Cắt tệp hỏng: {e}")
-            self.hong.emit(str(e))
+            self.hong.emit(_ghi_loi(e))
             return
         self.xong.emit(phan)

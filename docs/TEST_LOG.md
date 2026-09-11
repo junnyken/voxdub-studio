@@ -16813,3 +16813,63 @@ H2→H3 đang chờ, và sửa đúng cách là thống nhất cả hai chỗ g�
 
 Máy chủ dự án có **16 GB RAM, 31 GB đĩa trống**, VieNeu và Whisper đã cài —
 đủ để chạy pilot H2→H3 đầy đủ.
+
+## Lỗi live: "'NoneType' object has no attribute 'strip'" (11/09/2026)
+
+Chủ dự án phân tích một video YouTube Shorts, chờ gần **300 giây**, rồi nhận
+đúng một dòng:
+
+    Dừng lại: 'NoneType' object has no attribute 'strip'
+
+### CHƯA tìm ra nguyên nhân — và vì sao
+
+Tôi chạy lại **hai lượt thật** với chính URL đó:
+
+| Lượt | Đường đi | Kết quả |
+|---|---|---|
+| 1 | Bộ đọc CỤC BỘ (workspace chưa nối máy chủ) | **XONG** — 10 câu, 822 quan sát |
+| 2 | Ép bộ đọc MÁY CHỦ + client giả | **XONG** — 10 câu, 63 quan sát |
+
+Không lượt nào chạm được vào lỗi. Đã soi tay từng `.strip()` trên đường H2
+(`flow_blueprint`, `text_regions`, `doc_chu_may_chu`, `downloader`,
+`saas_client`, `workers`) — tất cả đều bọc `str(...)` hoặc `(x or "")`.
+
+**Ứng viên duy nhất chưa bọc**: `transcribe_tool._output_basename()` dòng
+722 — nhưng nó KHÔNG nằm trên đường Flow Blueprint.
+
+### Nguyên nhân gốc của việc KHÔNG tìm ra được: worker vứt mất traceback
+
+Cả **22 worker** trong `autodub_gui/workers.py` làm
+`self.failed.emit(str(e))`. Không có traceback thì không ai định vị được —
+đúng chuyện vừa xảy ra: mất một buổi dò tìm chỉ vì thiếu một dòng log.
+
+Và câu `'NoneType' object has no attribute 'strip'` nói đúng chuyện gì xảy ra
+với máy, đồng thời **không nói gì** với người đang chờ 300 giây.
+
+### Bản vá: `_ghi_loi()`
+
+Ghi `logger.exception(...)` — traceback đầy đủ vào `logs/voxdub.log` — rồi
+mới trả câu cho giao diện. Với **lỗi lập trình** (`AttributeError`,
+`KeyError`, `TypeError`, `IndexError`, `NameError`) thì nói thẳng:
+
+> *Lỗi ngoài dự tính (AttributeError: …). Đây là lỗi của phần mềm, không phải
+> do bạn làm sai. Chi tiết đã ghi vào Nhật ký — mở Trợ giúp › Mở thư mục ứng
+> dụng, lấy tệp `logs/voxdub.log` gửi cho người hỗ trợ.*
+
+Lỗi **có câu người đọc được** (`SaasError`, `ThieuAnh`, "Không đủ Vox…") thì
+**giữ nguyên** — bọc mọi thứ vào một câu chung là mất thông tin.
+
+Áp cho cả 22 chỗ `failed.emit` và 3 chỗ `hong.emit`.
+
+### Test
+
+`tests/test_worker_ghi_traceback.py` (4), gồm chốt chỗ GỌI:
+`assert "emit(str(e))" not in ma` — còn một worker nào vứt traceback là đỏ.
+Đây là lớp sai "chốt thân hàm mà quên chốt chỗ gọi" đã mắc bốn lần.
+
+### Việc còn lại
+
+Cần **tệp log từ máy chủ dự án**. Lần chạy tới sẽ có traceback đầy đủ chỉ
+đúng dòng. Trước khi có nó, mọi phỏng đoán về nguyên nhân đều là phỏng đoán.
+
+Python: **2.736 passed / 0 fail**.
