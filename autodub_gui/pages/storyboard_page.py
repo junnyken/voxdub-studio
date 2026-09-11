@@ -345,18 +345,61 @@ class StoryboardPage(BasePage):
                 dat += 1
         self._ve()
 
-        truot = [k for k in me.ket_qua if not k.dung_duoc]
-        if truot:
-            # Người dùng đã trả tiền cho những tấm này — họ có quyền biết vì
-            # sao chúng không dùng được, không phải chỉ thấy một con số hụt.
-            ConfirmDialog.show_error(
-                self, f"{len(truot)} ảnh không dùng được",
-                f"Đã vẽ {len(me.ket_qua)} ảnh, {dat} ảnh dùng được. "
-                f"{len(truot)} ảnh bị loại vì không qua được bước kiểm — "
-                "Vox của những ảnh đó vẫn bị trừ vì máy chủ đã vẽ chúng.",
-                detail="\n".join(f"• {k.goi_y[:60]} → {k.ly_do}" for k in truot))
-        elif dat:
-            TOASTS.success(f"Đã vẽ xong {dat} ảnh.")
+        if me.trang_thai == "xong":
+            TOASTS.success(f"Đã vẽ xong {dat} ảnh — hết {me.vox_da_mat} Vox.")
+            return
+
+        # --- Mẻ hỏng: NÓI RA ĐỦ (mini-spec H4d-0) -------------------------
+        # Trước H4d-0, `me.hong` được ghi mà không nơi nào đọc: hỏng cả mẻ thì
+        # màn hình im lặng hoàn toàn — không hộp thoại, không toast, chỉ còn
+        # dòng "Còn N đoạn chưa có ảnh" y như lúc chưa bấm. Người dùng bấm
+        # nút, chờ vài phút, rồi không biết chuyện gì đã xảy ra hay mất bao
+        # nhiêu tiền.
+        if me.trang_thai == "hong_ca_me":
+            tieu_de = "Không vẽ được ảnh nào"
+            dau_cau = f"Cả {me.so_yeu_cau} đoạn đều không có ảnh dùng được."
+        else:
+            tieu_de = f"{dat}/{me.so_yeu_cau} ảnh dùng được"
+            dau_cau = (f"{dat} ảnh đã vào video, "
+                       f"{me.so_yeu_cau - dat} đoạn thì chưa.")
+
+        tien = f"Đã trừ {me.vox_da_mat} Vox"
+        if me.vox_mat_khong_duoc_gi:
+            tien += (f", trong đó {me.vox_mat_khong_duoc_gi} Vox không đổi "
+                     "được ảnh nào dùng được")
+        tien += "."
+
+        viec = ("Bấm «Vẽ» lại ở từng đoạn còn thiếu để thử lần nữa — mỗi lần "
+                f"thử tốn thêm {GIA_MOI_ANH} Vox."
+                if me.thu_lai_duoc else
+                "Thử lại sẽ ra đúng kết quả này, nên hãy chọn ảnh của bạn cho "
+                "các đoạn còn thiếu.")
+
+        ConfirmDialog.show_error(
+            self, tieu_de, f"{dau_cau} {tien}\n\n{viec}",
+            detail=self._chi_tiet_me(me))
+
+    @staticmethod
+    def _chi_tiet_me(me) -> str:
+        """Từng đoạn: hỏng vì gì, mất bao nhiêu, thử lại có ích không.
+
+        Gộp cả hai loại hỏng vào MỘT danh sách theo số đoạn: ảnh vẽ được
+        nhưng trượt kiểm, và đoạn không vẽ được lượt nào. Người dùng nhìn
+        theo đoạn, không nhìn theo cách hệ thống phân loại lỗi.
+        """
+        dong: list[tuple[int, str]] = []
+        for k in me.ket_qua:
+            if k.dung_duoc:
+                continue
+            dong.append((k.chi_so,
+                         f"Đoạn {k.chi_so + 1}: {k.vi_sao_khong_dung_duoc} "
+                         f"— đã trừ {k.vox} Vox"))
+        for h in me.hong:
+            them = "" if h.thu_lai_duoc else " (thử lại cũng vậy)"
+            dong.append((h.chi_so,
+                         f"Đoạn {h.chi_so + 1}: {h.ly_do}"
+                         f" — đã trừ {h.vox} Vox{them}"))
+        return "\n".join(t for _, t in sorted(dong))
 
     def _ve_anh_hong(self, message: str) -> None:
         self.btn_ve_het.setEnabled(True)

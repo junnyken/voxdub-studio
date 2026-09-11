@@ -38,6 +38,18 @@ NHAN = "AI-generated — anh minh hoa"
 #: Tên tệp nhật ký tra soát, nằm cạnh ảnh.
 NHAT_KY = "nhat_ky_anh_minh_hoa.json"
 
+#: Mã lỗi mà THỬ LẠI cũng ra đúng câu trả lời đó — khác `_KHONG_THU_LAI` ở
+#: chỗ: những mã kia dừng CẢ MẺ, còn những mã này chỉ nói với người dùng
+#: "đừng bấm lại nút thử lại cho đoạn này". Bảo họ thử lại một thứ không thể
+#: khác đi là làm mất thời gian và có khi mất tiền.
+_KHONG_THU_LAI_ME = frozenset({
+    "IMAGE_STAGE_OFF", "IMAGE_STAGE_CALIBRATION",  # cửa đóng
+    "INSUFFICIENT_CREDIT",                          # hết Vox
+    "DAILY_LIMIT", "DAILY_LIMIT_CONCEPT",           # hết hạn mức ngày
+    "NO_PROVIDER", "PROVIDER_MISCONFIGURED",        # chưa cấu hình nơi gọi
+    "KHONG_THAY_NOI_GOI",
+})
+
 
 @dataclass
 class AnhMinhHoa:
@@ -52,34 +64,119 @@ class AnhMinhHoa:
     #: theo thứ tự trong danh sách thì một đoạn hỏng giữa mẻ đẩy lệch toàn bộ
     #: phần sau, và ảnh đi lên nhầm đoạn mà không có triệu chứng nào.
     chi_so: int = -1
-    vox: int = 0
+    #: Vox của lượt VẼ và lượt KIỂM, tách riêng. Mỗi ảnh là HAI lượt tính
+    #: tiền; gộp làm một thì lúc lượt kiểm hỏng không nói được người dùng vừa
+    #: mất bao nhiêu và vì việc gì.
+    vox_ve: int = 0
+    vox_kiem: int = 0
     bam: str = ""
     da_dong_nhan: bool = False
+
+    @property
+    def vox(self) -> int:
+        """Tổng Vox thật sự đã mất cho tấm ảnh này."""
+        return self.vox_ve + self.vox_kiem
 
     @property
     def dung_duoc(self) -> bool:
         """Ảnh này có được ghép vào video không."""
         return self.phan_quyet == "DAT" and self.da_kiem and self.da_dong_nhan
 
+    @property
+    def vi_sao_khong_dung_duoc(self) -> str:
+        """Nói ĐÚNG chuyện gì hỏng — ba nguyên nhân cần ba cách chữa khác nhau."""
+        if self.dung_duoc:
+            return ""
+        if not self.da_kiem:
+            return f"chưa kiểm được ({self.ly_do})"
+        if self.phan_quyet != "DAT":
+            return f"ảnh có sản phẩm hoặc chữ đọc được ({self.ly_do})"
+        return "không đóng được nhãn AI-generated lên ảnh"
+
+
+@dataclass
+class DoanHong:
+    """Một đoạn KHÔNG vẽ được — mini-spec H4d-0.
+
+    Không đủ nếu chỉ giữ lý do: người dùng cần biết **có mất tiền không** và
+    **thử lại có ích không**. Hai câu hỏi đó quyết định việc họ bấm tiếp.
+    """
+
+    chi_so: int
+    ly_do: str
+    #: Vox đã mất cho đoạn này dù không có ảnh nào tới nơi.
+    vox: int = 0
+    #: Thử lại có cơ hội khác kết quả không. Cửa đang tắt hay chưa nối tài
+    #: khoản thì thử lại bao nhiêu lần cũng ra đúng câu trả lời đó.
+    thu_lai_duoc: bool = True
+
 
 @dataclass
 class MeAnh:
-    """Một lượt sinh nhiều ảnh minh hoạ."""
+    """Một lượt sinh nhiều ảnh minh hoạ, kèm đủ thứ để giao diện nói ra được.
+
+    Trước H4d-0, `hong` được ghi nhưng **không nơi nào đọc** — mẻ hỏng cả mẻ
+    thì màn hình im lặng hoàn toàn: không hộp thoại, không toast, chỉ còn
+    dòng "Còn N đoạn chưa có ảnh" y như lúc chưa bấm. Người dùng bấm nút,
+    chờ, rồi không được biết chuyện gì đã xảy ra hay đã mất bao nhiêu.
+    """
 
     thu_muc: str
     ket_qua: list[AnhMinhHoa] = field(default_factory=list)
-    #: (chỉ số đoạn, lý do) cho từng đoạn KHÔNG sinh được.
-    hong: list[tuple[int, str]] = field(default_factory=list)
+    hong: list[DoanHong] = field(default_factory=list)
 
     @property
     def so_dung_duoc(self) -> int:
         return sum(1 for k in self.ket_qua if k.dung_duoc)
 
+    @property
+    def so_yeu_cau(self) -> int:
+        return len(self.ket_qua) + len(self.hong)
 
-def kiem_anh(khach, anh: dict, *, goi_y: str = "") -> tuple[str, str, bool]:
+    @property
+    def vox_da_mat(self) -> int:
+        """Tổng Vox thật sự đã trừ trong cả mẻ, kể cả cho ảnh bỏ đi."""
+        return sum(k.vox for k in self.ket_qua) + sum(h.vox for h in self.hong)
+
+    @property
+    def vox_mat_khong_duoc_gi(self) -> int:
+        """Phần tiền đã trả mà không nhận được ảnh dùng được.
+
+        Đây là con số người dùng cần thấy nhất, và cũng là con số dễ bị giấu
+        nhất: nó nằm rải giữa ảnh trượt kiểm và đoạn vẽ hỏng.
+        """
+        return (sum(k.vox for k in self.ket_qua if not k.dung_duoc)
+                + sum(h.vox for h in self.hong))
+
+    @property
+    def trang_thai(self) -> str:
+        """`xong` | `hong_mot_phan` | `hong_ca_me` — ba ca, ba cách nói."""
+        if not self.so_yeu_cau:
+            return "xong"
+        if self.so_dung_duoc == self.so_yeu_cau:
+            return "xong"
+        if self.so_dung_duoc == 0:
+            return "hong_ca_me"
+        return "hong_mot_phan"
+
+    @property
+    def thu_lai_duoc(self) -> bool:
+        """Có đoạn nào thử lại còn có ích không.
+
+        Ảnh trượt kiểm thì vẽ lại CÓ THỂ ra khác (mô hình không tất định),
+        nhưng đoạn hỏng vì cửa đóng thì không.
+        """
+        return (any(h.thu_lai_duoc for h in self.hong)
+                or any(not k.dung_duoc for k in self.ket_qua))
+
+
+def kiem_anh(khach, anh: dict, *, goi_y: str = "") -> tuple[str, str, bool, int]:
     """Hỏi máy chủ: ảnh này có lỡ vẽ ra sản phẩm nào không?
 
-    Trả ``(phan_quyet, ly_do, da_kiem)``. Hỏng thì trả ``CO_SAN_PHAM`` —
+    Trả ``(phan_quyet, ly_do, da_kiem, vox)``. ``vox`` là tiền THẬT của lượt
+    kiểm, đọc từ trả lời của máy chủ chứ không đoán bằng hằng số ở máy khách —
+    đoán là đúng lớp lỗi "giá hiện ra khác giá bị trừ". Hỏng thì trả
+    ``CO_SAN_PHAM`` —
     nghiêng về phía an toàn, y như `product_scene.kiem_tuan_thu`: đoán sai
     theo hướng an toàn chỉ mất một tấm ảnh, đoán sai hướng kia là người bán
     mất tài khoản.
@@ -87,7 +184,8 @@ def kiem_anh(khach, anh: dict, *, goi_y: str = "") -> tuple[str, str, bool]:
     from autodub.saas_client import new_job_id
 
     try:
-        ket = khach.assist(
+        # `assist_day_du` chứ không phải `assist`: cần cả `creditCharged`.
+        goi = khach.assist_day_du(
             "kiem_anh_minh_hoa", {"note": goi_y[:400]},
             images=[anh], job_id=new_job_id(), timeout=90.0)
     except Exception as e:  # noqa: BLE001 — mọi lỗi đều nghiêng về an toàn
@@ -96,16 +194,19 @@ def kiem_anh(khach, anh: dict, *, goi_y: str = "") -> tuple[str, str, bool]:
         logger.warning(f"Không kiểm được ảnh minh hoạ ({str(e)[:120]}) — "
                        "đánh dấu là không dùng được cho chắc")
         return ("CO_SAN_PHAM",
-                f"chưa kiểm được ({str(e)[:80]}) — đánh dấu an toàn", False)
+                f"chưa kiểm được ({str(e)[:80]}) — đánh dấu an toàn", False, 0)
 
+    vox = int((goi or {}).get("creditCharged") or 0)
+    ket = (goi or {}).get("results")
+    ket = ket if isinstance(ket, list) else []
     if not ket:
-        return "CO_SAN_PHAM", "máy chủ không trả kết quả kiểm", False
+        return "CO_SAN_PHAM", "máy chủ không trả kết quả kiểm", False, vox
     dau = ket[0]
     gia_tri = str(dau.get("value", "")).strip().upper()
     ly_do = str(dau.get("reason", "")).strip() or "không rõ"
     if gia_tri not in ("DAT", "CO_SAN_PHAM"):
-        return "CO_SAN_PHAM", f"kết quả kiểm lạ ({gia_tri[:20]})", False
-    return gia_tri, ly_do, True
+        return "CO_SAN_PHAM", f"kết quả kiểm lạ ({gia_tri[:20]})", False, vox
+    return gia_tri, ly_do, True, vox
 
 
 def sinh_mot_anh(goi_y: str, thu_muc_ra: str, *, ten_tep: str = "",
@@ -143,12 +244,14 @@ def sinh_mot_anh(goi_y: str, thu_muc_ra: str, *, ten_tep: str = "",
         logger.warning(f"Không chuẩn bị được ảnh để kiểm ({e})")
         anh_de_kiem = anh_moi
 
-    phan_quyet, ly_do, da_kiem = kiem_anh(khach, anh_de_kiem, goi_y=goi_y)
+    phan_quyet, ly_do, da_kiem, vox_kiem = kiem_anh(khach, anh_de_kiem,
+                                                    goi_y=goi_y)
     da_dong_nhan = dong_nhan_chu(ra_path, NHAN)
 
     return AnhMinhHoa(
         duong_dan=ra_path, goi_y=goi_y, phan_quyet=phan_quyet, ly_do=ly_do,
-        da_kiem=da_kiem, vox=int(tra_ve.get("creditCharged") or 0),
+        da_kiem=da_kiem, vox_ve=int(tra_ve.get("creditCharged") or 0),
+        vox_kiem=vox_kiem,
         # Băm SAU khi đóng nhãn: tệp trên đĩa lúc này mới là tệp cuối cùng,
         # và đó mới là thứ cần khớp lúc ghép video (mini-spec C6).
         bam=bam_tep(ra_path), da_dong_nhan=da_dong_nhan)
@@ -178,5 +281,11 @@ def sinh_nhieu_anh(goi_y_theo_doan: list[tuple[int, str]], thu_muc_ra: str, *,
                 raise
             logger.warning(f"Không vẽ được ảnh cho đoạn {chi_so + 1} "
                            f"({str(e)[:120]})")
-            me.hong.append((chi_so, str(e)[:200]))
+            me.hong.append(DoanHong(
+                chi_so=chi_so, ly_do=str(e)[:200],
+                # Máy chủ chỉ trừ tiền SAU khi đã vẽ xong (`charge()` đứng sau
+                # `gateway.generateStoryImage` ở route `/story-image`), nên
+                # ném ở đây nghĩa là chưa mất Vox nào cho đoạn này.
+                vox=0,
+                thu_lai_duoc=getattr(e, "code", "") not in _KHONG_THU_LAI_ME))
     return me

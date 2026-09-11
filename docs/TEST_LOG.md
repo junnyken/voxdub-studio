@@ -16332,3 +16332,57 @@ Nay cả hai lớp đều đỏ được:
 `test_du_an_H4c_THAT_vua_dung_xong_thi_bi_chan` gọi thẳng `dung_du_an()` như
 người dùng rồi hỏi cổng xuất — chỗ lỗi đã trốn, vì mọi test H4c trước chỉ
 chứng minh dự án **mở** được, chưa ai hỏi nó có xuất ra tiếng không.
+
+## H4d-0 — Lỗi mẻ vẽ ảnh phải TỚI ĐƯỢC màn hình (11/09/2026)
+
+Cổng cuối trước khi được phép gọi cửa sinh ảnh có tính tiền thật.
+
+### Lỗ
+
+`me.hong` được ghi nhưng **không nơi nào đọc** — xác nhận bằng grep toàn kho.
+`_ve_anh_xong` chỉ duyệt `me.ket_qua`. Hậu quả khi cả mẻ hỏng (chưa nối tài
+khoản, rớt mạng, cửa đóng): `ket_qua` rỗng ⇒ `truot` rỗng ⇒ `dat = 0` ⇒
+**không hộp thoại, không toast**, chỉ còn dòng "Còn N đoạn chưa có ảnh" y
+như lúc chưa bấm. Người dùng bấm nút, chờ vài phút, rồi không biết chuyện gì
+đã xảy ra.
+
+Và một lỗ về tiền: `AnhMinhHoa.vox` chỉ ghi tiền lượt VẼ. Lượt kiểm
+(`kiem_anh_minh_hoa`, 3 Vox) **vô hình** vì `saas_client.assist()` vứt
+`creditCharged` vào sổ dùng chung rồi chỉ trả `results`.
+
+### Bản vá
+
+**Tiền đọc từ máy chủ, không đoán bằng hằng số.** Thêm `assist_day_du()` trả
+nguyên gói. `AnhMinhHoa` tách `vox_ve` / `vox_kiem`; `kiem_anh()` trả thêm
+số Vox thật. Đoán bằng hằng số ở máy khách là đúng lớp lỗi "giá hiện ra khác
+giá bị trừ" vừa phải sửa hôm qua.
+
+**`DoanHong` thay cho tuple**: mỗi đoạn hỏng mang theo `vox` đã mất và
+`thu_lai_duoc`. Hai câu hỏi quyết định việc người dùng bấm tiếp: *có mất tiền
+không* và *thử lại có ích không*.
+
+`_KHONG_THU_LAI_ME` — cửa đóng, hết Vox, hết hạn mức, chưa cấu hình nơi gọi.
+Khác `_KHONG_THU_LAI` ở chỗ: những mã kia dừng CẢ MẺ, những mã này chỉ nói
+"đừng bấm thử lại cho đoạn này".
+
+**`MeAnh` biết tự kể**: `trang_thai` (`xong` | `hong_mot_phan` | `hong_ca_me`
+— **ba** ca, ba cách nói), `vox_da_mat`, và `vox_mat_khong_duoc_gi` — con số
+người dùng cần thấy nhất và cũng dễ bị giấu nhất, vì nó nằm rải giữa ảnh
+trượt kiểm và đoạn vẽ hỏng.
+
+**Giao diện nói đủ ba thứ**: chuyện gì xảy ra, mất bao nhiêu (kể cả phần mất
+trắng), và việc bấm được. Thử lại có ích thì nói rõ **tốn thêm bao nhiêu**;
+không có ích thì nói thẳng *"Thử lại sẽ ra đúng kết quả này"* và hướng sang
+chọn ảnh của mình.
+
+Chi tiết gộp **cả hai loại hỏng vào một danh sách theo số đoạn** — người dùng
+nhìn theo đoạn, không nhìn theo cách hệ thống phân loại lỗi.
+
+### Test
+
+`tests/test_storyboard_page.py` +7 (32 tổng). **Đã chứng minh đỏ**: khôi phục
+nhánh cũ ⇒ **5 test đỏ**.
+
+Trong đó `test_trang_thai_me_phan_ba_ca_khong_phai_hai` chốt ca dễ sót nhất:
+ảnh vẽ được nhưng **không đoạn nào đạt** vẫn phải là `hong_ca_me`, không phải
+`hong_mot_phan` — vì người dùng vẫn chẳng có ảnh nào, dù đã mất tiền.

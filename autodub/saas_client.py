@@ -714,6 +714,18 @@ class SaasClient:
         self._note_usage(data)
         return data
 
+    def assist_day_du(self, task: str, input_data: dict, **kw) -> dict:
+        """Như ``assist()`` nhưng trả NGUYÊN gói, kể cả ``creditCharged``.
+
+        Vì sao cần (mini-spec H4d-0): ``assist()`` vứt ``creditCharged`` vào
+        sổ dùng chung rồi chỉ trả ``results``. Với đường vẽ ảnh minh hoạ, mỗi
+        tấm là HAI lượt tính tiền — vẽ (30 Vox) và kiểm (3 Vox) — nên nơi gọi
+        không có cách nào nói cho người dùng biết họ vừa mất bao nhiêu khi
+        lượt kiểm hỏng giữa chừng. Đoán bằng hằng số ở máy khách là đúng lớp
+        lỗi "giá hiện ra khác giá bị trừ" vừa phải sửa.
+        """
+        return self._assist_goi(task, input_data, **kw)
+
     def assist(self, task: str, input_data: dict, *, job_id: str,
                images: list[dict] | None = None,
                hold_id: str | None = None, timeout: float = 45.0) -> list[dict]:
@@ -729,6 +741,14 @@ class SaasClient:
         Ném :class:`SaasError` khi hỏng — mọi nơi gọi hàm này đều phải có
         đường lui chạy trên máy (xem `music_suggest.goi_y_nhac`).
         """
+        data = self._assist_goi(task, input_data, job_id=job_id, images=images,
+                                hold_id=hold_id, timeout=timeout)
+        ket_qua = data.get("results")
+        return ket_qua if isinstance(ket_qua, list) else []
+
+    def _assist_goi(self, task: str, input_data: dict, *, job_id: str,
+                    images: list[dict] | None = None,
+                    hold_id: str | None = None, timeout: float = 45.0) -> dict:
         payload = {"jobId": job_id, "task": task, "input": input_data or {}}
         if images:
             payload["images"] = images
@@ -737,8 +757,7 @@ class SaasClient:
         data = self._request("POST", "/v1/ai/assist", timeout=timeout,
                              json_body=payload)
         self._note_usage(data)
-        ket_qua = data.get("results")
-        return ket_qua if isinstance(ket_qua, list) else []
+        return data
 
     def generate_post(self, script_original: str, script_vi: str, *,
                       job_id: str, video_title: str = "",

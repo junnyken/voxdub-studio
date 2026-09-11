@@ -26,11 +26,16 @@ class _KhachGia:
         anh = {"mimeType": "image/png", "data": "QUJD"} if self.co_anh else {}
         return {"image": anh, "creditCharged": 30}
 
-    def assist(self, task, input, **kw):
+    def assist_day_du(self, task, input, **kw):
+        """Máy chủ trả NGUYÊN gói, kể cả `creditCharged` — mini-spec H4d-0.
+
+        Mỗi ảnh là HAI lượt tính tiền (vẽ 30 + kiểm 3); gộp làm một thì lúc
+        lượt kiểm hỏng không nói được người dùng vừa mất bao nhiêu.
+        """
         self.da_goi.append(("kiem", task))
         if self.loi_kiem:
             raise self.loi_kiem
-        return self.tra_kiem
+        return {"results": self.tra_kiem, "creditCharged": 3}
 
 
 @pytest.fixture()
@@ -91,7 +96,9 @@ def test_dat_va_da_dong_nhan_thi_moi_dung_duoc(moi_truong):
     k = _KhachGia(tra_kiem=[{"value": "DAT", "reason": "chỉ có bối cảnh bếp"}])
     ra = _sinh(k, moi_truong)
     assert ra.dung_duoc
-    assert ra.vox == 30
+    assert ra.vox_ve == 30
+    assert ra.vox_kiem == 3, "tiền lượt kiểm phải đọc từ máy chủ, không đoán"
+    assert ra.vox == 33, "giá THẬT của một ảnh là 33 Vox, không phải 30"
 
 
 # ------------------------------------------------------ nhãn bắt buộc ------
@@ -147,7 +154,10 @@ def test_mot_doan_hong_khong_giet_ca_me(moi_truong, monkeypatch):
     monkeypatch.setattr(si, "sinh_mot_anh", _sinh_gia)
     me = si.sinh_nhieu_anh([(0, "a"), (1, "b"), (2, "c")], str(moi_truong))
     assert me.so_dung_duoc == 2
-    assert me.hong == [(1, "mô hình từ chối vẽ")]
+    assert [(h.chi_so, h.ly_do) for h in me.hong] == [(1, "mô hình từ chối vẽ")]
+    # Máy chủ chỉ trừ tiền SAU khi vẽ xong, nên đoạn ném lỗi = chưa mất Vox.
+    assert me.hong[0].vox == 0
+    assert me.hong[0].thu_lai_duoc is True
 
 
 def test_cua_dang_tat_thi_DUNG_ca_me_ngay(moi_truong, monkeypatch):

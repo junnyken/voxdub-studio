@@ -300,3 +300,104 @@ def test_dung_xong_thi_yeu_cau_mo_Trinh_chinh_sua(page):
 
     page._xong(_Ket())
     assert nhan == ["/tmp/duan_gia"]
+
+
+# ============================================================ H4d-0 =========
+# Lỗi mẻ phải TỚI ĐƯỢC màn hình, kèm tiền và việc làm được.
+#
+# Trước H4d-0: `me.hong` được ghi mà KHÔNG NƠI NÀO ĐỌC. Hỏng cả mẻ thì màn
+# hình im lặng hoàn toàn — không hộp thoại, không toast, chỉ còn dòng "Còn N
+# đoạn chưa có ảnh" y như lúc chưa bấm. Người dùng bấm nút, chờ vài phút, rồi
+# không biết chuyện gì đã xảy ra hay mất bao nhiêu tiền.
+
+def _me(ket_qua=(), hong=()):
+    m = sp_story.MeAnh(thu_muc="/tmp")
+    m.ket_qua = list(ket_qua)
+    m.hong = list(hong)
+    return m
+
+
+def _hong(chi_so, ly_do="mô hình từ chối vẽ", vox=0, thu_lai=True):
+    return sp_story.DoanHong(chi_so=chi_so, ly_do=ly_do, vox=vox,
+                             thu_lai_duoc=thu_lai)
+
+
+def _bat_hop_thoai(monkeypatch):
+    thay = {}
+    monkeypatch.setattr(sp.ConfirmDialog, "show_error", staticmethod(
+        lambda _p, tieu_de, loi, detail="": thay.update(
+            tieu_de=tieu_de, loi=loi, detail=detail)))
+    return thay
+
+
+def test_hong_CA_ME_thi_KHONG_duoc_im_lang(page, monkeypatch):
+    thay = _bat_hop_thoai(monkeypatch)
+    page.dat_kich_ban(_kich_ban())
+    page._ve_anh_xong(_me(hong=[_hong(0), _hong(1)]))
+
+    assert thay, "hỏng cả mẻ mà màn hình không nói gì"
+    assert "Không vẽ được ảnh nào" in thay["tieu_de"]
+    assert "Đoạn 1" in thay["detail"] and "Đoạn 2" in thay["detail"]
+
+
+def test_noi_ro_SO_TIEN_da_mat_va_phan_mat_khong_duoc_gi(page, monkeypatch):
+    thay = _bat_hop_thoai(monkeypatch)
+    page.dat_kich_ban(_kich_ban())
+    # Đoạn 1 vẽ được nhưng trượt kiểm ⇒ mất 33 Vox mà không có ảnh.
+    truot = _ket(0, dat=False, ly_do="có hộp có nhãn")
+    truot.vox_ve, truot.vox_kiem = 30, 3
+    page._ve_anh_xong(_me(ket_qua=[truot, _ket(1)], hong=[]))
+
+    assert "33 Vox không đổi được ảnh nào dùng được" in thay["loi"], thay["loi"]
+
+
+def test_hong_vi_cua_dong_thi_KHONG_bao_thu_lai(page, monkeypatch):
+    """Bảo người dùng thử lại một thứ không thể khác đi là làm mất thời gian
+    và có khi mất tiền."""
+    thay = _bat_hop_thoai(monkeypatch)
+    page.dat_kich_ban(_kich_ban())
+    page._ve_anh_xong(_me(hong=[_hong(0, "Tính năng đang tắt.", thu_lai=False),
+                                _hong(1, "Tính năng đang tắt.", thu_lai=False)]))
+
+    assert "Thử lại sẽ ra đúng kết quả này" in thay["loi"]
+    assert "thử lại cũng vậy" in thay["detail"]
+
+
+def test_hong_tam_thoi_thi_CO_bao_thu_lai_kem_gia(page, monkeypatch):
+    thay = _bat_hop_thoai(monkeypatch)
+    page.dat_kich_ban(_kich_ban())
+    page._ve_anh_xong(_me(hong=[_hong(0), _hong(1)]))
+
+    assert "Bấm «Vẽ» lại" in thay["loi"]
+    assert str(sp.GIA_MOI_ANH) in thay["loi"], "phải nói rõ thử lại tốn bao nhiêu"
+
+
+def test_chi_tiet_gop_HAI_loai_hong_theo_so_doan(page, monkeypatch):
+    """Người dùng nhìn theo ĐOẠN, không nhìn theo cách hệ thống phân loại lỗi."""
+    thay = _bat_hop_thoai(monkeypatch)
+    page.dat_kich_ban(_kich_ban(beats=[_beat(f"Câu {i}.") for i in range(3)]))
+    truot = _ket(1, dat=False, ly_do="có chữ trên hình")
+    truot.vox_ve, truot.vox_kiem = 30, 3
+    page._ve_anh_xong(_me(ket_qua=[_ket(0), truot], hong=[_hong(2)]))
+
+    dong = [d for d in thay["detail"].splitlines() if d.strip()]
+    assert [d.split(":")[0] for d in dong] == ["Đoạn 2", "Đoạn 3"], dong
+
+
+def test_ca_me_XONG_thi_khong_doa_nguoi_dung(page, monkeypatch):
+    monkeypatch.setattr(sp.ConfirmDialog, "show_error", staticmethod(
+        lambda *a, **k: pytest.fail("mẻ thành công mà vẫn hiện hộp lỗi")))
+    page.dat_kich_ban(_kich_ban())
+    me = _me(ket_qua=[_ket(0), _ket(1)])
+    for k in me.ket_qua:
+        k.vox_ve, k.vox_kiem = 30, 3
+    page._ve_anh_xong(me)
+    assert page._anh == ["/tmp/doan_0.jpg", "/tmp/doan_1.jpg"]
+
+
+def test_trang_thai_me_phan_ba_ca_khong_phai_hai():
+    assert _me(ket_qua=[_ket(0)]).trang_thai == "xong"
+    assert _me(ket_qua=[_ket(0), _ket(1, dat=False)]).trang_thai == "hong_mot_phan"
+    assert _me(hong=[_hong(0)]).trang_thai == "hong_ca_me"
+    # Ảnh vẽ được nhưng trượt kiểm mà không đoạn nào đạt ⇒ vẫn là hỏng cả mẻ.
+    assert _me(ket_qua=[_ket(0, dat=False)]).trang_thai == "hong_ca_me"
