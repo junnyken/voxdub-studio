@@ -16639,3 +16639,75 @@ dùng biết phải cài lại bản nào.
   nó chạy được, mà chính đó mới là chỗ hỏng.
 - `test_drawtext_nam_trong_bo_kiem_chung` — gỡ khỏi `run_preflight` ⇒ **đỏ**.
   Đúng lớp sai "chốt thân hàm mà quên chốt chỗ gọi" đã mắc bốn lần.
+
+## RS-20 vòng hai: sửa overclaim + chẩn đoán + toàn vẹn tham chiếu (11/09)
+
+Ba điểm chủ dự án nêu sau khi đọc bản đầu. Cả ba đều đúng.
+
+### 1. Overclaim về tuân thủ — lỗi của tôi
+
+Bản đầu để câu chữ hàm ý mục kiểm này chứng minh "tuân thủ TikTok". **Không
+đúng.** Nó xác minh **một khả năng kỹ thuật của máy**: ffmpeg có dựng được
+chữ lên khung hình hay không.
+
+Tuân thủ còn phụ thuộc bao bì có khớp sản phẩm thật không
+(`packaging_check`), ảnh minh hoạ có lỡ vẽ ra sản phẩm không
+(`kiem_anh_minh_hoa`), câu chữ có hứa quá không, và cả những thứ nằm ngoài
+phần mềm. Mục này chỉ là **một điều kiện cần**.
+
+Đã sửa: thêm đoạn "phạm vi" vào docstring, và đổi câu báo kết quả từ *"Đóng
+được nhãn AI-generated lên hình"* thành *"Dựng được chữ lên khung hình"* —
+nói đúng thứ đã đo.
+
+### 2. Chẩn đoán: đường dẫn ffmpeg + mốc thời gian
+
+Máy có nhiều bản ffmpeg là chuyện thường (PATH hệ thống, `bin/` cạnh app,
+bản vừa cài đè). "Đã kiểm, đạt" mà không nói kiểm bản NÀO thì lúc truy lại
+không dùng được. Nay cả hai ca đều kèm:
+
+    Đã kiểm lúc 11/09/2026 13:49 bằng: /usr/bin/ffmpeg
+
+Và lời khuyên lúc hỏng thêm một câu: **chỉ cài MỘT bản** — nhiều bản cùng lúc
+thì lần sau không truy được lỗi ở bản nào.
+
+### 3. Toàn vẹn tham chiếu khi đổi không gian mã
+
+Nhận xét sắc nhất: *"namespace migration phải có test cho reference
+integrity, không chỉ test uniqueness."*
+
+Chốt `test_so_mini_spec_khong_trung` bắt được lúc tôi đặt mã `C20` cho một
+phát hiện. Nhưng nó **không** bắt được lỗi tiếp theo: phép thay hàng loạt
+`C<n>` → `RS-<n>` đổi nhầm cả chỗ đang nhắc **mini-spec C1 thật**.
+
+Thêm ba chốt, và phải làm hai vòng mới đủ:
+
+| Chốt | Bắt được gì |
+|---|---|
+| `..._KHONG_dung_lai_khong_gian_so_mini_spec` | mã finding đặt vào không gian `C<n>` |
+| `..._van_TRO_DUNG_CHO` | `C<n>` còn lại trỏ vào mini-spec không tồn tại |
+| `test_RS_khong_bi_dung_o_cho_von_la_mot_mini_spec` | **ca đổi nhầm tham chiếu** |
+
+Vòng một chỉ có hai chốt đầu — và khi tôi tái hiện lỗi thay nhầm, **cả hai
+vẫn xanh**: sau khi `C1` thành `RS-1` thì không còn `C<n>` nào để soi, mà
+`RS-1` lại đúng là một mã có thật trong bảng. Phải thêm chốt thứ ba đo
+**theo ngữ cảnh** (`Trang RS-1`, `phép kiểm RS-6` — `RS-<n>` không bao giờ
+đứng sau những từ đó).
+
+Chốt thứ ba là **phỏng đoán có chủ đích**, ghi rõ trong docstring: nó bắt
+đúng ca đã xảy ra nhưng không bắt được mọi cách làm hỏng tham chiếu. Toàn vẹn
+tham chiếu nói chung vẫn cần người đọc lại — test thu hẹp chỗ phải soi, không
+thay thế việc đó.
+
+Một lỗi phụ khi làm: nguồn "mini-spec có thật" bản đầu chỉ đọc tiêu đề dạng
+chuẩn `## <số> — <tên>`, nên báo nhầm `C2` là không tồn tại — tiêu đề thật là
+`## C2 (rút gọn) — …`. Đã nới, và gom thêm mọi chỗ viết "mini-spec C<n>"
+trong mã.
+
+### Đã chứng minh đỏ
+
+| Tái hiện | Kết quả |
+|---|---|
+| Đặt mã finding là `C20` | đỏ 1 |
+| Đổi nhầm `C1`→`RS-1`, `C6`→`RS-6` | đỏ 1 (chốt thứ ba) |
+| Đổi kiểm drawtext sang hỏi `-filters` | đỏ 1 |
+| Gỡ drawtext khỏi `run_preflight` | đỏ 1 |

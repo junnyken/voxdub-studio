@@ -31,6 +31,14 @@ RAM_WARN_GB = 8.0
 _SUBPROCESS_TIMEOUT = 15
 
 
+def _bay_gio() -> str:
+    """Mốc thời gian cho phần chẩn đoán — người đọc báo lỗi cần biết kết quả
+    này là của lượt kiểm nào."""
+    from datetime import datetime
+
+    return datetime.now().strftime("%d/%m/%Y %H:%M")
+
+
 @dataclass(frozen=True)
 class CheckResult:
     """Kết quả một mục kiểm tra, đủ chữ để hiện thẳng lên giao diện."""
@@ -123,7 +131,15 @@ def _check_ffmpeg(settings: Settings) -> CheckResult:
 
 
 def _check_drawtext(settings: Settings) -> CheckResult:
-    """FFmpeg có ĐÓNG được nhãn chữ lên hình không — mục C20.
+    """FFmpeg có ĐÓNG được nhãn chữ lên hình không — mục RS-20.
+
+    **Phạm vi của mục này, nói rõ để không ai đọc quá lên**: nó xác minh MỘT
+    khả năng kỹ thuật của máy — ffmpeg có dựng được chữ lên khung hình hay
+    không. Nó **KHÔNG** chứng minh video hay ảnh xuất ra "tuân thủ TikTok".
+    Tuân thủ còn phụ thuộc bao bì có khớp sản phẩm thật không
+    (`packaging_check`), ảnh minh hoạ có lỡ vẽ ra sản phẩm không
+    (`kiem_anh_minh_hoa`), câu chữ có hứa quá không, và cả những thứ nằm
+    ngoài phần mềm. Mục này chỉ là **một điều kiện cần** của chuỗi đó.
 
     Vì sao phải chạy thật chứ không chỉ hỏi "có bộ lọc drawtext không":
     `drawtext` có mặt không có nghĩa là nó chạy được. Bộ lọc cần tìm một
@@ -142,7 +158,8 @@ def _check_drawtext(settings: Settings) -> CheckResult:
       * đóng nhãn ảnh: ảnh bị loại, không dùng được.
 
     Nhãn "AI-generated" là thứ TikTok bắt buộc từ 13/5/2026, nên đây không
-    phải chuyện thẩm mỹ.
+    phải chuyện thẩm mỹ — nhưng đóng được nhãn cũng chưa đủ để gọi là tuân
+    thủ, xem đoạn phạm vi ở trên.
     """
     title = "Đóng nhãn chữ lên hình"
     local_ffmpeg = os.path.join(app_root(), "bin", "ffmpeg.exe")
@@ -171,19 +188,28 @@ def _check_drawtext(settings: Settings) -> CheckResult:
             advice="Chạy lại ứng dụng; nếu vẫn vậy, gửi tệp log cho hỗ trợ.")
 
     if ra.returncode == 0:
-        return CheckResult(key="drawtext", title=title, level="ok",
-                           message="Đóng được nhãn AI-generated lên hình.")
+        # Ghi lại ĐƯỜNG DẪN ffmpeg thật sự dùng và mốc thời gian: máy có
+        # nhiều bản ffmpeg là chuyện thường (PATH hệ thống, bin/ cạnh app,
+        # bản vừa cài đè), nên "đã kiểm, đạt" mà không nói kiểm bản NÀO thì
+        # lúc truy lại không dùng được. Đề xuất của chủ dự án 11/09.
+        return CheckResult(
+            key="drawtext", title=title, level="ok",
+            message="Dựng được chữ lên khung hình.",
+            advice=f"Đã kiểm lúc {_bay_gio()} bằng: {ffmpeg_cmd}")
 
     loi = (ra.stderr or "").strip().splitlines()
     loi = loi[-1][:200] if loi else "không rõ"
     return CheckResult(
         key="drawtext", title=title, level="fail",
-        message=f"FFmpeg không đóng được nhãn chữ lên hình ({loi}).",
+        message=f"FFmpeg không dựng được chữ lên khung hình ({loi}).",
         advice="Bản FFmpeg đang cài thiếu phần dò phông chữ (fontconfig). "
                "Thay bằng bản ĐẦY ĐỦ (ffmpeg-release-full từ gyan.dev), giải "
-               "nén đè lên bản cũ. Thiếu nó thì bước ghép video từ ảnh sẽ "
-               "hỏng, và nhãn «AI-generated» — thứ TikTok bắt buộc — không "
-               "đóng lên được.")
+               "nén đè lên bản cũ, rồi mở lại ứng dụng. Chỉ cài MỘT bản — "
+               "nhiều bản cùng lúc thì lần sau không truy được lỗi ở bản nào."
+               "\n\nThiếu nó thì bước ghép video từ ảnh hỏng cả lượt, và "
+               "nhãn «AI-generated» (TikTok bắt buộc từ 13/5/2026) không đóng "
+               "lên được."
+               f"\n\nĐã kiểm lúc {_bay_gio()} bằng: {ffmpeg_cmd}")
 
 
 def _check_ffprobe(settings: Settings) -> CheckResult:
