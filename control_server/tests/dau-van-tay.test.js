@@ -65,7 +65,11 @@ test('dấu vân tay KHÔNG chứa chữ nào của nguồn — đọc ngược 
     assert.ok(!chuoi.toLowerCase().includes(tu.toLowerCase()),
       `lộ chữ "${tu}" trong dấu vân tay`)
   }
-  assert.match(chuoi, /^\{"v":1,"muoi":"[0-9a-f]{32}"/)
+  // Đọc PHIEN_BAN thay vì ghim số: bump phiên bản là việc hợp lệ (và bắt
+  // buộc) mỗi khi luật băm đổi, nên ghim số ở đây chỉ tạo một test đỏ giả
+  // đúng vào lúc người ta đang làm đúng.
+  assert.match(chuoi,
+    new RegExp(`^\\{"v":${dvt.PHIEN_BAN},"muoi":"[0-9a-f]{32}"`))
 })
 
 test('mỗi bản ghi một muối riêng — không đối chiếu chéo được giữa các video', () => {
@@ -148,4 +152,44 @@ test('dấu câu và chữ hoa không giúp lách bộ chặn', () => {
   const ra = dvt.timTrungLap(
     'BẠN CÓ ĐANG MẤT QUÁ NHIỀU THỜI GIAN, mỗi sáng... cho việc gì?', v)
   assert.equal(ra.trung, true)
+})
+
+// ---------------------------------------------------------------------------
+// Lệch ngưỡng H2 ↔ H3 — đo được 10/09/2026.
+//
+// Chú thích đầu tệp `dau-van-tay.service.js` viết: "Hai bộ chặn phải cùng
+// ngưỡng, nếu không sẽ có ca H2 bắt mà H3 tha". Đó đúng là ca đã xảy ra:
+// `chuanHoaSoKhop` dùng DANH SÁCH TRẮNG ký tự và thiếu `…`, `/`, `%`, `*`,
+// `&`. Chép nguyên văn caption gốc rồi thêm một dấu ba chấm là lọt H3.
+
+const assistPrompts = require('../src/prompts/assist')
+
+test('H2 và H3 phải cho CÙNG phán quyết trên cùng một chuỗi', () => {
+  const van = dvt.taoDauVanTay(NGUON)
+  const casi = [
+    ['MUA NGAY HÔM NAY', true, 'chép nguyên văn'],
+    ['mua ngay hôm nay… giá sốc', true, 'thêm dấu ba chấm'],
+    ['mua ngay hôm nay/giá sốc', true, 'thêm dấu gạch chéo'],
+    ['mua ngay hôm nay*', true, 'thêm dấu sao'],
+    ['mua ngay hôm nay & giảm 50%', true, 'thêm & và %'],
+    ['sáng nay tôi dậy sớm pha một ly cà phê', false, 'không liên quan'],
+  ]
+  for (const [chuoi, mongDoi, ten] of casi) {
+    const h2 = assistPrompts.coSaoChepNguyenVan(chuoi, NGUON)
+    const h3 = dvt.timTrungLap(chuoi, van).trung
+    assert.equal(h2, mongDoi, `H2 sai ở ca "${ten}"`)
+    assert.equal(h3, mongDoi, `H3 sai ở ca "${ten}"`)
+    assert.equal(h2, h3, `H2 và H3 lệch nhau ở ca "${ten}"`)
+  }
+})
+
+test('chuẩn hoá bóc mọi dấu câu, không theo danh sách trắng', () => {
+  // Danh sách trắng luôn thiếu một ký tự nào đó — và ký tự thiếu chính là
+  // đường lách. Kiểm bằng các dấu KHÔNG có trong danh sách cũ.
+  for (const dau of ['…', '/', '%', '*', '&', '+', '~', '#', '@', '|', '=']) {
+    assert.equal(dvt.chuanHoaSoKhop(`mua${dau}ngay`), 'mua ngay',
+      `dấu "${dau}" chưa được bóc`)
+  }
+  // Chữ có dấu tiếng Việt và chữ số KHÔNG được đụng tới.
+  assert.equal(dvt.chuanHoaSoKhop('Giảm 50 phần trăm'), 'giảm 50 phần trăm')
 })

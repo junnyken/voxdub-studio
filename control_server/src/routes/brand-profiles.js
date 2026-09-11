@@ -28,9 +28,23 @@ function view(doc) {
   }
 }
 
+/** Đúng những trường người dùng được phép đặt. `ownerDeviceId` KHÔNG nằm ở
+ * đây và không bao giờ được nằm ở đây — nó lấy từ token, xem `POST` bên dưới. */
+const TRUONG_CHO_PHEP = ['tenBrand', 'moTaSanPham', 'doiTuongKhach',
+  'toneGiong', 'usp', 'rangBuocKhongDuocNoi']
+
 const bodySchema = {
   type: 'object',
   required: ['tenBrand', 'rangBuocKhongDuocNoi'],
+  // `additionalProperties: false` là thứ CHẶN THẬT, không phải cho đẹp.
+  //
+  // Đo thật 10/09/2026 với đúng cấu hình ajv của fastify (`removeAdditional:
+  // true`): thiếu dòng này thì trường lạ KHÔNG bị xoá, nó đi thẳng vào
+  // `request.body`. Cộng với `Object.assign(doc, request.body)` ở `PUT`,
+  // mongoose nhận gán lại `ownerDeviceId` mà `validateSync()` không kêu —
+  // nghĩa là máy A gửi kèm `ownerDeviceId` của máy B thì hồ sơ **chuyển sang
+  // máy B**. `POST` thoát nạn chỉ vì nó đặt `ownerDeviceId` SAU phần spread.
+  additionalProperties: false,
   properties: {
     tenBrand: { type: 'string', minLength: 1, maxLength: 120 },
     moTaSanPham: { type: 'string', maxLength: 2000, default: '' },
@@ -82,7 +96,14 @@ module.exports = async function brandProfileRoutes(fastify) {
       return reply.code(404).send({
         code: 'KHONG_THAY_HO_SO', message: 'Không thấy hồ sơ brand này.' })
     }
-    Object.assign(doc, request.body)
+    // Chép theo DANH SÁCH TRẮNG, không `Object.assign(doc, request.body)`:
+    // hai lớp chặn cho cùng một lỗ, vì lớp schema ở trên chỉ cần một lần ai
+    // đó thêm trường mới mà quên là hở lại.
+    for (const truong of TRUONG_CHO_PHEP) {
+      if (Object.prototype.hasOwnProperty.call(request.body, truong)) {
+        doc[truong] = request.body[truong]
+      }
+    }
     await doc.save()
     return view(doc)
   })

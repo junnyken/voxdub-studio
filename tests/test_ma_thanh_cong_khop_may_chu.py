@@ -51,6 +51,9 @@ class _PhienGia:
         self.da_goi.append((method, url))
         return self.tra_loi
 
+    def get(self, url, **kw):
+        return self.request("GET", url, **kw)
+
 
 def _client(tra_loi) -> SaasClient:
     c = SaasClient(base_url="http://test.local")
@@ -136,6 +139,41 @@ def test_may_khach_chap_nhan_MOI_ma_thanh_cong_may_chu_tra_ve():
             if not _la_thanh_cong(m):
                 lech.append(f"{tep} trả {m} mà máy khách coi là lỗi")
     assert not lech, lech
+
+
+class _TraLoiTai(_TraLoiGia):
+    """Response tải tệp: có `iter_content`, thân là nhị phân chứ không JSON."""
+
+    def iter_content(self, chunk_size=0):
+        yield self.content
+
+
+def test_tai_tep_voi_ma_2xx_khac_200_KHONG_duoc_bo_qua(tmp_path):
+    """Bẫy do CHÍNH bản vá 2xx tạo ra, tìm thấy khi tự soi lại.
+
+    `download_job_result` từng viết `if != 200: self._parse_response(resp);
+    return` và dựa vào việc `_parse_response` **luôn ném**. Sau khi nới 2xx,
+    `_parse_response` trả về dict cho mọi mã 2xx ⇒ nhánh đó rơi xuống
+    `return` và hàm **lặng lẽ không tải gì**; người gọi tưởng có tệp.
+
+    Đo bằng `206 Partial Content` — mã 2xx hợp lệ mà một proxy hay CDN chắn
+    giữa đường có thể trả về. Bản cũ: ném "dữ liệu không đọc được" (sai
+    nguyên nhân) và không có tệp. Bản mới: tải bình thường.
+    """
+    dich = tmp_path / "vocals.wav"
+    c = _client(_TraLoiTai(206, None, raw=b"RIFF....WAVE"))
+    c._load_token = lambda: "tok"
+    c.download_job_result("job1", "vocals", str(dich))
+    assert dich.read_bytes() == b"RIFF....WAVE"
+
+
+def test_tai_tep_that_bai_thi_VAN_nem_loi_dung_nguyen_nhan(tmp_path):
+    dich = tmp_path / "vocals.wav"
+    c = _client(_TraLoiTai(404, {"code": "GONE", "message": "Tệp không còn"}))
+    c._load_token = lambda: "tok"
+    with pytest.raises(SaasError, match="Tệp không còn"):
+        c.download_job_result("job1", "vocals", str(dich))
+    assert not dich.exists(), "không được tạo tệp rỗng khi lượt tải hỏng"
 
 
 def test_ba_cua_Phase_H_deu_tra_201():

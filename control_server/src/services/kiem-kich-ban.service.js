@@ -22,7 +22,10 @@ const dauVanTay = require('./dau-van-tay.service')
  * ("nhất") sẽ bắt oan hàng loạt câu vô hại ("nhất định", "thống nhất") —
  * cùng lý lẽ với việc bỏ dòng bằng chứng một từ ở H2c. Ràng buộc ngắn hơn
  * vẫn được GIỮ trong hồ sơ brand, chỉ là bộ kiểm tự động không dùng nó. */
-const SO_TU_TOI_THIEU_RANG_BUOC = 1
+// Đã là 1 cho tới 10/09/2026 — tức là mã làm ĐÚNG CÁI mà chú thích trên cấm.
+// Đo thật: cấm "nhất" thì "Bạn nhất định sẽ thích" và "thống nhất giá" đều bị
+// chặn, người dùng đã trả 12 Vox và không có cách nào hiểu vì sao.
+const SO_TU_TOI_THIEU_RANG_BUOC = 2
 
 /**
  * Tìm cụm vi phạm `rangBuocKhongDuocNoi` trong một đoạn văn bản.

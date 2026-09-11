@@ -201,3 +201,57 @@ test('REGRESSION GIẢ ĐỊNH: truy vấn không lọc theo ownerDeviceId sẽ 
   assert.equal(layKhongLoc.length, 1, 'không lọc thì thấy MỌI hồ sơ — đúng lỗ hổng cần chặn')
   assert.equal(layCoLoc.length, 0, 'lọc đúng theo chủ sở hữu thì không thấy hồ sơ của người khác')
 })
+
+// ---------------------------------------------------------------------------
+// Lỗ đổi chủ sở hữu hồ sơ — tìm ra trong đợt rà soát 10/09/2026.
+//
+// `bodySchema` thiếu `additionalProperties: false`. Đo thật với đúng cấu hình
+// ajv của fastify (`removeAdditional: true`): trường lạ KHÔNG bị xoá mà đi
+// thẳng vào `request.body`. Cộng với `Object.assign(doc, request.body)` ở
+// `PUT`, mongoose nhận gán lại `ownerDeviceId` và `validateSync()` không kêu.
+// `POST` thoát nạn chỉ nhờ đặt `ownerDeviceId` SAU phần spread.
+
+test('PUT KHÔNG cho đổi chủ sở hữu hồ sơ sang máy khác', async () => {
+  const a = await thietBiMoi('may-a')
+  const b = await thietBiMoi('may-b')
+  const ho_so = await BrandProfile.create({ ...HO_SO_MAU, ownerDeviceId: a.device._id })
+
+  const r = await goi('PUT', `/v1/brand-profiles/${ho_so._id}`, a.token, {
+    tenBrand: 'Đổi chủ', rangBuocKhongDuocNoi: [],
+    ownerDeviceId: String(b.device._id),
+  })
+  // fastify cấu hình ajv `removeAdditional: true`, nên cặp với
+  // `additionalProperties: false` nó XOÁ trường lạ rồi cho qua (200) chứ
+  // không trả 400. Điều cần bảo vệ là chủ sở hữu, không phải mã trả về.
+  assert.equal(r.statusCode, 200, r.body)
+
+  const sau = await BrandProfile.findById(ho_so._id)
+  assert.equal(String(sau.ownerDeviceId), String(a.device._id),
+    'hồ sơ đã đổi chủ — máy B nay đọc được dữ liệu của máy A')
+
+  // Và máy B vẫn không thấy hồ sơ đó.
+  const ds = await goi('GET', '/v1/brand-profiles/', b.token)
+  assert.equal(ds.json().data.length, 0)
+})
+
+test('PUT KHÔNG cho ghi đè _id', async () => {
+  const a = await thietBiMoi('may-a')
+  const ho_so = await BrandProfile.create({ ...HO_SO_MAU, ownerDeviceId: a.device._id })
+  const r = await goi('PUT', `/v1/brand-profiles/${ho_so._id}`, a.token, {
+    tenBrand: 'X', rangBuocKhongDuocNoi: [], _id: 'zzz',
+  })
+  assert.equal(r.statusCode, 200, 'ghi đè _id từng làm doc.save() ném ra 500')
+  assert.equal(String(r.json().id), String(ho_so._id), '_id bị ghi đè')
+})
+
+test('PUT vẫn sửa được đúng những trường cho phép', async () => {
+  const a = await thietBiMoi('may-a')
+  const ho_so = await BrandProfile.create({ ...HO_SO_MAU, ownerDeviceId: a.device._id })
+  const r = await goi('PUT', `/v1/brand-profiles/${ho_so._id}`, a.token, {
+    tenBrand: 'Tên mới', usp: 'Giao trong ngày',
+    rangBuocKhongDuocNoi: ['tốt nhất'],
+  })
+  assert.equal(r.statusCode, 200, r.body)
+  assert.equal(r.json().tenBrand, 'Tên mới')
+  assert.equal(r.json().usp, 'Giao trong ngày')
+})

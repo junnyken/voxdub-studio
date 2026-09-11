@@ -28,7 +28,6 @@ nhau — tiết kiệm khoảng 10 lần cả tiền lẫn thời gian.
 """
 from __future__ import annotations
 
-import base64
 import logging
 from dataclasses import replace
 
@@ -44,9 +43,6 @@ SO_KHUNG_MOI_LUOT = 6
 #: PNG → ~60 KB JPEG). Trần tổng dung lượng ảnh của máy chủ là thật, không
 #: phải lý thuyết: gửi 6 ảnh gốc là chạm trần và bị trả 413.
 CANH_DAI_TOI_DA = 640
-
-#: Chất lượng JPEG khi thu nhỏ. 85 là mức còn đọc được chữ nhỏ trong đo thật.
-CHAT_LUONG_JPEG = 85
 
 
 def _khoa_doan(quan_sat_cua_khung: list) -> str:
@@ -94,24 +90,27 @@ def chia_doan(quan_sat: list) -> list[list[int]]:
 
 def _anh_gui_di(duong_dan: str) -> dict | None:
     """Thu nhỏ + mã hoá base64 một khung hình. Trả None nếu ảnh hỏng — thiếu
-    một khung không được giết cả lượt đọc."""
+    một khung không được giết cả lượt đọc.
+
+    Dùng **ffmpeg** qua `thu_nho_de_gui`, KHÔNG dùng PIL. Bản đầu của hàm này
+    gọi `PIL.Image` — mà `autodub.spec` cố ý loại PIL khỏi bản đóng gói, luật
+    đã ghi sẵn ở `product_scene.chuan_bi_anh()`. Hậu quả khi chạy từ tệp
+    `.exe`: mọi khung đều trả None, không khung nào được gửi đi, H2b lặng lẽ
+    rơi về bản đọc MẤT DẤU — tức là cổng 2 của pilot không bao giờ đóng được,
+    và triệu chứng trông y hệt "mô hình đọc sai".
+    """
+    import os
+
+    from autodub.product_scene import thu_nho_de_gui
+
+    thu_muc = os.path.dirname(duong_dan) or "."
+    ten_tam = f"_gui_{os.path.basename(duong_dan)}.jpg"
     try:
-        from PIL import Image
-    except ImportError:
-        logger.warning("Thiếu Pillow — không gửi được khung hình để đọc chữ")
+        return thu_nho_de_gui(duong_dan, thu_muc, ten_tam,
+                              canh_dai=CANH_DAI_TOI_DA)
+    except (OSError, ValueError) as e:
+        logger.warning("Không chuẩn bị được khung hình %s (%s)", duong_dan, e)
         return None
-    import io
-    try:
-        with Image.open(duong_dan) as im:
-            im = im.convert("RGB")
-            im.thumbnail((CANH_DAI_TOI_DA, CANH_DAI_TOI_DA))
-            bo_nho = io.BytesIO()
-            im.save(bo_nho, format="JPEG", quality=CHAT_LUONG_JPEG)
-    except Exception as e:  # noqa: BLE001 — ảnh hỏng là chuyện thường
-        logger.warning("Không đọc được khung hình %s (%s)", duong_dan, e)
-        return None
-    return {"mimeType": "image/jpeg",
-            "data": base64.b64encode(bo_nho.getvalue()).decode("ascii")}
 
 
 def doc_lai_bang_may_chu(quan_sat: list, image_paths: list[str], *,

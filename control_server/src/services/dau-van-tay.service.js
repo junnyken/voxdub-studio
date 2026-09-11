@@ -29,7 +29,14 @@ const crypto = require('node:crypto')
 
 /** Đổi số này khi đổi cách chuẩn hoá/băm. Bản ghi mang phiên bản khác sẽ bị
  * coi là KHÔNG kiểm được (chứ không phải "sạch") — xem `timTrungLap`. */
-const PHIEN_BAN = 1
+//: Phiên bản luật băm. **Bump khi `chuanHoaSoKhop` đổi** — vân tay cũ băm
+//: theo luật cũ nên so với luật mới sẽ trượt im lặng, và `timTrungLap` phải
+//: trả `kiemDuoc: false` ("chưa kiểm được") thay vì `trung: false` ("đã kiểm,
+//: sạch"). Hai chuyện đó khác hẳn nhau.
+//:
+//: 1 → 2 (10/09/2026): `chuanHoaSoKhop` chuyển sang bóc mọi `\p{P}\p{S}`
+//: thay cho danh sách trắng thiếu `…`, `/`, `%`, `*`, `&`.
+const PHIEN_BAN = 2
 
 /** Bằng đúng `NGUONG_TU_LIEN_TIEP` của gate H2 (`prompts/assist.js`). Hai bộ
  * chặn phải cùng ngưỡng, nếu không sẽ có ca H2 bắt mà H3 tha. */
@@ -64,8 +71,26 @@ const SO_BAM_TOI_DA = 20000
  * sửa, và lúc đó không ai biết bộ chặn nào mới là bộ đang bảo vệ mình.
  */
 function chuanHoaSoKhop(text) {
+  // Bóc MỌI dấu câu và ký hiệu theo thuộc tính Unicode, không dùng danh sách
+  // trắng ký tự.
+  //
+  // Lỗi thật đo được 10/09/2026: danh sách cũ liệt kê `.,!?;:"'“”‘’()-–—`
+  // nhưng THIẾU `…`, `/`, `%`, `*`, `&`. Hậu quả là H2 bắt mà H3 tha, đúng
+  // ca mà chú thích ở đầu tệp này cấm:
+  //
+  //     nguồn    "MUA NGAY HÔM NAY"
+  //     kịch bản "mua ngay hôm nay… giá sốc"
+  //     H2 coSaoChepNguyenVan -> true  (chặn)
+  //     H3 timTrungLap        -> false (THA)
+  //
+  // Vì `…` dính liền vào `nay`, cụm bốn từ thành `mua ngay hôm nay…` và
+  // không khớp băm của `mua ngay hôm nay`. Chép nguyên văn caption gốc rồi
+  // thêm một dấu ba chấm là lọt cả hai lớp chống sao chép.
+  //
+  // `\p{P}` (dấu câu) + `\p{S}` (ký hiệu) không đụng tới chữ cái hay dấu
+  // thanh tiếng Việt (`\p{L}`/`\p{M}`), cũng không đụng chữ số.
   return String(text || '').toLowerCase()
-    .replace(/[.,!?;:"'“”‘’()\-–—]/g, ' ')
+    .replace(/[\p{P}\p{S}]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }

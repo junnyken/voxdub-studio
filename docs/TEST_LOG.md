@@ -16028,3 +16028,155 @@ minh nó đỏ.
 
 Cả hai bộ đều đã gỡ ra chứng minh ĐỎ trước khi khôi phục: hạ `_la_thanh_cong`
 về `ma == 200` ⇒ 9 test đỏ.
+
+## Rà soát toàn Phase H sau lỗi 201 (10–11/09/2026)
+
+Lỗi `201` chỉ ra một LỚP chứ không phải một ca lẻ: **hợp đồng lệch giữa hai
+phía mà cả hai đều có test xanh**. Rà soát lại toàn bộ H1→H4d theo lớp đó:
+ba agent soi song song từng mảng, và **mọi phát hiện đều được tôi tự đo lại**
+trước khi tin — báo cáo chưa kiểm chứng không đáng tin hơn phỏng đoán.
+
+### Phép kiểm cơ học (tôi tự chạy)
+
+| Phép kiểm | Kết quả |
+|---|---|
+| 35 đường máy khách gọi có route thật không | ✅ khớp hết — đo trực tiếp trên prod |
+| Dấu `/` cuối có gây 404 không | ✅ không; fastify đăng ký cả hai dạng (đo thật) |
+| Còn mã 2xx nào máy khách chưa nhận | ✅ đúng 3 chỗ trả `201`, đã xử lý |
+| Còn chỗ nào xét `== 200` cứng | ✅ hết — 2 chỗ tải nhị phân đã sửa |
+
+### 1. H2b chết hoàn toàn trong bản .exe — CỔNG 2 KHÔNG BAO GIỜ ĐÓNG ĐƯỢC
+
+`autodub.spec` có `"PIL"` trong `excludes` (bỏ từ hồi thumbnail chuyển sang
+ghi bytes thẳng). H2b viết sau đó ba tuần lại dùng `PIL.Image` để thu nhỏ
+khung hình. Trong bản `.exe`: `_anh_gui_di` trả `None` cho **mọi** khung ⇒
+không khung nào được gửi ⇒ `doc_lai_bang_may_chu` trả nguyên bản đọc cục bộ
+**mất dấu**.
+
+Triệu chứng trông y hệt "mô hình đọc sai", nên pilot sẽ kết luận H2b hỏng
+trong khi thật ra chỉ là thiếu một thư viện.
+
+Luật này **đã ghi sẵn trong mã** ở `product_scene.chuan_bi_anh()`: *"dùng
+ffmpeg vì bản đóng gói CỐ Ý không mang theo PIL, còn ffmpeg thì luôn có
+mặt."* Sửa: `_anh_gui_di` dùng lại `thu_nho_de_gui` (ffmpeg), thêm tham số
+`canh_dai` để H2b gửi 640px thay vì 1280px.
+
+### 2. `evidenceStatus` chưa từng được ghi — mọi đoạn vĩnh viễn `'ok'`
+
+`flowBlueprintOutputSchema()` **không có** trường `evidence_status`, nên mô
+hình không có đường nào trả về dù lời nhắc vẫn dặn nó "đặt evidence_status
+phù hợp"; `parseFlowBlueprintResult` cũng không chép. Mọi beat rơi về
+`default: 'ok'` của Mongoose.
+
+Ba thứ hỏng theo, đều im lặng:
+1. cột "Tình trạng bằng chứng" **luôn rỗng** (bảng chú thích không có khoá
+   `'ok'`) — mà **cổng 1 của pilot đòi cột đó "có giá trị rõ ràng"**;
+2. chốt `bang_chung_khong_du` của H3 **không bao giờ kích hoạt**;
+3. bằng chứng rác vẫn được chấm `clear`.
+
+Sửa: **máy chủ tự suy** từ `ocrEvidence` máy khách gửi lên — đó là sự thật
+ĐO ĐƯỢC ở máy người dùng, không phải thứ để mô hình đoán. Bỏ luôn câu dặn
+sai trong lời nhắc, và thêm khoá `'ok'` vào bảng chú thích giao diện.
+
+### 3. Gate chống sao chép: H2 bắt, H3 THA — cùng một chuỗi
+
+Đo thật:
+```
+nguồn    "MUA NGAY HÔM NAY"
+kịch bản "mua ngay hôm nay… giá sốc"
+H2 coSaoChepNguyenVan -> true   (chặn)
+H3 timTrungLap        -> false  (THA)
+```
+Gốc rễ: `chuanHoaSoKhop` dùng **danh sách trắng ký tự** và thiếu `…`, `/`,
+`%`, `*`, `&`. Dấu `…` dính liền vào `nay` nên cụm bốn từ không khớp băm.
+Chép nguyên văn caption gốc rồi thêm một dấu ba chấm là lọt.
+
+Chính chú thích đầu `dau-van-tay.service.js` cấm đúng ca này: *"Hai bộ chặn
+phải cùng ngưỡng, nếu không sẽ có ca H2 bắt mà H3 tha."*
+
+Sửa: bóc mọi `\p{P}\p{S}` theo thuộc tính Unicode thay cho danh sách trắng —
+danh sách trắng luôn thiếu một ký tự nào đó, và ký tự thiếu chính là đường
+lách. **Bump `PHIEN_BAN` 1 → 2**: vân tay cũ băm theo luật cũ nên phải rơi về
+`kiemDuoc: false` ("chưa kiểm được"), không được trở thành `trung: false`
+("đã kiểm, sạch"). Sau sửa: 6/6 ca cho cùng phán quyết.
+
+### 4. Kịch bản ≥30 đoạn: H3 KHÔNG BAO GIỜ chạy được, và viết-lại thì đốt tiền
+
+`cat(dong.join('\n'), 6000)` cắt mù ở cuối chuỗi. Đo thật:
+
+| đoạn × 200 ký tự | prompt | hậu quả |
+|---|---|---|
+| 20 | 4.641 | bình thường |
+| **30** | **6.001** | chỉ còn **27/30** dòng đoạn |
+| 40 | 6.001 | mất **13** đoạn |
+
+- **Tạo mới**: lời nhắc vẫn ghi "gồm 30 đoạn" nhưng chỉ cho mô hình xem 27 ⇒
+  `parseBrandScriptResult` đòi ĐÚNG số đoạn ⇒ `null` ⇒ 502 ⇒ app báo **"Thử
+  lại sau ít phút"** cho một tình trạng **vĩnh viễn**.
+- **Viết lại đoạn**: `phanVietLai` nối ở CUỐI nên bị cắt sạch ⇒ mô hình nhận
+  đầu vào y hệt lượt trước ⇒ trả gần y hệt ⇒ **`charge()` vẫn chạy**. Đúng
+  thứ `phanVietLai` được viết ra để tránh.
+
+Sửa: chia **ngân sách** cho từng phần thay vì cắt mù. Dòng đoạn và chỉ dẫn
+viết lại là hai thứ không được phép mất; phần chữ mỗi đoạn co lại theo bốn
+mức (300/200 → 40/0). Cũng cắt số ràng buộc đưa vào lời nhắc (bộ kiểm sau khi
+sinh vẫn quét toàn bộ). Sau sửa: 40 đoạn + 30 ràng buộc vẫn đủ cả hai.
+
+### 5. Ràng buộc MỘT TỪ bắt oan — mã làm đúng cái chú thích của nó cấm
+
+`SO_TU_TOI_THIEU_RANG_BUOC = 1` trong khi chú thích ngay trên viết *"ràng
+buộc một từ ('nhất') sẽ bắt oan hàng loạt câu vô hại ('nhất định', 'thống
+nhất') — bộ kiểm tự động không dùng nó"*. Đo thật: cấm `nhất` thì "Bạn nhất
+định sẽ thích" và "thống nhất giá" đều bị chặn, sau khi đã trả 12 Vox. Sửa
+thành `2`, khớp `SO_TU_NGAN_MIN` của H2c.
+
+### 6. Hai chỗ hiện SAI GIÁ ở đúng nơi xin phép tiêu tiền
+
+- Hộp thoại vẽ ảnh nói **30 Vox**, thực tế **33** (30 vẽ + 3 kiểm — mỗi ảnh
+  là HAI lượt tính tiền). Vẽ 8 đoạn: nói 240, trừ 264. Lỗi trong mã tôi viết
+  cùng ngày.
+- Trang H2 nói **"khoảng 8 Vox"**, thực tế **~32**: quên lượt đọc chữ H2b
+  (8 Vox mỗi lô 6 khung; video 60s ~15 caption ⇒ 3 lô).
+
+Hiện sai giá ở chỗ xin phép thì lượt bấm không còn là đồng ý.
+
+### 7. `PUT /v1/brand-profiles/:id` đổi được CHỦ SỞ HỮU hồ sơ
+
+`bodySchema` thiếu `additionalProperties: false`. Đo thật với đúng cấu hình
+ajv của fastify (`removeAdditional: true`): **trường lạ KHÔNG bị xoá** khi
+thiếu dòng đó. Cộng với `Object.assign(doc, request.body)`, mongoose nhận gán
+lại `ownerDeviceId` và `validateSync()` không kêu ⇒ máy A gửi kèm
+`ownerDeviceId` của máy B thì hồ sơ **chuyển sang máy B**. `POST` thoát nạn
+chỉ vì nó đặt `ownerDeviceId` SAU phần spread.
+
+Sửa hai lớp: `additionalProperties: false` **và** chép theo danh sách trắng.
+Một lớp là đủ để bịt, hai lớp là để lần sau ai thêm trường mà quên thì vẫn
+không hở.
+
+### Đã chứng minh ĐỎ trước khi tin là xanh
+
+| Gỡ ra thứ gì | Đỏ |
+|---|---|
+| `_la_thanh_cong` → `ma == 200` | 9 test |
+| `download_job_result` → `_parse_response` + `return` | 1 test (đo bằng mã 206) |
+| `chuanHoaSoKhop` → danh sách trắng cũ | 2 test |
+| `PUT` → `Object.assign` + bỏ `additionalProperties` | 2 test |
+| `_on_worker_failed` → câu "kiểm tra mạng" cứng | 1 test |
+| `dung_duoc` bỏ `da_dong_nhan` / bỏ nhánh dừng mẻ | 2 test |
+
+### Sai của tôi trong chính đợt này
+
+1. Bản vá 2xx **tạo ra một lỗi im lặng mới**: `download_job_result` dựa vào
+   việc `_parse_response` luôn ném; sau khi nới 2xx nó trả về dict nên nhánh
+   đó rơi xuống `return` và **lặng lẽ không tải gì**. Tự soi lại mới thấy.
+2. Test hồi quy đầu tiên cho lỗi đó dùng mã `404` — mà `404` thì cả hai bản
+   đều ném ⇒ **test xanh cả khi mã hỏng**. Phải đo bằng `206` mới chạm được.
+3. Một test hồi quy khác **quét mã nguồn** và khớp trúng dòng `import` còn
+   sót ⇒ cũng xanh giả. Lần thứ ba mắc lớp sai này; đã viết lại thành test
+   hành vi.
+4. Script chứng-minh-đỏ của tôi làm hỏng cú pháp một tệp route (sót dấu `}`)
+   và làm treo một lượt `node --test` — phải dừng tác vụ nền rồi khôi phục
+   từ bản lưu.
+
+Bốn lỗi trên đều chỉ lộ ra nhờ thói quen **gỡ ra chứng minh đỏ trước khi tin
+là xanh**. Không có bước đó thì cả bốn đã đi vào bản phát hành.

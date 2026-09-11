@@ -445,7 +445,7 @@ const TASKS = {
       'MẤT DẤU THANH hoặc sai ký tự dù nhãn "unconfirmed" hay không đi kèm —',
       'coi OCR tiếng Việt là tín hiệu về NHỊP/VỊ TRÍ chữ xuất hiện, không',
       'phải văn bản chính xác. Nếu bằng chứng thiếu/không chắc ở một đoạn,',
-      'đặt evidence_status phù hợp cho đoạn đó thay vì bịa nội dung.',
+      'hãy mô tả dè dặt thay vì bịa nội dung.',
       '',
       'NGUỒN TIẾNG ANH:',
       'Nếu bằng chứng ASR là tiếng Anh: đại từ "you" thường mang nghĩa CHUNG',
@@ -632,19 +632,52 @@ const TASKS = {
         brand.doiTuongKhach ? `Đối tượng khách: ${cat(brand.doiTuongKhach, 600)}` : '',
         brand.toneGiong ? `Giọng điệu cần giữ: ${cat(brand.toneGiong, 200)}` : '',
         brand.usp ? `Điểm mạnh cần làm nổi bật: ${cat(brand.usp, 600)}` : '',
+        // Cắt số ràng buộc đưa vào lời nhắc: hồ sơ brand không giới hạn số
+        // dòng, mà khối này nằm TRƯỚC danh sách đoạn — dán 30 dòng checklist
+        // tuân thủ là đẩy hết phần đoạn ra khỏi ngân sách. Bộ kiểm sau khi
+        // sinh vẫn quét TOÀN BỘ ràng buộc, nên không có ràng buộc nào bị bỏ
+        // qua về mặt thi hành; đây chỉ là phần nhắc trước cho mô hình.
         cam.length
-          ? `TUYỆT ĐỐI KHÔNG được nói (kể cả biến thể):\n${cam.map((c) => `- ${cat(String(c), 200)}`).join('\n')}`
+          ? `TUYỆT ĐỐI KHÔNG được nói (kể cả biến thể):\n${
+            cam.slice(0, SO_RANG_BUOC_TRONG_LOI_NHAC)
+              .map((c) => `- ${cat(String(c), 200)}`).join('\n')}`
           : '',
-        '',
-        `Bộ khung nhịp gồm ${beats.length} đoạn, theo thứ tự:`,
-        ...beats.map((b, i) => [
-          `${i + 1}. [${b?.beatType || 'unknown'}]`,
-          b?.narrativeFunctionVi ? `vai trò: ${cat(b.narrativeFunctionVi, 300)}` : '',
-          b?.pacingNoteVi ? `nhịp: ${cat(b.pacingNoteVi, 200)}` : '',
-        ].filter(Boolean).join(' | ')),
-        ...phanVietLai(input),
       ].filter(Boolean)
-      return cat(dong.join('\n'), 6000)
+
+      // Chia NGÂN SÁCH cho từng phần thay vì cắt mù cả chuỗi ở cuối.
+      //
+      // Lỗi thật đo được 10/09/2026 với `cat(dong.join('\n'), 6000)`:
+      //
+      //   | đoạn × 200 ký tự | prompt | hậu quả                       |
+      //   |------------------|--------|-------------------------------|
+      //   | 20               | 4.641  | bình thường                   |
+      //   | 30               | 6.001  | chỉ còn 27/30 dòng đoạn       |
+      //   | 40               | 6.001  | mất 13 đoạn                   |
+      //
+      // Tạo mới: lời nhắc vẫn ghi "gồm 30 đoạn" nhưng chỉ cho mô hình xem
+      // 27 ⇒ `parseBrandScriptResult` đòi đủ số đoạn ⇒ `null` ⇒ 502 ⇒ app
+      // báo "Thử lại sau ít phút" cho một tình trạng VĨNH VIỄN.
+      // Viết lại đoạn: `phanVietLai` nối ở CUỐI nên bị cắt sạch ⇒ mô hình
+      // nhận đầu vào y hệt lượt trước ⇒ trả gần y hệt ⇒ vẫn bị trừ Vox.
+      //
+      // Hai phần KHÔNG được phép mất: đủ số dòng đoạn, và chỉ dẫn viết lại.
+      const dauTrang = dong.join('\n')
+      const vietLai = phanVietLai(input).join('\n')
+      const conLai = TRAN_LOI_NHAC - dauTrang.length - vietLai.length - 80
+
+      let dongBeat = ''
+      for (const [nfv, pn] of NGAN_SACH_BEAT) {
+        dongBeat = beats.map((b, i) => [
+          `${i + 1}. [${b?.beatType || 'unknown'}]`,
+          b?.narrativeFunctionVi ? `vai trò: ${cat(b.narrativeFunctionVi, nfv)}` : '',
+          pn && b?.pacingNoteVi ? `nhịp: ${cat(b.pacingNoteVi, pn)}` : '',
+        ].filter(Boolean).join(' | ')).join('\n')
+        if (dongBeat.length <= conLai) break
+      }
+
+      return [dauTrang,
+        `Bộ khung nhịp gồm ${beats.length} đoạn, theo thứ tự:`,
+        dongBeat, vietLai].filter(Boolean).join('\n')
     },
   },
 }
@@ -712,6 +745,20 @@ function flowBlueprintOutputSchema() {
 /** Số ảnh tối đa một lượt `doc_chu_khung_hinh` — lặp lại `soAnhToiDa` của
  * tác vụ (object literal chưa xong lúc hàm này được ĐỊNH NGHĨA). */
 const SO_ANH_DOC_CHU_TOI_DA = 6
+
+/** Trần độ dài lời nhắc của `brand_script_rewrite`. */
+const TRAN_LOI_NHAC = 6000
+
+/** Số ràng buộc brand đưa vào lời nhắc. Bộ kiểm sau khi sinh vẫn quét TOÀN
+ * BỘ ràng buộc — đây chỉ là phần nhắc trước cho mô hình, và nó phải nhường
+ * chỗ cho danh sách đoạn. */
+const SO_RANG_BUOC_TRONG_LOI_NHAC = 20
+
+/** Các mức ngân sách chữ cho MỘT đoạn: `[vai trò, nhịp]`. Thử lần lượt từ
+ * rộng tới hẹp cho tới khi đủ chỗ. Mức cuối bỏ hẳn phần nhịp — thà mất phần
+ * gợi ý nhịp còn hơn mất cả một đoạn, vì `parseBrandScriptResult` đòi ĐÚNG
+ * số đoạn và thiếu một đoạn là hỏng cả lượt. */
+const NGAN_SACH_BEAT = [[300, 200], [150, 100], [80, 40], [40, 0]]
 
 /** Trần số đoạn của một kịch bản brand — khớp `maxItems` của `beats` trong
  * `flowBlueprintOutputSchema()`: kịch bản có đúng số đoạn của Blueprint nên
@@ -981,6 +1028,46 @@ function parseFlowBlueprintResult(data, bangChungNguon) {
   return { beats: sach }
 }
 
+/**
+ * Tình trạng bằng chứng của MỘT đoạn, suy từ bằng chứng OCR của máy khách.
+ *
+ * Vì sao máy chủ tự suy thay vì hỏi mô hình: đây là **sự thật đo được ở máy
+ * người dùng** — bộ OCR có đọc được chữ trong khoảng thời gian đó hay không —
+ * chứ không phải chuyện để đoán. Lời nhắc từng dặn mô hình "đặt
+ * evidence_status phù hợp", nhưng `flowBlueprintOutputSchema()` KHÔNG có
+ * trường đó nên mô hình không có đường nào trả về, và
+ * `parseFlowBlueprintResult` cũng không chép. Kết quả: mọi đoạn rơi về
+ * `default: 'ok'` của Mongoose — **bằng chứng rác cũng được chấm là sạch**.
+ *
+ * Ba thứ hỏng theo, đều im lặng:
+ *   1. cột "Tình trạng bằng chứng" trên giao diện LUÔN rỗng (bảng chú thích
+ *      không có khoá `'ok'`);
+ *   2. chốt `bang_chung_khong_du` của H3 không bao giờ kích hoạt;
+ *   3. cổng 1 của pilot đòi cột đó "có giá trị rõ ràng" — không đóng được.
+ *
+ * Luật suy: lấy các mẩu bằng chứng CHỒNG LẤN khoảng `[startS, endS)`.
+ * Không mẩu nào ⇒ `no_text`. Có ít nhất một mẩu `ok` ⇒ `ok`. Còn lại lấy
+ * tình trạng xấu nhất — nghiêng về phía dè dặt, vì đánh giá bằng chứng cao
+ * hơn thực tế là thứ đẩy H3 viết chắc nịch trên nền tảng lung lay.
+ */
+const _UU_TIEN_XAU = ['failed', 'unavailable', 'unconfirmed']
+
+function trangThaiBangChung(startS, endS, ocrEvidence) {
+  const chong = (Array.isArray(ocrEvidence) ? ocrEvidence : []).filter((o) => {
+    const a = Number(o?.startS ?? o?.start_s)
+    const b = Number(o?.endS ?? o?.end_s)
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return false
+    return a < endS && b > startS
+  })
+  if (!chong.length) return 'no_text'
+  const trangThai = chong.map((o) => String(o.status || '').trim())
+  if (trangThai.includes('ok')) return 'ok'
+  for (const xau of _UU_TIEN_XAU) {
+    if (trangThai.includes(xau)) return xau
+  }
+  return 'unconfirmed'
+}
+
 /** Tên tác vụ hợp lệ — dùng cho schema của route và cho test. */
 const TASK_NAMES = Object.keys(TASKS)
 
@@ -1015,6 +1102,7 @@ module.exports = {
   TASKS, TASK_NAMES, getTask, resultsSchema, cat, cacheKey, PROMPT_VERSION,
   // mini-spec H2 — lộ ra để test đơn vị (chống sao chép nguyên văn, schema).
   coSaoChepNguyenVan, parseFlowBlueprintResult, flowBlueprintOutputSchema,
+  trangThaiBangChung,
   // mini-spec H2b — đọc chữ overlay bằng mô hình nhìn ảnh.
   docChuOutputSchema, parseDocChuResult, SO_ANH_DOC_CHU_TOI_DA,
   // mini-spec H3 — viết lại kịch bản cho brand.

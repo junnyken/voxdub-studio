@@ -5,8 +5,9 @@ gán ảnh cho mỗi đoạn, rồi dựng thư mục dự án mở thẳng tron
 
 **Không tốn Vox.** Ghép ảnh và tính thời lượng chạy hết trên máy; giọng đọc do
 Trình chỉnh sửa lo bằng VieNeu cũng chạy trên máy. Trang này KHÔNG có đường
-sinh ảnh — thiếu ảnh thì người dùng tự chọn, vì sinh ảnh tốn 30 Vox mỗi tấm và
-tự bấm hộ là tiêu tiền của người ta mà không xin phép.
+sinh ảnh tự động — thiếu ảnh thì người dùng tự chọn hoặc chủ động nhờ vẽ, vì
+mỗi tấm tốn 33 Vox (30 vẽ + 3 kiểm) và tự bấm hộ là tiêu tiền của người ta
+mà không xin phép.
 
 **Thời gian hiện ra là KHOẢNG, không phải một con số.** Bốn giọng dựng sẵn đọc
 chênh nhau 1,21 lần (đo thật) — hiện "8,4 giây" thì người dùng dựng hình khít
@@ -37,10 +38,17 @@ from autodub_gui.workers import (
 _PAGE_MARGIN = 28
 _ANH_FILTER = "Ảnh (*.png *.jpg *.jpeg *.webp);;Tất cả (*.*)"
 
-#: Giá một ảnh minh hoạ, khớp `credit.cost.image.scene` phía máy chủ. Hiện ra
-#: cho người dùng thấy TRƯỚC khi bấm — đây là con số quyết định họ có bấm hay
-#: không, giấu nó đi thì lượt bấm không còn là đồng ý.
-GIA_MOI_ANH = 30
+#: Giá THẬT của một ảnh minh hoạ: 30 Vox vẽ (`credit.cost.image.scene`) cộng
+#: 3 Vox kiểm (`credit.cost.assist.kiem_anh_minh_hoa`) — mỗi ảnh là HAI lượt
+#: tính tiền, không phải một.
+#:
+#: Bản đầu của trang này chỉ ghi 30 và bỏ quên lượt kiểm, nên hộp thoại nói
+#: "5 ảnh — hết 150 Vox" trong khi ví bị trừ 165. Hiện sai giá ở chỗ xin phép
+#: thì lượt bấm không còn là đồng ý — và người dùng chỉ phát hiện sau khi mất
+#: tiền.
+GIA_VE = 30
+GIA_KIEM = 3
+GIA_MOI_ANH = GIA_VE + GIA_KIEM
 
 _NHAN_BEAT = {
     "hook": "Mở hook", "problem_context": "Nêu vấn đề", "tension": "Tăng kịch tính",
@@ -174,7 +182,7 @@ class StoryboardPage(BasePage):
             self.btn_dung.setEnabled(False)
             # Kịch bản chưa duyệt thì cũng KHÔNG được vẽ ảnh cho nó. Cổng của
             # H4 là "chỉ kịch bản ready" — để hở đường tiêu tiền ở đây thì
-            # người dùng trả 30 Vox mỗi ảnh cho một kịch bản không dựng được.
+            # người dùng trả 33 Vox mỗi ảnh cho một kịch bản không dựng được.
             self.btn_ve_het.setEnabled(False)
             self.bang.auto_state()
             return

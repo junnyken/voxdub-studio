@@ -62,6 +62,11 @@ _BEAT_TYPE_LABELS = {
 #: H2: KHÔNG BAO GIỜ nói "video không có caption" (video có thể có caption ở
 #: đoạn KHÁC), và "unconfirmed" phải nói rõ lý do OCR tiếng Việt không đáng tin.
 _EVIDENCE_STATUS_NOTES = {
+    # `ok` từng KHÔNG có ở đây, nên cột này luôn rỗng — và vì máy chủ cũng
+    # chưa từng ghi trường `evidenceStatus`, mọi đoạn đều là `ok`. Hai lỗi
+    # che nhau: cột rỗng trông như "chưa có gì để nói", trong khi thật ra
+    # không đoạn nào được chấm cả.
+    "ok": "Đọc được chữ trên hình ở đoạn này.",
     "unconfirmed": "Cần bạn xác nhận — OCR tiếng Việt có thể thiếu dấu/sai ký tự.",
     "unavailable": "Không đọc được caption overlay ở đoạn này — xem ghi chú "
                    "bằng chứng phía trên.",
@@ -128,9 +133,12 @@ class FlowBlueprintPage(BasePage):
         card.body.addLayout(chon)
 
         cost_hint = QLabel(
-            "Mỗi lượt phân tích tốn khoảng 8 Vox (giá khởi điểm, có thể điều "
-            "chỉnh) — trừ SAU KHI phân tích xong, video dài hơn 90 giây vẫn "
-            "chạy được nhưng đoạn giữa có thể bỏ sót vài caption chớp nhanh.")
+            "Chi phí gồm HAI phần: 8 Vox cho lượt phân tích cấu trúc, cộng "
+            "8 Vox cho mỗi lô 6 khung hình phải nhờ máy chủ đọc chữ có dấu. "
+            "Video ~60 giây thường có khoảng 15 caption khác nhau ⇒ 3 lô ⇒ "
+            "tổng khoảng 32 Vox. Trừ SAU KHI chạy xong. Video dài hơn 90 giây "
+            "vẫn chạy được nhưng đoạn giữa có thể bỏ sót vài caption chớp "
+            "nhanh, và càng nhiều caption khác nhau thì càng nhiều lô.")
         cost_hint.setObjectName("hint")
         cost_hint.setWordWrap(True)
         card.body.addWidget(cost_hint)

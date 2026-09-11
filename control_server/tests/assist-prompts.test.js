@@ -148,3 +148,66 @@ test('sửa câu chữ prompt thì PHẢI tăng PROMPT_VERSION', () => {
   assert.ok(assist.PROMPT_VERSION >= 2,
     'luật cấm tả nhận dạng người thêm ở v2 — PROMPT_VERSION phải từ 2 trở lên')
 })
+
+// ---------------------------------------------------------------------------
+// Hai lỗi tìm ra trong đợt rà soát 10/09/2026, đều thuộc lớp "im lặng".
+
+test('evidenceStatus suy từ bằng chứng MÁY KHÁCH, không phải mô hình khai', () => {
+  // Trước bản vá: `flowBlueprintOutputSchema()` không có `evidence_status`
+  // nên mô hình không có đường nào trả, `parseFlowBlueprintResult` cũng
+  // không chép ⇒ MỌI đoạn rơi về `default: 'ok'` của Mongoose. Bằng chứng
+  // rác cũng được chấm là sạch, và chốt `bang_chung_khong_du` của H3 không
+  // bao giờ kích hoạt.
+  const bang = [
+    { startS: 0, endS: 3, status: 'ok', text: 'a' },
+    { startS: 3, endS: 6, status: 'unconfirmed', text: 'b' },
+    { startS: 6, endS: 9, status: 'failed', text: 'c' },
+  ]
+  assert.equal(assist.trangThaiBangChung(0, 2, bang), 'ok')
+  assert.equal(assist.trangThaiBangChung(3, 5, bang), 'unconfirmed')
+  assert.equal(assist.trangThaiBangChung(6, 8, bang), 'failed')
+  // Không mẩu nào chồng lấn ⇒ đoạn này không có chữ, KHÁC với "đọc được".
+  assert.equal(assist.trangThaiBangChung(20, 25, bang), 'no_text')
+  // Chồng lấn nhiều mẩu, có một mẩu đọc được ⇒ 'ok'.
+  assert.equal(assist.trangThaiBangChung(0, 9, bang), 'ok')
+  // Chồng lấn toàn mẩu xấu ⇒ lấy cái xấu nhất, nghiêng về dè dặt.
+  assert.equal(assist.trangThaiBangChung(3, 9, bang), 'failed')
+})
+
+test('lời nhắc viết kịch bản KHÔNG bao giờ mất đoạn hay mất chỉ dẫn', () => {
+  // Đo thật trước bản vá: 30 đoạn × 200 ký tự ⇒ prompt chạm trần 6000 ⇒
+  // chỉ còn 27/30 dòng đoạn (parse đòi ĐÚNG số đoạn ⇒ 502 ⇒ app báo "thử
+  // lại sau" cho một tình trạng vĩnh viễn), và ở lượt viết-lại thì chỉ dẫn
+  // `LÀM LẠI` nằm cuối nên bị cắt sạch ⇒ mô hình nhận đầu vào y hệt lượt
+  // trước, trả gần y hệt, mà vẫn bị trừ Vox.
+  const T = assist.TASKS.brand_script_rewrite
+  const dungInput = (soDoan, daiChu, soRangBuoc) => ({
+    brand: {
+      tenBrand: 'X', moTaSanPham: 'y', doiTuongKhach: 'z',
+      toneGiong: 't', usp: 'u',
+      rangBuocKhongDuocNoi: Array.from({ length: soRangBuoc },
+        (_, i) => `cấm số ${i} ${'x'.repeat(150)}`),
+    },
+    beats: Array.from({ length: soDoan }, (_, i) => ({
+      beatType: 'hook', startS: i, endS: i + 1,
+      narrativeFunctionVi: 'm'.repeat(daiChu),
+      pacingNoteVi: 'p'.repeat(daiChu),
+    })),
+  })
+
+  for (const [soDoan, daiChu, soRangBuoc] of [
+    [10, 200, 1], [30, 200, 1], [40, 200, 1], [40, 300, 30]]) {
+    const u = T.buildUser(dungInput(soDoan, daiChu, soRangBuoc))
+    const soDong = (u.match(/^\d+\. \[/gm) || []).length
+    assert.equal(soDong, soDoan,
+      `mất ${soDoan - soDong} đoạn với ${soDoan} đoạn / ${soRangBuoc} ràng buộc`)
+
+    const inpRegen = dungInput(soDoan, daiChu, soRangBuoc)
+    inpRegen.vietLaiDoan = 3
+    inpRegen.lyDoVietLai = 'vi phạm cụm cấm'
+    const uRegen = T.buildUser(inpRegen)
+    assert.match(uRegen, /LÀM LẠI/,
+      `chỉ dẫn viết lại bị cắt với ${soDoan} đoạn — lượt gọi sẽ trừ tiền mà `
+      + 'không đổi gì')
+  }
+})

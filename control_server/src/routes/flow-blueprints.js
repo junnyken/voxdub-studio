@@ -240,7 +240,15 @@ module.exports = async function flowBlueprintRoutes(fastify) {
       languageSourceDetected,
       evidenceSummary,
       samplingPolicyUsed,
-      beats: result.beats,
+      // Tình trạng bằng chứng do MÁY CHỦ suy từ bằng chứng OCR máy khách gửi
+      // lên, không phải do mô hình khai. Xem `trangThaiBangChung()`: trước
+      // đây trường này không có đường nào được ghi nên mọi đoạn đều rơi về
+      // `default: 'ok'`, tức bằng chứng rác cũng được chấm là sạch.
+      beats: result.beats.map((b) => ({
+        ...b,
+        evidenceStatus: assistPrompts.trangThaiBangChung(
+          b.startS, b.endS, ocrEvidence),
+      })),
       evidenceFingerprint: vanTay,
     })
 

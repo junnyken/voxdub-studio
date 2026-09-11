@@ -126,7 +126,8 @@ def chuan_bi_anh(duong_dan: str, thu_muc_tam: str) -> dict:
     return thu_nho_de_gui(duong_dan, thu_muc_tam, "_anh_goc_thu_nho.jpg")
 
 
-def thu_nho_de_gui(duong_dan: str, thu_muc_tam: str, ten_tam: str) -> dict:
+def thu_nho_de_gui(duong_dan: str, thu_muc_tam: str, ten_tam: str, *,
+                   canh_dai: int = _CANH_DAI_TOI_DA) -> dict:
     """Thu nhỏ MỘT ảnh trên đĩa rồi đóng gói ``{"mimeType", "data"}``.
 
     Dùng cho cả ảnh gốc lẫn ảnh vừa dựng. Vì sao ảnh vừa dựng cũng phải qua
@@ -143,7 +144,10 @@ def thu_nho_de_gui(duong_dan: str, thu_muc_tam: str, ten_tam: str) -> dict:
     nho = os.path.join(thu_muc_tam, ten_tam)
     ok = _chay_ffmpeg([
         "-i", duong_dan,
-        "-vf", f"scale='min({_CANH_DAI_TOI_DA},iw)':-2",
+        # `canh_dai` để H2b gửi khung hình nhỏ hơn hẳn (640 thay vì 1280):
+        # lượt đọc chữ gửi tới 6 khung một lần, còn lượt kiểm bao bì chỉ gửi
+        # hai ảnh và cần nhìn rõ chữ trên nhãn.
+        "-vf", f"scale='min({canh_dai},iw)':-2",
         "-q:v", "3", nho,
     ])
     nguon = nho if ok and os.path.isfile(nho) else duong_dan

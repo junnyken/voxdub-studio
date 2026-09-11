@@ -424,9 +424,13 @@ class SaasClient:
             raise OfflineError(
                 "Không kết nối được máy chủ VoxDub. Kiểm tra mạng rồi thử lại."
             ) from e
-        if resp.status_code != 200:
-            self._parse_response(resp)   # ném SaasError phù hợp với mã lỗi
-            return
+        if not _la_thanh_cong(resp.status_code):
+            # Dùng `_raise_saas_error` chứ KHÔNG phải `_parse_response`:
+            # `_parse_response` nay trả về dict cho mọi mã 2xx thay vì luôn
+            # ném, nên nhánh này sẽ rơi xuống `return` và **lặng lẽ không tải
+            # gì** — đúng lớp hỏng không kêu tiếng nào. `_raise_saas_error`
+            # thì không có đường nào trả về.
+            self._raise_saas_error(resp)
         os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
         with open(dest_path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=1024 * 256):
@@ -819,7 +823,7 @@ class SaasClient:
         return self._save_audio_response(resp, dest_path)
 
     def _save_audio_response(self, resp, dest_path: str) -> dict:
-        if resp.status_code != 200:
+        if not _la_thanh_cong(resp.status_code):
             self._raise_saas_error(resp)
         os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
         with open(dest_path, "wb") as f:
