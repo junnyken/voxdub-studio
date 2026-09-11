@@ -367,8 +367,25 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh,
         raise ValueError(f"Không có kiểu chuyển cảnh «{kieu_chuyen}»")
     giay = _chuan_hoa_giay(anh, giay_moi_anh)
     ten_ffmpeg = KIEU_CHUYEN[kieu_chuyen][1]
+    # Mỗi lần `xfade` CHỒNG hai cảnh lên nhau nên nó ăn mất đúng
+    # `giay_chuyen` giây của dòng thời gian. Không bù thì video ra ngắn hơn
+    # tổng thời lượng yêu cầu đúng `giay_chuyen × (n-1)` — và tệ hơn con số
+    # đó: sai lệch **cộng dồn**, nên đoạn thứ i đổi hình sớm `giay_chuyen × i`
+    # giây so với lời đọc của nó.
+    #
+    # Đo thật bằng ffmpeg (mini-spec H4c-1, 11/09/2026): ba ảnh [2,0; 1,0;
+    # 3,0] với chuyển 0,3s ra **5,40s** thay vì 6,00s. Năm ảnh 1 giây ra
+    # 3,80s thay vì 5,00s.
+    #
+    # Bù bằng cách kéo dài mỗi ảnh thêm đúng phần bị ăn (trừ ảnh CUỐI — nó
+    # không có chuyển cảnh nào sau nó), rồi đặt mốc chuyển cảnh đúng vào
+    # ranh giới thật của đoạn. Sau bù, đo lại trên 8 hình dạng khác nhau:
+    # lệch tối đa **đúng 1 khung @30fps (0,0333s)** và KHÔNG tăng theo số ảnh.
+    dai_vao = [g + giay_chuyen for g in giay[:-1]] + [giay[-1]] \
+        if ten_ffmpeg and len(giay) > 1 else list(giay)
+
     lenh: list[str] = ["ffmpeg", "-y"]
-    for duong, g in zip(anh, giay):
+    for duong, g in zip(anh, dai_vao):
         # `-loop 1` biến ảnh tĩnh thành luồng hình; `-t` cắt đúng độ dài cần.
         lenh += ["-loop", "1", "-t", f"{g:.3f}", "-i", duong]
 
@@ -392,11 +409,14 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh,
     else:
         for i in range(1, len(anh)):
             sau = f"x{i}"
-            # Mốc chuyển cảnh cộng dồn theo thời lượng THẬT của các ảnh
-            # trước đó, trừ đi phần chồng lấn của mỗi lần chuyển. Với thời
-            # lượng đều nhau công thức này rút gọn đúng về `(giay-chuyen)*i`
-            # của bản cũ.
-            mocs = sum(giay[:i]) - giay_chuyen * i
+            # Mốc chuyển cảnh = ranh giới THẬT của đoạn thứ i trên dòng thời
+            # gian, tức tổng thời lượng các đoạn trước nó. Không trừ gì cả:
+            # phần chồng lấn đã được bù ở `dai_vao` phía trên.
+            #
+            # Công thức cũ `sum(giay[:i]) - giay_chuyen*i` trừ phần chồng lấn
+            # mà không bù lại ở đâu, nên vừa làm video ngắn đi vừa đẩy mọi
+            # đoạn lên sớm dần.
+            mocs = sum(giay[:i])
             loc.append(f"[{truoc}][v{i}]xfade=transition={ten_ffmpeg}:"
                        f"duration={giay_chuyen:.3f}:offset={mocs:.3f}[{sau}]")
             truoc = sau

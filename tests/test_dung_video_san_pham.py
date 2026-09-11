@@ -153,10 +153,14 @@ def test_mot_anh_van_ghep_duoc(tmp_path):
 
 def test_moc_chuyen_canh_tinh_theo_thoi_luong_that(tmp_path):
     # Đặt mốc sai thì video hoặc đen giữa chừng, hoặc cụt mất ảnh cuối.
+    #
+    # Từ H4c-1: mốc = RANH GIỚI thật của đoạn (3,0 và 6,0), không phải
+    # `(giay - chuyen) * i` (2,5 và 5,0). Công thức cũ trừ phần chồng lấn mà
+    # không bù, làm video ngắn đi và đẩy mọi đoạn lên sớm dần.
     lenh = pv._lenh_ghep(["a.jpg", "b.jpg", "c.jpg"], "ra.mp4", 3.0, 0.5)
     loc = lenh[lenh.index("-filter_complex") + 1]
-    assert "offset=2.500" in loc
-    assert "offset=5.000" in loc
+    assert "offset=3.000" in loc
+    assert "offset=6.000" in loc
 
 
 # -- Cổng nấc ---------------------------------------------------------------
@@ -460,13 +464,24 @@ def _loc_theo_giay(giay: float, kieu: str = "mo_chong") -> str:
 
 def test_thoi_luong_doi_thi_moc_chuyen_canh_doi_theo():
     # Mốc sai thì video hoặc đen giữa chừng, hoặc cụt mất ảnh cuối.
-    assert "offset=1.600" in _loc_theo_giay(2.0)
-    assert "offset=3.600" in _loc_theo_giay(4.0)
+    # Mốc = ranh giới đoạn (H4c-1), nên đổi thời lượng là mốc đổi theo đúng
+    # bằng thời lượng đó.
+    assert "offset=2.000" in _loc_theo_giay(2.0)
+    assert "offset=4.000" in _loc_theo_giay(4.0)
 
 
 def test_thoi_luong_doi_thi_do_dai_moi_anh_doi_theo():
+    """Mỗi ảnh giữ hình 4,0 giây ⇒ tổng video 8,0 giây.
+
+    Độ dài đưa vào ffmpeg là [4,4; 4,0]: ảnh đầu cộng thêm 0,4 giây sẽ bị
+    lần chuyển cảnh chồng mất, ảnh cuối thì không (H4c-1).
+    """
     lenh = pv._lenh_ghep(["a.jpg", "b.jpg"], "r.mp4", 4.0, 0.4, "mo_chong")
-    assert lenh.count("4.000") >= 2, "chưa cắt mỗi ảnh theo đúng thời lượng chọn"
+    vao = [float(lenh[i + 1]) for i, x in enumerate(lenh) if x == "-t"]
+    assert vao == [4.4, 4.0]
+    moc = float(lenh[lenh.index("-filter_complex") + 1]
+                .split("offset=")[1].split("[")[0])
+    assert moc + vao[-1] == pytest.approx(8.0), "tổng video phải là 2 × 4,0s"
 
 
 def test_thoi_luong_chon_duoc_deu_hop_le():

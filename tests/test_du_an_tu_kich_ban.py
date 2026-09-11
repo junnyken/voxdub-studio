@@ -59,6 +59,17 @@ class _GhepGia:
             f.write(b"video gia")
         return duong_ra
 
+    def do_thoi_luong(self, _duong_video):
+        """Phép đo khớp với hàm ghép giả này.
+
+        Cổng thời lượng của H4c-1 ĐO video thật bằng ffprobe; tệp 9 byte ở
+        trên thì không đo được. Giả hàm ghép thì phải giả luôn phép đo, và
+        khai rõ ra như vậy là cố ý: nó nhắc rằng những lượt test dưới đây
+        KHÔNG chứng minh được gì về thời lượng thật — việc đó là của
+        `tests/test_h4c1_thoi_luong.py`, nơi chạy ffmpeg thật.
+        """
+        return sum(self.lan_goi[-1]["giay"]) if self.lan_goi else None
+
 
 # ------------------------------------------------------------- cổng H4 ----
 
@@ -67,14 +78,14 @@ def test_kich_ban_chua_ready_thi_khong_dung_duoc_du_an(tmp_path, anh):
     # hai chỗ thì có ngày lệch nhau) — nhưng phải chắc nó CÓ chặn tới đây.
     with pytest.raises(KichBanChuaDungDuoc):
         da.dung_du_an(_kich_ban(status="blocked"), anh,
-                      str(tmp_path / "duan"), ghep_video=_GhepGia())
+                      str(tmp_path / "duan"), ghep_video=(g := _GhepGia()), do_thoi_luong=g.do_thoi_luong)
 
 
 def test_khong_tao_thu_muc_nao_khi_bi_chan(tmp_path, anh):
     duan = tmp_path / "duan"
     with pytest.raises(KichBanChuaDungDuoc):
         da.dung_du_an(_kich_ban(status="unconfirmed"), anh, str(duan),
-                      ghep_video=_GhepGia())
+                      ghep_video=(g := _GhepGia()), do_thoi_luong=g.do_thoi_luong)
     assert not duan.exists(), "bị chặn mà vẫn để lại thư mục dở dang"
 
 
@@ -83,13 +94,13 @@ def test_khong_tao_thu_muc_nao_khi_bi_chan(tmp_path, anh):
 def test_thieu_anh_thi_bao_ro_DOAN_NAO(tmp_path, anh):
     with pytest.raises(da.ThieuAnh, match="đoạn 2"):
         da.dung_du_an(_kich_ban(), anh[:1], str(tmp_path / "duan"),
-                      ghep_video=_GhepGia())
+                      ghep_video=(g := _GhepGia()), do_thoi_luong=g.do_thoi_luong)
 
 
 def test_anh_rong_cung_tinh_la_thieu(tmp_path, anh):
     with pytest.raises(da.ThieuAnh, match="đoạn 1"):
         da.dung_du_an(_kich_ban(), ["", anh[1]], str(tmp_path / "duan"),
-                      ghep_video=_GhepGia())
+                      ghep_video=(g := _GhepGia()), do_thoi_luong=g.do_thoi_luong)
 
 
 def test_KHONG_tu_sinh_anh_thay_nguoi_dung(tmp_path, anh):
@@ -109,7 +120,7 @@ def test_TRINH_CHINH_SUA_MO_DUOC_du_an_vua_dung(tmp_path, anh):
     from autodub import editor
 
     duan = str(tmp_path / "duan")
-    ket = da.dung_du_an(_kich_ban(), anh, duan, ghep_video=_GhepGia())
+    ket = da.dung_du_an(_kich_ban(), anh, duan, ghep_video=(g := _GhepGia()), do_thoi_luong=g.do_thoi_luong)
 
     state = editor.load_work_dir(duan)
     assert len(state.segments) == 2
@@ -127,7 +138,7 @@ def test_ten_video_khong_dinh_tien_to_bi_BO_QUA(tmp_path, anh):
 
 def test_segment_dung_khuon_trinh_chinh_sua_doc(tmp_path, anh):
     duan = str(tmp_path / "duan")
-    ket = da.dung_du_an(_kich_ban(), anh, duan, ghep_video=_GhepGia())
+    ket = da.dung_du_an(_kich_ban(), anh, duan, ghep_video=(g := _GhepGia()), do_thoi_luong=g.do_thoi_luong)
     with open(ket.duong_transcript, encoding="utf-8") as f:
         segs = json.load(f)
 
@@ -145,7 +156,7 @@ def test_loi_doc_va_chu_tren_hinh_la_HAI_thu_khac_nhau(tmp_path, anh):
     kb = _kich_ban(beats=[_beat("Một câu lời đọc đầy đủ và dài hơn hẳn.",
                                 caption="Ngắn thôi")])
     duan = str(tmp_path / "duan")
-    ket = da.dung_du_an(kb, anh[:1], duan, ghep_video=_GhepGia())
+    ket = da.dung_du_an(kb, anh[:1], duan, ghep_video=(g := _GhepGia()), do_thoi_luong=g.do_thoi_luong)
     with open(ket.duong_transcript, encoding="utf-8") as f:
         seg = json.load(f)[0]
     assert seg["text_vi"] != seg["sub_vi"]
@@ -155,7 +166,7 @@ def test_loi_doc_va_chu_tren_hinh_la_HAI_thu_khac_nhau(tmp_path, anh):
 def test_caption_rong_thi_phu_de_lay_luon_loi_doc(tmp_path, anh):
     kb = _kich_ban(beats=[_beat("Câu lời đọc.", caption="")])
     ket = da.dung_du_an(kb, anh[:1], str(tmp_path / "duan"),
-                        ghep_video=_GhepGia())
+                        ghep_video=(g := _GhepGia()), do_thoi_luong=g.do_thoi_luong)
     with open(ket.duong_transcript, encoding="utf-8") as f:
         seg = json.load(f)[0]
     assert seg["sub_vi"] == "Câu lời đọc.", "để trống phụ đề là mất chữ trên hình"
@@ -168,7 +179,7 @@ def test_moi_doan_ghep_dung_thoi_luong_cua_no(tmp_path, anh):
     kb = _kich_ban(beats=[_beat("Thử đi."),
                           _beat("Cả nhà bốn người có bữa sáng nóng hổi, còn mẹ "
                                 "thì thảnh thơi pha ly cà phê uống trọn vẹn.")])
-    ket = da.dung_du_an(kb, anh, str(tmp_path / "duan"), ghep_video=ghep)
+    ket = da.dung_du_an(kb, anh, str(tmp_path / "duan"), ghep_video=ghep, do_thoi_luong=ghep.do_thoi_luong)
 
     giay = ghep.lan_goi[0]["giay"]
     assert len(giay) == 2
@@ -180,7 +191,9 @@ def test_moi_doan_ghep_dung_thoi_luong_cua_no(tmp_path, anh):
 
 def test_ghi_lai_NGUON_GOC_de_du_an_khong_thanh_hop_den(tmp_path, anh):
     duan = str(tmp_path / "duan")
-    da.dung_du_an(_kich_ban(), anh, duan, ghep_video=_GhepGia())
+    ghep = _GhepGia()
+    da.dung_du_an(_kich_ban(), anh, duan, ghep_video=ghep,
+                  do_thoi_luong=ghep.do_thoi_luong)
     with open(os.path.join(duan, "data", da.TEN_NGUON_GOC), encoding="utf-8") as f:
         nguon = json.load(f)
     assert nguon["brand_script_id"] == "s1"
@@ -194,8 +207,9 @@ def test_canh_bao_lech_nhip_duoc_giu_lai_trong_nguon_goc(tmp_path, anh):
     # Cảnh báo chỉ hiện lúc dựng rồi mất thì người mở dự án sau không biết.
     kb = _kich_ban(beats=[_beat(" ".join(["từ"] * 60) + "."), _beat("Ngắn.")])
     duan = str(tmp_path / "duan")
+    ghep = _GhepGia()
     da.dung_du_an(kb, anh, duan, blueprint={"beats": [{"startS": 0, "endS": 8}]},
-                  ghep_video=_GhepGia())
+                  ghep_video=ghep, do_thoi_luong=ghep.do_thoi_luong)
     with open(os.path.join(duan, "data", da.TEN_NGUON_GOC), encoding="utf-8") as f:
         nguon = json.load(f)
     assert any("dài gấp" in c for c in nguon["canh_bao"])
@@ -219,10 +233,15 @@ def test_KHONG_di_qua_cong_kiem_anh_AI_cua_C1(tmp_path, anh, monkeypatch):
 
     da_goi = []
     monkeypatch.setattr(pv, "dung_video", _cam)
-    monkeypatch.setattr(pv, "ghep_anh_nguoi_dung",
-                        lambda *a, **k: da_goi.append(a) or open(a[1], "wb").close())
-
-    da.dung_du_an(_kich_ban(), anh, str(tmp_path / "duan"))
+    # Phép đo cũng phải giả: hàm ghép đã bị thay bằng một hàm ghi tệp RỖNG,
+    # nên cổng thời lượng thật sẽ không đo được gì. Test này kiểm ĐƯỜNG ĐI
+    # chứ không kiểm thời lượng — trả đúng tổng mà bên gọi yêu cầu.
+    monkeypatch.setattr(
+        pv, "ghep_anh_nguoi_dung",
+        lambda *a, **k: (da_goi.append(k["giay_moi_anh"]),
+                         open(a[1], "wb").close())[1])
+    da.dung_du_an(_kich_ban(), anh, str(tmp_path / "duan"),
+                  do_thoi_luong=lambda _p: sum(da_goi[-1]))
     assert da_goi, "phải ghép qua đường ảnh người dùng"
 
 

@@ -16180,3 +16180,88 @@ không hở.
 
 Bốn lỗi trên đều chỉ lộ ra nhờ thói quen **gỡ ra chứng minh đỏ trước khi tin
 là xanh**. Không có bước đó thì cả bốn đã đi vào bản phát hành.
+
+## H4c-1 — Hợp đồng thời lượng lớp dựng hình (11/09/2026)
+
+Chủ dự án chốt thứ tự: **audit nguyên nhân trước, chưa đặt tolerance**. Làm
+đúng vậy.
+
+### Audit: ba giả thuyết SAI, một đúng
+
+| Giả thuyết | Phán quyết |
+|---|---|
+| Chuyển cảnh bị trừ hai lần | ✗ công thức mốc cũ nhất quán nội bộ |
+| ffmpeg rounding / timebase | ✗ sai lệch đúng bằng `D×(n−1)`, không phải phần lẻ |
+| Mất thời lượng ảnh cuối | ✗ thiếu hụt tỉ lệ với SỐ LẦN CHUYỂN |
+| **Chồng lấn chuyển cảnh không được bù** | ✓ |
+
+`xfade` **chồng** hai cảnh nên mỗi lần chuyển ăn mất đúng `giay_chuyen` giây,
+và không có gì bù lại. Đo thật bằng ffmpeg:
+
+| Kịch bản | Mong muốn | Thực tế | Thiếu |
+|---|---|---|---|
+| `[2; 1; 3]` | 6,00s | **5,40s** | 0,60 = 0,3×2 |
+| 5 ảnh × 1,0s | 5,00s | **3,80s** | 1,20 = 0,3×4 |
+| 2 ảnh × 4,0s | 8,00s | 7,70s | 0,30 = 0,3×1 |
+| 1 ảnh | 3,00s | 3,00s | 0 |
+
+Điều tệ hơn con số thiếu hụt: **sai lệch CỘNG DỒN** — đoạn thứ i đổi hình sớm
+`giay_chuyen × i` giây so với lời đọc. Người dùng nghe thử thấy "hơi lệch" ở
+giữa rồi lệch hẳn ở cuối, không gì chỉ ra nguyên nhân.
+
+### Bản vá
+
+Bù đúng phần bị ăn (`L[i] = giay[i] + chuyen`, trừ ảnh CUỐI) và đặt mốc vào
+**ranh giới thật** của đoạn (`offset[i] = Σ giay[:i]`, không trừ gì).
+
+### Ngưỡng — hệ quả của phép đo
+
+Dựng thật trên **8 hình dạng** (2→9 ảnh; 0,34→11,9 giây/ảnh; tổng 0,68→35,2
+giây): lệch tối đa **đúng 1 khung @30fps = 0,0333s**, và **KHÔNG tăng** theo
+số ảnh hay độ dài. Đó là lượng tử hoá khung hình — sàn của thứ 30fps làm được.
+
+⇒ `LECH_THOI_LUONG_TOI_DA_S = 2/30`, **hằng số**, không nhân theo độ dài.
+
+### Cổng cứng
+
+`dung_du_an()` đo lại video vừa dựng rồi đối chiếu. Hai ca đều CHẶN:
+
+- lệch quá ngưỡng ⇒ `VideoLechThoiLuong`, kèm cả hai con số;
+- **không đo được** ⇒ cũng chặn. "Không đo được" KHÁC "đo xong thấy ổn" — bỏ
+  qua khi ffprobe hỏng thì lỗi quay lại y như cũ mà không ai biết.
+
+### Test
+
+`tests/test_h4c1_thoi_luong.py` (12): **5 test chạy ffmpeg THẬT** trên ảnh
+PNG thật, và một test đi trọn đường người dùng — không tiêm hàm ghép, không
+tiêm phép đo. Đây là lượt đầu tiên H4c chạm ffmpeg thật; trước đó mọi test
+tiêm một hàm ghi 9 byte `b"video gia"` làm "video", nên
+`test_TRINH_CHINH_SUA_MO_DUOC_du_an_vua_dung` chỉ chứng minh
+`load_work_dir()` chấp nhận **tên tệp**.
+
+Chốt quan trọng nhất không phải "độ dài đúng" mà là
+`test_LECH_KHONG_tang_theo_so_doan`: bù một phần thì test độ dài đơn lẻ vẫn
+qua trong khi sai lệch cộng dồn còn nguyên.
+
+**Đã chứng minh đỏ**: khôi phục công thức cũ ⇒ **6/12 test đỏ**.
+
+### 16 test cũ đỏ — và vì sao KHÔNG chỉ sửa cho xanh
+
+Đổi công thức làm 16 test đỏ. Đọc từng cái thì ra chúng **ghi cứng chính
+hành vi sai**: `_thoi_luong_dau_vao == giay`, `offset == sum(giay[:i]) −
+chuyen×i`, và một test tên `test_moc_chuyen_canh_khop_cong_thuc_cu_khi_deu_nhau`
+chốt rằng công thức mới phải rút gọn về công thức cũ — tức chốt cả lỗi.
+
+Viết lại để chúng chốt **hợp đồng đúng**: thứ phải khớp là **TỔNG video suy
+từ chính lệnh**, còn độ dài đưa vào từng ảnh chỉ là phương tiện. Thêm
+`_tong_video()` và một test tham số hoá 5 hình dạng.
+
+Các test tiêm hàm ghép giả nay phải tiêm **cả phép đo** (`_GhepGia
+.do_thoi_luong`). Bắt khai rõ cả hai là cố ý — nó nhắc rằng những lượt đó
+không chứng minh gì về thời lượng thật.
+
+### Ghi chú: C1 cũng dính, nhẹ hơn
+
+`dung_video()` của ảnh sản phẩm dùng chung `_lenh_ghep` nên cũng thiếu
+`chuyen × (n−1)`. Ở đó không có transcript để lệch theo nên hậu quả chỉ là
+video ngắn hơn yêu cầu; bản vá sửa luôn cho cả hai.

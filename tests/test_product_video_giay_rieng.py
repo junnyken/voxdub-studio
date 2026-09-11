@@ -27,39 +27,73 @@ def _thoi_luong_dau_vao(lenh: list[str]) -> list[float]:
     return [float(lenh[i + 1]) for i, x in enumerate(lenh) if x == "-t"]
 
 
+def _tong_video(lenh: list[str]) -> float:
+    """Thời lượng video ffmpeg sẽ dựng ra, suy từ chính lệnh.
+
+    `xfade` chồng cảnh nên tổng = mốc cuối + độ dài ảnh cuối. Đây mới là con
+    số phải khớp dòng thời gian của transcript — độ dài đưa vào từng ảnh chỉ
+    là phương tiện, không phải hợp đồng.
+    """
+    vao = _thoi_luong_dau_vao(lenh)
+    moc = _moc_xfade(lenh)
+    return vao[0] if not moc else moc[-1] + vao[-1]
+
+
 # ------------------------------------------------- tương thích đường cũ ----
 
 def test_mot_so_duy_nhat_van_chay_nhu_cu():
+    """Một con số = mọi ảnh giữ hình 3,0 giây, tổng video 9,0 giây.
+
+    Độ dài ĐƯA VÀO ffmpeg lớn hơn 3,0 vì mỗi lần chuyển cảnh chồng lấn ăn
+    mất 0,5 giây — phần bù đó là chi tiết bên trong, thứ phải đúng là TỔNG
+    (mini-spec H4c-1).
+    """
     lenh = pv._lenh_ghep(["a.png", "b.png", "c.png"], "ra.mp4", 3.0, 0.5)
-    assert _thoi_luong_dau_vao(lenh) == [3.0, 3.0, 3.0]
+    assert _tong_video(lenh) == pytest.approx(9.0)
+    assert _thoi_luong_dau_vao(lenh) == [3.5, 3.5, 3.0]
 
 
-def test_moc_chuyen_canh_khop_cong_thuc_cu_khi_deu_nhau():
-    # Bản cũ dùng `(giay - chuyen) * i`. Công thức mới cộng dồn phải rút gọn
-    # đúng về đó, nếu không là đã âm thầm đổi hành vi của ảnh sản phẩm C1.
+def test_moc_chuyen_canh_dat_dung_RANH_GIOI_doan():
+    """Mốc chuyển cảnh = tổng thời lượng các đoạn TRƯỚC nó.
+
+    Bản trước H4c-1 dùng `(giay - chuyen) * i`, tức trừ phần chồng lấn mà
+    không bù lại ở đâu. Hệ quả: video ngắn hơn `chuyen × (n-1)` VÀ mọi đoạn
+    bị đẩy lên sớm dần — đo thật ba ảnh [2;1;3] ra 5,40s thay vì 6,00s.
+    """
     giay, chuyen = 3.0, 0.5
     lenh = pv._lenh_ghep(["a.png", "b.png", "c.png"], "ra.mp4", giay, chuyen)
-    assert _moc_xfade(lenh) == pytest.approx(
-        [(giay - chuyen) * 1, (giay - chuyen) * 2])
+    assert _moc_xfade(lenh) == pytest.approx([3.0, 6.0])
 
 
 # --------------------------------------------------- thời lượng riêng -----
 
 def test_moi_anh_mot_thoi_luong_rieng():
-    lenh = pv._lenh_ghep(["a.png", "b.png", "c.png"], "ra.mp4",
-                         [2.0, 7.5, 4.25], 0.5)
-    assert _thoi_luong_dau_vao(lenh) == [2.0, 7.5, 4.25]
+    giay = [2.0, 7.5, 4.25]
+    lenh = pv._lenh_ghep(["a.png", "b.png", "c.png"], "ra.mp4", giay, 0.5)
+    # Mỗi ảnh trừ ảnh CUỐI được cộng thêm phần chuyển cảnh sẽ bị chồng mất.
+    assert _thoi_luong_dau_vao(lenh) == [2.5, 8.0, 4.25]
+    assert _tong_video(lenh) == pytest.approx(sum(giay))
 
 
 def test_moc_chuyen_canh_cong_don_theo_thoi_luong_THAT():
     # Đây là chỗ sai thì không ai thấy: video vẫn ra, chỉ lệch dần.
     giay = [2.0, 7.5, 4.25]
-    chuyen = 0.5
-    lenh = pv._lenh_ghep(["a.png", "b.png", "c.png"], "ra.mp4", giay, chuyen)
-    assert _moc_xfade(lenh) == pytest.approx([
-        sum(giay[:1]) - chuyen * 1,
-        sum(giay[:2]) - chuyen * 2,
-    ])
+    lenh = pv._lenh_ghep(["a.png", "b.png", "c.png"], "ra.mp4", giay, 0.5)
+    assert _moc_xfade(lenh) == pytest.approx([sum(giay[:1]), sum(giay[:2])])
+
+
+@pytest.mark.parametrize("giay,chuyen", [
+    ([2.0, 1.0, 3.0], 0.3), ([1.0] * 5, 0.3), ([4.0, 4.0], 0.5),
+    ([3.0], 0.3), ([8.4, 5.2, 11.9, 3.1, 6.6], 0.3),
+])
+def test_TONG_video_luon_bang_tong_thoi_luong_doan(giay, chuyen):
+    """Hợp đồng của H4c-1, viết thành một dòng.
+
+    Đây là thứ transcript dựa vào; sai ở đây thì mọi bước sau đặt lên một
+    dòng thời gian sai mà không có lỗi nào để thấy.
+    """
+    lenh = pv._lenh_ghep(["a.png"] * len(giay), "ra.mp4", giay, chuyen)
+    assert _tong_video(lenh) == pytest.approx(sum(giay))
 
 
 def test_nhan_video_hien_dung_bang_thoi_luong_anh_DAU():
@@ -112,5 +146,5 @@ def test_thoi_luong_lay_thang_tu_storyboard_dung_thu_tu():
     lenh = pv._lenh_ghep(["a.png", "b.png"], "ra.mp4", giay, 0.3)
 
     vao = _thoi_luong_dau_vao(lenh)
-    assert vao == pytest.approx(giay)
+    assert _tong_video(lenh) == pytest.approx(sum(giay))
     assert vao[1] > vao[0] * 3, "đoạn dài phải giữ hình lâu hơn hẳn đoạn ngắn"

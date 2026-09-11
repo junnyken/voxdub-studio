@@ -42,11 +42,44 @@ TEN_VIDEO_NGUON = "storyboard_video.mp4"
 TEN_NGUON_GOC = "nguon_kich_ban.json"
 
 
+#: Lệch thời lượng tối đa cho phép giữa video dựng ra và dòng thời gian ghi
+#: trong transcript — mini-spec H4c-1.
+#:
+#: Con số này **đo được, không chọn bừa**. Sau khi bù phần chuyển cảnh, dựng
+#: thật bằng ffmpeg trên 8 hình dạng kịch bản khác nhau (2→9 ảnh, 0,34→11,9
+#: giây mỗi ảnh, tổng 0,68→35,2 giây) cho lệch tối đa **đúng 1 khung ở 30fps
+#: = 0,0333s**, và lệch đó **KHÔNG tăng** theo số ảnh hay độ dài video — nó
+#: là lượng tử hoá khung hình, tức sàn của thứ 30fps làm được.
+#:
+#: Lấy 2 khung để chừa chỗ cho máy khác/bản ffmpeg khác, vẫn nhỏ hơn 9 lần
+#: sai lệch cũ của một video 3 đoạn (0,6s) và không tăng theo độ dài.
+LECH_THOI_LUONG_TOI_DA_S = 2 / 30
+
+
+def _do_thoi_luong_that(duong_video: str) -> float | None:
+    """Đo thời lượng video bằng ffprobe. None nếu không đọc được."""
+    from autodub.media.video import probe_duration_s
+
+    return probe_duration_s(duong_video)
+
+
 class ThieuAnh(RuntimeError):
     """Có đoạn chưa được gán ảnh.
 
-    KHÔNG tự sinh ảnh thay người dùng (Guardrail 4 của H4): sinh ảnh tốn 30
+    KHÔNG tự sinh ảnh thay người dùng (Guardrail 4 của H4): sinh ảnh tốn 33
     Vox mỗi tấm, tự bấm hộ là tiêu tiền của người ta mà không xin phép.
+    """
+
+
+class VideoLechThoiLuong(RuntimeError):
+    """Video dựng ra không khớp dòng thời gian của transcript.
+
+    Vì sao phải NÉM chứ không chỉ cảnh báo: transcript là thứ Trình chỉnh sửa
+    dùng để cắt giọng đọc cho từng đoạn. Video ngắn hơn transcript nghĩa là
+    hình đổi sớm dần so với tiếng, và sai lệch **cộng dồn** về cuối video —
+    người dùng sẽ nghe thử thấy "hơi lệch" ở giữa rồi lệch hẳn ở cuối mà
+    không hiểu vì sao. Dựng tiếp một dự án như vậy là đặt mọi bước sau lên
+    một dòng thời gian sai.
     """
 
 
@@ -79,7 +112,7 @@ def _segment_tu_doan(doan, thu_tu: int) -> dict:
 def dung_du_an(
     kich_ban: dict, anh_moi_doan: list[str], work_dir: str, *,
     blueprint: dict | None = None, giay_chuyen: float = 0.3,
-    ghep_video=None,
+    ghep_video=None, do_thoi_luong=None,
 ) -> KetQuaDungDuAn:
     """Dựng thư mục dự án mở được trong Trình chỉnh sửa.
 
@@ -121,6 +154,31 @@ def dung_du_an(
         ghep_video = ghep_anh_nguoi_dung
     ghep_video(list(anh_moi_doan), duong_video, giay_moi_anh=giay,
                giay_chuyen=giay_chuyen)
+
+    # --- Cổng thời lượng (H4c-1) ------------------------------------------
+    # ĐO LẠI video vừa dựng, không tin lệnh ffmpeg đã chạy xong là đúng.
+    #
+    # Đây là chỗ lỗi cũ lọt qua: `xfade` chồng cảnh nên ăn mất `giay_chuyen`
+    # mỗi lần chuyển, video ra ngắn hơn transcript đúng `giay_chuyen × (n-1)`
+    # — mà transcript thì vẫn ghi mốc cộng dồn đầy đủ. Không ai đo nên không
+    # ai biết, và người dùng chỉ gặp nó ở bước nghe thử: hình đổi sớm dần,
+    # lệch hẳn về cuối.
+    tong_mong_muon = sum(giay)
+    do = do_thoi_luong or _do_thoi_luong_that
+    thuc_te = do(duong_video)
+    if thuc_te is None:
+        raise VideoLechThoiLuong(
+            "Không đọc được thời lượng video vừa dựng để đối chiếu. Dự án "
+            "chưa dựng xong — thiếu phép đối chiếu này thì hình có thể lệch "
+            "dần so với tiếng mà không có dấu hiệu nào.")
+    lech = abs(thuc_te - tong_mong_muon)
+    if lech > LECH_THOI_LUONG_TOI_DA_S:
+        raise VideoLechThoiLuong(
+            f"Video dựng ra dài {thuc_te:.2f} giây nhưng dòng thời gian của "
+            f"kịch bản là {tong_mong_muon:.2f} giây (lệch {lech:.2f} giây). "
+            "Dựng tiếp thì hình sẽ lệch dần so với lời đọc và càng về cuối "
+            "càng lệch. Thử lại với kiểu chuyển cảnh «cắt thẳng», hoặc báo "
+            "lỗi kèm số giây ở trên.")
 
     from autodub.workdir import data_path
 
