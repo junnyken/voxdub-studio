@@ -163,6 +163,7 @@ def trich_bang_chung(
         if progress:
             progress(step, detail)
 
+    from autodub.speech.transcriber import TranscribeCancelled
     from autodub.transcribe_tool import TranscribeError, prepare_audio
 
     say("download", "Đang chuẩn bị video…")
@@ -183,7 +184,26 @@ def trich_bang_chung(
                       "end_s": round(float(s.get("end", 0)), 2),
                       "text": str(s.get("text", "")).strip()}
                      for s in segments if str(s.get("text", "")).strip()]
-    except TranscribeError as e:
+    except TranscribeCancelled:
+        # Người dùng bấm Dừng — KHÔNG phải hỏng. Để nó bay lên nguyên vẹn cho
+        # worker nhận ra là huỷ; nuốt ở đây thì lượt chạy đi tiếp sau khi đã
+        # được bảo dừng.
+        raise
+    except RuntimeError as e:
+        # Bắt RuntimeError chứ KHÔNG chỉ `TranscribeError` — tìm ra 11/09.
+        #
+        # `TranscribeError` là CON của `RuntimeError`, nhưng `transcriber.py`
+        # ném `RuntimeError` TRẦN ở bảy chỗ: chưa cài `.venv-whisper`, máy hết
+        # bộ nhớ cho mọi model, worker Whisper trả lỗi… Những lỗi đó lọt qua
+        # `except TranscribeError` và **giết cả lượt phân tích**, trong khi
+        # docstring của hàm này hứa ngược lại:
+        #
+        #   "Không đọc được ASR/OCR (thiếu bộ cài, engine lỗi) KHÔNG chặn cả
+        #    lượt — Constraint 5 của H2"
+        #
+        # Hậu quả thật: máy chưa cài bộ nghe thì người dùng nhận "Phân tích
+        # thất bại" thay vì một Flow Blueprint dựng từ chữ trên hình — mà OCR
+        # thì vẫn chạy tốt.
         logger.warning("ASR không chạy được cho Flow Blueprint (%s)", e)
         transcript = []
         canh_bao.append(f"Không chép lời được: {e}")

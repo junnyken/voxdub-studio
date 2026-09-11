@@ -16445,3 +16445,66 @@ dài hơn ước lượng khoảng **5%**. Nằm trong giới hạn ±15% đã g
 `merge_video` nới video theo tiếng nên không cụt. Nhưng nó xác nhận điều spec
 H4 đã nói: **hợp đồng H4c-1 bảo đảm video khớp TRANSCRIPT, không phải khớp
 giọng đọc thật.** Khớp giọng thật là việc của một lát sau khi TTS chạy.
+
+## Lỗi engine nghe giết cả lượt H2 + lập backlog (11/09/2026)
+
+Chủ dự án hỏi: *"các vấn đề trên bạn đã lên kế hoạch khắc phục chưa"*. Câu
+trả lời thật lúc đó là **chưa** — tôi sửa 7 lỗi rồi báo cáo, còn ~20 phát
+hiện còn lại chỉ nằm trong hội thoại, không nơi nào theo dõi được.
+
+### Lỗi tìm thêm khi rà lại backlog — chặn đúng pilot sắp chạy
+
+`TranscribeError` là **con** của `RuntimeError`, nhưng `speech/transcriber.py`
+ném `RuntimeError` **trần** ở bảy chỗ: chưa cài `.venv-whisper`, máy hết bộ
+nhớ cho mọi model, worker Whisper trả lỗi. `flow_blueprint.py` chỉ bắt
+`TranscribeError` ⇒ những lỗi đó **thoát ra giết cả lượt phân tích**.
+
+Docstring ngay trên đó hứa ngược lại, nguyên văn:
+
+> *"Không đọc được ASR/OCR (thiếu bộ cài, engine lỗi) KHÔNG chặn cả lượt —
+> Constraint 5 của H2"*
+
+Hậu quả với pilot: máy chưa cài bộ nghe ⇒ người dùng nhận **"Phân tích thất
+bại"** thay vì một Flow Blueprint dựng từ chữ trên hình, dù OCR vẫn chạy tốt.
+
+Cộng thêm: `TranscribeCancelled` cũng kế thừa `RuntimeError`, nên bấm **Dừng**
+bị báo thành thất bại.
+
+Sửa: bắt `RuntimeError` và **chừa `TranscribeCancelled` ra** — huỷ không phải
+hỏng, và nuốt nó thì lượt chạy đi tiếp sau khi đã được bảo dừng.
+
+4 test mới. **Đã chứng minh đỏ**: khôi phục `except TranscribeError` ⇒ 3 đỏ.
+
+Cảnh báo đi vào `evidence_summary` (được LƯU cùng blueprint) chứ không phải
+một trường riêng — bản test đầu của tôi đoán tên `canh_bao` và sai; đọc mã
+mới ra.
+
+### `docs/BACKLOG_PHASE_H.md`
+
+Ba mức, phân biệt rõ:
+
+| Nhãn | Số | Nghĩa |
+|---|---|---|
+| ✅ | 14 | Đã sửa, có test, đã chứng minh đỏ |
+| 🔴 | 6 | Còn mở, **tôi tự kiểm chứng** là có thật |
+| 🟡 | 22 | Còn mở, agent báo, **CHƯA kiểm chứng** |
+
+🟡 không nghĩa là sai — nghĩa là chưa ai đo. Sửa thứ chưa đo là cách nhanh
+nhất để sửa nhầm.
+
+Sáu cái 🔴 đã tự kiểm chứng trong lượt này:
+
+- **B1** TDZ `ai.js:838` — `result` dùng ở 838, `let result` ở 898 ⇒ 500
+  **vĩnh viễn** cho một bộ ảnh trúng nhớ đệm;
+- **B2** `saas_client.py:274` — nhánh 429 vứt `code`/`message` của máy chủ ⇒
+  `DAILY_LIMIT` ("thử lại ngày mai") thành "chờ một chút";
+- **B3** `is_running()` bỏ sót `_bp_worker`;
+- **B4** mẻ vẽ ảnh không có nút Dừng;
+- **B5** thư mục ra đóng cứng `~/VoxDub`, `_settings_provider` nhận rồi không
+  dùng;
+- **B6** `UsageLog.create` không bọc `.catch` ở nhánh THÀNH CÔNG ⇒ trừ 30 Vox
+  rồi trả 500.
+
+Kèm bốn lát đã biết trước chưa làm: khớp video với **giọng đọc thật** (pilot
+đo được lệch ~5%), định giá lại theo token thật, chốt deploy bị webhook đi
+vòng qua, và thu hồi token GitHub cũ.

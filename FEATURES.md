@@ -10,7 +10,7 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-10 · phiên bản ứng dụng `3.17.6` · 2.711 test Python +
+> Cập nhật: 2026-09-10 · phiên bản ứng dụng `3.17.7` · 2.715 test Python +
 > 652 test Node + 74 test React
 
 ---
@@ -651,6 +651,7 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/MINI-SPEC_H4_Storyboard_To_Video.md` | Từ kịch bản brand thành dự án video — storyboard, ghép ảnh theo thời lượng riêng, và vì sao không đồng bộ được nhân vật |
 | `docs/MINI-SPEC_H4d_Sinh_Anh_Minh_Hoa.md` | Sinh ảnh minh hoạ từ chữ — vì sao cửa ảnh cũ không làm được, và luật tuân thủ thay thế khi không có ảnh sản phẩm làm neo |
 | `docs/MINI-SPEC_H4c1_Timing_Contract.md` | Hợp đồng thời lượng lớp dựng hình — audit vì sao video ngắn hơn transcript, và cổng đo lại sau khi dựng |
+| `docs/BACKLOG_PHASE_H.md` | Mọi phát hiện Phase H còn mở, có trạng thái thật: đã sửa / đã tự kiểm chứng / chưa kiểm chứng |
 | `docs/PILOT_PHASE_H.md` | Runbook chạy thử xuyên suốt H2→H3 trên máy thật + bốn cổng phải đóng trước khi mở H4 |
 
 **Quy mô test tại thời điểm cập nhật tệp này:** 2.449 test Python (4 bỏ qua —

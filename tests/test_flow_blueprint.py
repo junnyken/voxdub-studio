@@ -273,3 +273,56 @@ def test_video_khong_doc_duoc_thoi_luong_van_tra_ve_duoc(monkeypatch, tmp_path):
     # Không có khung nào thì KHÔNG khoe tên bộ đọc — nói có bộ đọc chạy trong
     # khi nó chưa hề chạy là báo cáo sai.
     assert "Bộ đọc" not in bc.evidence_summary
+
+
+# ---------------------------------------------------------------------------
+# Lỗi engine nghe KHÔNG được giết cả lượt — tìm ra 11/09/2026.
+#
+# `TranscribeError` là CON của `RuntimeError`, nhưng `transcriber.py` ném
+# `RuntimeError` TRẦN ở bảy chỗ: chưa cài `.venv-whisper`, máy hết bộ nhớ cho
+# mọi model, worker Whisper trả lỗi… Những lỗi đó lọt qua
+# `except TranscribeError` và giết cả lượt phân tích, trong khi docstring của
+# `trich_bang_chung` hứa ngược lại:
+#
+#   "Không đọc được ASR/OCR (thiếu bộ cài, engine lỗi) KHÔNG chặn cả lượt"
+#
+# Hậu quả thật với pilot: máy chưa cài bộ nghe ⇒ người dùng nhận "Phân tích
+# thất bại" thay vì một Flow Blueprint dựng từ chữ trên hình.
+
+@pytest.mark.parametrize("loi", [
+    RuntimeError("Thư mục này chưa cài bộ nghe Whisper."),
+    RuntimeError("Máy không đủ bộ nhớ cho bất kỳ model nào (đã thử: base)."),
+    RuntimeError("Whisper worker: quá trình con chết"),
+])
+def test_engine_nghe_hong_thi_VAN_phan_tich_bang_chu_tren_hinh(
+        tmp_path, video_co_phu_de, monkeypatch, loi):
+    import autodub.speech.transcriber as transcriber_mod
+
+    def _no(*a, **k):
+        raise loi
+
+    monkeypatch.setattr(transcriber_mod, "transcribe", _no)
+    ket = fb.trich_bang_chung(video_co_phu_de, str(tmp_path / "work"),
+                              Settings())
+
+    assert ket.transcript == [], "không có lời thì để rỗng, không bịa"
+    assert ket.ocr_evidence, "chữ trên hình vẫn phải đi tiếp"
+    # Cảnh báo đi vào `evidence_summary` — nó được LƯU cùng blueprint, nên
+    # người mở lại về sau vẫn biết lượt này thiếu lời nói.
+    assert "Không chép lời được" in ket.evidence_summary, (
+        "phải nói ra là thiếu lời nói, không nuốt im lặng")
+
+
+def test_bam_DUNG_khong_bi_bao_thanh_that_bai(tmp_path, video_co_phu_de,
+                                              monkeypatch):
+    """`TranscribeCancelled` cũng kế thừa `RuntimeError`, nên nới bắt lỗi mà
+    không chừa nó ra thì lượt chạy ĐI TIẾP sau khi đã được bảo dừng."""
+    import autodub.speech.transcriber as transcriber_mod
+    from autodub.speech.transcriber import TranscribeCancelled
+
+    def _huy(*a, **k):
+        raise TranscribeCancelled("Đã dừng theo yêu cầu.")
+
+    monkeypatch.setattr(transcriber_mod, "transcribe", _huy)
+    with pytest.raises(TranscribeCancelled):
+        fb.trich_bang_chung(video_co_phu_de, str(tmp_path / "work"), Settings())
