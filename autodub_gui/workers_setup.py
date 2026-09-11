@@ -44,7 +44,7 @@ def _probe_python(cmd: list[str]) -> str:
     try:
         out = subprocess.run(
             [*cmd, "-c", "import sys; print(sys.executable)"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15,
             creationflags=_NO_WINDOW,
         )
     except (OSError, subprocess.TimeoutExpired):

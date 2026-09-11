@@ -97,7 +97,7 @@ def _chay_dub(video: Path, thu_muc_ra: Path, python_exe: str,
             "--skip-video",
             "--output-dir", str(thu_muc_ra)]
     return subprocess.run(lenh, cwd=str(GOC), env=env, capture_output=True,
-                          text=True, timeout=timeout_s, errors="replace")
+                          text=True, encoding="utf-8", timeout=timeout_s, errors="replace")
 
 
 #: Câu tiếng Việt để đóng vai "người dùng đã dịch tay". Cố ý là tiếng Việt
@@ -144,12 +144,12 @@ def _chay_tiep(video: Path, work: Path, python_exe: str,
             "--subtitle-mode", "none",
             "--resume-dir", str(work)]
     return subprocess.run(lenh, cwd=str(GOC), env=env, capture_output=True,
-                          text=True, timeout=timeout_s, errors="replace")
+                          text=True, encoding="utf-8", timeout=timeout_s, errors="replace")
 
 
 def _ffprobe(*args: str) -> str:
     ra = subprocess.run(["ffprobe", "-v", "error", *args],
-                        capture_output=True, text=True, timeout=60)
+                        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     return ra.stdout.strip()
 
 
@@ -172,7 +172,7 @@ def _muc_am_trung_binh(duong_dan: Path) -> float | None:
     ra = subprocess.run(
         ["ffmpeg", "-hide_banner", "-nostats", "-i", str(duong_dan),
          "-af", "volumedetect", "-f", "null", "-"],
-        capture_output=True, text=True, timeout=300, errors="replace")
+        capture_output=True, text=True, encoding="utf-8", timeout=300, errors="replace")
     for dong in (ra.stderr or "").splitlines():
         if "mean_volume:" in dong:
             try:

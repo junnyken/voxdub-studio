@@ -66,7 +66,7 @@ ra = [{{"start": round(s.start, 2), "end": round(s.end, 2),
         "text": s.text.strip()}} for s in segs if s.text.strip()]
 print("###" + json.dumps(ra, ensure_ascii=False))
 '''
-    kq = subprocess.run([python_exe, "-c", ma], capture_output=True, text=True,
+    kq = subprocess.run([python_exe, "-c", ma], capture_output=True, text=True, encoding="utf-8",
                         errors="replace", timeout=7200)
     if kq.returncode != 0:
         raise SystemExit(f"Nghe hỏng: {kq.stderr.strip()[-500:]}")
@@ -120,7 +120,7 @@ def main() -> int:
         ra_ffmpeg = subprocess.run(
             ["ffmpeg", "-v", "error", "-y", "-i", str(nguon),
              "-vn", "-ac", "1", "-ar", "16000", str(wav)],
-            capture_output=True, text=True)
+            capture_output=True, text=True, encoding="utf-8", errors="replace")
         if ra_ffmpeg.returncode != 0 or not wav.is_file():
             print(f"!! ffmpeg không tách được âm thanh: "
                   f"{ra_ffmpeg.stderr.strip()[:300]}", file=sys.stderr)

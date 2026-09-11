@@ -124,6 +124,13 @@ class MeAnh:
     thu_muc: str
     ket_qua: list[AnhMinhHoa] = field(default_factory=list)
     hong: list[DoanHong] = field(default_factory=list)
+    #: Người dùng chủ động dừng mẻ. KHÁC với hỏng: không có gì để "thử lại",
+    #: và không có lỗi nào để báo — nói nhầm thành hỏng là đổ cho phần mềm
+    #: một chuyện chính họ vừa quyết.
+    da_huy: bool = False
+    #: Số đoạn còn lại lúc dừng — để nói "đã dừng, còn N đoạn chưa vẽ" chứ
+    #: không phải một câu chung chung.
+    so_chua_ve: int = 0
 
     @property
     def so_dung_duoc(self) -> int:
@@ -150,7 +157,13 @@ class MeAnh:
 
     @property
     def trang_thai(self) -> str:
-        """`xong` | `hong_mot_phan` | `hong_ca_me` — ba ca, ba cách nói."""
+        """`xong` | `da_huy` | `hong_mot_phan` | `hong_ca_me`.
+
+        Bốn ca, bốn cách nói. `da_huy` đứng TRƯỚC mọi ca hỏng: dừng giữa
+        chừng thì phần chưa vẽ không phải là phần "hỏng".
+        """
+        if self.da_huy:
+            return "da_huy"
         if not self.so_yeu_cau:
             return "xong"
         if self.so_dung_duoc == self.so_yeu_cau:
@@ -166,6 +179,9 @@ class MeAnh:
         Ảnh trượt kiểm thì vẽ lại CÓ THỂ ra khác (mô hình không tất định),
         nhưng đoạn hỏng vì cửa đóng thì không.
         """
+        if self.da_huy:
+            # Còn đoạn chưa vẽ thì "vẽ tiếp" là việc có nghĩa.
+            return self.so_chua_ve > 0
         return (any(h.thu_lai_duoc for h in self.hong)
                 or any(not k.dung_duoc for k in self.ket_qua))
 
@@ -258,16 +274,30 @@ def sinh_mot_anh(goi_y: str, thu_muc_ra: str, *, ten_tep: str = "",
 
 
 def sinh_nhieu_anh(goi_y_theo_doan: list[tuple[int, str]], thu_muc_ra: str, *,
-                   noi_goi: str = "", khach=None, tien_do=None) -> MeAnh:
+                   noi_goi: str = "", khach=None, tien_do=None,
+                   huy=None) -> MeAnh:
     """Sinh ảnh cho nhiều đoạn. ``goi_y_theo_doan`` = [(chỉ số đoạn, gợi ý)].
 
     Một đoạn hỏng không giết cả mẻ — trừ những lý do mà thử tiếp cũng ra đúng
     câu trả lời đó: cửa đang tắt, hoặc máy này chưa nằm trong danh sách chạy
     thử. Thử thêm năm lượt nữa chỉ tốn thời gian của người dùng để nhận về
     cùng một câu (bài học C15).
+
+    ``huy`` là hàm không tham số trả ``True`` khi người dùng bấm dừng. Nó được
+    hỏi **giữa hai ảnh**, không bao giờ cắt ngang một ảnh đang vẽ dở: máy chủ
+    trừ Vox ngay sau khi vẽ xong, nên buông kết nối giữa chừng là mất tiền mà
+    không nhận được tệp. Mẻ mười tấm là 330 Vox và bốn phút chờ — không có
+    đường dừng thì lỡ tay bấm nhầm chỉ còn cách giết app, mà giết app thì mất
+    luôn những ảnh đã trả tiền.
     """
     me = MeAnh(thu_muc=thu_muc_ra)
     for thu_tu, (chi_so, goi_y) in enumerate(goi_y_theo_doan):
+        if huy is not None and huy():
+            me.da_huy = True
+            me.so_chua_ve = len(goi_y_theo_doan) - thu_tu
+            logger.info(f"Người dùng dừng mẻ vẽ — còn {me.so_chua_ve} đoạn "
+                        f"chưa vẽ, đã tiêu {me.vox_da_mat} Vox")
+            break
         if tien_do:
             tien_do(thu_tu, len(goi_y_theo_doan))
         try:

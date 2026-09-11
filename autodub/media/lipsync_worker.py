@@ -75,7 +75,7 @@ class _VramPoller:
                 out = subprocess.run(
                     ["nvidia-smi", "--query-gpu=memory.used",
                      "--format=csv,noheader,nounits"],
-                    capture_output=True, text=True, timeout=5).stdout.strip()
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5).stdout.strip()
                 used = int(out.splitlines()[0])
                 self.peak_mb = max(self.peak_mb, used)
             except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
@@ -207,7 +207,7 @@ def apply_watermark(input_video: str, output_video: str, ffmpeg_bin: str) -> dic
                "x=w-tw-10:y=h-th-10:box=1:boxcolor=black@0.4",
         "-metadata", "comment=Video xử lý bằng AI đồng bộ khẩu hình — VoxDub Studio",
         "-codec:a", "copy", output_video,
-    ], capture_output=True, text=True)
+    ], capture_output=True, text=True, encoding="utf-8", errors="replace")
     return {
         "ok": proc.returncode == 0,
         "output": output_video if proc.returncode == 0 else None,

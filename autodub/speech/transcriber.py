@@ -195,7 +195,7 @@ def _gpu_total_vram_gb() -> float:
         out = subprocess.run(
             ["nvidia-smi", "--query-gpu=memory.total",
              "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if out.returncode == 0 and out.stdout.strip():
             return max(float(x) for x in out.stdout.split()) / 1024.0
@@ -288,7 +288,7 @@ def _nghe_lai_khong_vad(audio_path: str, start_s: float, end_s: float,
                 ["ffmpeg", "-v", "error", "-y",
                  "-ss", f"{start_s:.3f}", "-to", f"{end_s:.3f}",
                  "-i", audio_path, "-vn", "-ac", "1", "-ar", "16000", tmp_wav],
-                capture_output=True, text=True, timeout=60)
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
         except subprocess.TimeoutExpired:
             logger.warning(f"FFmpeg treo khi cắt khoảng {start_s:.1f}-"
                            f"{end_s:.1f}s để vá — bỏ qua")

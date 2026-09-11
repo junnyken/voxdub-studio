@@ -300,7 +300,7 @@ def estimate_minutes(video_path: Path) -> int:
         out = subprocess.run(
             [ffprobe, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=nw=1:nk=1", str(video_path)],
-            capture_output=True, text=True, timeout=30, check=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, check=True,
         ).stdout.strip()
         seconds = float(out)
     except (subprocess.SubprocessError, ValueError, OSError):

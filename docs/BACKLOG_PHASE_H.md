@@ -63,7 +63,7 @@ Cùng lớp với lỗi `201` vừa sửa: **hợp đồng máy chủ bị máy 
 
 **Mức**: cao — sai hướng hoàn toàn. **Ước**: nhỏ.
 
-### B3. `is_running()` bỏ sót `_bp_worker` — `storyboard_page.py:436`
+### ✅ B3. ĐÃ SỬA 11/09 — `is_running()` bỏ sót `_bp_worker` — `storyboard_page.py:436`
 
 `shutdown()` có `_bp_worker` nhưng `is_running()` thì không, mà `app.py` chỉ
 gọi `shutdown()` cho trang nào `is_running()` trả True. Chính `app.py` ghi:
@@ -71,7 +71,11 @@ gọi `shutdown()` cho trang nào `is_running()` trả True. Chính `app.py` ghi
 
 **Mức**: trung bình — sập app lúc đóng, hiếm. **Ước**: rất nhỏ.
 
-### B4. Mẻ vẽ ảnh không có nút Dừng — `workers.py`
+**Đã sửa**: thêm `_bp_worker` vào `is_running()`; `shutdown()` nay XIN DỪNG
+trước rồi mới chờ, vì mẻ vẽ có thể còn chín tấm mà chờ suông 3 giây là bỏ đi
+trong lúc luồng vẫn chạy. Test: `tests/test_b3_b4_b5_ton_dong.py`.
+
+### ✅ B4. ĐÃ SỬA 11/09 — Mẻ vẽ ảnh không có nút Dừng — `workers.py`
 
 `SinhAnhMinhHoaWorker` không có `cancel_event` (khác `TranscribeWorker`). Mỗi
 ảnh tới 120s vẽ + 90s kiểm; mẻ 5 ảnh có thể chạy 15 phút, `shutdown()` chỉ
@@ -79,7 +83,7 @@ chờ 3 giây.
 
 **Mức**: trung bình. **Ước**: nhỏ.
 
-### B5. Thư mục ra đóng cứng `~/VoxDub` — `storyboard_page.py:323,413`
+### ✅ B5. ĐÃ SỬA 11/09 — Thư mục ra đóng cứng `~/VoxDub` — `storyboard_page.py:323,413`
 
 `self._settings_provider` nhận vào rồi **không dùng ở đâu cả**. Trang C1 (ảnh sản phẩm) cùng
 loại thì tôn trọng `settings.output_dir`. Người dùng đặt `D:\Videos` thì dự
@@ -87,7 +91,11 @@ loại thì tôn trọng `settings.output_dir`. Người dùng đặt `D:\Videos
 
 **Mức**: trung bình. **Ước**: nhỏ.
 
-### B7. `_lenh_ghep`/`_chay_ffmpeg` gọi `"ffmpeg"` trần, không qua `duong_dan_ffmpeg()`
+**Đã sửa**: thêm `_goc_ra()` đọc `settings.output_dir`, hai chỗ gọi đổi theo;
+đọc cài đặt hỏng thì lùi về `~/VoxDub` chứ không chặn việc. Có test chốt CHỖ
+GỌI (không còn `expanduser` trong hai hàm đó), không chỉ chốt thân hàm.
+
+### ✅ B7. ĐÃ SỬA 11/09 — gọi `"ffmpeg"` trần, không qua `duong_dan_ffmpeg()`
 
 Tìm ra khi soi kết quả live của RS-20. `product_video._lenh_ghep()` và
 `product_scene._chay_ffmpeg()` gọi thẳng `"ffmpeg"` — tức dựa vào PATH.
@@ -103,6 +111,19 @@ sẽ hỏng với một lỗi "không tìm thấy tệp" trần, thay vì câu n
 Chạm thật: `scripts/pilot_h4_cuc_bo.py` đi qua đúng đường này.
 
 **Mức**: trung bình — GUI không ảnh hưởng, chỉ CLI/script. **Ước**: nhỏ.
+
+**Đo lại khi sửa**: không phải 2 chỗ mà **30 chỗ** trong `autodub/` gọi
+`"ffmpeg"`/`"ffprobe"` trần (`media/video.py`, `media/audio.py`, `editor.py`,
+`preview.py`, `speech/transcriber.py`…). Nên chữa ở MỘT chỗ thay vì 30: thêm
+`ffmpeg_deps.vao_duong_ffmpeg()` vá `PATH` một lần, gọi từ `cli.main()` và
+`scripts/pilot_h4_cuc_bo.py`. `app.py` đổi sang dùng chung hàm này thay cho
+bản sao riêng của nó — hai bản sao của cùng phép vá thì sửa một bên là hai
+đường đi lệch nhau mà không ai thấy.
+
+Sửa 30 chỗ gọi là 30 cơ hội bỏ sót, và chỗ thứ 31 thêm vào tháng sau lại hỏng
+y như cũ. Test: `tests/test_b7_ffmpeg_ngoai_gui.py` (7), trong đó có một test
+chốt `shutil.which` thật sự tìm ra — thêm chữ vào biến môi trường mà `which`
+vẫn không thấy thì chưa chữa gì.
 
 ### ✅ B6. ĐÃ SỬA 11/09 — `UsageLog.create` không bọc `.catch` ở nhánh THÀNH CÔNG — `ai.js:1375`
 

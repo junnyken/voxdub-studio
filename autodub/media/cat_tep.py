@@ -56,7 +56,7 @@ def do_dai_giay(duong_dan: str) -> float:
         chay = subprocess.run(
             [ffprobe, "-v", "error", "-show_entries", "format=duration",
              "-of", "default=nw=1:nk=1", duong_dan],
-            capture_output=True, text=True, timeout=60)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     except (OSError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Không đọc được độ dài «{duong_dan}» ({e})")
         return 0.0
@@ -122,7 +122,7 @@ def cat_deu(duong_dan: str, thu_muc_ra: str = "", *,
         mau,
     ]
     try:
-        chay = subprocess.run(lenh, capture_output=True, text=True,
+        chay = subprocess.run(lenh, capture_output=True, text=True, encoding="utf-8", errors="replace",
                               timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise RuntimeError(f"Không chạy được ffmpeg để cắt tệp: {e}") from e
@@ -180,7 +180,7 @@ def tim_vung_lang(duong_dan: str, timeout: float = 1800.0
             f"silencedetect=noise={_NGUONG_DB}dB:d={_IM_TOI_THIEU_S}",
             "-f", "null", "-"]
     try:
-        chay = subprocess.run(lenh, capture_output=True, text=True,
+        chay = subprocess.run(lenh, capture_output=True, text=True, encoding="utf-8", errors="replace",
                               timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Không dò được vùng im ({e})")
@@ -210,7 +210,7 @@ def tim_khoang_lang(duong_dan: str, timeout: float = 1800.0) -> list[float]:
             f"silencedetect=noise={_NGUONG_DB}dB:d={_IM_TOI_THIEU_S}",
             "-f", "null", "-"]
     try:
-        chay = subprocess.run(lenh, capture_output=True, text=True,
+        chay = subprocess.run(lenh, capture_output=True, text=True, encoding="utf-8", errors="replace",
                               timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         logger.warning(f"Không dò được khoảng lặng ({e})")

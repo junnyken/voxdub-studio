@@ -121,7 +121,7 @@ def step_smoke() -> None:
          "--vocals", os.path.join(tam, "vocals.wav"),
          "--no-vocals", os.path.join(tam, "no_vocals.wav"),
          "--model", "htdemucs"],
-        capture_output=True, text=True, timeout=3600)
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=3600)
     shutil.rmtree(tam, ignore_errors=True)
     if ket.returncode != 0:
         duoi = (ket.stderr or ket.stdout or "")[-500:]

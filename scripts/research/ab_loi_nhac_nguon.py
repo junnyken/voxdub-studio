@@ -47,7 +47,7 @@ PROMPT_JS = "control_server/src/prompts/translate.js"
 def _node(script: str) -> dict:
     """Chạy một đoạn JS và đọc JSON nó in ra."""
     ket_qua = subprocess.run(
-        ["node", "-e", script], capture_output=True, text=True,
+        ["node", "-e", script], capture_output=True, text=True, encoding="utf-8", errors="replace",
         cwd=str(GOC / "control_server"))
     if ket_qua.returncode != 0:
         raise RuntimeError(f"node lỗi: {ket_qua.stderr.strip()[:400]}")
@@ -77,7 +77,7 @@ def dung_loi_nhac(duong_dan_module: str, segments: list[dict],
 def lay_file_o_ref(ref: str, thu_muc: Path) -> str:
     """Lấy bản `translate.js` ở một git ref ra thư mục tạm, trả đường dẫn."""
     noi_dung = subprocess.run(
-        ["git", "show", f"{ref}:{PROMPT_JS}"], capture_output=True, text=True,
+        ["git", "show", f"{ref}:{PROMPT_JS}"], capture_output=True, text=True, encoding="utf-8", errors="replace",
         cwd=str(GOC))
     if noi_dung.returncode != 0:
         raise SystemExit(f"Không lấy được {PROMPT_JS} ở ref {ref}: "

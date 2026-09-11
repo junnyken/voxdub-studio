@@ -19,7 +19,7 @@ def probe_duration_s(video_path: str) -> float | None:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", video_path],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
         )
         return float(result.stdout.strip()) if result.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired, ValueError):
@@ -39,11 +39,11 @@ def extract_frame(video_path: str, out_png: str, at_seconds: float = 1.0) -> str
         "-ss", str(at_seconds), "-i", video_path,
         "-frames:v", "1", "-y", out_png,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     if result.returncode != 0 or not os.path.exists(out_png):
         # Thử lại từ đầu — video có thể ngắn hơn at_seconds.
         cmd[cmd.index("-ss") + 1] = "0"
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
         if result.returncode != 0 or not os.path.exists(out_png):
             raise RuntimeError(f"Không trích được khung hình: {result.stderr}")
     return out_png
@@ -61,7 +61,7 @@ def _encoder_works(*args: str) -> bool:
         result = subprocess.run(
             ["ffmpeg", "-v", "error", "-f", "lavfi",
              "-i", "color=black:s=256x256:d=0.1", *args, "-f", "null", "-"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
         return result.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
@@ -123,7 +123,7 @@ def probe_dimensions(video_path: str) -> tuple[int, int]:
         "-of", "json",
         video_path,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed on {video_path}: {result.stderr}")
     try:
@@ -203,7 +203,7 @@ def render_preview_clip(
     logger.info(f"Rendering preview clip {start_s:.1f}s–{end_s:.1f}s → "
                 f"{output_path}")
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True,
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                 timeout=ffmpeg_timeout_s(end_s - start_s))
     except subprocess.TimeoutExpired:
         raise RuntimeError("FFmpeg treo khi dựng đoạn xem thử")
@@ -328,14 +328,14 @@ def merge_video(
             # Không ai bấm Dừng được (Trình chỉnh sửa, CLI) — giữ nguyên
             # đường cũ, đừng đổi cách chạy tiến trình ở bước quan trọng nhất
             # chỉ vì một tính năng không dùng tới ở đây.
-            result = subprocess.run(cmd, capture_output=True, text=True,
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                     timeout=timeout)
         else:
             # `subprocess.run` không huỷ ngang được: xuất video re-encode
             # chạy hàng chục phút, mà nút Dừng trước V79 chỉ có tác dụng SAU
             # khi ffmpeg xong. Popen + giết tiến trình mới cắt ngang được.
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE, text=True)
+                                    stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
             with giet_khi_dung(proc, cancel_event):
                 stdout, stderr = proc.communicate(timeout=timeout)
             result = subprocess.CompletedProcess(cmd, proc.returncode,

@@ -33,7 +33,7 @@ APP_NAME = "VoxDub Studio"
 APP_TAGLINE = "Lồng tiếng video bằng AI"
 logger = setup_logging("autodub_gui.app")
 
-APP_VERSION = "3.17.11"
+APP_VERSION = "3.17.12"
 
 # -- Danh mục trang ----------------------------------------------------
 ROW_HOME, ROW_NEW, ROW_PROJECTS, ROW_BATCH, ROW_DOWNLOAD = 0, 1, 2, 3, 4
@@ -1044,11 +1044,10 @@ def main() -> int:
 
     # Nếu người dùng (hoặc wizard) đã tải FFmpeg về bin/ thì thêm ngay vào PATH
     # để shutil.which("ffmpeg") và preflight tìm thấy ngay trong cùng phiên.
-    _local_bin = os.path.join(_app_root(), "bin")
-    if os.path.isdir(_local_bin):
-        _cur_path = os.environ.get("PATH", "")
-        if _local_bin.lower() not in _cur_path.lower():
-            os.environ["PATH"] = _local_bin + os.pathsep + _cur_path
+    # Dùng chung hàm với CLI (B7): hai bản sao của cùng một phép vá thì chỉ
+    # cần sửa một bên là hai đường đi lệch nhau mà không ai thấy.
+    from autodub.ffmpeg_deps import vao_duong_ffmpeg
+    vao_duong_ffmpeg()
 
     settings = Settings.load()
     window = MainWindow()      # phím tắt được cửa sổ tự đăng ký khi dựng

@@ -268,7 +268,7 @@ def _detect_via_subprocess(image_paths: list[str], settings,
     han = _han_gio(len(image_paths))
     try:
         if cancel_event is None:
-            proc = subprocess.run(cmd, capture_output=True, text=True,
+            proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                   timeout=han)
         else:
             # Có đường huỷ thì KHÔNG dùng subprocess.run: nó chặn cứng tới khi
@@ -284,12 +284,29 @@ def _detect_via_subprocess(image_paths: list[str], settings,
     except OSError as e:
         logger.warning(f"Worker OCR không chạy được ({e}) — thử in-process")
         return None
+    # `stdout`/`stderr` có thể là None: luồng đọc của subprocess chết giữa
+    # chừng thì `communicate()` trả None cho luồng đó. Lỗi thật 11/09/2026
+    # trên Windows — worker in chữ tiếng Việt, còn `text=True` KHÔNG kèm
+    # `encoding` nên Python giải mã bằng bảng mã vùng (cp1252) và ném
+    # `UnicodeDecodeError` trong luồng đọc. Hậu quả người dùng thấy:
+    #
+    #     'NoneType' object has no attribute 'strip'
+    #
+    # sau khi đã chờ hơn 3 phút — một câu không nói gì về nguyên nhân thật.
+    # Nguyên nhân đã sửa ở chỗ gọi (thêm `encoding="utf-8"`), nhưng vẫn phải
+    # phòng ở đây: luồng đọc còn có thể chết vì lý do khác.
+    ra_chuan = proc.stdout or ""
+    ra_loi = proc.stderr or ""
     if proc.returncode != 0:
-        logger.warning(f"Worker OCR lỗi ({proc.stderr.strip()[:300]}) — "
+        logger.warning(f"Worker OCR lỗi ({ra_loi.strip()[:300]}) — "
+                       "thử in-process")
+        return None
+    if not ra_chuan.strip():
+        logger.warning("Worker OCR không trả ra dòng nào (luồng đọc hỏng?) — "
                        "thử in-process")
         return None
     try:
-        data = json.loads(proc.stdout.strip().splitlines()[-1])
+        data = json.loads(ra_chuan.strip().splitlines()[-1])
     except (json.JSONDecodeError, IndexError) as e:
         logger.warning(f"Worker OCR trả kết quả sai định dạng ({e})")
         return None
@@ -311,7 +328,7 @@ def _chay_co_the_huy(cmd: list[str], han_gio: float, cancel_event):
     import time
 
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE, text=True)
+                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
     het_han = time.monotonic() + han_gio
     while True:
         try:

@@ -85,7 +85,7 @@ def apply_atempo(src: str, dst: str, speed: float) -> bool:
             result = subprocess.run(
                 ["ffmpeg", "-y", "-i", src,
                  "-filter:a", f"atempo={speed:.3f}", tmp],
-                capture_output=True, text=True, timeout=_SEG_TIMEOUT_S,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_SEG_TIMEOUT_S,
             )
         failed = (result.returncode != 0 or not os.path.exists(tmp)
                   or os.path.getsize(tmp) == 0)
@@ -129,7 +129,7 @@ def extract_audio(video_path: str, output_path: str, sample_rate: int = 16000,
     logger.info(f"Extracting audio: {video_path} → {output_path}")
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True,
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                 timeout=ffmpeg_timeout_s(None))
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"FFmpeg treo khi tách audio từ {video_path}")
@@ -162,7 +162,7 @@ def extract_audio_dual(video_path: str, asr_path: str, hq_path: str,
     ]
     logger.info(f"Extracting audio (1 pass, 2 outputs): {video_path}")
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True,
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                 timeout=ffmpeg_timeout_s(None))
     except subprocess.TimeoutExpired:
         result = None
@@ -211,7 +211,7 @@ def slow_segments(
                 result = subprocess.run(
                     ["ffmpeg", "-y", "-i", src,
                      "-filter:a", f"atempo={factor}", dst],
-                    capture_output=True, text=True, timeout=_SEG_TIMEOUT_S,
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_SEG_TIMEOUT_S,
                 )
             failed = (result.returncode != 0 or not os.path.exists(dst)
                       or os.path.getsize(dst) == 0)
@@ -290,7 +290,7 @@ def postprocess_voice_clip(src: str, dst: str,
             result = subprocess.run(
                 ["ffmpeg", "-y", "-i", src, "-filter:a", filters,
                  "-ar", str(src_rate), "-acodec", "pcm_s16le", tmp],
-                capture_output=True, text=True, timeout=_SEG_TIMEOUT_S,
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_SEG_TIMEOUT_S,
             )
         failed = (result.returncode != 0 or not os.path.exists(tmp)
                   or os.path.getsize(tmp) == 0)
@@ -495,7 +495,7 @@ def merge_segments(
                 ["ffmpeg", "-y", "-i", background_path,
                  "-filter:a", ",".join(filters),
                  "-acodec", "pcm_s16le", bg_tmp],
-                capture_output=True, text=True,
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=ffmpeg_timeout_s(total_duration),
             )
             ok = result.returncode == 0 and os.path.getsize(bg_tmp) > 0

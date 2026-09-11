@@ -15,6 +15,7 @@ theo đó rồi lệch tiếng; hiện "khoảng 7–10 giây" thì họ biết 
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 
@@ -34,6 +35,8 @@ from autodub_gui.ui.toast import TOASTS
 from autodub_gui.workers import (
     DungDuAnWorker, FlowBlueprintCrudWorker, SinhAnhMinhHoaWorker,
 )
+
+logger = logging.getLogger(__name__)
 
 _PAGE_MARGIN = 28
 _ANH_FILTER = "Ảnh (*.png *.jpg *.jpeg *.webp);;Tất cả (*.*)"
@@ -133,6 +136,13 @@ class StoryboardPage(BasePage):
         self.btn_ve_het = GhostButton("Vẽ ảnh cho các đoạn còn thiếu…")
         self.btn_ve_het.clicked.connect(lambda: self._ve_anh(self._doan_thieu()))
         hang.addWidget(self.btn_ve_het)
+        # Mẻ mười tấm là 330 Vox và bốn phút chờ. Không có nút này thì lỡ tay
+        # bấm nhầm chỉ còn cách giết app — mà giết app giữa chừng thì mất
+        # luôn những ảnh đã trả tiền.
+        self.btn_dung_ve = GhostButton("Dừng vẽ")
+        self.btn_dung_ve.clicked.connect(self._dung_ve)
+        self.btn_dung_ve.hide()
+        hang.addWidget(self.btn_dung_ve)
         hang.addStretch()
         root.addLayout(hang)
 
@@ -245,6 +255,22 @@ class StoryboardPage(BasePage):
         else:
             self.canh_bao.hide()
 
+    def _goc_ra(self) -> str:
+        """Thư mục ra của người dùng, theo Cài đặt.
+
+        `self._settings_provider` được nhận ở `__init__` rồi **không dùng ở
+        đâu cả** — hai chỗ dưới đóng cứng `~/VoxDub`. Người dùng đặt thư mục
+        ra là `D:\\Videos` thì dự án vẫn nằm ở `C:\\Users\\…\\VoxDub` và
+        **không hiện ở trang Dự án** (trang đó quét `output_dir`). Trang ảnh
+        sản phẩm cùng loại thì đã tôn trọng cài đặt từ lâu.
+        """
+        try:
+            goc = str(getattr(self._settings_provider(), "output_dir", "") or "")
+        except Exception as e:  # noqa: BLE001 — đọc cài đặt hỏng không chặn việc
+            logger.warning("Không đọc được thư mục ra từ Cài đặt (%s)", e)
+            goc = ""
+        return goc or os.path.join(os.path.expanduser("~"), "VoxDub")
+
     # -- Chọn ảnh ---------------------------------------------------------
     def _chon_mot(self, i: int) -> None:
         duong, _ = QFileDialog.getOpenFileName(self, "Chọn ảnh cho đoạn này",
@@ -320,10 +346,11 @@ class StoryboardPage(BasePage):
         if not dong_y:
             return
 
-        thu_muc = os.path.join(os.path.expanduser("~"), "VoxDub", "storyboard",
-                               "anh_minh_hoa",
+        thu_muc = os.path.join(self._goc_ra(), "storyboard", "anh_minh_hoa",
                                time.strftime("%Y%m%d_%H%M%S"))
         self.btn_ve_het.setEnabled(False)
+        self.btn_dung_ve.setEnabled(True)
+        self.btn_dung_ve.show()
         self.status.setText(f"Đang vẽ {len(goi_y)} ảnh…")
         self._ve_worker = SinhAnhMinhHoaWorker(goi_y, thu_muc, parent=self)
         self._ve_worker.tien_do.connect(
@@ -332,9 +359,28 @@ class StoryboardPage(BasePage):
         self._ve_worker.failed.connect(self._ve_anh_hong)
         self._ve_worker.start()
 
+    def _dung_ve(self) -> None:
+        """Dừng mẻ vẽ — có hiệu lực sau TẤM ĐANG VẼ DỞ.
+
+        Nói thẳng chuyện đó ra: người dùng bấm dừng rồi thấy ví trừ thêm 33
+        Vox sẽ tưởng nút không ăn, trong khi đó là tấm máy chủ đã vẽ xong và
+        đã tính tiền trước khi máy này kịp buông.
+        """
+        if self._ve_worker is None or not self._ve_worker.isRunning():
+            return
+        self._ve_worker.cancel()
+        self.btn_dung_ve.setEnabled(False)
+        self.status.setText("Đang dừng — tấm ảnh đang vẽ dở vẫn chạy nốt "
+                            "(máy chủ đã tính tiền tấm đó rồi).")
+
+    def _ket_thuc_me(self) -> None:
+        self.btn_ve_het.setEnabled(True)
+        self.btn_dung_ve.hide()
+        self.btn_dung_ve.setEnabled(True)
+
     def _ve_anh_xong(self, me) -> None:
         """Chỉ ảnh ĐẠT mới vào video. Ảnh trượt vẫn nói ra, kèm lý do."""
-        self.btn_ve_het.setEnabled(True)
+        self._ket_thuc_me()
         dat = 0
         for ket in me.ket_qua:
             # Đi theo `chi_so` của chính kết quả, KHÔNG theo thứ tự trong
@@ -347,6 +393,14 @@ class StoryboardPage(BasePage):
 
         if me.trang_thai == "xong":
             TOASTS.success(f"Đã vẽ xong {dat} ảnh — hết {me.vox_da_mat} Vox.")
+            return
+
+        # Người dùng TỰ dừng thì đây không phải lỗi: không hộp thoại đỏ,
+        # không nút "Thử lại" cho một chuyện chính họ vừa quyết.
+        if me.trang_thai == "da_huy":
+            TOASTS.info(
+                f"Đã dừng. {dat} ảnh đã vào video, còn {me.so_chua_ve} đoạn "
+                f"chưa vẽ — đã trừ {me.vox_da_mat} Vox cho phần đã vẽ.")
             return
 
         # --- Mẻ hỏng: NÓI RA ĐỦ (mini-spec H4d-0) -------------------------
@@ -402,7 +456,7 @@ class StoryboardPage(BasePage):
         return "\n".join(t for _, t in sorted(dong))
 
     def _ve_anh_hong(self, message: str) -> None:
-        self.btn_ve_het.setEnabled(True)
+        self._ket_thuc_me()
         self._ve()
         ConfirmDialog.show_error(self, "Không vẽ được ảnh", message)
 
@@ -410,7 +464,7 @@ class StoryboardPage(BasePage):
     def _dung(self) -> None:
         if not self._kich_ban or not self._board:
             return
-        goc = os.path.join(os.path.expanduser("~"), "VoxDub", "storyboard")
+        goc = os.path.join(self._goc_ra(), "storyboard")
         work_dir = os.path.join(goc, time.strftime("%Y%m%d_%H%M%S") + "_vi")
 
         self.btn_dung.setEnabled(False)
@@ -434,10 +488,22 @@ class StoryboardPage(BasePage):
 
     # -- Vòng đời ---------------------------------------------------------
     def is_running(self) -> bool:
+        # Phải kể CẢ `_bp_worker`: `app.py` chỉ gọi `shutdown()` cho trang nào
+        # `is_running()` trả True, mà chính `app.py` ghi "huỷ QThread đang
+        # chạy lúc teardown sẽ làm Qt crash cứng (0xC0000409)". Bỏ sót một
+        # worker ở đây nghĩa là nó không bao giờ được chờ.
         return any(w is not None and w.isRunning()
-                   for w in (self._worker, self._ve_worker))
+                   for w in (self._worker, self._ve_worker, self._bp_worker))
 
     def shutdown(self) -> None:
+        # Xin dừng TRƯỚC rồi mới chờ. Mẻ vẽ có thể còn chín tấm nữa, mỗi tấm
+        # tới hai phút — chờ suông 3 giây rồi bỏ đi là đóng app trong lúc
+        # luồng vẫn chạy, đúng cái mà `app.py` bảo là Qt chết cứng.
+        for w in (self._worker, self._bp_worker, self._ve_worker):
+            if w is not None and w.isRunning():
+                huy = getattr(w, "cancel", None)
+                if callable(huy):
+                    huy()
         for w in (self._worker, self._bp_worker, self._ve_worker):
             if w is not None and w.isRunning():
                 w.wait(3000)

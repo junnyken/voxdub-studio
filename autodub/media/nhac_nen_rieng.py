@@ -65,7 +65,7 @@ def dat_nhac_nen(work_dir: str, nguon: str, *, timeout: int = 300) -> str:
             # 44.1 kHz stereo — khớp đường nhạc nền chất lượng cao của bộ trộn.
             "-ar", "44100", "-ac", "2", "-acodec", "pcm_s16le", tam]
     try:
-        ket = subprocess.run(lenh, capture_output=True, text=True,
+        ket = subprocess.run(lenh, capture_output=True, text=True, encoding="utf-8", errors="replace",
                              timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise LoiNhacNen(f"Không đọc được tệp nhạc: {e}") from e

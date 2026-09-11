@@ -112,7 +112,7 @@ def _check_ffmpeg(settings: Settings) -> CheckResult:
     try:
         out = subprocess.run(
             [ffmpeg_cmd, "-hide_banner", "-filters"],
-            capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_SUBPROCESS_TIMEOUT,
         ).stdout
     except (OSError, subprocess.TimeoutExpired):
         out = ""
@@ -180,7 +180,7 @@ def _check_drawtext(settings: Settings) -> CheckResult:
              "drawtext=text='AI-generated':fontcolor=white:fontsize=h/8:"
              "box=1:boxcolor=black@0.5:x=2:y=2",
              "-frames:v", "1", "-f", "null", "-"],
-            capture_output=True, text=True, timeout=_SUBPROCESS_TIMEOUT)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=_SUBPROCESS_TIMEOUT)
     except (OSError, subprocess.TimeoutExpired) as e:
         return CheckResult(
             key="drawtext", title=title, level="warn",

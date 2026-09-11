@@ -1017,7 +1017,7 @@ def render_segment_preview(
         result = subprocess.run(
             ["ffmpeg", "-y", "-ss", f"{w0:.3f}", "-to", f"{w1:.3f}",
              "-i", background_path, "-acodec", "pcm_s16le", bg_cut],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=ffmpeg_timeout_s(w1 - w0))
         if result.returncode != 0 or not os.path.getsize(bg_cut):
             logger.warning("Không cắt được nhạc nền cho đoạn xem thử — "

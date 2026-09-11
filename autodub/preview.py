@@ -65,7 +65,7 @@ def make_preview_clip(source_path: str, work_dir: str, seconds: int) -> str:
         dest,
     ]
     logger.info("Cắt %ss đầu để nghe thử: %s", seconds, os.path.basename(source_path))
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
 
     if proc.returncode != 0 or not os.path.isfile(dest) or os.path.getsize(dest) == 0:
         # KHÔNG âm thầm rơi về chạy cả video: người dùng bấm "nghe thử" chính

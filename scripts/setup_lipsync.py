@@ -81,7 +81,7 @@ def _find_py310() -> str | None:
         if not shutil.which(cmd[0]):
             continue
         probe = subprocess.run([*cmd, "-c", "import sys; print(sys.executable)"],
-                               capture_output=True, text=True)
+                               capture_output=True, text=True, encoding="utf-8", errors="replace")
         if probe.returncode == 0 and probe.stdout.strip():
             return probe.stdout.strip()
     return None
@@ -117,7 +117,7 @@ def step_check_gpu() -> None:
     try:
         out = subprocess.run(
             [nvidia_smi, "--query-gpu=name,memory.total", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=15, check=True).stdout.strip()
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, check=True).stdout.strip()
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         raise SystemExit(f"!! nvidia-smi có mặt nhưng chạy lỗi: {e}") from e
     if not out:
@@ -137,7 +137,7 @@ def step_venv(py310: str) -> None:
     if os.path.isfile(VENV_PY):
         probe = subprocess.run(
             [VENV_PY, "-c", "import sys; print(sys.version_info[:2])"],
-            capture_output=True, text=True)
+            capture_output=True, text=True, encoding="utf-8", errors="replace")
         if probe.returncode == 0 and probe.stdout.strip() == "(3, 10)":
             log("venv .venv-lipsync đã có, đúng Python 3.10 — bỏ qua")
             return
@@ -154,7 +154,7 @@ def _pip_install(*args: str) -> None:
 def step_torch() -> None:
     probe = subprocess.run(
         [VENV_PY, "-c", "import torch; print(torch.__version__)"],
-        capture_output=True, text=True)
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
     if probe.returncode == 0 and probe.stdout.strip().startswith("2.0.1"):
         log("PyTorch 2.0.1 đã cài — bỏ qua")
         return
@@ -167,7 +167,7 @@ def step_clone_repo() -> None:
         log("mã nguồn MuseTalk đã clone — kiểm tra đúng commit ghim ...")
         current = subprocess.run(
             ["git", "-C", REPO_DIR, "rev-parse", "HEAD"],
-            capture_output=True, text=True).stdout.strip()
+            capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
         if current == MUSETALK_COMMIT:
             log("đúng commit đã ghim — bỏ qua")
             return

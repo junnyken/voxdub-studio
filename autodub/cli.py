@@ -29,6 +29,7 @@ import sys
 
 from autodub.batch import DEFAULT_MAX_RETRIES
 from autodub.config import Settings
+from autodub.ffmpeg_deps import vao_duong_ffmpeg
 from autodub.pipeline import DubPipeline, DubRequest
 from autodub.progress import ProgressEvent
 from autodub.quality_gate import QualityThresholds, evaluate as evaluate_quality
@@ -621,6 +622,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # TRƯỚC khi phân tích đối số: FFmpeg nằm trong `bin` cạnh ứng dụng thì
+    # phải vào PATH ngay, nếu không mọi `["ffmpeg", …]` trong `autodub/` chết
+    # với [WinError 2]. GUI làm việc này lúc khởi động; CLI thì không ai làm
+    # cho tới B7 (xem `tests/test_b7_ffmpeg_ngoai_gui.py`).
+    vao_duong_ffmpeg()
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

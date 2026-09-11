@@ -31,6 +31,31 @@ THIEU_FFMPEG = (
 )
 
 
+def vao_duong_ffmpeg() -> str:
+    """Nối thư mục ``bin`` cạnh ứng dụng vào ``PATH`` của tiến trình này.
+
+    Ba mươi chỗ trong `autodub/` gọi ``["ffmpeg", …]`` trần. Chúng chạy được
+    **chỉ vì** `autodub_gui/app.py` làm đúng việc này lúc khởi động. Console
+    script ``voxdub`` không đi qua đó, nên trên máy chỉ có FFmpeg trong
+    ``bin`` (đúng cấu hình máy người dùng đang chạy thử — preflight in ra
+    ``…\\bin\\ffmpeg.EXE``) thì mọi lệnh CLI chết với ``[WinError 2]``.
+
+    Chữa ở ĐÂY chứ không sửa 30 chỗ gọi: sửa 30 chỗ là 30 cơ hội bỏ sót, và
+    chỗ thứ 31 thêm vào tháng sau lại hỏng y như cũ.
+
+    Trả về thư mục đã thêm, hoặc "" nếu không có gì để thêm. Gọi lại nhiều
+    lượt không phình PATH — Windows chặn ở 32767 ký tự.
+    """
+    thu_muc = os.path.join(app_root(), "bin")
+    if not os.path.isdir(thu_muc):
+        return ""
+    hien = os.environ.get("PATH", "")
+    if thu_muc.lower() in [p.lower() for p in hien.split(os.pathsep)]:
+        return thu_muc
+    os.environ["PATH"] = thu_muc + os.pathsep + hien
+    return thu_muc
+
+
 def duong_dan_ffmpeg() -> str:
     """Đường dẫn ffmpeg dùng được, hoặc "" nếu máy chưa có.
 

@@ -103,7 +103,7 @@ class Phien:
 def _chay_ffmpeg(args: list[str], timeout: float = 60.0) -> bool:
     try:
         ra = subprocess.run(["ffmpeg", "-y", "-v", "error", *args],
-                            capture_output=True, text=True, timeout=timeout)
+                            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except (OSError, subprocess.SubprocessError) as e:
         logger.warning(f"ffmpeg lỗi ({e})")
         return False

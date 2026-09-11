@@ -1210,6 +1210,15 @@ class SinhAnhMinhHoaWorker(QThread):
         self._goi_y = list(goi_y_theo_doan)
         self._thu_muc = thu_muc_ra
         self._noi_goi = noi_goi
+        self._cancel_event = threading.Event()
+
+    def cancel(self) -> None:
+        """Dừng mẻ sau tấm ảnh đang vẽ dở.
+
+        Không cắt ngang tấm đang chạy: máy chủ trừ Vox ngay sau khi vẽ xong,
+        nên buông kết nối giữa chừng là mất tiền mà không nhận được tệp.
+        """
+        self._cancel_event.set()
 
     def run(self) -> None:
         from autodub.story_image import sinh_nhieu_anh
@@ -1217,7 +1226,8 @@ class SinhAnhMinhHoaWorker(QThread):
         try:
             me = sinh_nhieu_anh(
                 self._goi_y, self._thu_muc, noi_goi=self._noi_goi,
-                tien_do=lambda i, tong: self.tien_do.emit(i, tong))
+                tien_do=lambda i, tong: self.tien_do.emit(i, tong),
+                huy=self._cancel_event.is_set)
             self.finished_ok.emit(me)
         except Exception as e:  # noqa: BLE001 — mọi lỗi phải tới được giao diện
             self.failed.emit(_ghi_loi(e))

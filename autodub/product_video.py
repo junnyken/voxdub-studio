@@ -500,7 +500,7 @@ def dung_video(anh: list[AnhNguon], duong_ra: str, *,
     lenh = _lenh_ghep([a.duong_dan for a in anh], duong_ra,
                       giay_moi_anh, giay_chuyen, kieu_chuyen)
     try:
-        chay = subprocess.run(lenh, capture_output=True, text=True,
+        chay = subprocess.run(lenh, capture_output=True, text=True, encoding="utf-8", errors="replace",
                               timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise RuntimeError(f"Không chạy được ffmpeg: {e}") from e

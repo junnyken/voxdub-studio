@@ -91,7 +91,7 @@ class _VramPoller:
                 out = subprocess.run(
                     ["nvidia-smi", "--query-gpu=memory.used",
                      "--format=csv,noheader,nounits"],
-                    capture_output=True, text=True, timeout=5).stdout.strip()
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5).stdout.strip()
                 used = int(out.splitlines()[0])
                 self.peak_mb = max(self.peak_mb, used)
             except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
@@ -282,7 +282,7 @@ def step_watermark(input_video: str, result_dir: str, ffmpeg_bin: str) -> dict:
                "fontcolor=white@0.7:fontsize=18:x=w-tw-10:y=h-th-10:"
                "box=1:boxcolor=black@0.4",
         "-codec:a", "copy", visible_out,
-    ], capture_output=True, text=True)
+    ], capture_output=True, text=True, encoding="utf-8", errors="replace")
     out["visible_overlay"] = {
         "ok": proc.returncode == 0, "elapsed_seconds": round(time.monotonic() - started, 2),
         "output": visible_out if proc.returncode == 0 else None,
@@ -295,7 +295,7 @@ def step_watermark(input_video: str, result_dir: str, ffmpeg_bin: str) -> dict:
         ffmpeg_bin, "-v", "error", "-y", "-i", input_video,
         "-metadata", "comment=Đã xử lý bằng AI lip-sync — VoxDub Studio",
         "-codec", "copy", metadata_out,
-    ], capture_output=True, text=True)
+    ], capture_output=True, text=True, encoding="utf-8", errors="replace")
     out["metadata_only"] = {
         "ok": proc.returncode == 0, "elapsed_seconds": round(time.monotonic() - started, 2),
         "output": metadata_out if proc.returncode == 0 else None,

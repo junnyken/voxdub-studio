@@ -382,7 +382,7 @@ def _ffmpeg_mux(video_path: Path, audio_path: Path, output_path: Path) -> None:
         str(output_path),
     ]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
     except subprocess.TimeoutExpired:
         raise RuntimeError("ffmpeg mux treo quá 600s")
     if proc.returncode != 0:

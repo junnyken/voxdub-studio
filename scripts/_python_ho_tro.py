@@ -49,7 +49,7 @@ def _tim_python_khac() -> str:
         try:
             out = subprocess.run([*cmd, "-c",
                                   "import sys;print(sys.executable)"],
-                                 capture_output=True, text=True, timeout=30)
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
         except (OSError, subprocess.SubprocessError):
             continue
         duong_dan = (out.stdout or "").strip().splitlines()
@@ -99,7 +99,7 @@ def venv_dung_python_ho_tro(venv_python: str) -> bool:
         out = subprocess.run(
             [venv_python, "-c",
              "import sys;print(sys.version_info[0], sys.version_info[1])"],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     except (OSError, subprocess.SubprocessError):
         return False
     if out.returncode != 0:

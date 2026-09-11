@@ -45,7 +45,7 @@ def _mp3_to_wav(mp3_path: str, wav_path: str, sample_rate: int = 44100) -> None:
     result = subprocess.run(
         ["ffmpeg", "-y", "-v", "error", "-i", mp3_path,
          "-ar", str(sample_rate), "-ac", "2", "-sample_fmt", "s16", wav_path],
-        capture_output=True, text=True, timeout=60)
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60)
     if result.returncode != 0:
         raise MusicMatchError(
             f"Không chuyển được MP3 sang WAV: {(result.stderr or '')[-500:]}")
@@ -119,7 +119,7 @@ def insert_sfx_into_video(
          "-map", "0:v", "-map", "[aout]",
          "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
          output_path],
-        capture_output=True, text=True, timeout=120)
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
     if result.returncode != 0:
         raise MusicMatchError(
             f"Không chèn được hiệu ứng âm thanh: {(result.stderr or '')[-500:]}")

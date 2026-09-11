@@ -58,7 +58,7 @@ BO_QUA = ("node_modules", "dist", "__pycache__", ".venv")
 
 
 def chay(*args: str) -> str:
-    return subprocess.run(["git", *args], capture_output=True, text=True,
+    return subprocess.run(["git", *args], capture_output=True, text=True, encoding="utf-8", errors="replace",
                           check=False).stdout.strip()
 
 

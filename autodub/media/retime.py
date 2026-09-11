@@ -37,7 +37,7 @@ def probe_video_info(video_path: str) -> tuple[float, str]:
         ["ffprobe", "-v", "error", "-select_streams", "v:0",
          "-show_entries", "stream=avg_frame_rate:format=duration",
          "-of", "json", video_path],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
     )
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed on {video_path}: {result.stderr[:200]}")
@@ -54,7 +54,7 @@ def probe_duration(path: str) -> float | None:
     result = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "json", path],
-        capture_output=True, text=True, timeout=60,
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
     )
     if result.returncode != 0:
         return None
@@ -84,7 +84,7 @@ def slow_video(video_path: str, output_path: str, speed: float,
     # Encode lại toàn bộ video — trần theo thời lượng nguồn, CPU yếu vẫn dư.
     dur = probe_duration(video_path)
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True,
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
                                 timeout=max(900, int(dur * 8)) if dur
                                 else ffmpeg_timeout_s(None))
         err = result.stderr[:200]
@@ -106,7 +106,7 @@ def slow_background(background_path: str, output_path: str,
             ["ffmpeg", "-v", "error", "-i", background_path,
              "-filter:a", f"atempo={max(0.5, min(2.0, speed)):.6f}",
              "-acodec", "pcm_s16le", "-y", output_path],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
             timeout=ffmpeg_timeout_s(probe_duration(background_path)),
         )
         err = result.stderr[:200]

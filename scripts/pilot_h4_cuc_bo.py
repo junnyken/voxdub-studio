@@ -77,7 +77,7 @@ def _anh(thu_muc: str, so: int) -> list[str]:
 def _thoi_luong(duong: str) -> float | None:
     ra = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "csv=p=0", duong], capture_output=True, text=True)
+         "-of", "csv=p=0", duong], capture_output=True, text=True, encoding="utf-8", errors="replace")
     try:
         return float(ra.stdout.strip())
     except ValueError:
@@ -93,7 +93,7 @@ def _co_tieng(duong: str) -> tuple[bool, float]:
     luong = subprocess.run(
         ["ffprobe", "-v", "error", "-select_streams", "a", "-show_entries",
          "stream=codec_type", "-of", "csv=p=0", duong],
-        capture_output=True, text=True).stdout.strip()
+        capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
     if not luong:
         return False, -999.0
     # `-hide_banner` chứ KHÔNG phải `-v error`: `volumedetect` in kết quả ở
@@ -102,7 +102,7 @@ def _co_tieng(duong: str) -> tuple[bool, float]:
     # lượt chạy đầu và suýt báo sai cho chủ dự án.
     do = subprocess.run(
         ["ffmpeg", "-hide_banner", "-i", duong, "-af", "volumedetect",
-         "-f", "null", "-"], capture_output=True, text=True)
+         "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8", errors="replace")
     muc = -999.0
     for dong in (do.stderr or "").splitlines():
         if "mean_volume:" in dong:
@@ -179,6 +179,11 @@ def chay(thu_muc_goc: str) -> bool:
 
 
 def main() -> int:
+    # Script cũng ở NGOÀI GUI (B7): máy chỉ có FFmpeg trong `bin/` thì mọi
+    # `["ffmpeg", …]` dưới đây chết với [WinError 2] nếu không vá PATH trước.
+    from autodub.ffmpeg_deps import vao_duong_ffmpeg
+    vao_duong_ffmpeg()
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--giu", action="store_true",
                     help="giữ lại thư mục dự án để xem tận mắt")

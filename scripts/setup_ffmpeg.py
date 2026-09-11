@@ -89,7 +89,7 @@ def kiem_lai() -> None:
     ffmpeg = os.path.join(BIN_DIR, _CAN_CO[0])
     try:
         out = subprocess.run([ffmpeg, "-hide_banner", "-filters"],
-                             capture_output=True, text=True, timeout=60).stdout
+                             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60).stdout
     except (OSError, subprocess.SubprocessError) as e:
         raise SystemExit(f"!! không chạy được ffmpeg vừa tải: {e}")
     if " subtitles " not in out:
