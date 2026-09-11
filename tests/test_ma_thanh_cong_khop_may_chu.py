@@ -186,3 +186,37 @@ def test_ba_cua_Phase_H_deu_tra_201():
     for tep in ("brand-profiles.js", "flow-blueprints.js", "brand-scripts.js"):
         assert 201 in may_chu.get(tep, set()), f"{tep} không còn trả 201"
         assert _la_thanh_cong(201)
+
+
+# ---------------------------------------------------------------------------
+# B2 — nhánh 429 nuốt mã và câu của máy chủ.
+#
+# `429` có hai nghĩa hoàn toàn khác nhau:
+#   RATE_LIMITED — bấm dồn dập; chờ vài giây là xong
+#   DAILY_LIMIT  — hết hạn mức NGÀY; máy chủ nói rõ "Thử lại vào ngày mai"
+#
+# Bản cũ vứt cả `code` lẫn `message` rồi thay bằng "Máy chủ đang bận… Chờ một
+# chút rồi thử lại" cho MỌI lượt 429 ⇒ người hết hạn mức ngày bấm lại cả buổi.
+# Cùng lớp với lỗi 201: hợp đồng máy chủ bị máy khách viết đè.
+
+def test_429_DAILY_LIMIT_giu_nguyen_ma_va_cau_cua_may_chu():
+    c = _client(_TraLoiGia(429, {
+        "code": "DAILY_LIMIT",
+        "message": "Hôm nay đã dùng hết 60 ảnh. Thử lại vào ngày mai."}))
+    with pytest.raises(SaasError) as e:
+        c._request("POST", "/v1/ai/story-image", json_body={}, auth=False)
+    assert e.value.code == "DAILY_LIMIT", "mã của máy chủ bị viết đè"
+    assert "ngày mai" in str(e.value), (
+        "hết hạn mức NGÀY mà bảo 'chờ một chút' thì người dùng bấm lại cả buổi")
+    assert "chờ một chút" not in str(e.value).lower()
+
+
+def test_429_khong_kem_ly_do_thi_van_co_cau_de_hieu():
+    """Máy chủ im lặng (hoặc proxy chắn giữa đường trả 429 trần) thì vẫn phải
+    có một câu người đọc hiểu — KHÔNG được rơi về "Lỗi máy chủ (HTTP 429)"."""
+    c = _client(_TraLoiGia(429, {}))
+    with pytest.raises(SaasError) as e:
+        c._request("GET", "/v1/x", auth=False)
+    assert e.value.code == "RATE_LIMITED"
+    assert "Máy chủ đang bận" in str(e.value)
+    assert "HTTP 429" not in str(e.value), "rơi về câu kỹ thuật khó hiểu"

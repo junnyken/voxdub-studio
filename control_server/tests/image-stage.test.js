@@ -171,7 +171,11 @@ test('mọi lượt dựng ảnh đều ghi chế độ chạy vào sổ', () =>
   // Hai đường: thành công và hỏng. Thiếu một đường thì báo cáo hiệu chỉnh
   // đếm hụt đúng nhóm đáng lo nhất.
   const than = thanRoute('/product-scene')
+  // Đếm CẢ HAI tên: nhánh lỗi vẫn gọi thẳng `UsageLog.create`, nhánh thành
+  // công chuyển sang `ghiSoDung` (B6 — ghi sổ không bao giờ được ném và giết
+  // lượt gọi sau khi đã trừ tiền).
   const soLogCreate = h.demGoi(than, 'UsageLog.create')
+    + h.demGoi(than, 'ghiSoDung')
   // Đếm ĐÚNG dạng ghi sổ. Đếm mọi `runMode:` là đếm lây cả điều kiện lọc
   // `runMode: { $ne: 'test_now' }` của phép đếm hạn mức — con số phồng lên
   // và test xanh nhầm. Đã mắc đúng lỗi đó khi thêm nút Thử ngay.

@@ -46,7 +46,7 @@ const { containsCjk } = require('../utils/json-repair')
 // `replay`/`remember`/`precheck`/`charge`: tách sang assist-billing.service.js
 // (mini-spec H2) để `routes/flow-blueprints.js` dùng lại đúng logic billing
 // thay vì viết lại — xem chú thích đầy đủ ở tệp đó.
-const { replay, remember, precheck, charge, assistUsedToday } = require('../services/assist-billing.service')
+const { replay, remember, ghiSoDung, precheck, charge, assistUsedToday } = require('../services/assist-billing.service')
 
 module.exports = async function aiRoutes(fastify) {
   const { requireDevice } = require('../middleware/auth.middleware')
@@ -329,7 +329,7 @@ module.exports = async function aiRoutes(fastify) {
     }
     await Promise.all([
       remember(jobId, device.fingerprint, 'analyze', response, paid.charged),
-      UsageLog.create({
+      ghiSoDung({
         fingerprint: device.fingerprint,
         jobId,
         action: 'analyze',
@@ -502,7 +502,7 @@ module.exports = async function aiRoutes(fastify) {
     }
     await Promise.all([
       remember(jobId, device.fingerprint, 'review', response, paid.charged),
-      UsageLog.create({
+      ghiSoDung({
         fingerprint: device.fingerprint,
         jobId,
         action: 'review',
@@ -741,7 +741,7 @@ module.exports = async function aiRoutes(fastify) {
     }
     await Promise.all([
       remember(jobId, device.fingerprint, 'generate_post', response, paid.charged),
-      UsageLog.create({
+      ghiSoDung({
         fingerprint: device.fingerprint,
         jobId,
         action: 'generate_post',
@@ -835,10 +835,22 @@ module.exports = async function aiRoutes(fastify) {
         // C2 — ghi PHÁN QUYẾT của bước kiểm bao bì. C1 ghi đủ tác vụ, mô
         // hình, token, mã lỗi, nhưng không ghi kết quả, nên không có gì để
         // đếm khi cần biết mô hình đang gắt hay đang dễ dãi.
+        // Đọc từ `cuNoiDung` — KẾT QUẢ ĐÃ LƯU — chứ không phải `result`.
+        //
+        // Bản trước dùng `result`, mà `let result` mãi dòng ~896 phía dưới:
+        // JS nâng `let` lên đầu khối nhưng để nó trong "vùng chết", nên đọc
+        // ở đây ném `ReferenceError` NGAY LÚC dựng đối số. `.catch()` gắn
+        // vào *kết quả* của `UsageLog.create(...)`, mà cú ném xảy ra TRƯỚC
+        // khi hàm đó được gọi ⇒ không ai bắt ⇒ 500.
+        //
+        // Và vì khoá đệm băm theo NỘI DUNG, cú 500 đó lặp lại mãi mãi cho
+        // đúng bộ ảnh ấy: chạy lần đầu thành công ghi đệm, từ lần hai trở đi
+        // hỏng vĩnh viễn. `doc_chu_khung_hinh` (H2b) thoát nạn chỉ nhờ
+        // ternary ngắn mạch ở `task !== 'packaging_check'`.
         verdict: task === 'packaging_check'
-          ? String(result.results[0]?.value || '') : '',
+          ? String(cuNoiDung.results?.[0]?.value || '') : '',
         reason: task === 'packaging_check'
-          ? String(result.results[0]?.reason || '').slice(0, 500) : '',
+          ? String(cuNoiDung.results?.[0]?.reason || '').slice(0, 500) : '',
         runMode: runModeCuaLuot,
         assistPromptVersion: assistPrompts.PROMPT_VERSION,
         fromCache: true,
@@ -952,7 +964,7 @@ module.exports = async function aiRoutes(fastify) {
       remember(jobId, device.fingerprint, 'assist', response, paid.charged),
       // Lưu thêm dưới khoá nội dung để lần bấm sau không tính tiền lại.
       remember(khoaNoiDung, device.fingerprint, 'assist', response, paid.charged),
-      UsageLog.create({
+      ghiSoDung({
         fingerprint: device.fingerprint,
         jobId,
         action: 'assist',
@@ -1215,7 +1227,7 @@ module.exports = async function aiRoutes(fastify) {
     }
     await Promise.all([
       remember(jobId, device.fingerprint, 'product_scene', response, paid.charged),
-      UsageLog.create({
+      ghiSoDung({
         fingerprint: device.fingerprint,
         jobId,
         action: 'product_scene',
@@ -1372,7 +1384,7 @@ module.exports = async function aiRoutes(fastify) {
     }
     await Promise.all([
       remember(jobId, device.fingerprint, 'story_image', response, paid.charged),
-      UsageLog.create({
+      ghiSoDung({
         fingerprint: device.fingerprint,
         jobId,
         action: 'story_image',

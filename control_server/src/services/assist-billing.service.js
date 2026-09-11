@@ -50,6 +50,38 @@ async function remember(jobId, fingerprint, action, result, creditCharged, log) 
 }
 
 /**
+ * Ghi sổ dùng một lượt — KHÔNG BAO GIỜ ném.
+ *
+ * Vì sao phải có hàm riêng thay vì gọi thẳng `UsageLog.create()`: ở nhánh
+ * THÀNH CÔNG, `UsageLog.create` nằm trong `Promise.all` cùng `remember()`
+ * và **không có `.catch`** ở sáu cửa (translate, analyze, review,
+ * generate_post, assist, product_scene, story_image). Cả sáu đều đứng SAU
+ * `charge()`.
+ *
+ * Nghĩa là: MongoDB trục trặc hoặc đổi primary đúng khoảng giữa lúc trừ tiền
+ * và lúc ghi sổ ⇒ route ném ⇒ người dùng nhận 500, **mất kết quả, mà tiền đã
+ * trừ**. Nhánh LỖI ngay phía trên thì lại có `.catch(() => {})` — tức là ghi
+ * sổ hỏng lúc thất bại thì tha, còn lúc thành công thì giết cả lượt.
+ *
+ * `remember()` đã được làm cho không bao giờ ném đúng vì sự cố 22/8/2026.
+ * Hàm này là cùng một bài học, áp cho sổ dùng.
+ *
+ * Hỏng thì KÊU TO trong log máy chủ, không nuốt im lặng: sổ dùng là thứ
+ * `kiemHanMucNgay` đếm, mất bản ghi là trần ngày hụt đi mà không ai biết.
+ */
+async function ghiSoDung(du_lieu, log) {
+  const UsageLog = require('../models/UsageLog')
+  try {
+    await UsageLog.create(du_lieu)
+  } catch (err) {
+    const noi = log || console
+    noi.error({ err, action: du_lieu?.action, jobId: du_lieu?.jobId },
+      'ghiSoDung() hỏng — lượt gọi VẪN trả kết quả cho người dùng, nhưng '
+      + 'trần ngày sẽ đếm thiếu lượt này')
+  }
+}
+
+/**
  * Kiểm tra khả năng chi trả TRƯỚC khi gọi mô hình.
  *
  * Hold hấp thụ được lượt này (active, hoặc committed + gói đăng bài cho
@@ -191,4 +223,7 @@ async function kiemHanMucNgay(config, fingerprint, task) {
   return null
 }
 
-module.exports = { replay, remember, precheck, charge, assistUsedToday, kiemHanMucNgay }
+module.exports = {
+  replay, remember, ghiSoDung, precheck, charge, assistUsedToday,
+  kiemHanMucNgay,
+}

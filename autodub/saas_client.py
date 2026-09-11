@@ -272,9 +272,27 @@ class SaasClient:
         if code == "MAINTENANCE":
             raise MaintenanceError(message, code=code, status=resp.status_code)
         if resp.status_code == 429:
+            # GIỮ nguyên mã và câu của máy chủ khi nó có nói.
+            #
+            # Bản trước vứt cả `code` lẫn `message` rồi thay bằng "Máy chủ
+            # đang bận… Chờ một chút rồi thử lại" cho MỌI lượt 429. Nhưng 429
+            # có hai nghĩa hoàn toàn khác nhau:
+            #
+            #   RATE_LIMITED — bấm dồn dập; chờ vài giây là xong
+            #   DAILY_LIMIT  — hết hạn mức NGÀY; máy chủ nói rõ "Thử lại vào
+            #                  ngày mai"
+            #
+            # Trộn hai ca lại nghĩa là người hết hạn mức ngày đọc được "chờ
+            # một chút" rồi bấm lại cả buổi. Cùng lớp với lỗi 201: hợp đồng
+            # máy chủ bị máy khách viết đè.
+            # Hỏi thẳng `data`, KHÔNG dùng `message`: biến đó đã có sẵn câu dự
+            # phòng "Lỗi máy chủ (HTTP 429)" nên không bao giờ rỗng, và dùng
+            # nó là đổi một câu khó hiểu lấy một câu sai — tệ cả hai đường.
+            cau_may_chu = str(data.get("message") or "").strip()
             raise SaasError(
-                "Máy chủ đang bận (quá nhiều yêu cầu). Chờ một chút rồi thử lại.",
-                code="RATE_LIMITED", status=429,
+                cau_may_chu or "Máy chủ đang bận (quá nhiều yêu cầu). Chờ "
+                               "một chút rồi thử lại.",
+                code=code or "RATE_LIMITED", status=429,
                 retry_after=_retry_after_s(resp))
         raise SaasError(message, code=code, status=resp.status_code,
                         retry_after=_retry_after_s(resp))

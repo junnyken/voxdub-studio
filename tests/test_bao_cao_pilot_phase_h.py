@@ -28,6 +28,12 @@ class _ClientGia:
         self._brands = brands if brands is not None else [_brand()]
         self._scripts = scripts if scripts is not None else []
 
+    def device(self):
+        """Phép kiểm kết nối của báo cáo (C9) — giả client thì phải giả luôn
+        cái này, y như phải giả phép đo khi giả hàm ghép video. Nó nhắc rằng
+        những lượt test dưới đây giả định máy chủ đang trả lời bình thường."""
+        return {"balance": 1000}
+
     def list_flow_blueprints(self): return self._blueprints
     def get_flow_blueprint(self, _id): return self._bp
     def list_brand_profiles(self): return self._brands
@@ -145,3 +151,81 @@ def test_chay_duoc_voi_du_lieu_day_du():
                 "4. Kịch bản đã sinh", "5. Hai ca gate", "6. Số liệu chạy thật",
                 "7. Bốn cổng mở H4"):
         assert muc in ra, f"thiếu mục: {muc}"
+
+
+# ---------------------------------------------------------------------------
+# C8 + C9 — hai lỗi chặn đúng lượt chủ dự án chạy báo cáo trên Windows.
+
+def test_duong_dan_goc_du_an_tim_duoc_tren_MOI_he_dieu_hanh():
+    """C8: bản cũ tách chuỗi theo "/scripts/".
+
+    Sản phẩm này CHỈ chạy trên Windows, nơi `__file__` dùng dấu `\\`, nên phép
+    tách không tìm thấy gì và `sys.path` nhận nguyên ĐƯỜNG DẪN TỆP .py.
+    `cai_dat.bat` cũng chỉ cài `requirements.txt` chứ không `pip install -e .`
+    ⇒ `ModuleNotFoundError: autodub` ngay dòng import đầu tiên.
+    """
+    import pathlib
+    import re
+
+    ma = pathlib.Path("scripts/bao_cao_pilot_phase_h.py").read_text(encoding="utf-8")
+    assert 'rsplit("/scripts/"' not in ma, (
+        "còn tách đường dẫn theo dấu / — hỏng trên Windows")
+    assert re.search(r"sys\.path\.insert\(0, os\.path\.dirname\(", ma), (
+        "phải dựng đường dẫn bằng os.path để chạy được trên mọi hệ")
+
+
+class _KhachHong:
+    def __init__(self, loi):
+        self._loi = loi
+
+    def device(self):
+        raise self._loi
+
+    def list_flow_blueprints(self):
+        return []          # nuốt lỗi, trả rỗng — đúng hành vi thật
+
+
+class _KhachRong:
+    def device(self):
+        return {"balance": 100}
+
+    def list_flow_blueprints(self):
+        return []
+
+
+def _nap():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "bc_pilot", "scripts/bao_cao_pilot_phase_h.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+def test_mat_ket_noi_KHONG_bi_bao_thanh_pilot_chua_chay():
+    """C9: `list_flow_blueprints()` nuốt mọi SaasError rồi trả [].
+
+    Token hết hạn ⇒ danh sách rỗng ⇒ báo cáo in "CHƯA CÓ FLOW BLUEPRINT NÀO.
+    Pilot chưa chạy được bước H2" rồi dừng sớm. Một sự cố xác thực bị trình
+    bày thành một kết luận nghiệp vụ — người đọc sẽ chạy lại pilot từ đầu,
+    tốn Vox, trong khi việc phải làm là kết nối lại.
+    """
+    from autodub.saas_client import SaasError
+
+    bc = _nap()
+    ra = bc.dung_bao_cao(_KhachHong(SaasError("Token không hợp lệ.")))
+
+    assert "KHÔNG HỎI ĐƯỢC MÁY CHỦ" in ra
+    assert "Token không hợp lệ" in ra, "phải mang nguyên văn nguyên nhân"
+    assert "KHÔNG phải kết luận về pilot" in ra
+    assert "Pilot chưa chạy được bước H2" not in ra, (
+        "mất kết nối mà vẫn kết luận về pilot")
+
+
+def test_may_chu_tra_loi_binh_thuong_ma_rong_thi_VAN_ket_luan_duoc():
+    """Ca thật sự là "pilot chưa chạy" vẫn phải nói được — nếu không thì bản
+    vá này chỉ đổi một câu sai lấy một câu né tránh."""
+    bc = _nap()
+    ra = bc.dung_bao_cao(_KhachRong())
+    assert "CHƯA CÓ FLOW BLUEPRINT NÀO" in ra
+    assert "Máy chủ trả lời bình thường" in ra

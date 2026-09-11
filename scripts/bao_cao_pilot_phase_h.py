@@ -19,10 +19,17 @@ không được phá cam kết đó.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 # Cho phép chạy thẳng từ thư mục gốc dự án mà không cần cài gói.
-sys.path.insert(0, __file__.rsplit("/scripts/", 1)[0])
+#
+# Dùng `os.path` chứ KHÔNG tách chuỗi theo "/scripts/": sản phẩm này CHỈ chạy
+# trên Windows, nơi `__file__` dùng dấu `\`, nên phép tách kia không tìm thấy
+# gì và `sys.path` nhận nguyên ĐƯỜNG DẪN TỆP .py. `cai_dat.bat` cũng chỉ cài
+# `requirements.txt` chứ không `pip install -e .`, nên gói `autodub` không nằm
+# trong site-packages ⇒ `ModuleNotFoundError: autodub` ngay dòng import đầu.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def _muc(tieu_de: str) -> str:
@@ -44,6 +51,26 @@ def _giay(x) -> str:
         return "?"
 
 
+def _kiem_ket_noi(client) -> str:
+    """Máy chủ có trả lời được không. Trả câu cần in, hoặc "" nếu ổn.
+
+    Gọi một cửa RẺ và KHÔNG nuốt lỗi (`device()`) để phân biệt hai ca mà
+    danh sách rỗng không phân biệt được: máy chủ không trả lời được, và pilot
+    thật sự chưa chạy.
+
+    KHÔNG kiểm `is_configured()` ở đây: đó là chuyện của nơi DỰNG client từ
+    biến môi trường (`main()` đã kiểm và trả mã 2). Hàm này nhận sẵn một
+    client, nên câu hỏi của nó chỉ là "client này có nói chuyện được không".
+    """
+    try:
+        client.device()
+    except Exception as e:  # noqa: BLE001 — mọi lỗi đều phải nói ra, không đoán
+        return (f"**KHÔNG HỎI ĐƯỢC MÁY CHỦ** ({str(e)[:160]}).\n\n"
+                "Đây KHÔNG phải kết luận về pilot: báo cáo này không biết "
+                "pilot đã chạy hay chưa. Kết nối lại rồi chạy lại lệnh.")
+    return ""
+
+
 def dung_bao_cao(client) -> str:
     from autodub import saas_client
 
@@ -51,11 +78,26 @@ def dung_bao_cao(client) -> str:
     phan.append(f"Máy chủ: `{saas_client.resolve_api_url()}`")
 
     # --- 1. Flow Blueprint theo dòng thời gian ---------------------------
+    #
+    # Hỏi máy chủ TRƯỚC khi kết luận "chưa có gì": `list_flow_blueprints()`
+    # nuốt mọi `SaasError` rồi trả `[]` (xem `saas_client`), nên token hết
+    # hạn hay mất mạng đều ra danh sách rỗng — y hệt ca pilot chưa chạy.
+    #
+    # Trình bày một sự cố xác thực thành một kết luận nghiệp vụ là dẫn người
+    # đọc đi sai đường: họ sẽ nghĩ pilot chưa chạy và chạy lại từ đầu, tốn
+    # Vox, trong khi việc phải làm là kết nối lại tài khoản.
+    kiem = _kiem_ket_noi(client)
+    if kiem:
+        phan.append(_muc("1. Flow Blueprint"))
+        phan.append(kiem)
+        return "\n".join(phan)
+
     blueprints = client.list_flow_blueprints()
     phan.append(_muc("1. Flow Blueprint"))
     if not blueprints:
-        phan.append("**CHƯA CÓ FLOW BLUEPRINT NÀO.** Pilot chưa chạy được bước "
-                    "H2 — mọi mục sau đều không kết luận được.")
+        phan.append("**CHƯA CÓ FLOW BLUEPRINT NÀO.** Máy chủ trả lời bình "
+                    "thường nhưng chưa có bản ghi nào — pilot chưa chạy được "
+                    "bước H2, mọi mục sau đều không kết luận được.")
         return "\n".join(phan)
 
     bp = client.get_flow_blueprint(blueprints[0]["id"])   # mới nhất

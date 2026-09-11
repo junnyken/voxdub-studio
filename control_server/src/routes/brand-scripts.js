@@ -22,7 +22,7 @@ const FlowBlueprint = require('../models/FlowBlueprint')
 const assistPrompts = require('../prompts/assist')
 const gateway = require('../services/ai-gateway.service')
 const config = require('../services/config.service')
-const { replay, remember, precheck, charge, kiemHanMucNgay } = require('../services/assist-billing.service')
+const { replay, remember, ghiSoDung, precheck, charge, kiemHanMucNgay } = require('../services/assist-billing.service')
 const dauVanTay = require('../services/dau-van-tay.service')
 const kiem = require('../services/kiem-kich-ban.service')
 
@@ -258,7 +258,7 @@ module.exports = async function brandScriptRoutes(fastify) {
     const response = { ...view(doc), creditCharged: paid.charged, balanceAfter: paid.balanceAfter }
     await Promise.all([
       remember(jobId, device.fingerprint, 'brand_script', response, paid.charged),
-      require('../models/UsageLog').create({
+      ghiSoDung({
         fingerprint: device.fingerprint,
         jobId,
         action: 'assist',
@@ -410,7 +410,7 @@ module.exports = async function brandScriptRoutes(fastify) {
       // Lượt viết lại TRƯỚC ĐÂY không ghi sổ gì cả — nghĩa là "số lần
       // regenerate" (một trong những số liệu cần để định giá lại) không đếm
       // được, và hạn mức ngày cũng không thấy các lượt này.
-      require('../models/UsageLog').create({
+      ghiSoDung({
         fingerprint: device.fingerprint,
         jobId,
         action: 'assist',

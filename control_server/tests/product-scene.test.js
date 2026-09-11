@@ -121,8 +121,11 @@ test('ảnh gửi lên bị chặn dung lượng ngay ở schema', () => {
 })
 
 test('lỗi do người gọi sai trả 400, không gộp thành 503', () => {
+  // Cắt tới ĐẦU route kế tiếp, không cắt theo một số ma: bản cũ lấy 6000 ký
+  // tự và đã đỏ giả khi có người thêm chú thích vào giữa handler.
   const i = route.indexOf("'/assist'")
-  const khuc = route.slice(i, i + 6000)
+  const ke = route.indexOf('fastify.post(', i + 10)
+  const khuc = route.slice(i, ke > 0 ? ke : undefined)
   assert.ok(khuc.includes('err.statusCode === 400'),
     'gộp hết vào 503 thì app không phân biệt được lỗi của mình với lỗi máy chủ')
 })

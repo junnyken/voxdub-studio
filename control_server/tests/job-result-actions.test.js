@@ -107,3 +107,61 @@ test('remember() KHÔNG được ném lỗi ra ngoài — lớp đệm không gi
   assert.match(than, /error\(/,
     'nuốt lỗi mà không kêu tiếng nào thì lần sau lại mất cả ngày đi tìm')
 })
+
+// ---------------------------------------------------------------------------
+// B1 + B6 — hai lỗi tìm ra khi rà backlog Phase H (11/09/2026).
+
+test('B1: nhánh nhớ-đệm KHÔNG được đọc biến `result` chưa khai báo', () => {
+  // `let result` nằm ở NỬA DƯỚI của handler `/assist`, còn nhánh đọc-từ-đệm
+  // ở nửa trên. JS nâng `let` lên đầu khối nhưng để nó trong "vùng chết",
+  // nên đọc ở đó ném ReferenceError NGAY LÚC dựng đối số — `.catch()` gắn
+  // vào kết quả của `create(...)` không bắt được cú ném xảy ra TRƯỚC khi hàm
+  // được gọi ⇒ 500. Và vì khoá đệm băm theo NỘI DUNG, cú 500 đó lặp lại mãi
+  // mãi cho đúng bộ ảnh ấy.
+  const h = require('./helpers/doc-ma')
+  const src = h.doc(path.join('src', 'routes', 'ai.js'))
+  const i = src.indexOf('const cuNoiDung = await replay(khoaNoiDung')
+  assert.ok(i > 0, 'không thấy nhánh nhớ-đệm theo nội dung')
+  const j = src.indexOf('return { ...cuNoiDung', i)
+  const nhanh = src.slice(i, j)
+
+  assert.ok(!/\bresult\./.test(h.boChuThich(nhanh)),
+    'nhánh nhớ-đệm đọc `result` — biến đó chưa được khai báo ở đây')
+  assert.ok(nhanh.includes('cuNoiDung.results'),
+    'phải đọc từ kết quả ĐÃ LƯU (`cuNoiDung`)')
+})
+
+test('B6: ghi sổ ở nhánh THÀNH CÔNG không bao giờ được giết lượt gọi', () => {
+  // `UsageLog.create` trần trong `Promise.all` đứng SAU `charge()`: MongoDB
+  // trục trặc đúng khoảng giữa trừ tiền và ghi sổ ⇒ route ném ⇒ người dùng
+  // nhận 500, mất kết quả, mà TIỀN ĐÃ TRỪ. Nhánh LỖI ngay trên lại có
+  // `.catch(() => {})` — ghi sổ hỏng lúc thất bại thì tha, lúc thành công
+  // thì giết cả lượt.
+  const h = require('./helpers/doc-ma')
+  const conSot = []
+  for (const tep of ['ai.js', 'flow-blueprints.js', 'brand-scripts.js']) {
+    const src = h.doc(path.join('src', 'routes', tep))
+    const re = /await Promise\.all\(\[([\s\S]*?)\n {4}\]\)/g
+    let m
+    while ((m = re.exec(src)) !== null) {
+      const khoi = m[1]
+      if (!/UsageLog\.create\(|models\/UsageLog'\)\.create\(/.test(khoi)) continue
+      const sau = khoi.split(/UsageLog'\)\.create\(|UsageLog\.create\(/)[1] || ''
+      if (!sau.includes('.catch(')) {
+        conSot.push(`${tep}: UsageLog.create trần trong Promise.all`)
+      }
+    }
+  }
+  assert.deepStrictEqual(conSot, [],
+    'dùng `ghiSoDung(...)` — nó không bao giờ ném, và kêu to khi hỏng')
+})
+
+test('B6: ghiSoDung nuốt lỗi nhưng KÊU TO, không im lặng', async () => {
+  const billing = require('../src/services/assist-billing.service')
+  const ghi = []
+  // Model chưa nối DB trong lượt test này ⇒ create() ném thật.
+  await billing.ghiSoDung({ fingerprint: 'x', action: 'assist' },
+    { error: (...a) => ghi.push(a) })
+  assert.equal(ghi.length, 1, 'hỏng mà không ghi lại gì là nuốt im lặng')
+  assert.match(String(ghi[0][1]), /ghiSoDung\(\) hỏng/)
+})

@@ -41,7 +41,7 @@ là cách nhanh nhất để sửa nhầm.
 
 ## 🔴 Còn mở — đã tự kiểm chứng
 
-### B1. TDZ `ReferenceError` ⇒ 500 VĨNH VIỄN — `routes/ai.js:838`
+### ✅ B1. ĐÃ SỬA 11/09 — TDZ `ReferenceError` ⇒ 500 VĨNH VIỄN — `routes/ai.js:838`
 
 `result.results[0]` dùng ở dòng 838 trong khi `let result` mãi dòng 898. Chỉ
 nổ khi `task === 'packaging_check'` **và** trúng nhớ đệm theo nội dung: lần
@@ -52,7 +52,7 @@ nổ khi `task === 'packaging_check'` **và** trúng nhớ đệm theo nội dun
 
 **Mức**: cao — hỏng vĩnh viễn, không tự khỏi. **Ước**: nhỏ (dời khai báo).
 
-### B2. `429` nuốt mã và câu của máy chủ — `saas_client.py:274`
+### ✅ B2. ĐÃ SỬA 11/09 — `429` nuốt mã và câu của máy chủ — `saas_client.py:274`
 
 Nhánh 429 vứt cả `code` lẫn `message`, thay bằng *"Máy chủ đang bận… Chờ một
 chút rồi thử lại."* Nên `DAILY_LIMIT` (máy chủ nói *"Hôm nay đã dùng hết N
@@ -87,7 +87,7 @@ loại thì tôn trọng `settings.output_dir`. Người dùng đặt `D:\Videos
 
 **Mức**: trung bình. **Ước**: nhỏ.
 
-### B6. `UsageLog.create` không bọc `.catch` ở nhánh THÀNH CÔNG — `ai.js:1375`
+### ✅ B6. ĐÃ SỬA 11/09 — `UsageLog.create` không bọc `.catch` ở nhánh THÀNH CÔNG — `ai.js:1375`
 
 `Promise.all([remember(...), UsageLog.create({...})])`. `remember()` đã được
 làm cho không bao giờ ném (sự cố 22/8), `UsageLog.create` thì chưa — trong
@@ -111,8 +111,8 @@ Phải **đo trước khi sửa**. Xếp theo mức nghiêm trọng agent gán.
 | C5 | Sau `409`, GUI giữ trạng thái cũ và mở lại được cổng H4 | `brand_script_page.py:303` |
 | C6 | Nhánh `409` hạ `blocked` xuống `unconfirmed` — mất phán quyết đã có | `brand-scripts.js:326` |
 | C7 | `rangBuocKhongDuocNoi` không có `maxItems` | `brand-profiles.js` |
-| C8 | Script báo cáo pilot dùng đường dẫn kiểu Unix ⇒ hỏng trên Windows | `bao_cao_pilot_phase_h.py:25` |
-| C9 | Lỗi mạng/401 bị báo thành "pilot chưa chạy" | `bao_cao_pilot_phase_h.py:54` |
+| ~~C8~~ | ✅ **ĐÃ SỬA 11/09** — đường dẫn dựng bằng `os.path` | `bao_cao_pilot_phase_h.py` |
+| ~~C9~~ | ✅ **ĐÃ SỬA 11/09** — hỏi máy chủ trước khi kết luận | `bao_cao_pilot_phase_h.py` |
 | C10 | Danh sách rỗng vì mất mạng trông y hệt "chưa có gì" | `saas_client.py:848,906` |
 | C11 | Lỗi kiểm dữ liệu về tới người dùng chỉ còn câu trống không (`details` bị bỏ) | `app.js:153` |
 | C12 | Bộ chặn sao chép huỷ kết quả nhưng báo "thử lại sau" | `flow-blueprints.js:210` |
@@ -169,13 +169,11 @@ Ngày 10/09 vô hại vì test đều xanh, nhưng thiết kế đang không b�
 
 ## Thứ tự đề xuất
 
-1. **B1, B2, B6** — ba lỗi nhỏ, ảnh hưởng lớn (hỏng vĩnh viễn / sai hướng
-   hoàn toàn / mất tiền). Làm cùng một đợt.
-2. **Pilot H2→H3** của chủ dự án. Mọi thứ dưới đây nên đợi số liệu thật.
+1. ~~**B1, B2, B6**~~ ✅ **xong 11/09** — cùng đợt với C8, C9.
+2. **Pilot H2→H3** của chủ dự án. ← **đang ở đây**. Mọi thứ dưới đây nên đợi
+   số liệu thật.
 3. **C1–C6** — nhóm H3, đều đụng trạng thái `ready` và tiền. Kiểm chứng từng
    cái trước khi sửa.
-4. **C8, C9** — script báo cáo pilot; nếu chủ dự án sẽ chạy nó trên Windows
-   thì hai cái này lên trước bước 2.
 5. **B3, B4, B5, C15–C22** — nhóm trải nghiệm và dọn dẹp.
 6. **D1** rồi mới tới **H4d calibration** (sinh ảnh có tính tiền thật).
 

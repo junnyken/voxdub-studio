@@ -16508,3 +16508,89 @@ Sáu cái 🔴 đã tự kiểm chứng trong lượt này:
 Kèm bốn lát đã biết trước chưa làm: khớp video với **giọng đọc thật** (pilot
 đo được lệch ~5%), định giá lại theo token thật, chốt deploy bị webhook đi
 vòng qua, và thu hồi token GitHub cũ.
+
+## B1 + B2 + B6 + C8 + C9 (11/09/2026)
+
+Năm mục đầu của backlog, theo đúng thứ tự chủ dự án chốt.
+
+### B1 — TDZ ⇒ 500 VĨNH VIỄN (`routes/ai.js`)
+
+Nhánh đọc-từ-đệm theo nội dung tham chiếu `result.results[0]` trong khi
+`let result` mãi ~60 dòng phía dưới. JS nâng `let` lên đầu khối nhưng để nó
+trong **vùng chết**, nên đọc ở đó ném `ReferenceError` **ngay lúc dựng đối
+số** — `.catch()` gắn vào *kết quả* của `UsageLog.create(...)` không bắt được
+cú ném xảy ra TRƯỚC khi hàm được gọi ⇒ 500.
+
+Và vì khoá đệm băm theo **nội dung**, cú 500 đó **lặp lại mãi mãi** cho đúng
+bộ ảnh ấy: lần đầu thành công ghi đệm, từ lần hai hỏng vĩnh viễn.
+`doc_chu_khung_hinh` (H2b) thoát nạn chỉ nhờ ternary ngắn mạch.
+
+Sửa: đọc từ `cuNoiDung` — kết quả ĐÃ LƯU — chứ không phải `result`.
+
+### B2 — `429` nuốt mã và câu của máy chủ (`saas_client.py`)
+
+`429` có hai nghĩa khác hẳn nhau:
+
+| Mã | Nghĩa | Việc phải làm |
+|---|---|---|
+| `RATE_LIMITED` | bấm dồn dập | chờ vài giây |
+| `DAILY_LIMIT` | hết hạn mức NGÀY | **thử lại ngày mai** |
+
+Bản cũ vứt cả `code` lẫn `message`, thay bằng *"Máy chủ đang bận… Chờ một
+chút"* cho mọi lượt 429 ⇒ người hết hạn mức ngày bấm lại cả buổi.
+
+Một bẫy khi sửa: biến `message` đã có sẵn câu dự phòng *"Lỗi máy chủ (HTTP
+429)"* nên `message or ...` không bao giờ rơi về câu thân thiện — phải hỏi
+thẳng `data.get("message")`.
+
+### B6 — ghi sổ ở nhánh THÀNH CÔNG giết được cả lượt gọi
+
+`UsageLog.create` trần trong `Promise.all` ở **sáu cửa**, tất cả đứng SAU
+`charge()`. MongoDB trục trặc đúng khoảng giữa trừ tiền và ghi sổ ⇒ route ném
+⇒ người dùng nhận 500, mất kết quả, **tiền đã trừ**. Nhánh LỖI ngay trên lại
+có `.catch(() => {})` — ghi sổ hỏng lúc thất bại thì tha, lúc thành công thì
+giết cả lượt.
+
+Sửa bằng **một hàm dùng chung** `ghiSoDung()` thay vì vá sáu chỗ bằng tay:
+không bao giờ ném, và **kêu to** khi hỏng (sổ dùng là thứ `kiemHanMucNgay`
+đếm — mất bản ghi là trần ngày hụt mà không ai biết). Áp cho cả `ai.js`,
+`flow-blueprints.js`, `brand-scripts.js` — 9 chỗ.
+
+### C8 + C9 — script báo cáo pilot
+
+**C8**: `__file__.rsplit("/scripts/", 1)[0]` — sản phẩm CHỈ chạy Windows, nơi
+`__file__` dùng `\`, nên phép tách không tìm thấy gì và `sys.path` nhận
+nguyên đường dẫn **tệp .py**. `cai_dat.bat` cũng không `pip install -e .` ⇒
+`ModuleNotFoundError: autodub` ngay dòng import đầu.
+
+**C9**: `list_flow_blueprints()` nuốt mọi `SaasError` rồi trả `[]`, nên token
+hết hạn ⇒ báo cáo in *"CHƯA CÓ FLOW BLUEPRINT NÀO. Pilot chưa chạy được bước
+H2"* rồi dừng sớm. Một sự cố **xác thực** bị trình bày thành một kết luận
+**nghiệp vụ** — người đọc sẽ chạy lại pilot từ đầu, tốn Vox.
+
+Sửa: hỏi một cửa rẻ và KHÔNG nuốt lỗi (`client.device()`) trước khi kết luận.
+Có test riêng chốt rằng ca *thật sự* "pilot chưa chạy" vẫn nói được — nếu
+không thì bản vá chỉ đổi một câu sai lấy một câu né tránh.
+
+Bỏ phần kiểm `is_configured()` khỏi hàm này: đó là chuyện của nơi **dựng**
+client từ env (`main()` đã kiểm và trả mã 2), còn hàm nhận sẵn client thì câu
+hỏi chỉ là "client này nói chuyện được không".
+
+### Hai test cũ đỏ vì đổi tên hàm — và một số ma
+
+- `image-stage`: đếm `UsageLog.create` để so với số chỗ ghi `runMode`. Sửa
+  thành đếm **cả hai tên** (nhánh lỗi vẫn dùng tên cũ).
+- `product-scene`: cắt **6000 ký tự** sau `'/assist'` rồi tìm
+  `err.statusCode === 400`. Chú thích tôi thêm vào đẩy nó ra ngoài khung ⇒
+  đỏ giả. Sửa thành cắt tới **đầu route kế tiếp**, bỏ số ma.
+
+### Đã chứng minh đỏ
+
+| Gỡ ra thứ gì | Đỏ |
+|---|---|
+| B1 → đọc lại `result` | 1 test |
+| B6 → `UsageLog.create` trần | 1 test |
+| B2 → vứt code/message của 429 | 2 test |
+| C8/C9 → bỏ phép kiểm kết nối | 3 test |
+
+Node: **654 pass / 0 fail**. Python: **2.720 passed / 0 fail**.
