@@ -138,6 +138,38 @@ async function build(opts = {}) {
     uptimeS: Math.round(process.uptime()),
   }))
 
+  // ĐẶT TRƯỚC mọi `app.register(routes)` — bắt buộc.
+  //
+  // Fastify chốt bộ xử lý lỗi cho một route ngay lúc route được đăng ký.
+  // Mỗi `await app.register(...)` dưới đây đăng ký xong route TRƯỚC khi chạy
+  // tiếp, nên đặt `setErrorHandler` ở cuối hàm (chỗ cũ, dòng ~191) là nó
+  // KHÔNG BAO GIỜ chạy: mọi route đã chốt bộ xử lý mặc định của Fastify.
+  //
+  // Hậu quả không phải một câu xấu ở một chỗ mà là TOÀN BỘ API trả chuỗi ajv
+  // tiếng Anh. Người dùng chạy thật 12/09 nhận đúng dòng này sau bốn phút
+  // chờ: "Dừng lại: must NOT have more than 400 items".
+  //
+  // Test cũ không bắt được vì chúng chỉ kiểm `statusCode`, không đọc `message`
+  // — xem `tests/loi-kiem-du-lieu-noi-tieng-viet.test.js`.
+  app.setErrorHandler((err, request, reply) => {
+    if (err.validation) {
+      return reply.code(400).send({
+        code: 'VALIDATION_ERROR',
+        message: 'Dữ liệu gửi lên không hợp lệ.',
+        details: err.validation.map((v) => `${v.instancePath || 'body'} ${v.message}`),
+      })
+    }
+    if (err.statusCode && err.statusCode < 500) {
+      return reply.code(err.statusCode).send({
+        code: err.code || 'ERROR',
+        message: err.message,
+      })
+    }
+    request.log.error({ err }, 'unhandled error')
+    return reply.code(500).send({ code: 'INTERNAL', message: 'Lỗi máy chủ.' })
+  })
+
+
   await app.register(require('./routes/config'), { prefix: '/v1/config' })
   await app.register(require('./routes/device'), { prefix: '/v1/device' })
   await app.register(require('./routes/ai'), { prefix: '/v1/ai' })
@@ -188,24 +220,6 @@ async function build(opts = {}) {
 
   // Lỗi không lường trước: log đầy đủ phía server, nói ngắn gọn phía client —
   // stack trace lộ ra ngoài là món quà cho người dò lỗ hổng.
-  app.setErrorHandler((err, request, reply) => {
-    if (err.validation) {
-      return reply.code(400).send({
-        code: 'VALIDATION_ERROR',
-        message: 'Dữ liệu gửi lên không hợp lệ.',
-        details: err.validation.map((v) => `${v.instancePath || 'body'} ${v.message}`),
-      })
-    }
-    if (err.statusCode && err.statusCode < 500) {
-      return reply.code(err.statusCode).send({
-        code: err.code || 'ERROR',
-        message: err.message,
-      })
-    }
-    request.log.error({ err }, 'unhandled error')
-    return reply.code(500).send({ code: 'INTERNAL', message: 'Lỗi máy chủ.' })
-  })
-
   app.setNotFoundHandler((request, reply) => {
     // SPA fallback: GET một trang không phải API (vd /mua, /admin/orders)
     // thì trả index.html cho React Router lo phần còn lại.

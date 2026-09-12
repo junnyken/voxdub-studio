@@ -10,8 +10,8 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-12 · phiên bản ứng dụng `3.17.14` · 2.798 test Python +
-> 695 test Node + 74 test React
+> Cập nhật: 2026-09-12 · phiên bản ứng dụng `3.17.15` · 2.809 test Python +
+> 700 test Node + 74 test React
 
 ---
 

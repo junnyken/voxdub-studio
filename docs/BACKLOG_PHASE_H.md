@@ -307,6 +307,62 @@ rồi mới chọn đòn bẩy và điền ngưỡng vào mục D của mini-spe
 
 ---
 
+## Đã sửa 12/09 (đợt 3) — nhánh "Bỏ qua" tôi vừa thêm tự làm hỏng chính nó
+
+Chủ dự án làm ĐÚNG hướng dẫn của tôi: bấm «Bỏ qua, không tốn Vox», chờ thêm
+ba phút, rồi nhận `Dừng lại: must NOT have more than 400 items`.
+
+### ✅ E7. Máy khách không giữ trần bằng chứng — nhánh RẺ là nhánh duy nhất hỏng
+
+Cổng 50 Vox tôi thêm ở v3.17.13 tạo ra một nhánh mới, và tôi **không chạy thử
+nhánh từ chối tới cùng**:
+
+| | Chữ OCR | Gộp | Số mẩu |
+|---|---|---|---|
+| Đồng ý đọc | máy chủ trả SẠCH, một dòng mỗi khung | tốt | 65 ✓ |
+| **Bỏ qua** | RapidOCR thô, mỗi khung vài vùng, lệch nhau vài ký tự | gần như không gộp được | **>400** ✗ |
+
+`gop_quan_sat_lien_tiep` so `text` NGUYÊN VĂN, mà OCR tiếng Việt nhiễu nên
+hai khung liền nhau ra chữ khác nhau. Máy chủ khai `maxItems: 400` và từ
+chối — sau khi người dùng đã chờ bốn phút.
+
+**Đã sửa**: `gioi_han_bang_chung()` ở máy khách, trần khớp máy chủ (có test
+chốt hai bên không lệch). Cắt thì **rải đều dòng thời gian**, không cắt đuôi
+— lấy 400 mẩu đầu rồi bỏ phần sau là mất sạch bằng chứng nửa cuối video, và
+mô hình sẽ kết luận nhịp video đúng như thế. Cắt bao nhiêu, từ bao nhiêu,
+ghi vào `samplingPolicyUsed` (ràng buộc E.1 của mini-spec E6).
+
+### ✅ E8. `setErrorHandler` KHÔNG BAO GIỜ chạy — toàn bộ API nói tiếng Anh
+
+Đào tiếp thì lỗi rộng hơn hẳn một route. `src/app.js` CÓ bộ xử lý trả
+*"Dữ liệu gửi lên không hợp lệ."* — nhưng nó nằm ở dòng **191**, sau tất cả
+`await app.register(routes)` ở 141–168.
+
+Fastify chốt bộ xử lý lỗi cho một route **ngay lúc route được đăng ký**. Mỗi
+`await app.register(...)` đăng ký xong route trước khi chạy tiếp, nên mọi
+route đã chốt bộ mặc định. Đo thật:
+
+```
+POST /v1/device/register  -> "body/fingerprint must NOT have fewer than 64 characters"
+POST /v1/flow-blueprints  -> "body must have required property 'sourceType'"
+```
+
+**Mọi** lỗi kiểm dữ liệu trong cả API đều trả chuỗi ajv tiếng Anh, và mất
+luôn trường `details`. 695 test cũ không bắt được vì chúng chỉ kiểm
+`statusCode`, không ai đọc `message`.
+
+**Đã sửa**: chuyển `setErrorHandler` lên TRƯỚC mọi `app.register(routes)`.
+Test mới đọc `message` và cấm mọi chuỗi `must NOT`/`must be`/`must have` lọt
+ra người dùng, trên hai route khác nhau để chốt đây là lỗi thứ tự đăng ký
+chứ không phải lỗi của một route.
+
+> **Bài học lặp lại lần thứ hai trong ngày**: thêm một nhánh mới (cổng 50
+> Vox) mà không chạy thử nhánh đó tới cùng. Lần trước là `download_job_result`
+> sau khi sửa 2xx. Test xanh không thay thế được một lượt chạy thật trên
+> nhánh vừa thêm.
+
+---
+
 ## 🟡 Còn mở — agent báo, CHƯA kiểm chứng
 
 > Mã `RS-<n>` = phát hiện của đợt **rà soát**, KHÔNG phải số mini-spec. Tiền

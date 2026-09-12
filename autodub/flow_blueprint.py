@@ -85,6 +85,48 @@ def ta_chinh_sach_lay_mau(dai_giay: float) -> str:
 KHOANG_CACH_TOI_DA_DE_GOP_GIAY = 1.0
 
 
+#: Trần số mẩu bằng chứng gửi lên máy chủ, KHỚP `maxItems` của
+#: `control_server/src/routes/flow-blueprints.js`. Có test chốt hai bên không
+#: lệch nhau — đổi một bên mà quên bên kia là lỗi quay lại y hệt.
+SO_BANG_CHUNG_TOI_DA = 400
+
+
+def gioi_han_bang_chung(muc: list[dict], *, ten: str,
+                        tran: int = SO_BANG_CHUNG_TOI_DA) -> tuple[list[dict], str]:
+    """Giữ tối đa ``tran`` mẩu, RẢI ĐỀU dòng thời gian. Trả `(mẩu, ghi chú)`.
+
+    Vì sao cần: người dùng bấm «Bỏ qua, không tốn Vox» thì bản đọc giữ nguyên
+    RapidOCR thô — mỗi khung vài vùng chữ, mỗi vùng lệch nhau vài ký tự vì
+    OCR tiếng Việt nhiễu. `gop_quan_sat_lien_tiep` so ``text`` NGUYÊN VĂN nên
+    gần như không gộp được gì, và số mẩu vượt trần của máy chủ. Lượt chạy
+    thật 12/09: người dùng chờ bốn phút rồi nhận đúng một dòng tiếng Anh
+    *"must NOT have more than 400 items"*.
+
+    Tức nhánh RẺ TIỀN là nhánh duy nhất hỏng — làm đúng lời khuyên thì mất
+    thời gian mà không được gì.
+
+    **Rải đều, không cắt đuôi.** Lấy 400 mẩu đầu rồi bỏ phần sau là mất sạch
+    bằng chứng nửa cuối video; mô hình thấy chữ dày đặc ở đầu, im lặng ở
+    cuối, rồi kết luận nhịp video đúng như thế. Đó tệ hơn cả việc không có
+    bằng chứng.
+
+    Ghi chú trả về phải đi vào ``samplingPolicyUsed`` — cắt im lặng là để mô
+    hình nói chắc nịch trên nền bằng chứng đã bị xén (ràng buộc E.1 của
+    `docs/MINI-SPEC_E6_Bot_Khung_OCR.md`).
+    """
+    if len(muc) <= tran:
+        return muc, ""
+    goc = len(muc)
+    # Chọn theo chỉ số rải đều rồi giữ NGUYÊN thứ tự thời gian.
+    buoc = goc / tran
+    giu = [muc[min(int(i * buoc), goc - 1)] for i in range(tran)]
+    ghi_chu = (f"{ten}: giữ {tran}/{goc} mẩu bằng chứng, rải đều dòng thời "
+               f"gian (trần của máy chủ) — phần bị lược có thể chứa chữ "
+               f"chớp nhanh")
+    logger.info("Bằng chứng %s vượt trần: %d -> %d, rải đều", ten, goc, tran)
+    return giu, ghi_chu
+
+
 def gop_quan_sat_lien_tiep(quan_sat: list[dict]) -> list[dict]:
     """Gộp các quan sát OCR GIỐNG HỆT NHAU, xuất hiện GẦN NHAU về thời gian
     (không quá `KHOANG_CACH_TOI_DA_DE_GOP_GIAY`), thành một dòng — Scope A
@@ -293,6 +335,15 @@ def trich_bang_chung(
                     canh_bao.append(
                         "Không đọc được chữ overlay do lỗi kỹ thuật — phân "
                         "tích chỉ dựa trên lời nói/timeline.")
+
+    # Áp trần TRƯỚC khi chốt `sampling_policy_used`: ghi chú cắt bớt phải vào
+    # được lời nhắc, nếu không mô hình không biết bằng chứng đã bị xén.
+    ocr_evidence, _ghi_ocr = gioi_han_bang_chung(ocr_evidence, ten="OCR")
+    transcript, _ghi_asr = gioi_han_bang_chung(transcript, ten="Lời nói")
+    for _g in (_ghi_ocr, _ghi_asr):
+        if _g:
+            chinh_sach = f"{chinh_sach}. {_g}" if chinh_sach else _g
+            canh_bao.append(_g)
 
     if not transcript and not ocr_evidence:
         raise TranscribeError(
