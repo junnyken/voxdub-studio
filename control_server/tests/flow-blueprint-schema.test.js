@@ -83,20 +83,47 @@ test('parseFlowBlueprintResult: rỗng -> null (không được coi là "ready" 
 
 // --------------------------------- REGRESSION: chặn sao chép nguyên văn ---
 
-test('REGRESSION: beat chép nguyên văn nguồn (cả tiếng Anh lẫn OCR) -> HUỶ TOÀN BỘ kết quả', () => {
+test('REGRESSION: beat chép nguyên văn nguồn vẫn PHẢI bị phát hiện', () => {
   // Guardrail 2/6/7 của H2 — nếu ai đó lỡ gỡ bước kiểm sao chép trong
   // `parseFlowBlueprintResult`, test này phải đỏ (đã xác nhận bằng cách gỡ
   // tạm code, chạy thấy đỏ đúng chỗ, rồi khôi phục — xem docs/TEST_LOG.md).
+  //
+  // ĐỔI CÓ CHỦ Ý 12/09 — trước đây ca này HUỶ cả kết quả; nay là CẢNH BÁO.
+  // Beat chép 10 tiếng nằm trong mô tả 17 tiếng = phủ 59%, dưới ngưỡng huỷ
+  // 70%. Quyết định của chủ dự án: H2 đi theo đúng mẫu **H3** — lớp gác thứ
+  // SẼ ĐĂNG. H3 không huỷ gì cả, nó gắn `originalityFlag='flagged'` cho đúng
+  // đoạn rồi mời viết lại đoạn đó. H2 chỉ sinh bản phân tích NỘI BỘ mà lại
+  // chặt hơn hẳn lớp gác quan trọng hơn nó.
+  //
+  // Lý do đổi (đo, không đoán): hai lượt chạy thật đều hỏng vì từ vựng của
+  // chính chủ đề video (`hóa đơn` 11/09, `tự động gửi dữ liệu` 12/09), và
+  // trên 15 ca thì CHỈ 45% là sạch — nằm đúng giữa 40% (phải qua) và 45%
+  // (phải huỷ), tức không còn biên. Xem `tests/sao-chep-do-bang-ty-le-phu.test.js`.
+  //
+  // Thứ KHÔNG được mất là khả năng PHÁT HIỆN — nên ca này vẫn phải hiện ra.
   const beatChepNguyenVan = {
     ...BEAT_HOP_LE,
     narrative_function_vi: 'Mô tả: "Stop wasting money on skincare that does '
       + 'nothing for you" chính là câu mở đầu',
   }
-  const parsed = assistPrompts.parseFlowBlueprintResult(
+  const ket = assistPrompts.parseFlowBlueprintResultChiTiet(
     { beats: [beatChepNguyenVan, BEAT_HOP_LE] }, NGUON)
-  assert.equal(parsed, null,
-    'một beat chép nguyên văn phải huỷ CẢ kết quả, không chỉ lọc riêng beat đó — '
-    + 'giữ lại beat "sạch" bên cạnh rủi ro làm người review chủ quan bỏ qua beat bẩn')
+  assert.equal(ket.ok, true, 'phủ 59% thì không còn huỷ cả kết quả')
+  assert.equal(ket.canh_bao.length, 1, 'nhưng PHẢI còn nhìn thấy được')
+  assert.match(ket.canh_bao[0].cum, /stop wasting money/i)
+})
+
+test('REGRESSION: beat TÁI TẠO nguyên nguồn thì vẫn HUỶ TOÀN BỘ', () => {
+  // Nhánh huỷ chưa chết: beat gần như chỉ là chữ của nguồn (phủ >= 70%) vẫn
+  // giết cả kết quả, không lọc riêng beat đó — giữ lại beat "sạch" bên cạnh
+  // rủi ro làm người review chủ quan bỏ qua beat bẩn.
+  const beatTaiTao = {
+    ...BEAT_HOP_LE,
+    narrative_function_vi: 'stop wasting money on skincare that does nothing for you',
+  }
+  const parsed = assistPrompts.parseFlowBlueprintResult(
+    { beats: [beatTaiTao, BEAT_HOP_LE] }, NGUON)
+  assert.equal(parsed, null)
 })
 
 test('REGRESSION: chép nguyên văn caption OCR (không phải transcript) vẫn bị PHÁT HIỆN', () => {

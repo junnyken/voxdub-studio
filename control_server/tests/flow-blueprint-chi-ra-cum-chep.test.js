@@ -44,7 +44,7 @@ test('chép nguyên văn thì nói RA cụm nào và ở đoạn thứ mấy', (
   const ket = parseFlowBlueprintResultChiTiet(
     { beats: [beat(), beat({
       start_s: 3, end_s: 6, beat_type: 'problem_context',
-      narrative_function_vi: 'Chữ lớn ghi mua ngay hôm nay… rồi mờ dần.',
+      narrative_function_vi: 'mua ngay hôm nay… nhé',
     })] }, NGUON)
 
   assert.strictEqual(ket.ok, false)

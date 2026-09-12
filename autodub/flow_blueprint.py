@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from dataclasses import dataclass, field
 
 from autodub.utils import setup_logging
@@ -260,11 +261,23 @@ def trich_bang_chung(
                               else BO_DOC_CUC_BO)
 
                 try:
+                    _bat_dau_ocr = time.monotonic()
                     ket = read_text_regions(anh_paths, settings=settings,
                                             cancel_event=cancel_event,
                                             moc_thoi_gian=moc_lay_duoc,
                                             bo_doc=chon_bo_doc,
                                             xin_phep=xin_phep)
+                    # E6 giai đoạn 0 — CHỈ ĐO, không đổi hành vi. Đây là tầng
+                    # duy nhất có đủ cả bằng chứng OCR lẫn transcript, mà câu
+                    # hỏi chính ("bao nhiêu đoạn OCR trùng lời đọc") cần cả
+                    # hai. Tốn 0 Vox: chỗ này chạy kể cả khi người dùng bấm
+                    # "Bỏ qua" ở cổng xin phép.
+                    from autodub.media.doc_chu_may_chu import ghi_chan_doan_ocr
+                    ghi_chan_doan_ocr(
+                        work_dir, ket.quan_sat, transcript=transcript,
+                        giay_ocr=time.monotonic() - _bat_dau_ocr,
+                        dai_giay=dai_giay, so_moc=len(moc),
+                        thoi_gian_ocr=getattr(ket, "thoi_gian", None))
                     tho = [{"text": q.text, "status": q.status,
                            "timestamp_s": q.timestamp_s}
                           for q in ket.quan_sat]

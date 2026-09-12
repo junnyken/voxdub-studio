@@ -18,6 +18,7 @@ vi cũ, chỉ khi gọi từ ``read_text_regions()`` mới bật lên.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 
 from autodub.utils import setup_logging
@@ -180,6 +181,7 @@ def _detect_in_process(image_paths: list[str], *, doc_chu: bool = False,
                        "chuẩn hoá toạ độ OCR")
         raise ChuaCaiOcr("Thiếu thư viện Pillow nên không quét chữ được") from e
 
+    _bat_dau_khoi_dong = time.monotonic()
     try:
         engine = _get_engine()
     except ImportError as e:
@@ -189,6 +191,8 @@ def _detect_in_process(image_paths: list[str], *, doc_chu: bool = False,
             "Chưa cài bộ quét chữ. Chạy «Cai dat nhan dien vung chu.bat» "
             "(hoặc scripts/setup_ocr.py) rồi quét lại") from e
 
+    _giay_khoi_dong = time.monotonic() - _bat_dau_khoi_dong
+    _bat_dau_quet = time.monotonic()
     boxes: list[dict] = []
     anh_loi = 0
     for chi_so_anh, image_path in enumerate(image_paths):
@@ -225,6 +229,13 @@ def _detect_in_process(image_paths: list[str], *, doc_chu: bool = False,
             boxes.append(muc)
     if thong_ke is not None:
         thong_ke["anh_loi"] = anh_loi
+        # E6 — tách khởi động engine khỏi phần quét từng khung. Hai phần này
+        # phản ứng NGƯỢC nhau khi giảm số khung: phần mỗi-khung co theo tỉ
+        # lệ, phần khởi động không nhúc nhích. Gộp làm một con số là không
+        # trả lời được câu quyết định của cả mini-spec: "cắt khung có nhanh
+        # lên không".
+        thong_ke["khoi_dong_s"] = round(_giay_khoi_dong, 3)
+        thong_ke["quet_s"] = round(time.monotonic() - _bat_dau_quet, 3)
     return boxes
 
 
@@ -315,6 +326,12 @@ def _detect_via_subprocess(image_paths: list[str], settings,
         return None
     if thong_ke is not None:
         thong_ke["anh_loi"] = int(data.get("anh_loi") or 0)
+        # E6 — worker đo tách khởi động/quét (xem `text_regions_worker.py`).
+        # Worker cũ chưa có hai khoá này thì bỏ trống, không đoán: một con số
+        # bịa ở đây sẽ dẫn thẳng tới một quyết định thiết kế sai.
+        for khoa in ("khoi_dong_s", "quet_s"):
+            if data.get(khoa) is not None:
+                thong_ke[khoa] = float(data[khoa])
     return data.get("boxes") or []
 
 
@@ -513,6 +530,12 @@ class KetQuaDocChu:
 
     trang_thai: str
     quan_sat: list[QuanSatChu] = field(default_factory=list)
+    #: Đo cho E6 — `{"khoi_dong_s": …, "moi_khung_s": …, "so_khung": …}`.
+    #: Tách hai phần vì chúng phản ứng NGƯỢC nhau với việc giảm số khung:
+    #: phần mỗi-khung co lại theo tỉ lệ, phần khởi động thì không nhúc nhích.
+    #: Gộp làm một con số là không trả lời được câu "cắt khung có nhanh lên
+    #: không" — mà đó là câu quyết định cả mini-spec E6.
+    thoi_gian: dict = field(default_factory=dict)
 
 
 def read_text_regions(
@@ -614,4 +637,10 @@ def read_text_regions(
 
     return KetQuaDocChu(
         trang_thai=("co_chu" if quan_sat else "no_text"),
-        quan_sat=quan_sat)
+        quan_sat=quan_sat,
+        thoi_gian={
+            "duong": nguon,
+            "so_khung": len(image_paths),
+            **{k: thong_ke[k] for k in ("khoi_dong_s", "quet_s")
+               if k in thong_ke},
+        })

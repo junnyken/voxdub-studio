@@ -951,6 +951,35 @@ const { chuanHoaSoKhop } = require('../services/dau-van-tay.service')
  */
 const NGUONG_TU_LIEN_TIEP = 6
 
+/**
+ * Đoạn LIÊN TIẾP dài nhất mà beat chép từ một dòng nguồn, tối thiểu ``n``.
+ *
+ * Vì sao không dùng thẳng `n`: tỷ lệ phủ tính từ độ dài khớp, mà lấy cứng
+ * `n = 6` là **báo thiếu** mọi đoạn chép dài hơn thế. Ca thật trong
+ * `flow-blueprint-schema.test.js`: beat chép nguyên câu mười tiếng
+ * ("stop wasting money on skincare that does nothing for you") nằm trong một
+ * mô tả mười lăm tiếng — chép hai phần ba, nhưng tính theo `n` thì ra 6/15 =
+ * 40%, sát ranh. Đo đúng độ dài thì ra 10/15 = 67%, không còn nghi ngờ gì.
+ */
+function doanChungDaiNhat(tuKiemTra, tuNguon, n) {
+  const nguonCumN = timNgram(tuNguon, n)
+  const nguonChuoi = ` ${tuNguon.join(' ')} `
+  let tot = null
+  for (let i = 0; i + n <= tuKiemTra.length; i += 1) {
+    if (!nguonCumN.has(tuKiemTra.slice(i, i + n).join(' '))) continue
+    // Có mồi n tiếng — kéo dài sang phải chừng nào nguồn còn chứa nguyên đoạn.
+    let j = i + n
+    while (j < tuKiemTra.length
+           && nguonChuoi.includes(` ${tuKiemTra.slice(i, j + 1).join(' ')} `)) {
+      j += 1
+    }
+    if (!tot || j - i > tot.so) {
+      tot = { so: j - i, cum: tuKiemTra.slice(i, j).join(' ') }
+    }
+  }
+  return tot
+}
+
 function timNgram(tuList, n) {
   const ra = new Set()
   for (let i = 0; i + n <= tuList.length; i += 1) {
@@ -969,24 +998,51 @@ function timNgram(tuList, n) {
 const TOI_THIEU_TU_DE_KIEM_NGAN = 2
 
 /**
- * Dòng bằng chứng ngắn phải dài BAO NHIÊU thì chạm nó mới đáng HUỶ CẢ KẾT QUẢ.
+ * Cụm khớp phải phủ BAO NHIÊU PHẦN của beat thì mới HUỶ cả kết quả.
  *
- * Đo trên các ca đang có (12/09) trước khi chốt — không ngưỡng nào sạch, vì
- * số chữ không phân biệt được khẩu hiệu bị chép với từ vựng thông thường
- * (`STOP SCROLLING` và `hóa đơn` đều hai chữ):
+ * Hai lượt chạy thật của chủ dự án đều hỏng vì ngưỡng đo theo ĐỘ DÀI CỤM:
+ * `hóa đơn` (11/09) rồi `tự động gửi dữ liệu` (12/09) — đều là từ vựng của
+ * chính chủ đề video, mà mô tả "vai trò kể chuyện" thì không tránh được.
  *
- *     ngưỡng 2 (cũ): bỏ sót 0/4, chặn oan 3/3
- *     ngưỡng 3:      bỏ sót 1/4, chặn oan 1/3
- *     ngưỡng 4:      bỏ sót 2/4, chặn oan 1/3
- *     ngưỡng 5:      bỏ sót 3/4, chặn oan 0/3
+ * Đo ra nguyên nhân sâu hơn con số: `tự động gửi dữ liệu lên` là **ba từ**
+ * tiếng Việt nhưng **sáu âm tiết**, nên rơi vào luật n-gram.
+ * `NGUONG_TU_LIEN_TIEP = 6` hiệu chỉnh trên ví dụ tiếng Anh ("Stop wasting
+ * money on this" = 5 tiếng = 5 từ). Tiếng Việt tách theo âm tiết, nên cùng
+ * con số 6 lại chặt gấp đôi — không ai chọn điều đó, nó là hệ quả không ai
+ * để ý của việc đếm "từ" bằng khoảng trắng.
  *
- * Nên tách hai câu hỏi vốn bị gộp: "có chạm không" giữ nguyên độ nhạy
- * (`TOI_THIEU_TU_DE_KIEM_NGAN` = 2, không đổi), còn "chạm thì có đáng huỷ
- * không" mới dùng ngưỡng này. Dòng 2–3 chữ thành CẢNH BÁO gắn vào kết quả —
- * không mất ca phát hiện nào, cũng không giết lượt chạy vì một từ ghép
- * thông thường (lỗi người dùng gặp thật 11/09: mẩu OCR `hóa đơn`).
+ * Nên đổi ĐẠI LƯỢNG, không đổi con số: "chép" nghĩa là beat TÁI TẠO nguồn,
+ * đo bằng phần trăm beat bị cụm khớp phủ — cách đo đạo văn thật dùng, và nó
+ * không phụ thuộc ngôn ngữ tách từ kiểu gì.
+ *
+ * Số đo trên 15 ca (7 phải huỷ, 8 không được huỷ), sau khi đã sửa phép đo
+ * để tính ĐOẠN LIÊN TIẾP DÀI NHẤT thay vì cứng `n`:
+ *
+ *     luật cũ (cụm >= 4 tiếng): sai 5/15
+ *     phủ >= 25%:               sai 3/15
+ *     phủ >= 30% | 35% | 40%:   sai 1/15
+ *     phủ >= 45%:               sai 0/15   <- ĐIỂM DUY NHẤT sạch
+ *     phủ >= 50%:               sai 1/15
+ *     phủ >= 60%:               sai 3/15
+ *
+ * 45% sạch nhưng nằm ĐÚNG TRÊN RANH: ca phải-qua của chủ dự án phủ 40%, ca
+ * phải-huỷ phủ 45%. Không biên nào cả — video thứ ba lệch một chút là lại
+ * mất 88 Vox và năm phút. Một điểm duy nhất đúng nghĩa là phép đo VẪN chưa
+ * tách được hai lớp, không phải là đã tìm ra ngưỡng.
+ *
+ * Chủ dự án chọn (12/09) đi theo đúng mẫu **H3** — lớp gác thứ SẼ ĐĂNG. H3
+ * không huỷ gì cả: nó gắn `originalityFlag='flagged'` cho đúng đoạn rồi mời
+ * viết lại đoạn đó (`brand-scripts.js:445`, `lyDoVietLai`). H2 chỉ sinh một
+ * bản phân tích NỘI BỘ mà lại chặt hơn hẳn lớp gác quan trọng hơn nó — đó
+ * mới là chỗ sai, không phải con số.
+ *
+ * 70% = beat bị nguồn phủ hơn hai phần ba; không ai gọi đó là phân tích.
+ * Cách ca phải-qua cao nhất đo được (40%) tới 30 điểm.
+ *
+ * Độ NHẠY PHÁT HIỆN không đổi: mọi chạm vẫn được ghi nhận nguyên vẹn, chỉ
+ * khác ở chỗ chạm vừa phải thành cảnh báo thay vì giết cả lượt chạy.
  */
-const TOI_THIEU_TU_DE_HUY = 4
+const TY_LE_PHU_DE_HUY = 0.7
 
 function khopSaoChep(vanBanKiemTra, cacNguonBangChung, n = NGUONG_TU_LIEN_TIEP) {
   const kiemTraChuanHoa = chuanHoaSoKhop(vanBanKiemTra)
@@ -994,29 +1050,40 @@ function khopSaoChep(vanBanKiemTra, cacNguonBangChung, n = NGUONG_TU_LIEN_TIEP) 
   if (!tuKiemTra.length) return null
   const ngramKiemTra = tuKiemTra.length >= n ? timNgram(tuKiemTra, n) : null
 
+  // Giữ khớp DÀI NHẤT, không trả ngay khớp đầu tiên gặp: tỷ lệ phủ tính từ
+  // độ dài khớp, nên trả sớm nghĩa là THỨ TỰ dòng bằng chứng quyết định kết
+  // quả — cùng video, cùng beat, đảo thứ tự OCR lại ra khác.
+  let dai = null
+  const giu = (ung) => {
+    if (!dai || ung.soTiengKhop > dai.soTiengKhop) dai = ung
+  }
+
   for (const nguon of cacNguonBangChung) {
     const nguonChuanHoa = chuanHoaSoKhop(nguon)
     const tuNguon = nguonChuanHoa.split(' ').filter(Boolean)
     if (tuNguon.length >= n) {
       if (!ngramKiemTra) continue   // câu kiểm ngắn hơn ngưỡng thì không có ngram để so
-      const ngramNguon = timNgram(tuNguon, n)
-      for (const g of ngramKiemTra) {
-        if (ngramNguon.has(g)) {
-          return { cum: g, nguon: String(nguon), kieu: 'ngram', soTuNguon: tuNguon.length }
-        }
+      const chay = doanChungDaiNhat(tuKiemTra, tuNguon, n)
+      if (chay) {
+        giu({
+          cum: chay.cum, nguon: String(nguon), kieu: 'ngram',
+          soTiengKhop: chay.so,
+        })
       }
     } else if (tuNguon.length >= TOI_THIEU_TU_DE_KIEM_NGAN) {
       // Dòng bằng chứng NGẮN (caption/hook/CTA điển hình) — chỉ cần beat
       // CHỨA NGUYÊN VẸN dòng đó là đủ khả nghi, không cần đủ độ dài N-gram.
       if (kiemTraChuanHoa.includes(nguonChuanHoa)) {
-        return {
+        giu({
           cum: nguonChuanHoa, nguon: String(nguon), kieu: 'chua',
-          soTuNguon: tuNguon.length,
-        }
+          soTiengKhop: tuNguon.length,
+        })
       }
     }
   }
-  return null
+  if (!dai) return null
+  return { ...dai, soTiengBeat: tuKiemTra.length,
+           phu: dai.soTiengKhop / tuKiemTra.length }
 }
 
 /** Giữ NGUYÊN chữ ký cũ (boolean) cho mọi nơi đang gọi. */
@@ -1055,7 +1122,7 @@ function parseFlowBlueprintResultChiTiet(data, bangChungNguon) {
     for (const truong of cacTruongVanBan) {
       const khop = khopSaoChep(String(b[truong] || ''), bangChungNguon || [])
       if (!khop) continue
-      if (khop.soTuNguon >= TOI_THIEU_TU_DE_HUY) {
+      if (khop.phu >= TY_LE_PHU_DE_HUY) {
         // Chép đủ dài — huỷ TOÀN BỘ kết quả, không vá riêng beat này.
         // Nhưng NÓI RA đã chặn cái gì: trước đây chỗ này trả `null` câm, đi
         // lên thành "Kết quả trả về không dùng được" rồi thành "Thử lại sau",
@@ -1161,7 +1228,7 @@ function cacheKey(task, input, images) {
 module.exports = {
   TASKS, TASK_NAMES, getTask, resultsSchema, cat, cacheKey, PROMPT_VERSION,
   // mini-spec H2 — lộ ra để test đơn vị (chống sao chép nguyên văn, schema).
-  coSaoChepNguyenVan, khopSaoChep, TOI_THIEU_TU_DE_HUY,
+  coSaoChepNguyenVan, khopSaoChep, TY_LE_PHU_DE_HUY,
   parseFlowBlueprintResult, parseFlowBlueprintResultChiTiet,
   flowBlueprintOutputSchema,
   trangThaiBangChung,

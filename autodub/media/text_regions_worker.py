@@ -22,6 +22,7 @@ nhau.
 """
 import argparse
 import json
+import time
 import sys
 
 # Windows mặc định cho tiến trình con dùng bảng mã cp1252 khi ghi ra ống —
@@ -54,7 +55,15 @@ def main() -> None:
         print(json.dumps({"ok": False, "error": f"Thiếu thư viện OCR ({e})"}))
         sys.exit(1)
 
+    # E6 — đo RIÊNG hai phần. Nạp mô hình RapidOCR là chi phí CỐ ĐỊNH, không
+    # nhúc nhích khi giảm số khung; phần quét thì co theo tỉ lệ. Gộp làm một
+    # con số là không trả lời được câu quyết định của mini-spec E6: "cắt bớt
+    # khung có làm nhanh lên không".
+    _t0 = time.monotonic()
     engine = RapidOCR()
+    khoi_dong_s = time.monotonic() - _t0
+
+    _t1 = time.monotonic()
     boxes = []
     anh_loi = 0
     for chi_so_anh, path in enumerate(args.images):
@@ -91,7 +100,9 @@ def main() -> None:
                 muc["text"] = text.strip()
             boxes.append(muc)
 
-    print(json.dumps({"ok": True, "boxes": boxes, "anh_loi": anh_loi},
+    print(json.dumps({"ok": True, "boxes": boxes, "anh_loi": anh_loi,
+                      "khoi_dong_s": round(khoi_dong_s, 3),
+                      "quet_s": round(time.monotonic() - _t1, 3)},
                      ensure_ascii=False))
 
 

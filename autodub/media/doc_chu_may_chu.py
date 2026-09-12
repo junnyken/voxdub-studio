@@ -101,6 +101,95 @@ def chia_doan(quan_sat: list) -> list[list[int]]:
     return doan
 
 
+#: Tên tệp chẩn đoán của E6 giai đoạn 0, nằm trong `<work_dir>/data/`.
+TEP_CHAN_DOAN = "ocr_chan_doan.json"
+
+
+def ghi_chan_doan_ocr(work_dir: str, quan_sat: list, *, transcript: list,
+                      giay_ocr: float, dai_giay: float, so_moc: int,
+                      thoi_gian_ocr: dict | None = None) -> None:
+    """Ghi bằng chứng OCR ra đĩa để ĐO ĐƯỢC — E6 giai đoạn 0.
+
+    Bước đọc chữ tốn 3 phút 51 giây và 88 Vox cho một video 34 giây (đo từ
+    nhật ký chủ dự án 12/09). Có bốn đòn bẩy để cắt, nhưng không đòn bẩy nào
+    CHỌN được nếu không có dữ liệu thật — mà dữ liệu đó tới giờ chỉ tồn tại
+    trong bộ nhớ rồi biến mất cùng lượt chạy.
+
+    Hàm này KHÔNG đổi hành vi gì, chỉ ghi thêm một tệp. Chỗ gọi nằm ở
+    `flow_blueprint.trich_bang_chung`, ngay sau `read_text_regions` — tầng
+    duy nhất có ĐỦ cả bằng chứng OCR lẫn transcript, mà câu hỏi C.1 ("bao
+    nhiêu đoạn OCR trùng lời đọc") cần cả hai.
+
+    Chi phí với người dùng là **0 Vox**: `read_text_regions` trả về bình
+    thường kể cả khi họ bấm "Bỏ qua" ở cổng xin phép 50 Vox, nên dữ liệu đo
+    vẫn có đủ mà không tiêu đồng nào.
+
+    Ghi hỏng thì **chỉ cảnh báo**: chẩn đoán là thứ phụ, để nó giết lượt chạy
+    của người dùng là thêm một tính năng đo đạc rồi chính nó gây sự cố.
+
+    Xem `docs/MINI-SPEC_E6_Bot_Khung_OCR.md` cho bốn câu hỏi tệp này phải
+    trả lời được.
+    """
+    import json
+    import os
+
+    try:
+        doan = chia_doan(quan_sat)
+        theo_khung: dict[int, list] = {}
+        for q in quan_sat:
+            theo_khung.setdefault(q.frame_index, []).append(q)
+
+        muc = []
+        for nhom in doan:
+            cua_doan = [q for k in nhom for q in theo_khung.get(k, [])]
+            moc = [q.timestamp_s for q in cua_doan
+                   if getattr(q, "timestamp_s", None) is not None]
+            muc.append({
+                "khung": list(nhom),
+                "bat_dau_s": round(min(moc), 3) if moc else None,
+                "ket_thuc_s": round(max(moc), 3) if moc else None,
+                # Chữ do RapidOCR đọc tại máy — mất dấu, đúng thứ cần để so
+                # với transcript ở câu hỏi C.1.
+                "chu_cuc_bo": _khoa_doan(theo_khung.get(nhom[0], [])),
+                "so_vung": len(theo_khung.get(nhom[0], [])),
+                "tin_cay_nho_nhat": round(
+                    min((q.confidence for q in cua_doan), default=0.0), 3),
+            })
+
+        du_lieu = {
+            "ghi_chu": ("E6 giai đoạn 0 — chỉ để đo, không ảnh hưởng kết quả. "
+                        "Xem docs/MINI-SPEC_E6_Bot_Khung_OCR.md"),
+            "video": {"dai_giay": dai_giay, "so_moc_lay_mau": so_moc},
+            "thoi_gian": {
+                "ocr_cuc_bo_s": round(giay_ocr, 2),
+                # Tách khởi động engine khỏi phần quét từng khung — hai phần
+                # phản ứng NGƯỢC nhau khi giảm số khung. Không có thì để
+                # trống, KHÔNG đoán.
+                **(thoi_gian_ocr or {}),
+            },
+            "doan": muc,
+            # Cả hai phía mới trả lời được "bao nhiêu đoạn OCR trùng lời đọc".
+            "transcript": [
+                {"bat_dau_s": t.get("start_s"), "ket_thuc_s": t.get("end_s"),
+                 "chu": t.get("text", "")}
+                for t in (transcript or [])
+            ],
+        }
+        thu_muc = os.path.join(work_dir, "data")
+        os.makedirs(thu_muc, exist_ok=True)
+        # Dựng chuỗi XONG rồi mới mở tệp: `open(p, "w")` cắt trắng tệp cũ
+        # ngay cả khi phần dựng dữ liệu ném lỗi sau đó.
+        tho = json.dumps(du_lieu, ensure_ascii=False, indent=2)
+        with open(os.path.join(thu_muc, TEP_CHAN_DOAN), "w",
+                  encoding="utf-8") as f:
+            f.write(tho)
+        logger.info("Đã ghi chẩn đoán OCR: %d đoạn / %d khung -> data/%s",
+                    len(muc), len(theo_khung), TEP_CHAN_DOAN)
+    except Exception as e:  # noqa: BLE001 — chẩn đoán không được giết lượt chạy
+        logger.warning("Không ghi được chẩn đoán OCR (%s) — bỏ qua, lượt "
+                       "chạy tiếp tục bình thường", e)
+
+
 def _anh_gui_di(duong_dan: str) -> dict | None:
     """Thu nhỏ + mã hoá base64 một khung hình. Trả None nếu ảnh hỏng — thiếu
     một khung không được giết cả lượt đọc.

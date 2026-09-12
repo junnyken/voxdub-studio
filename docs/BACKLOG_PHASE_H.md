@@ -218,6 +218,95 @@ phút** — E1 sửa xong cũng vô ích nếu dòng log không sống nổi t�
 
 ---
 
+## Đã sửa 12/09 (đợt 2) — lượt chạy thật thứ ba
+
+Cổng 50 Vox chạy đúng (chủ dự án thấy hộp thoại, đồng ý, mất 88 Vox), nhưng
+bước cuối vẫn huỷ: *đoạn 5 lặp lại cụm "tự động gửi dữ liệu"*.
+
+### ✅ E5. Ngưỡng chống sao chép đo sai ĐẠI LƯỢNG
+
+`tự động gửi dữ liệu` là **chức năng của phần mềm trong video**. Mô tả "vai
+trò kể chuyện" của đoạn đó mà không được gọi tên việc phần mềm tự động gửi
+dữ liệu thì không mô tả được gì — cùng lớp với `hóa đơn` (11/09).
+
+**Nguyên nhân sâu hơn con số**: `tự động gửi dữ liệu lên` là **ba từ** tiếng
+Việt nhưng **sáu âm tiết**, nên rơi vào luật n-gram. `NGUONG_TU_LIEN_TIEP = 6`
+hiệu chỉnh trên ví dụ tiếng Anh ("Stop wasting money on this" = 5 tiếng = 5
+từ). Tiếng Việt tách theo âm tiết, nên **cùng con số 6 lại chặt gấp đôi** —
+không ai chọn điều đó, nó là hệ quả không ai để ý của việc đếm "từ" bằng
+khoảng trắng.
+
+**Đo, không đoán** — 15 ca (7 phải huỷ, 8 không được huỷ), sau khi sửa phép
+đo để tính đoạn liên tiếp DÀI NHẤT thay vì cứng `n`:
+
+| tiêu chí huỷ | sai |
+|---|---|
+| luật cũ (cụm ≥ 4 tiếng) | 5/15 |
+| phủ ≥ 25% | 3/15 |
+| phủ ≥ 30% / 35% / 40% | 1/15 |
+| **phủ ≥ 45%** | **0/15** ← điểm duy nhất sạch |
+| phủ ≥ 50% | 1/15 |
+| phủ ≥ 60% | 3/15 |
+
+45% sạch nhưng nằm ĐÚNG TRÊN RANH: ca phải-qua phủ 40%, ca phải-huỷ phủ 45%.
+**Một điểm duy nhất đúng nghĩa là phép đo vẫn chưa tách được hai lớp**, không
+phải là đã tìm ra ngưỡng.
+
+**Quyết định của chủ dự án**: đi theo đúng mẫu **H3** — lớp gác thứ SẼ ĐĂNG.
+H3 không huỷ gì cả: nó gắn `originalityFlag='flagged'` cho đúng đoạn rồi mời
+viết lại đoạn đó (`brand-scripts.js:445`). H2 chỉ sinh bản phân tích NỘI BỘ mà
+lại chặt hơn hẳn lớp gác quan trọng hơn nó — **đó mới là chỗ sai, không phải
+con số**. Ngưỡng huỷ nay 70% (beat bị phủ hơn hai phần ba), cách ca phải-qua
+cao nhất 30 điểm. Độ nhạy phát hiện KHÔNG đổi — có tệp test riêng chốt việc
+đó, vì hạ ngưỡng mà bỏ luôn phát hiện thì bảng kết quả trông y hệt nhau.
+
+### 🟡 E6. Thời gian — 84% nằm ở OCR CỤC BỘ, không phải mạng
+**Giai đoạn 0 (đo) ĐÃ dựng trong v3.17.14. Đòn bẩy chưa chọn — chờ số thật.**
+Mini-spec: `docs/MINI-SPEC_E6_Bot_Khung_OCR.md`.
+
+Đo từ nhật ký chủ dự án (12/09, 12:37–12:41):
+
+    12:37:44 → 12:40:57   OCR tại máy, 104 khung   3 phút 13 giây   (84%)
+    12:40:57 → 12:41:35   gửi máy chủ, 11 lô            38 giây     (16%)
+
+**Tôi đã đoán sai một lần ở đây rồi sửa**: thoạt nhìn "65 đoạn chữ khác nhau
+cho video 34 giây" trông như lỗi gộp đoạn (`_khoa_doan` so chuỗi chính xác
+trên chữ RapidOCR vốn nhiễu). Kiểm lại thì **65 là thật**: video là sketch có
+phụ đề chạy theo lời, lấy mẫu 5 khung/giây ở đầu-cuối và 2 khung/giây ở giữa
+(`moc_lay_mau_thich_ung` → 99 mốc), nên gần như mỗi khung bắt được một trạng
+thái phụ đề khác.
+
+**Đòn bẩy thật**: phụ đề cháy vào hình **lặp lại đúng thứ ASR đã cho**. Giá
+trị riêng của OCR với H2 là mẫu overlay (chữ lớn, thẻ CTA), không phải phụ
+đề. Bỏ đoạn OCR nào đã được transcript phủ ở cùng mốc sẽ cắt phần lớn cả tiền
+lẫn thời gian — nhưng phải ĐO trước.
+
+**Giai đoạn 0 đã dựng (v3.17.14) — chỉ đo, 0 Vox, không đổi hành vi:**
+
+- Ghi `<work_dir>/data/ocr_chan_doan.json` từ
+  `flow_blueprint.trich_bang_chung` — tầng duy nhất có đủ cả bằng chứng OCR
+  lẫn transcript. Chạy kể cả khi người dùng bấm «Bỏ qua» ở cổng 50 Vox, nên
+  lấy số đo không mất đồng nào.
+- `text_regions_worker.py` đo **riêng** `khoi_dong_s` (nạp mô hình RapidOCR,
+  chi phí CỐ ĐỊNH) và `quet_s` (co theo số khung). Hai phần phản ứng NGƯỢC
+  nhau khi cắt khung; gộp làm một con số là không trả lời được câu quyết
+  định "cắt khung có nhanh lên không". Đo ở tiến trình cha KHÔNG tách được
+  vì đường chính là subprocess.
+- `scripts/do_chan_doan_ocr.py` đọc tệp đó ra bốn câu trả lời kèm kết luận
+  có điều kiện — không có nó thì "đo" lại thành nhìn JSON rồi ước lượng.
+  Script tự bỏ dấu tiếng Việt trước khi so, vì RapidOCR trả `met moi` còn
+  transcript trả `Mệt mỏi`; thiếu bước đó là mọi đoạn đều "không trùng" và
+  kết luận ngược hẳn sự thật.
+
+**Đã sửa một khẳng định sai trong chính spec**: bản đầu nói cần hai video dài
+khác nhau mới tách được khởi động khỏi phần quét. Không cần — đo hai mốc
+ngay trong worker là đủ trong một lượt.
+
+**Bước tiếp**: chủ dự án chạy một lượt, bấm «Bỏ qua», gửi tệp JSON. Đọc số
+rồi mới chọn đòn bẩy và điền ngưỡng vào mục D của mini-spec.
+
+---
+
 ## 🟡 Còn mở — agent báo, CHƯA kiểm chứng
 
 > Mã `RS-<n>` = phát hiện của đợt **rà soát**, KHÔNG phải số mini-spec. Tiền
