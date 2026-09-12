@@ -589,6 +589,7 @@ def read_text_regions(
 
     thong_ke: dict = {}
     nguon = "subprocess"
+    _bat_dau_tong = time.monotonic()
     all_boxes = (_detect_via_subprocess(image_paths, settings, cancel_event,
                                         doc_chu=True, thong_ke=thong_ke)
                 if settings else None)
@@ -635,12 +636,25 @@ def read_text_regions(
             quan_sat, image_paths, client=client, cancel_event=cancel_event,
             xin_phep=xin_phep)
 
+    # Lượt chạy thật 12/09 (v3.17.14) trả về tệp chẩn đoán KHÔNG có
+    # `khoi_dong_s`/`quet_s` dù mã đã có trong bản đó — chưa rõ vì sao. Ghi
+    # thêm tổng đo ở TIẾN TRÌNH CHA làm mức chặn trên, và nói thẳng là chưa
+    # tách được, để lượt sau còn lần ra. Tuyệt đối không suy ra hai phần từ
+    # con số gộp này — một con số bịa ở đây dẫn thẳng tới quyết định sai.
+    thoi_gian = {
+        "duong": nguon,
+        "so_khung": len(image_paths),
+        **{k: thong_ke[k] for k in ("khoi_dong_s", "quet_s") if k in thong_ke},
+    }
+    thoi_gian["tong_o_tien_trinh_cha_s"] = round(
+        time.monotonic() - _bat_dau_tong, 3)
+    if "khoi_dong_s" not in thong_ke:
+        thoi_gian["thieu_tach_khoi_dong"] = (
+            "worker không báo `khoi_dong_s`/`quet_s` — chỉ có tổng, KHÔNG "
+            "suy ra được cắt khung có rút ngắn thời gian không")
+        logger.warning(
+            "Worker OCR (%s) không báo thời gian khởi động/quét — E6 câu C.4 "
+            "không trả lời được từ lượt này", nguon)
     return KetQuaDocChu(
         trang_thai=("co_chu" if quan_sat else "no_text"),
-        quan_sat=quan_sat,
-        thoi_gian={
-            "duong": nguon,
-            "so_khung": len(image_paths),
-            **{k: thong_ke[k] for k in ("khoi_dong_s", "quet_s")
-               if k in thong_ke},
-        })
+        quan_sat=quan_sat, thoi_gian=thoi_gian)

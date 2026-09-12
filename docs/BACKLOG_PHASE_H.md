@@ -261,7 +261,8 @@ cao nhất 30 điểm. Độ nhạy phát hiện KHÔNG đổi — có tệp tes
 đó, vì hạ ngưỡng mà bỏ luôn phát hiện thì bảng kết quả trông y hệt nhau.
 
 ### 🟡 E6. Thời gian — 84% nằm ở OCR CỤC BỘ, không phải mạng
-**Giai đoạn 0 (đo) ĐÃ dựng trong v3.17.14. Đòn bẩy chưa chọn — chờ số thật.**
+**ĐÃ ĐO trên dữ liệu thật (12/09). D5 đã dựng: 88 → 48 Vox. D1 BỊ BÁC BỎ.
+Phần THỜI GIAN vẫn chưa cắt được — thiếu số đo C.4.**
 Mini-spec: `docs/MINI-SPEC_E6_Bot_Khung_OCR.md`.
 
 Đo từ nhật ký chủ dự án (12/09, 12:37–12:41):
@@ -302,8 +303,45 @@ lẫn thời gian — nhưng phải ĐO trước.
 khác nhau mới tách được khởi động khỏi phần quét. Không cần — đo hai mốc
 ngay trong worker là đủ trong một lượt.
 
-**Bước tiếp**: chủ dự án chạy một lượt, bấm «Bỏ qua», gửi tệp JSON. Đọc số
-rồi mới chọn đòn bẩy và điền ngưỡng vào mục D của mini-spec.
+**Kết quả đo (12/09, chủ dự án gửi `ocr_chan_doan.json` — 36,2 giây, 104 mốc,
+65 đoạn):**
+
+| | |
+|---|---|
+| D1 — đoạn OCR trùng lời đọc | **10/65 = 15%**, tiết kiệm đúng **8 Vox** |
+
+**D1 bị bác bỏ.** Phần lớn chữ trên hình là ảnh chụp màn hình phần mềm MISA
+(có khung tới 64 vùng chữ), không phải phụ đề lặp lời.
+
+**Tôi kết luận sai HAI LẦN trước khi có dữ liệu.** Đoán "65 đoạn là lỗi gộp",
+rồi tự bác bỏ — *"65 là thật, phụ đề chạy theo lời"*. Dữ liệu cho thấy lần
+đoán ĐẦU mới đúng:
+
+```
+'supersale d onn& am am'  khung 7
+'supersale d onn&amam'    khung 8   cùng caption, lệch 2 ký tự
+'supersale d onn&am am'   khung 9
+```
+
+**D5 (đòn bẩy thật) — gộp khung liền nhau khi chữ GẦN GIỐNG:**
+
+    giống >= 75%: 65 -> 31 đoạn = 48 Vox
+    giống >= 80%: 65 -> 33 đoạn = 48 Vox   <- chọn (giữa cao nguyên)
+    giống >= 85%: 65 -> 34 đoạn = 48 Vox
+    giống >= 90%: 65 -> 40 đoạn = 56 Vox
+
+Soi tay cả 17 nhóm gộp ở mức 80%: không nhóm nào gộp nhầm. Chạy lại bằng mã
+đã cài trên đúng tệp đó: **65 → 35 đoạn, 88 → 48 Vox (giảm 46%)**.
+
+Đại diện mỗi đoạn nay là khung ĐỌC RÕ NHẤT, không phải khung đầu — ca thật
+`surersale` (0,944) rồi `supersale` (0,989): gửi khung đầu là trả tiền để máy
+chủ đọc lại một khung vốn đã đọc sai.
+
+**CÒN MỞ — C.4 chưa trả lời được.** Tệp thật không có `khoi_dong_s`/`quet_s`
+dù mã đã có trong v3.17.14; chưa rõ vì sao. Đã thêm tổng đo ở tiến trình cha
+làm mức chặn trên + cảnh báo trong Nhật ký để lượt sau lần ra. **D5 cắt TIỀN
+nhưng KHÔNG cắt thời gian** — OCR cục bộ vẫn quét đủ 104 khung (~3 phút).
+Đòn bẩy thời gian là D3, mà D3 cần đúng con số đang thiếu.
 
 ---
 

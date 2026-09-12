@@ -58,6 +58,94 @@ NGUONG_XIN_PHEP_VOX = 50
 CANH_DAI_TOI_DA = 640
 
 
+#: Hai khung liền nhau giống nhau BAO NHIÊU thì coi là cùng một caption.
+#:
+#: `_khoa_doan` vốn so chuỗi NGUYÊN VĂN. RapidOCR trên chữ tiếng Việt nhiễu
+#: nên cùng một caption đọc ở hai khung liền nhau ra khác vài ký tự, và mỗi
+#: khung thành một đoạn riêng — mỗi đoạn thừa là một khung nữa gửi lên máy
+#: chủ, tức 8 Vox mỗi sáu khung.
+#:
+#: Đo trên dữ liệu THẬT chủ dự án gửi 12/09 (`ocr_chan_doan.json`, 104 mốc
+#: lấy mẫu, 65 đoạn):
+#:
+#:     giống >= 75%: 65 -> 31 đoạn = 6 lô = 48 Vox
+#:     giống >= 80%: 65 -> 33 đoạn = 6 lô = 48 Vox   <- chọn
+#:     giống >= 85%: 65 -> 34 đoạn = 6 lô = 48 Vox
+#:     giống >= 90%: 65 -> 40 đoạn = 7 lô = 56 Vox
+#:     giống >= 95%: 65 -> 47 đoạn = 8 lô = 64 Vox
+#:
+#: 75–85% là một CAO NGUYÊN (đều 48 Vox) — lấy 80% ở giữa, không đứng sát
+#: mép. Ở mức đó, soi tay cả 17 nhóm gộp được: KHÔNG nhóm nào gộp nhầm hai
+#: caption khác nhau, tất cả đều là cùng một caption đọc lệch.
+#:
+#: 88 Vox -> 48 Vox, giảm 45%.
+NGUONG_GIONG_DE_GOP = 0.80
+
+#: Chuỗi ngắn hơn mức này thì đòi giống HỆT — hai chuỗi ba ký tự rất dễ đạt
+#: tỉ lệ giống cao một cách tình cờ (`roa` vs `rob` = 67%, nhưng `abc` vs
+#: `abd` = 67% cũng vậy). Dưới ngưỡng này, tỉ lệ không còn là tín hiệu.
+DAI_TOI_THIEU_DE_SO_GAN = 8
+
+
+def _chuan_so_gan(chu: str) -> str:
+    """Bỏ dấu, bỏ mọi ký tự không phải chữ/số — chỉ để SO SÁNH.
+
+    Không dùng cho nội dung gửi đi: đây chỉ là khoá nhận dạng "vẫn là caption
+    đó". Bỏ khoảng trắng và dấu câu vì OCR hay chèn/nuốt chúng (`taidon` vs
+    `x tai don`), mà đó không phải chữ khác.
+    """
+    import re
+    import unicodedata
+
+    tach = unicodedata.normalize("NFD", chu.lower())
+    khong_dau = "".join(c for c in tach if unicodedata.category(c) != "Mn")
+    return re.sub(r"[^a-z0-9]", "", khong_dau.replace("đ", "d"))
+
+
+def _gan_giong(a: str, b: str) -> bool:
+    """Hai khoá có phải cùng một caption không."""
+    import difflib
+
+    ka, kb = _chuan_so_gan(a), _chuan_so_gan(b)
+    if not ka or not kb:
+        return False
+    if ka == kb:
+        return True
+    if min(len(ka), len(kb)) < DAI_TOI_THIEU_DE_SO_GAN:
+        return False
+    return difflib.SequenceMatcher(None, ka, kb).ratio() >= NGUONG_GIONG_DE_GOP
+
+
+def dai_dien_cua_doan(nhom: list[int], quan_sat: list) -> int:
+    """Khung nào trong đoạn được gửi lên máy chủ.
+
+    Lấy khung ĐỌC RÕ NHẤT, không phải khung đầu. Ca thật trong dữ liệu chủ dự
+    án: `surersale` (0,944) rồi `supersale` (0,989) — gửi khung đầu là trả
+    tiền để máy chủ đọc lại một khung vốn đã đọc sai. Chọn khung rõ nhất
+    không tốn thêm đồng nào.
+    """
+    if not nhom:
+        raise ValueError("đoạn rỗng")
+
+    def _lay(q, ten, mac_dinh):
+        # Nhận CẢ object lẫn dict, như `gop_quan_sat_lien_tiep` — bên gọi
+        # trong dự án này dùng cả hai dạng.
+        if isinstance(q, dict):
+            return q.get(ten, mac_dinh)
+        return getattr(q, ten, mac_dinh)
+
+    diem: dict[int, float] = {}
+    for q in quan_sat:
+        khung = _lay(q, "frame_index", None)
+        if khung in nhom:
+            diem[khung] = min(diem.get(khung, 1.0),
+                              float(_lay(q, "confidence", 0.0) or 0.0))
+    if not diem:
+        return nhom[0]
+    # Hoà điểm thì lấy khung SỚM nhất — ổn định, không phụ thuộc thứ tự vào.
+    return max(sorted(nhom), key=lambda i: diem.get(i, 0.0))
+
+
 def _khoa_doan(quan_sat_cua_khung: list) -> str:
     """Dấu hiệu nhận biết "khung này đang hiện đúng chữ đó".
 
@@ -91,8 +179,9 @@ def chia_doan(quan_sat: list) -> list[list[int]]:
         if not khoa:
             khoa_truoc = None
             continue
-        lien_tuc = (doan and khoa == khoa_truoc
-                    and chi_so == doan[-1][-1] + 1)
+        lien_tuc = (doan and khoa_truoc is not None
+                    and chi_so == doan[-1][-1] + 1
+                    and _gan_giong(khoa, khoa_truoc))
         if lien_tuc:
             doan[-1].append(chi_so)
         else:
@@ -248,7 +337,7 @@ def doc_lai_bang_may_chu(quan_sat: list, image_paths: list[str], *,
             return quan_sat
         client = saas_client.SaasClient()
 
-    dai_dien = [d[0] for d in doan]
+    dai_dien = [dai_dien_cua_doan(d, quan_sat) for d in doan]
 
     # Nói số Vox SẮP tiêu, TRƯỚC lượt gọi đầu tiên. Ghi sau thì dòng này chỉ
     # là biên lai. Đây là chỗ duy nhất biết được con số thật: nó phụ thuộc
