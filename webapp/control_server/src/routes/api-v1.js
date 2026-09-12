@@ -1,0 +1,411 @@
+'use strict'
+
+/**
+ * `/api/v1` — API dịch thuật công khai cho developer bên thứ 3 (mini-spec
+ * V31, docs/PLAN.md Phase G).
+ *
+ * Phạm vi CHỦ ĐÍCH hẹp: CHỈ dịch văn bản (tái dùng
+ * `gateway.translateSubtitleBatch()` đã có từ V14 — prompt ĐƠN GIẢN, không
+ * gắn "video context" như luồng dub) — KHÔNG mở ASR/TTS/video (đó là hạ
+ * tầng hoàn toàn khác, chưa tồn tại server-side, xem "Audit Before Build"
+ * chung đầu Phase G trong docs/PLAN.md).
+ *
+ * Auth: API key (`requireApiKey`, tách hẳn `requireDevice` của `/v1/ai/*`)
+ * — desktop app KHÔNG đụng route này, 0 regression cho `/v1/ai/*`.
+ * Billing: `ApiKey.quota`/`ApiUsageLedger` — TÁCH HẲN `CreditLedger` của
+ * desktop app (Constraint 3).
+ */
+const { requireApiKey } = require('../middleware/apikey.middleware')
+const { QuotaExceededError, consumeQuota } = require('../services/api-key.service')
+const gateway = require('../services/ai-gateway.service')
+const config = require('../services/config.service')
+const ApiKey = require('../models/ApiKey')
+const UsageLog = require('../models/UsageLog')
+const dubJob = require('../services/dub-job.service')
+const storage = require('../services/job-storage.service')
+const {
+  SOURCE_LANGS, TARGET_LANGS, isValidSourceLang, isValidTargetLang,
+} = require('../utils/dub-langs')
+
+module.exports = async function apiV1Routes(fastify) {
+  fastify.addHook('preHandler', requireApiKey)
+
+  // Đóng gap Remaining Limits ghi trong docs/TEST_LOG.md mục V31 — developer
+  // trước đây chỉ xem được quota/usage của MÌNH qua response của mỗi lượt
+  // /translate, không có cách xem NGOÀI 1 lượt gọi thật (vd trước khi gọi
+  // gì cả). KHÔNG lộ keyHash/orgName nội bộ khác — chỉ đúng thông tin của
+  // chính API key đang xác thực.
+  fastify.get('/me', async (request) => {
+    const { apiKey } = request
+    return {
+      orgName: apiKey.orgName,
+      status: apiKey.status,
+      quota: apiKey.quota,
+      usageCount: apiKey.usageCount,
+      remaining: Math.max(0, apiKey.quota - apiKey.usageCount),
+      // Mini-spec V34b — quota RIÊNG cho lồng tiếng đầy đủ, đơn vị PHÚT chứ
+      // không phải lượt gọi (khác quota/usageCount ở trên, xem Constraint 2).
+      dubMinutesQuota: apiKey.dubMinutesQuota,
+      dubMinutesUsed: apiKey.dubMinutesUsed,
+      // V43: phút đang giữ chỗ cho job queued/running của CHÍNH key này —
+      // trừ luôn vào "còn lại" để không hiểu nhầm là dùng được ngay bây giờ.
+      dubMinutesReserved: apiKey.dubMinutesReserved || 0,
+      dubMinutesRemaining: Math.max(
+        0, apiKey.dubMinutesQuota - apiKey.dubMinutesUsed - (apiKey.dubMinutesReserved || 0),
+      ),
+      lastUsedAt: apiKey.lastUsedAt,
+    }
+  })
+
+  fastify.post('/translate', {
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['sourceFlores', 'targetFlores', 'items'],
+        properties: {
+          sourceFlores: { type: 'string', pattern: '^[a-z]{3}_[A-Z][a-z]{3}$' },
+          targetFlores: { type: 'string', pattern: '^[a-z]{3}_[A-Z][a-z]{3}$' },
+          sourceName: { type: 'string', maxLength: 80 },
+          targetName: { type: 'string', maxLength: 80 },
+          items: {
+            type: 'array',
+            minItems: 1,
+            items: {
+              type: 'object',
+              required: ['id', 'text'],
+              properties: {
+                id: { type: 'integer' },
+                text: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { apiKey } = request
+    const { items, sourceFlores, targetFlores, sourceName, targetName } = request.body
+
+    const cfg = await config.getMany([
+      'ai.max.segments.per.request', 'ai.max.chars.per.segment', 'ai.max.retries',
+    ])
+    if (items.length > cfg['ai.max.segments.per.request']) {
+      return reply.code(400).send({
+        code: 'BATCH_TOO_LARGE',
+        message: `Tối đa ${cfg['ai.max.segments.per.request']} dòng mỗi lượt.`,
+        maxSegments: cfg['ai.max.segments.per.request'],
+      })
+    }
+    const maxChars = cfg['ai.max.chars.per.segment']
+    const tooLong = items.find((s) => String(s.text || '').length > maxChars)
+    if (tooLong) {
+      return reply.code(400).send({
+        code: 'SEGMENT_TOO_LONG',
+        message: `Dòng ${tooLong.id} dài quá ${maxChars} ký tự.`,
+      })
+    }
+
+    // Kiểm nhanh (không atomic — chỉ để KHỎI gọi model tốn tiền khi đã rõ
+    // hết quota; chặn THẬT SỰ vẫn là consumeQuota() atomic sau khi model
+    // trả về, xử lý đúng race giữa nhiều request song song).
+    const fresh = await ApiKey.findById(apiKey._id).lean()
+    if (!fresh || fresh.usageCount >= fresh.quota) {
+      return reply.code(429).send({
+        code: 'QUOTA_EXCEEDED',
+        message: `Đã dùng hết quota (${fresh ? fresh.usageCount : 0}/${fresh ? fresh.quota : 0}).`,
+        quota: fresh ? fresh.quota : 0,
+        usageCount: fresh ? fresh.usageCount : 0,
+      })
+    }
+
+    let result
+    const started = Date.now()
+    try {
+      result = await gateway.translateSubtitleBatch({
+        items, sourceFlores, targetFlores, sourceName, targetName,
+        maxRetries: cfg['ai.max.retries'],
+      })
+    } catch (err) {
+      request.log.error({ err }, 'api-v1 translate failed')
+      return reply.code(err.statusCode || 503).send({
+        code: err.code || 'AI_UNAVAILABLE',
+        message: 'Dịch vụ dịch tạm thời không phản hồi. Thử lại sau ít phút.',
+        retryAfter: 30,
+      })
+    }
+
+    // Trừ quota SAU khi model gọi thành công — lỗi model thì developer
+    // không mất quota (cùng nguyên tắc "trừ credit sau" của /v1/ai/*).
+    let updatedKey
+    try {
+      updatedKey = await consumeQuota(apiKey._id, {
+        action: 'translate', ip: request.ip,
+        metadata: { segments: result.segments.length },
+      })
+    } catch (err) {
+      if (err instanceof QuotaExceededError) {
+        return reply.code(429).send({
+          code: 'QUOTA_EXCEEDED',
+          message: err.message,
+          quota: err.quota,
+          usageCount: err.usageCount,
+        })
+      }
+      throw err
+    }
+
+    // V69 — ghi nhật ký TOKEN cho cả đường API key.
+    //
+    // Trước đây `UsageLog` chỉ được ghi ở `routes/ai.js` (đường app desktop),
+    // nên mọi lượt dịch qua API key đốt token Gemini thật mà KHÔNG để lại một
+    // con số nào. `ApiKey.usageCount` chỉ đếm số LƯỢT, không phải token — đối
+    // soát hoá đơn bằng nó là đối soát với con số không liên quan.
+    //
+    // Không có fingerprint thiết bị ở đường này, nên dùng `apikey:<prefix>`:
+    // vẫn hợp lệ với schema, và truy được về đúng key nào tiêu tiền.
+    //
+    // Ghi log không được phép làm hỏng lượt trả kết quả cho khách — dịch đã
+    // xong và đã trừ quota rồi, ngã ở bước ghi sổ mà trả lỗi là tệ nhất.
+    try {
+      await UsageLog.create({
+        fingerprint: `apikey:${apiKey.keyPrefix || String(apiKey._id)}`,
+        jobId: `apikey-${apiKey._id}-${started}`,
+        action: 'translate_subtitle',
+        inputSize: items.length,
+        status: 'success',
+        aiProvider: result.provider || '',
+        aiModel: result.model || '',
+        promptTokens: (result.usage && result.usage.promptTokens) || 0,
+        completionTokens: (result.usage && result.usage.completionTokens) || 0,
+        durationMs: Date.now() - started,
+        ip: request.ip,
+      })
+    } catch (err) {
+      request.log.error({ err }, 'không ghi được UsageLog cho lượt dịch qua API key')
+    }
+
+    return {
+      segments: result.segments,
+      quota: updatedKey.quota,
+      usageCount: updatedKey.usageCount,
+    }
+  })
+
+  // ---------------------------------------------------------------------
+  // Mini-spec V34a→V34b (docs/PLAN.md, Phase G) — API lồng tiếng đầy đủ
+  // (ASR+dịch+TTS+mux), mở rộng V31 (vốn CHỈ dịch văn bản). CHỈ submit +
+  // poll/tải kết quả (KHÔNG đồng bộ như /translate — dub mất nhiều phút,
+  // không thể chờ trong 1 request HTTP). V34b: billing THẬT theo phút,
+  // tính SAU khi job xong (xem dub-job.service.js::chargeDubUsage) — quota
+  // kiểm TRƯỚC lúc submit (402 nếu hết), KHÔNG đụng `ApiKey.quota`/
+  // `usageCount` (đó là bộ đếm riêng của V31, đơn vị khác — Constraint 2).
+  // ---------------------------------------------------------------------
+
+  // --- Nộp job lồng tiếng (upload video, TRẢ VỀ NGAY) ----------------------
+  fastify.post('/dub', {
+    config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+  }, async (request, reply) => {
+    const { apiKey } = request
+    const sourceLang = String(request.query.sourceLang || '').trim()
+    const targetLang = String(request.query.targetLang || '').trim()
+    const voice = String(request.query.voice || '').trim()
+    const bgMode = String(request.query.bgMode || 'none').trim()
+    if (!sourceLang || !targetLang) {
+      return reply.code(400).send({
+        code: 'MISSING_LANG',
+        message: 'Cần query param sourceLang và targetLang.',
+      })
+    }
+    if (!['none', 'demucs'].includes(bgMode)) {
+      return reply.code(400).send({
+        code: 'BAD_BG_MODE',
+        message: 'bgMode phải là "none" hoặc "demucs".',
+      })
+    }
+    // Chặn NGAY tại cửa vào: mã sai mà lọt qua đây thì phải chờ hết bước ASR
+    // (tốn quota + vài phút CPU của worker) mới hỏng, kèm lỗi mơ hồ không chỉ
+    // ra được sai ở đâu. Lưu ý 2 tham số dùng 2 định dạng khác nhau — xem
+    // utils/dub-langs.js.
+    if (!isValidSourceLang(sourceLang)) {
+      return reply.code(400).send({
+        code: 'BAD_SOURCE_LANG',
+        message: `sourceLang "${sourceLang}" không hỗ trợ. Hợp lệ: ${SOURCE_LANGS.join(', ')}.`,
+      })
+    }
+    if (!isValidTargetLang(targetLang)) {
+      return reply.code(400).send({
+        code: 'BAD_TARGET_LANG',
+        message: `targetLang "${targetLang}" không hỗ trợ — cần khoá ngắn `
+          + `(vd "vi"), không phải mã BCP-47. Hợp lệ: ${TARGET_LANGS.join(', ')}.`,
+      })
+    }
+    // V43: tuỳ chọn — caller tự khai thời lượng ước tính (phút) để giữ chỗ
+    // quota chính xác hơn mặc định cấu hình. Không hợp lệ (âm/không phải
+    // số) thì bỏ qua, rơi về mặc định — không chặn submit vì lỗi tham số
+    // phụ này.
+    const estimatedMinutesRaw = Number(request.query.estimatedMinutes)
+    const estimatedMinutes = Number.isFinite(estimatedMinutesRaw) && estimatedMinutesRaw > 0
+      ? estimatedMinutesRaw : 0
+
+    const maxMb = Number(await config.get('cloud.dub.max.upload.mb')) || 300
+    const data = await request.file({ limits: { fileSize: maxMb * 1024 * 1024 } })
+    if (!data) {
+      return reply.code(400).send({ code: 'NO_FILE', message: 'Thiếu file video.' })
+    }
+
+    try {
+      // V44: truyền STREAM, không `toBuffer()` — xem `writeUploadToDisk()`.
+      // `EMPTY_FILE`/`UPLOAD_TOO_LARGE` giờ do service ném ra dưới dạng
+      // `DubJobError` (bắt ở catch bên dưới), giữ nguyên mã lỗi cũ.
+      const { job } = await dubJob.submitDubJob({
+        apiKey, fileStream: data.file, sourceLang, targetLang, voice, bgMode, estimatedMinutes,
+        ip: request.ip,
+      })
+      return {
+        jobId: job._id,
+        status: job.status,
+        async: true,
+        bgMode: job.bgMode,
+        estimatedCostVoxPerMinute: job.estimatedCostVox,
+        reservedMinutes: job.reservedMinutes,
+      }
+    } catch (err) {
+      if (err instanceof dubJob.DubJobError) {
+        return reply.code(err.statusCode).send({ code: err.code, message: err.message })
+      }
+      throw err
+    }
+  })
+
+  // --- Trạng thái job --------------------------------------------------------
+  fastify.get('/dub/:jobId', async (request, reply) => {
+    const job = await dubJob.getJob(request.apiKey._id, request.params.jobId)
+    if (!job) return reply.code(404).send({ code: 'NOT_FOUND' })
+    return {
+      jobId: job._id, status: job.status,
+      error: job.error || undefined,
+      metrics: job.status === 'done' ? job.metrics : undefined,
+      costVox: job.status === 'done' ? job.costVox : undefined,
+      expiresAt: job.expiresAt,
+    }
+  })
+
+  // --- Huỷ job (mini-spec V55) --------------------------------------------
+  fastify.post('/dub/:jobId/cancel', async (request, reply) => {
+    const job = await dubJob.cancelJob(request.apiKey._id, request.params.jobId)
+    if (!job) {
+      // Gộp "không tìm thấy" với "không huỷ được nữa" vào cùng một câu trả
+      // lời: phân biệt hai ca này sẽ để lộ job của người khác có tồn tại hay
+      // không (chỉ cần dò jobId là biết).
+      return reply.code(409).send({
+        code: 'CANNOT_CANCEL',
+        message: 'Job không tồn tại, không thuộc về bạn, hoặc đã kết thúc.',
+      })
+    }
+    return {
+      jobId: job._id,
+      status: job.status,
+      releasedMinutes: job.reservedMinutes,
+    }
+  })
+
+  // --- Tải video kết quả — xoá file NGAY sau khi trả (cùng chính sách dữ ---
+  // liệu đã áp dụng cho cloud rendering V9, xem docs/TEST_LOG.md) ----------
+  fastify.get('/dub/:jobId/result', async (request, reply) => {
+    const job = await dubJob.getJob(request.apiKey._id, request.params.jobId)
+    if (!job) return reply.code(404).send({ code: 'NOT_FOUND' })
+    // Kiểm TRƯỚC cả `status`: job đã hoàn phí bị chuyển sang `failed`, để
+    // nguyên thứ tự cũ thì khách chỉ nhận được "job đang ở trạng thái
+    // failed" mà không biết mình đã được hoàn tiền.
+    if (job.refundedAt) {
+      return reply.code(410).send({
+        code: 'RESULT_LOST_REFUNDED',
+        message: 'Kết quả không còn trên máy chủ trước khi bạn kịp tải — phí đã được '
+          + 'hoàn lại, vui lòng gửi lại job.',
+      })
+    }
+    if (job.status !== 'done') {
+      return reply.code(409).send({ code: 'NOT_READY', message: `Job đang ở trạng thái ${job.status}.` })
+    }
+    // Đã giao hàng rồi thì trả lời NGAY, không đụng tới kho (V45). Không có
+    // nhánh này thì lượt gọi thứ hai chạy đua với việc dọn file của lượt
+    // đầu: `openRead` kịp thấy bản ghi file, mở stream, rồi chunk bị xoá
+    // giữa chừng → 500 thay vì 410 đúng nghĩa. Đã bắt được thật (test chập
+    // chờn, không phải suy đoán). Đây cũng là câu trả lời TRUNG THỰC hơn:
+    // biết chắc khách đã tải, không phải đoán từ việc "file không còn".
+    if (job.deliveredAt) {
+      return reply.code(410).send({
+        code: 'RESULT_EXPIRED',
+        message: 'Kết quả đã bị xoá (bạn đã tải bản này trước đó).',
+      })
+    }
+    if (!job.outputPath) {
+      return reply.code(404).send({ code: 'RESULT_NOT_FOUND' })
+    }
+
+    // V45: kết quả sống trong GridFS (bền vững qua redeploy), không phải đĩa
+    // container. `openRead` trả `null` khi không còn — đúng tín hiệu mà
+    // nhánh hoàn phí V44 dựa vào, nên logic bên dưới giữ nguyên.
+    const resultStream = await storage.openRead(job.outputPath)
+    if (!resultStream) {
+      // Mất file trước hạn = khách trả tiền mà không có hàng → hoàn phí.
+      // `refundLostResult` tự loại các trường hợp không đáng hoàn (đã tải
+      // xong rồi dọn, hoặc đã quá hạn giữ hàng).
+      const refund = await dubJob.refundLostResult(job._id)
+      if (refund) {
+        request.log.warn({ jobId: String(job._id), ...refund },
+          'kết quả dub mất trước hạn — đã hoàn phí')
+        return reply.code(410).send({
+          code: 'RESULT_LOST_REFUNDED',
+          message: 'Kết quả không còn trên máy chủ trước khi bạn kịp tải — phí đã được '
+            + 'hoàn lại, vui lòng gửi lại job.',
+          minutesRefunded: refund.minutesRefunded,
+        })
+      }
+      // Thua cuộc đua: một request song song vừa giành quyền hoàn phí xong.
+      // Không đọc lại thì ở đây sẽ báo "đã tải trước đó hoặc hết hạn" —
+      // sai sự thật với khách vừa ĐƯỢC hoàn tiền.
+      const fresh = await dubJob.getJob(request.apiKey._id, request.params.jobId)
+      if (fresh && fresh.refundedAt) {
+        return reply.code(410).send({
+          code: 'RESULT_LOST_REFUNDED',
+          message: 'Kết quả không còn trên máy chủ trước khi bạn kịp tải — phí đã được '
+            + 'hoàn lại, vui lòng gửi lại job.',
+        })
+      }
+      return reply.code(410).send({
+        code: 'RESULT_EXPIRED',
+        message: 'Kết quả đã bị xoá (đã tải trước đó hoặc quá hạn TTL).',
+      })
+    }
+    const stream = resultStream
+
+    // Ghi mốc giao hàng TRƯỚC khi xoá file: nếu chỉ xoá mà không đánh dấu,
+    // lượt gọi sau sẽ thấy "done + không có file + chưa hết hạn" và hoàn
+    // tiền cho người vừa nhận đủ hàng.
+    //
+    // V45: nghe CẢ `end` lẫn `close` (có cờ chống chạy 2 lần). Stream đĩa
+    // luôn phát `close`, nhưng stream GridFS thì `end` mới là sự kiện chắc
+    // chắn có khi đọc hết — chỉ nghe `close` là có ngày giao hàng xong mà
+    // không bao giờ đánh dấu, và lượt gọi sau sẽ hoàn tiền nhầm cho người
+    // đã nhận đủ hàng.
+    let finished = false
+    const onDelivered = () => {
+      if (finished) return
+      finished = true
+      dubJob.markDelivered(job._id)
+        .catch(() => {})
+        .finally(() => { dubJob.cleanupJob(job._id).catch(() => {}) })
+    }
+    // Gắn listener TRƯỚC `reply.send()`: stream GridFS có thể đọc xong ngay
+    // trong lượt send, gắn sau là bắt hụt sự kiện và file không bao giờ được
+    // đánh dấu đã giao (bug thật, test bắt được).
+    stream.on('end', onDelivered)
+    stream.on('close', onDelivered)
+
+    reply.header('Content-Type', 'video/mp4')
+    reply.header('Content-Disposition', `attachment; filename="dubbed_${job._id}.mp4"`)
+    await reply.send(stream)
+  })
+}
