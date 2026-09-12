@@ -1047,6 +1047,10 @@ class FlowBlueprintWorker(QThread):
     progress = Signal(str, str)   # bước, mô tả
     finished_ok = Signal(dict)    # Flow Blueprint đã lưu (kèm beats)
     failed = Signal(str)
+    #: Xin phép tiêu Vox cho phần đọc chữ: (số Vox dự tính, số khung). Phải
+    #: là TÍN HIỆU chứ không phải gọi thẳng hộp thoại — Qt cấm dựng widget từ
+    #: luồng nền, làm thế là app chết cứng chứ không hiện lỗi.
+    xin_phep_vox = Signal(int, int)
 
     def __init__(self, source: str, work_dir: str, settings: Settings, *,
                  hold_id: str = "", parent=None):
@@ -1056,9 +1060,44 @@ class FlowBlueprintWorker(QThread):
         self._settings = settings
         self._hold_id = hold_id
         self._cancel_event = threading.Event()
+        self._co_tra_loi = threading.Event()
+        self._tra_loi_vox: bool | None = None
 
     def cancel(self) -> None:
         self._cancel_event.set()
+        # Đánh thức luồng nền nếu nó đang chờ người dùng trả lời — thiếu dòng
+        # này thì bấm Dừng lúc hộp thoại đang mở sẽ treo luồng cho tới khi
+        # người dùng bấm gì đó, và `shutdown()` chờ 3 giây rồi bỏ đi.
+        self._co_tra_loi.set()
+
+    def tra_loi_vox(self, dong_y: bool) -> None:
+        """Giao diện gọi hàm này sau khi người dùng bấm."""
+        self._tra_loi_vox = bool(dong_y)
+        self._co_tra_loi.set()
+
+    def _hoi_vox(self, so_vox: int, so_khung: int) -> bool:
+        """Chặn luồng nền lại, chờ câu trả lời từ luồng giao diện.
+
+        Không đặt hạn tự trả lời: đây là câu hỏi về TIỀN của người dùng, tự
+        đồng ý hộ sau N giây là đúng thứ cổng này sinh ra để chặn.
+
+        Nhưng cũng không chờ suông — ngó `_cancel_event` mỗi nửa giây. Bản
+        đầu chờ thẳng trên `_co_tra_loi` và dựa vào `cancel()` đánh thức hộ:
+        đúng cho nút Dừng, nhưng TREO VĨNH VIỄN nếu `_cancel_event` bị đặt từ
+        đường khác (`shutdown()`, test, hay một worker lồng nhau sau này) —
+        đo thật lúc viết, cả lượt pytest treo cho tới khi bị giết. Treo luồng
+        nền thì `shutdown()` chờ 3 giây rồi bỏ đi, và Qt chết cứng lúc đóng
+        app: đúng lỗi 0xC0000409 mà `app.py` cảnh báo.
+        """
+        self._tra_loi_vox = None
+        self._co_tra_loi.clear()
+        self.xin_phep_vox.emit(int(so_vox), int(so_khung))
+        while not self._co_tra_loi.wait(0.5):
+            if self._cancel_event.is_set():
+                return False
+        if self._cancel_event.is_set():
+            return False
+        return bool(self._tra_loi_vox)
 
     def run(self) -> None:
         from autodub.flow_blueprint import trich_bang_chung
@@ -1072,6 +1111,7 @@ class FlowBlueprintWorker(QThread):
             bang_chung = trich_bang_chung(
                 self._source, self._work_dir, self._settings,
                 cancel_event=self._cancel_event,
+                xin_phep=self._hoi_vox,
                 progress=lambda step, detail: self.progress.emit(step, detail))
             if self._cancel_event.is_set():
                 return

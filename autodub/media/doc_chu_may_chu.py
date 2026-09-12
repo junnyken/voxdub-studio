@@ -38,6 +38,19 @@ logger = logging.getLogger(__name__)
 #: `/v1/ai/assist` — gửi quá là bị chặn ở tầng schema với một lỗi trống không.
 SO_KHUNG_MOI_LUOT = 6
 
+#: Giá một lô, khớp `credit.cost.assist.doc_chu_khung_hinh` ở máy chủ. Để ở
+#: đây để nhật ký nói được số tiền thật; `tests/test_gia_doc_chu_trung_thuc.py`
+#: chốt hai bên không lệch nhau.
+VOX_MOI_LO = 8
+
+#: Vượt mức này thì HỎI trước khi tiêu. Lượt chạy thật 11/09/2026 trên một
+#: video 34 giây tốn 88 Vox rồi hỏng ở bước cuối — người dùng không có chỗ
+#: nào để can thiệp, và màn hình lúc đó hứa "khoảng 32 Vox".
+#:
+#: Không hỏi mọi lượt: hỏi cả những lượt 16 Vox là dạy người dùng bấm Đồng ý
+#: theo phản xạ, rồi lượt 88 Vox cũng trôi qua y như vậy.
+NGUONG_XIN_PHEP_VOX = 50
+
 #: Cạnh dài tối đa của khung hình gửi đi. Đo thật 09/09: thu nhỏ về 640px vẫn
 #: đọc đúng 100% trên khung hình video nén, mà nhẹ hơn hẳn ảnh gốc (0,7 MB
 #: PNG → ~60 KB JPEG). Trần tổng dung lượng ảnh của máy chủ là thật, không
@@ -114,11 +127,19 @@ def _anh_gui_di(duong_dan: str) -> dict | None:
 
 
 def doc_lai_bang_may_chu(quan_sat: list, image_paths: list[str], *,
-                         client=None, cancel_event=None) -> list:
+                         client=None, cancel_event=None, xin_phep=None) -> list:
     """Đọc lại nội dung chữ bằng mô hình nhìn ảnh, giữ nguyên dòng thời gian.
 
     ``quan_sat`` là kết quả RapidOCR tại máy (đã mất dấu). Hàm này giữ lại
     khung/mốc thời gian của chúng, chỉ THAY nội dung chữ bằng bản đọc đúng.
+
+    ``xin_phep(so_vox, so_khung) -> bool`` được hỏi MỘT LẦN, trước lô đầu
+    tiên, và chỉ khi số Vox dự tính vượt `NGUONG_XIN_PHEP_VOX`. Trả `False`
+    thì giữ bản đọc cục bộ, không tiêu đồng nào. Không truyền thì chạy như cũ
+    — mọi đường gọi nội bộ và 2.700 test sẵn có không đổi hành vi.
+
+    Cổng nằm ở ĐÂY chứ không ở giao diện vì đường CLI và script cũng tiêu
+    đúng số tiền đó.
 
     Hỏng ở bất kỳ đâu (chưa cấu hình máy chủ, mạng lỗi, hết Vox) thì **trả về
     nguyên bản đọc cục bộ**, không ném. Lý do: chữ mất dấu vẫn dùng được cho
@@ -139,6 +160,32 @@ def doc_lai_bang_may_chu(quan_sat: list, image_paths: list[str], *,
         client = saas_client.SaasClient()
 
     dai_dien = [d[0] for d in doan]
+
+    # Nói số Vox SẮP tiêu, TRƯỚC lượt gọi đầu tiên. Ghi sau thì dòng này chỉ
+    # là biên lai. Đây là chỗ duy nhất biết được con số thật: nó phụ thuộc
+    # lượng chữ trên hình, không phải độ dài video — lượt chạy thật 11/09
+    # trên một video 34 giây ra 65 khung = 11 lô = 88 Vox, trong khi màn hình
+    # lúc đó hứa "khoảng 32 Vox".
+    so_lo = (len(dai_dien) + SO_KHUNG_MOI_LUOT - 1) // SO_KHUNG_MOI_LUOT
+    du_tinh = so_lo * VOX_MOI_LO
+    logger.info(
+        "Đọc chữ qua máy chủ: %d khung cần đọc -> %d lô -> dự tính %d Vox "
+        "(trừ dần theo lô, chỉ trừ lô nào chạy xong)",
+        len(dai_dien), so_lo, du_tinh)
+
+    if xin_phep is not None and du_tinh > NGUONG_XIN_PHEP_VOX:
+        try:
+            dong_y = bool(xin_phep(du_tinh, len(dai_dien)))
+        except Exception as e:  # noqa: BLE001 — hộp thoại hỏng KHÔNG được
+            # biến thành 88 Vox tiêu âm thầm. Nghiêng về phía không tiêu tiền.
+            logger.warning("Không hỏi được người dùng về %d Vox (%s) — giữ "
+                           "bản đọc tại máy cho chắc", du_tinh, e)
+            dong_y = False
+        if not dong_y:
+            logger.info("Người dùng không đồng ý tiêu %d Vox — giữ bản đọc "
+                        "tại máy (chữ tiếng Việt sẽ không có dấu)", du_tinh)
+            return quan_sat
+
     doc_duoc: dict[int, list[str]] = {}
 
     for dau in range(0, len(dai_dien), SO_KHUNG_MOI_LUOT):

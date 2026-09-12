@@ -144,7 +144,7 @@ class BangChungFlowBlueprint:
 
 def trich_bang_chung(
     source: str, work_dir: str, settings, *,
-    cancel_event=None, progress=None,
+    cancel_event=None, progress=None, xin_phep=None,
 ) -> BangChungFlowBlueprint:
     """Tải video (nếu là liên kết) + chép lời (ASR) + đọc chữ overlay (OCR)
     — Scope C.1/C.2 của H2.
@@ -153,6 +153,10 @@ def trich_bang_chung(
     Douyin cần cookie, thiếu thì báo lỗi rõ chứ không thử lại vô ích — hành
     vi này đã có sẵn ở `download_one`/`prepare_audio`, không cần code
     riêng) hoặc đường dẫn file trên máy.
+
+    ``xin_phep(so_vox, so_khung) -> bool`` đi thẳng xuống `read_text_regions`
+    rồi `doc_lai_bang_may_chu`, nơi hỏi người dùng trước khi tiêu quá
+    `NGUONG_XIN_PHEP_VOX`. Không truyền thì chạy như cũ.
 
     Không đọc được ASR/OCR (thiếu bộ cài, engine lỗi) KHÔNG chặn cả lượt —
     Constraint 5 của H2: đánh dấu evidence thiếu, không bịa nội dung. Chỉ
@@ -259,7 +263,8 @@ def trich_bang_chung(
                     ket = read_text_regions(anh_paths, settings=settings,
                                             cancel_event=cancel_event,
                                             moc_thoi_gian=moc_lay_duoc,
-                                            bo_doc=chon_bo_doc)
+                                            bo_doc=chon_bo_doc,
+                                            xin_phep=xin_phep)
                     tho = [{"text": q.text, "status": q.status,
                            "timestamp_s": q.timestamp_s}
                           for q in ket.quan_sat]

@@ -17,6 +17,7 @@ lượt tách nhạc cloud (V12).
 """
 from __future__ import annotations
 
+import logging
 import os
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -36,6 +37,9 @@ from autodub_gui.ui.table import Column, DataTable
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.widgets import LogPanel
 from autodub_gui.workers import FlowBlueprintCrudWorker, FlowBlueprintWorker
+
+
+logger = logging.getLogger(__name__)
 
 _ACTION_ICON = 28
 _PAGE_MARGIN = 28
@@ -154,10 +158,16 @@ class FlowBlueprintPage(BasePage):
         # (chữ đè lên ô nhập, ảnh chụp của chủ dự án 11/09) — trang này không
         # có vùng cuộn lúc đó. Con số người dùng cần là TỔNG; phần giải thích
         # cách tính nằm ở FEATURES.md và runbook pilot.
+        # Giá KHÔNG theo số giây mà theo LƯỢNG CHỮ TRÊN HÌNH. Bản trước hứa
+        # "video ~60 giây tốn khoảng 32 Vox"; lượt chạy thật 11/09 trên một
+        # video 34 giây tốn 88 Vox — lệch 3,7 lần — vì video đó kín caption:
+        # 65 đoạn chữ khác nhau = 11 lô. Hứa theo giây là hứa sai đại lượng,
+        # và người dùng chỉ biết sau khi tiền đã đi.
         cost_hint = QLabel(
-            "Video ~60 giây tốn khoảng 32 Vox: 8 Vox phân tích cấu trúc, cộng "
-            "8 Vox mỗi lô 6 khung hình cần máy chủ đọc chữ có dấu. Trừ SAU KHI "
-            "chạy xong.")
+            "8 Vox phân tích cấu trúc, cộng 8 Vox mỗi lô 6 khung hình có chữ "
+            "cần máy chủ đọc. Video càng nhiều CHỮ TRÊN HÌNH càng tốn — video "
+            "ngắn kín caption tốn hơn video dài không chữ. Thường 30–100 Vox. "
+            "Trừ SAU KHI chạy xong; Nhật ký ghi số dự tính trước khi tiêu.")
         cost_hint.setObjectName("hint")
         cost_hint.setWordWrap(True)
         card.body.addWidget(cost_hint)
@@ -278,8 +288,39 @@ class FlowBlueprintPage(BasePage):
         worker.progress.connect(self._on_progress)
         worker.finished_ok.connect(self._on_done)
         worker.failed.connect(self._on_failed)
+        # Nối MẶC ĐỊNH (AutoConnection): tín hiệu phát từ luồng nền được xếp
+        # hàng và chạy ở luồng giao diện — đúng chỗ duy nhất dựng widget được.
+        worker.xin_phep_vox.connect(self._hoi_tieu_vox)
         self._worker = worker
         worker.start()
+
+    def _hoi_tieu_vox(self, so_vox: int, so_khung: int) -> None:
+        """Xin phép trước khi phần đọc chữ tiêu quá ngưỡng.
+
+        Luồng nền đang ĐỨNG CHỜ hàm này trả lời, nên mọi đường ra khỏi đây
+        đều phải gọi `tra_loi_vox()` — quên một nhánh là luồng nền treo tới
+        khi người dùng bấm Dừng.
+
+        Vì sao cần: lượt chạy thật 11/09 trên một video 34 giây tiêu 88 Vox
+        cho phần đọc chữ rồi hỏng ở bước cuối, không có chỗ nào can thiệp.
+        """
+        w = self._worker
+        if w is None:
+            return
+        try:
+            dong_y, _ = ConfirmDialog.ask(
+                self, f"Đọc chữ trên hình — hết {so_vox} Vox",
+                f"Video này có {so_khung} khung hình chứa chữ cần máy chủ đọc "
+                f"lại cho đúng dấu tiếng Việt, hết {so_vox} Vox.\n\n"
+                "Bỏ qua thì vẫn phân tích được, chỉ là bằng chứng chữ sẽ mất "
+                "dấu — đủ để đọc nhịp, kém hơn khi đọc nội dung.",
+                kind="warning", confirm_label=f"Đọc, trừ {so_vox} Vox",
+                cancel_label="Bỏ qua, không tốn Vox")
+        except Exception:  # noqa: BLE001 — hộp thoại hỏng không được treo luồng
+            logger.exception("Không dựng được hộp thoại xin phép %d Vox", so_vox)
+            w.tra_loi_vox(False)
+            return
+        w.tra_loi_vox(bool(dong_y))
 
     def _stop(self) -> None:
         if self.is_running():

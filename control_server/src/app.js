@@ -9,6 +9,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 const Fastify = require('fastify')
+const { LogController } = require('fastify')
 
 // Backend tự serve luôn website (../website/dist) — cùng origin nên frontend
 // gọi API bằng đường dẫn tương đối, KHÔNG cần CORS, không cần build lại khi
@@ -30,6 +31,33 @@ const TRANG_THAI_DB = {
   3: 'đang ngắt',
 }
 
+//: Đường LẶP VÔ TẬN — không ghi nhật ký yêu cầu.
+//:
+//: Worker hỏi việc 3 giây một lượt, bộ kiểm sống 30 giây một lượt; mỗi lượt
+//: hai dòng nên riêng chúng đã ~40 dòng/phút. Đo thật 11/09/2026: người dùng
+//: báo lỗi lúc 09:56 UTC, tới 10:01 nhật ký chạy chỉ còn 82 dòng, TOÀN BỘ là
+//: `dub-jobs/claim`. Dòng `flow_blueprint analysis failed` mang nguyên nhân
+//: thật đã bị đẩy ra ngoài — mọi thứ ghi ở mức `info` sống chưa tới hai phút,
+//: nên sự cố sản xuất không chẩn đoán được.
+const DUONG_IM_LANG = new Set([
+  '/internal/dub-jobs/claim',
+  '/internal/jobs/claim',
+  '/health',
+])
+
+/**
+ * Yêu cầu này có thuộc nhóm im lặng không.
+ *
+ * Dùng dạng HÀM của `disableRequestLogging` (Fastify đỡ sẵn) chứ không tự
+ * viết hook `onRequest`/`onResponse`: bản tự viết đầu tiên làm MẤT dòng
+ * `request errored` — dòng ghi ở mức `error` khi yêu cầu ném lỗi, tức đúng
+ * thứ quý nhất. Chữa một lỗi chẩn đoán bằng cách tạo ra một lỗi chẩn đoán
+ * nặng hơn.
+ */
+function imLangDuoc(req) {
+  return DUONG_IM_LANG.has(String(req.url || '').split('?')[0])
+}
+
 async function build(opts = {}) {
   const app = Fastify({
     logger: opts.logger !== undefined ? opts.logger : {
@@ -37,6 +65,16 @@ async function build(opts = {}) {
       redact: ['req.headers.authorization', 'req.headers["x-admin-token"]',
               'req.headers["x-worker-token"]'],
     },
+    // Đường LẶP VÔ TẬN không được ghi nhật ký. Worker hỏi việc ba giây một
+    // lượt và bộ kiểm sống hỏi ba mươi giây một lượt; mỗi lượt hai dòng nên
+    // riêng chúng đã ~40 dòng/phút.
+    //
+    // Đo thật 11/09/2026: người dùng báo lỗi lúc 09:56 UTC, tới 10:01 nhật ký
+    // chạy chỉ còn 82 dòng — TOÀN BỘ là `dub-jobs/claim`. Dòng
+    // `flow_blueprint analysis failed` mang nguyên nhân thật đã bị đẩy ra
+    // ngoài trước khi kịp đọc, nên sự cố sản xuất không chẩn đoán được.
+    //
+    logController: new LogController({ disableRequestLogging: imLangDuoc }),
     trustProxy: process.env.TRUST_PROXY === '1',
     bodyLimit: 4 * 1024 * 1024,   // transcript một video dài vẫn lọt
     ...opts.fastify,

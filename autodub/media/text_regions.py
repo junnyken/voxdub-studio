@@ -518,7 +518,7 @@ class KetQuaDocChu:
 def read_text_regions(
     image_paths: list[str], settings=None, cancel_event=None,
     moc_thoi_gian: list[float] | None = None,
-    bo_doc: str = BO_DOC_CUC_BO, client=None,
+    bo_doc: str = BO_DOC_CUC_BO, client=None, xin_phep=None,
 ) -> KetQuaDocChu:
     """Đọc NỘI DUNG chữ overlay tại từng khung hình — mini-spec H2a.
 
@@ -609,7 +609,8 @@ def read_text_regions(
         # còn được dùng ở đường làm mờ chữ vốn chạy hoàn toàn offline.
         from autodub.media.doc_chu_may_chu import doc_lai_bang_may_chu
         quan_sat = doc_lai_bang_may_chu(
-            quan_sat, image_paths, client=client, cancel_event=cancel_event)
+            quan_sat, image_paths, client=client, cancel_event=cancel_event,
+            xin_phep=xin_phep)
 
     return KetQuaDocChu(
         trang_thai=("co_chu" if quan_sat else "no_text"),

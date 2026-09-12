@@ -208,10 +208,38 @@ module.exports = async function flowBlueprintRoutes(fastify) {
         images: [],
       })
     } catch (err) {
-      if (err.statusCode === 400) {
-        return reply.code(400).send({ code: err.code || 'BAD_REQUEST', message: err.message })
+      // Nhánh này từng thay MỌI lỗi không phải 400 bằng một câu duy nhất
+      // ("Không phân tích được lúc này. Thử lại sau."). Người dùng chạy thật
+      // 11/09/2026 mất gần sáu phút và ~88 Vox cho phần đọc chữ, rồi nhận
+      // đúng câu đó — không biết nên đợi mạng, đổi video, hay báo lỗi.
+      //
+      // Máy chủ BIẾT nguyên nhân: `AiError` mang sẵn `code` và câu riêng.
+      // Ném đi rồi đoán lại là tự bịt mắt mình.
+      //
+      // Luôn ghi nhật ký ĐẦY ĐỦ trước, kể cả khi có trả mã riêng: nhật ký
+      // chạy của máy chủ là chỗ duy nhất còn `err.stack`.
+      request.log.warn({ err, jobId, code: err.code, statusCode: err.statusCode },
+        'flow_blueprint analysis failed')
+
+      // Lỗi do gateway CHỦ ĐỘNG dựng (có `code`) thì chuyển nguyên vẹn: nó
+      // đã được viết cho người đọc. Chỉ lỗi trần — mạng đứt, socket rơi —
+      // mới là ca "thử lại sau" thật sự.
+      if (err.code && err.statusCode) {
+        // 503 GIỮ NGUYÊN 503 kèm `retryAfter`. Bản đầu của đoạn này ép mọi
+        // mã >= 500 về 502 và làm mất `retryAfter` — tức nói với máy khách
+        // rằng lỗi nằm ở phía nó, cho đúng ca hay gặp nhất trong thực tế:
+        // `callWithFallback` ném `PROVIDER_UNAVAILABLE` với statusCode 503
+        // khi hết nhà cung cấp (ai-gateway.service.js:349).
+        if (err.statusCode === 503) {
+          return reply.code(503).send({
+            code: err.code, message: err.message, retryAfter: 30,
+          })
+        }
+        return reply.code(err.statusCode < 500 ? err.statusCode : 502).send({
+          code: err.code,
+          message: err.message,
+        })
       }
-      request.log.warn({ err, jobId }, 'flow_blueprint analysis failed')
       return reply.code(503).send({
         code: 'AI_UNAVAILABLE',
         message: 'Không phân tích được lúc này. Thử lại sau.',

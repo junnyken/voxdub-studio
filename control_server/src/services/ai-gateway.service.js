@@ -917,6 +917,26 @@ async function locNoiNhinDuocAnh(role) {
   return dungDuoc
 }
 
+/**
+ * Dựng lỗi NÓI ĐƯỢC từ kết quả `parseResultChiTiet`.
+ *
+ * Hai ca hỏng, hai cách chữa khác hẳn nhau, nên phải hai mã:
+ *   - `SAO_CHEP_NGUYEN_VAN`: có thật một cụm chữ cụ thể bị coi là chép lại.
+ *     Thử lại KHÔNG có ích — cùng nguồn thì mô hình lại chạm đúng cụm đó.
+ *   - `BAD_AI_RESPONSE`: mô hình trả sai khuôn. Thử lại CÓ thể khác.
+ */
+function loiKhuonRieng(ket) {
+  if (ket && ket.ly_do === 'SAO_CHEP_NGUYEN_VAN') {
+    const cum = String(ket.cum || '').slice(0, 120)
+    return new AiError('SAO_CHEP_NGUYEN_VAN',
+      `Kết quả bị huỷ vì đoạn ${ket.doan} lặp lại nguyên văn cụm "${cum}" có `
+      + 'trong video nguồn. Công cụ chỉ được PHÂN TÍCH cấu trúc, không được '
+      + 'chép lại lời hay chữ của video gốc. Thử lại cùng video này sẽ ra '
+      + 'đúng kết quả đó — hãy chọn video tham khảo khác.', 422)
+  }
+  return new AiError('BAD_AI_RESPONSE', 'Kết quả trả về không dùng được', 502)
+}
+
 async function assist({ task, input, images }) {
   const spec = assistPrompts.getTask(task)
   if (!spec) throw new AiError('UNKNOWN_TASK', `Không có tác vụ "${task}"`, 400)
@@ -972,6 +992,18 @@ async function assist({ task, input, images }) {
   const data = parseJsonObject(content)
 
   if (dungKhuonRieng) {
+    // Tác vụ khai `parseResultChiTiet` thì dùng bản đó: nó nói được ĐÃ CHẶN
+    // CÁI GÌ. Gộp mọi ca hỏng vào một câu "Kết quả trả về không dùng được"
+    // là thứ khiến người dùng chạy thật 11/09 mất gần sáu phút mà không biết
+    // chuyện gì xảy ra — và thử lại bao nhiêu lần cũng ra đúng kết quả đó.
+    if (typeof spec.parseResultChiTiet === 'function') {
+      const ket = spec.parseResultChiTiet(data, input || {})
+      if (!ket || !ket.ok) {
+        throw loiKhuonRieng(ket)
+      }
+      const { ok, ...con } = ket
+      return { ...con, usage, provider: provider.name, model: provider.model, role }
+    }
     const parsed = spec.parseResult(data, input || {})
     if (!parsed) {
       throw new AiError('BAD_AI_RESPONSE', 'Kết quả trả về không dùng được', 502)

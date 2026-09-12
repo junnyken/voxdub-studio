@@ -176,14 +176,30 @@ def test_trang_CO_vung_cuon_de_chu_dai_khong_ep_vo_bo_cuc(page):
 
 
 def test_dong_chi_phi_ngan_gon_va_van_co_con_so_nguoi_dung_can(page):
-    """Con số người dùng cần là TỔNG. Phần giải thích cách tính thuộc về tài
-    liệu, không thuộc về một nhãn trong thẻ."""
+    """Dòng báo giá phải cho một KHOẢNG dùng được, và vẫn đủ ngắn.
+
+    ĐỔI CÓ CHỦ Ý 12/09 — trước đây chốt này đòi đúng chuỗi `"32 Vox"`, tức
+    một con số cố định gắn với độ dài video ("video ~60 giây tốn khoảng 32
+    Vox"). Lượt chạy thật của chủ dự án trên một video **34 giây** tốn **88
+    Vox**: 65 khung có chữ ÷ 6 = 11 lô × 8 Vox.
+
+    Đại lượng quyết định là **lượng chữ trên hình**, không phải số giây —
+    video ngắn kín caption tốn hơn video dài không chữ. Hứa một con số theo
+    giây là hứa sai đại lượng, và người dùng chỉ biết sau khi tiền đã đi.
+
+    Phần "đủ ngắn" giữ nguyên: chính độ dài dòng này từng làm vỡ bố cục thẻ
+    (ảnh chụp 11/09).
+    """
+    import re
+
     from PySide6.QtWidgets import QLabel
 
     chu = [w.text() for w in page.findChildren(QLabel)
            if "Vox" in (w.text() or "")]
     assert chu, "mất luôn dòng báo giá"
     gia = max(chu, key=len)
-    assert "32 Vox" in gia, "phải nói TỔNG, không chỉ nói 8 Vox"
-    assert len(gia) < 240, (
+    assert re.search(r"\d+\s*[–-]\s*\d+\s*Vox", gia), (
+        f"phải cho một KHOẢNG để người dùng ước được lượt chạy của mình, "
+        f"không phải một con số giả vờ chính xác.\n{gia}")
+    assert len(gia) < 300, (
         f"dòng báo giá dài {len(gia)} ký tự — chính độ dài này làm vỡ bố cục")

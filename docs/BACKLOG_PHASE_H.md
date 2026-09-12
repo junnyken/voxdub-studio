@@ -136,6 +136,88 @@ ghi sổ ⇒ app nhận 500, ảnh mất, **30 Vox đã trừ**. `/product-scene
 
 ---
 
+## Đã sửa 12/09 — lượt chạy thật thứ hai của chủ dự án
+
+Nguồn: `youtube.com/shorts/9iB1Io8InXg`, ~34 giây, tiếng Việt. Lỗi cp1252 đã
+hết (OCR chạy xong 65 khung), nhưng hỏng ở bước cuối với *"Không phân tích
+được lúc này. Thử lại sau."* Bốn lỗi tìm ra, ba trong số đó CHE LẤP nhau.
+
+### ✅ E1. Máy chủ ném đi nguyên nhân, thay mọi thứ bằng một câu 503
+
+`routes/flow-blueprints.js` bắt mọi lỗi không phải 400 rồi trả
+`AI_UNAVAILABLE`. `AiError` đã mang sẵn `code` và câu riêng — ném đi rồi đoán
+lại là tự bịt mắt mình. Ba ca cần ba cách chữa khác nhau (đợi mạng / đổi
+video / báo lỗi) mà nói cùng một câu.
+
+**Đã sửa**: lỗi có `code` + `statusCode` đi thẳng lên máy khách; chỉ lỗi trần
+(socket rơi) mới còn là 503. Luôn ghi nhật ký đầy đủ trước.
+
+> **Lỗi tôi tự tạo khi sửa:** bản đầu ép mọi mã ≥500 về 502 và làm mất
+> `retryAfter`. Nhưng `callWithFallback` ném `PROVIDER_UNAVAILABLE` với
+> `statusCode` **503** khi hết nhà cung cấp — tức ca hay gặp nhất trong thực
+> tế bị đổi thành "lỗi phía máy khách" và mất luôn lời khuyên thử lại. Ba
+> test đầu không chạm tới vì đều dùng lỗi tự dựng; phải viết thêm test cho
+> ĐƯỜNG THẬT mới thấy.
+
+### ✅ E2. Bộ chặn sao chép huỷ cả kết quả vì một từ ghép hai chữ
+
+**Đây là nguyên nhân gốc.** OCR đọc được `hóa đơn` — đúng chủ đề video. Luật
+"dòng bằng chứng ngắn (≥2 chữ) thì kiểm CHỨA NGUYÊN VẸN" biến nó thành lệnh
+huỷ toàn bộ, trong khi mô hình bị buộc mô tả một video tiếng Việt về hoá đơn,
+bằng tiếng Việt, mà không được viết chữ "hóa đơn". Việc đó không làm được.
+
+**ĐO trước khi chọn ngưỡng** (kỷ luật "đo trước khi đặt tolerance"):
+
+| ngưỡng | bỏ sót ca chép thật | chặn oan từ thông thường |
+|---|---|---|
+| 2 (cũ) | 0/4 | 3/3 |
+| 3 | 1/4 | 1/3 |
+| 4 | 2/4 | 1/3 |
+| 5 | 3/4 | 0/3 |
+
+**Không ngưỡng nào sạch** — số chữ không phân biệt được khẩu hiệu bị chép với
+từ vựng thông thường, vì `STOP SCROLLING` và `hóa đơn` đều hai chữ.
+
+**Đã sửa**: tách hai câu hỏi vốn bị gộp. "Có chạm bằng chứng không" giữ
+nguyên độ nhạy (ngưỡng 2, không đổi); "chạm thì có đáng HUỶ không" dùng ngưỡng
+4 chữ. Dòng 2–3 chữ thành CẢNH BÁO gắn vào kết quả — không mất ca phát hiện
+nào, cũng không giết lượt chạy. Một chốt cũ (`flow-blueprint-schema.test.js`,
+ca `STOP SCROLLING`) đổi từ "huỷ" sang "cảnh báo", có ghi rõ lý do tại chỗ.
+
+### ✅ E3. Giá hiện ra lệch 3,7 lần, và không có chỗ nào hỏi
+
+Màn hình hứa "khoảng 32 Vox". Thực tế 65 khung ÷ 6 = 11 lô × 8 = **88 Vox**,
+tiêu hết rồi mới hỏng ở bước cuối. Giá phụ thuộc **lượng chữ trên hình**,
+không phải số giây — video ngắn kín caption tốn hơn video dài không chữ.
+
+**Đã sửa**: câu báo giá nói đúng đại lượng (30–100 Vox, tuỳ lượng chữ); nhật
+ký ghi số Vox dự tính TRƯỚC lô đầu tiên; thêm cổng xin phép khi vượt 50 Vox,
+đặt ở TẦNG HÀM (`doc_lai_bang_may_chu`) để CLI/script cũng được chặn. Hộp
+thoại dựng ở luồng giao diện qua tín hiệu — Qt cấm dựng widget từ luồng nền.
+
+### ✅ E4. Nhật ký máy chủ bị lượt poll làm ngập — không chẩn đoán được
+
+Lỗi xảy ra 09:56 UTC; tới 10:01 nhật ký chạy chỉ còn **82 dòng**, toàn bộ là
+`POST /internal/dub-jobs/claim` (worker hỏi 3 giây một lượt, 2 dòng mỗi
+lượt ≈ 40 dòng/phút). Dòng `flow_blueprint analysis failed` mang nguyên nhân
+thật đã bị đẩy ra ngoài. **Mọi thứ ghi ở mức `info` có tuổi thọ dưới hai
+phút** — E1 sửa xong cũng vô ích nếu dòng log không sống nổi tới lúc đọc.
+
+**Đã sửa**: dạng HÀM của `disableRequestLogging` (`logController` +
+`LogController`), bỏ qua `/internal/*/claim` và `/health`.
+
+> **Hai lỗi tôi tự tạo khi sửa, tự bắt khi chạy thật — ghi lại để khỏi lặp:**
+>
+> 1. Bản đầu tự viết hook `onRequest`/`onResponse` và **làm mất dòng ghi ở
+>    mức `error`** — đúng thứ quý nhất. Chữa một lỗi chẩn đoán bằng một lỗi
+>    chẩn đoán nặng hơn. Dạng hàm giữ nguyên đường ghi của Fastify.
+> 2. `disableRequestLogging` ở mức trên cùng đã **deprecated** (FSTDEP023),
+>    bỏ ở Fastify 6 — chỉ thấy khi chạy thật, không test nào bắt.
+>
+> Cả hai chỉ lộ ra khi chạy mã thật và ĐỌC đầu ra, không phải khi test xanh.
+
+---
+
 ## 🟡 Còn mở — agent báo, CHƯA kiểm chứng
 
 > Mã `RS-<n>` = phát hiện của đợt **rà soát**, KHÔNG phải số mini-spec. Tiền

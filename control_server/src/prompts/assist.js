@@ -426,6 +426,13 @@ const TASKS = {
       ...(Array.isArray(input && input.transcript) ? input.transcript.map((d) => d.text) : []),
       ...(Array.isArray(input && input.ocrEvidence) ? input.ocrEvidence.map((o) => o.text) : []),
     ]),
+    // Bản CHI TIẾT — `assist()` ưu tiên dùng cái này để dựng được câu lỗi nói
+    // rõ đã chặn cụm nào, ở đoạn nào. `parseResult` ở trên giữ nguyên cho
+    // mọi nơi khác đang gọi.
+    parseResultChiTiet: (data, input) => parseFlowBlueprintResultChiTiet(data, [
+      ...(Array.isArray(input && input.transcript) ? input.transcript.map((d) => d.text) : []),
+      ...(Array.isArray(input && input.ocrEvidence) ? input.ocrEvidence.map((o) => o.text) : []),
+    ]),
     system: [
       'Bạn phân tích CẤU TRÚC KỂ CHUYỆN của một video ngắn (tối đa 90 giây),',
       'dựa trên bằng chứng ASR (lời nói, có mốc thời gian) và OCR (chữ hiện',
@@ -961,10 +968,30 @@ function timNgram(tuList, n) {
 //: chung chung tình cờ trùng (dưới đây: tối thiểu 2 từ).
 const TOI_THIEU_TU_DE_KIEM_NGAN = 2
 
-function coSaoChepNguyenVan(vanBanKiemTra, cacNguonBangChung, n = NGUONG_TU_LIEN_TIEP) {
+/**
+ * Dòng bằng chứng ngắn phải dài BAO NHIÊU thì chạm nó mới đáng HUỶ CẢ KẾT QUẢ.
+ *
+ * Đo trên các ca đang có (12/09) trước khi chốt — không ngưỡng nào sạch, vì
+ * số chữ không phân biệt được khẩu hiệu bị chép với từ vựng thông thường
+ * (`STOP SCROLLING` và `hóa đơn` đều hai chữ):
+ *
+ *     ngưỡng 2 (cũ): bỏ sót 0/4, chặn oan 3/3
+ *     ngưỡng 3:      bỏ sót 1/4, chặn oan 1/3
+ *     ngưỡng 4:      bỏ sót 2/4, chặn oan 1/3
+ *     ngưỡng 5:      bỏ sót 3/4, chặn oan 0/3
+ *
+ * Nên tách hai câu hỏi vốn bị gộp: "có chạm không" giữ nguyên độ nhạy
+ * (`TOI_THIEU_TU_DE_KIEM_NGAN` = 2, không đổi), còn "chạm thì có đáng huỷ
+ * không" mới dùng ngưỡng này. Dòng 2–3 chữ thành CẢNH BÁO gắn vào kết quả —
+ * không mất ca phát hiện nào, cũng không giết lượt chạy vì một từ ghép
+ * thông thường (lỗi người dùng gặp thật 11/09: mẩu OCR `hóa đơn`).
+ */
+const TOI_THIEU_TU_DE_HUY = 4
+
+function khopSaoChep(vanBanKiemTra, cacNguonBangChung, n = NGUONG_TU_LIEN_TIEP) {
   const kiemTraChuanHoa = chuanHoaSoKhop(vanBanKiemTra)
   const tuKiemTra = kiemTraChuanHoa.split(' ').filter(Boolean)
-  if (!tuKiemTra.length) return false
+  if (!tuKiemTra.length) return null
   const ngramKiemTra = tuKiemTra.length >= n ? timNgram(tuKiemTra, n) : null
 
   for (const nguon of cacNguonBangChung) {
@@ -974,15 +1001,27 @@ function coSaoChepNguyenVan(vanBanKiemTra, cacNguonBangChung, n = NGUONG_TU_LIEN
       if (!ngramKiemTra) continue   // câu kiểm ngắn hơn ngưỡng thì không có ngram để so
       const ngramNguon = timNgram(tuNguon, n)
       for (const g of ngramKiemTra) {
-        if (ngramNguon.has(g)) return true
+        if (ngramNguon.has(g)) {
+          return { cum: g, nguon: String(nguon), kieu: 'ngram', soTuNguon: tuNguon.length }
+        }
       }
     } else if (tuNguon.length >= TOI_THIEU_TU_DE_KIEM_NGAN) {
       // Dòng bằng chứng NGẮN (caption/hook/CTA điển hình) — chỉ cần beat
       // CHỨA NGUYÊN VẸN dòng đó là đủ khả nghi, không cần đủ độ dài N-gram.
-      if (kiemTraChuanHoa.includes(nguonChuanHoa)) return true
+      if (kiemTraChuanHoa.includes(nguonChuanHoa)) {
+        return {
+          cum: nguonChuanHoa, nguon: String(nguon), kieu: 'chua',
+          soTuNguon: tuNguon.length,
+        }
+      }
     }
   }
-  return false
+  return null
+}
+
+/** Giữ NGUYÊN chữ ký cũ (boolean) cho mọi nơi đang gọi. */
+function coSaoChepNguyenVan(vanBanKiemTra, cacNguonBangChung, n = NGUONG_TU_LIEN_TIEP) {
+  return khopSaoChep(vanBanKiemTra, cacNguonBangChung, n) !== null
 }
 
 /**
@@ -998,23 +1037,38 @@ function coSaoChepNguyenVan(vanBanKiemTra, cacNguonBangChung, n = NGUONG_TU_LIEN
  * định do `assist()` gọi) bằng closure trong `viral_flow_blueprint.parseResult`
  * phía trên — thấy ở đó `input` được đóng gói sẵn qua `assist()`.
  */
-function parseFlowBlueprintResult(data, bangChungNguon) {
+function parseFlowBlueprintResultChiTiet(data, bangChungNguon) {
   const beats = Array.isArray(data && data.beats) ? data.beats : []
-  if (!beats.length) return null
+  if (!beats.length) return { ok: false, ly_do: 'KHUON_SAI' }
 
   const cacTruongVanBan = ['narrative_function_vi', 'pacing_note_vi',
     'overlay_pattern_abstract_vi', 'spoken_pattern_abstract_vi']
   const sach = []
-  for (const b of beats) {
+  const canhBao = []
+  for (let i = 0; i < beats.length; i += 1) {
+    const b = beats[i]
     if (!b || typeof b !== 'object') continue
     const startS = Number(b.start_s)
     const endS = Number(b.end_s)
     if (!Number.isFinite(startS) || !Number.isFinite(endS) || endS <= startS) continue
     if (!beatTypes().includes(b.beat_type)) continue
     for (const truong of cacTruongVanBan) {
-      if (coSaoChepNguyenVan(String(b[truong] || ''), bangChungNguon || [])) {
-        return null   // sao chép nguyên văn — huỷ TOÀN BỘ kết quả, không vá riêng beat này
+      const khop = khopSaoChep(String(b[truong] || ''), bangChungNguon || [])
+      if (!khop) continue
+      if (khop.soTuNguon >= TOI_THIEU_TU_DE_HUY) {
+        // Chép đủ dài — huỷ TOÀN BỘ kết quả, không vá riêng beat này.
+        // Nhưng NÓI RA đã chặn cái gì: trước đây chỗ này trả `null` câm, đi
+        // lên thành "Kết quả trả về không dùng được" rồi thành "Thử lại sau",
+        // nên người dùng mất gần sáu phút chạy mà không biết chuyện gì xảy ra
+        // và thử lại bao nhiêu lần cũng ra đúng kết quả đó.
+        return {
+          ok: false, ly_do: 'SAO_CHEP_NGUYEN_VAN',
+          doan: i + 1, truong, cum: khop.cum, nguon: khop.nguon,
+        }
       }
+      // Dòng 2–3 chữ: GIỮ phát hiện, hạ mức xuống cảnh báo. Bỏ luôn là mất
+      // khả năng phát hiện; huỷ là giết lượt chạy vì một từ ghép thông thường.
+      canhBao.push({ doan: i + 1, truong, cum: khop.cum, nguon: khop.nguon })
     }
     sach.push({
       startS, endS, beatType: b.beat_type,
@@ -1024,8 +1078,14 @@ function parseFlowBlueprintResult(data, bangChungNguon) {
       spokenPatternAbstractVi: String(b.spoken_pattern_abstract_vi || '').trim().slice(0, 300),
     })
   }
-  if (!sach.length) return null
-  return { beats: sach }
+  if (!sach.length) return { ok: false, ly_do: 'KHUON_SAI' }
+  return { ok: true, beats: sach, canh_bao: canhBao }
+}
+
+/** Giữ NGUYÊN chữ ký cũ (null khi hỏng) cho mọi nơi đang gọi. */
+function parseFlowBlueprintResult(data, bangChungNguon) {
+  const ket = parseFlowBlueprintResultChiTiet(data, bangChungNguon)
+  return ket.ok ? { beats: ket.beats } : null
 }
 
 /**
@@ -1101,7 +1161,9 @@ function cacheKey(task, input, images) {
 module.exports = {
   TASKS, TASK_NAMES, getTask, resultsSchema, cat, cacheKey, PROMPT_VERSION,
   // mini-spec H2 — lộ ra để test đơn vị (chống sao chép nguyên văn, schema).
-  coSaoChepNguyenVan, parseFlowBlueprintResult, flowBlueprintOutputSchema,
+  coSaoChepNguyenVan, khopSaoChep, TOI_THIEU_TU_DE_HUY,
+  parseFlowBlueprintResult, parseFlowBlueprintResultChiTiet,
+  flowBlueprintOutputSchema,
   trangThaiBangChung,
   // mini-spec H2b — đọc chữ overlay bằng mô hình nhìn ảnh.
   docChuOutputSchema, parseDocChuResult, SO_ANH_DOC_CHU_TOI_DA,

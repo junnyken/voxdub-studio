@@ -99,11 +99,28 @@ test('REGRESSION: beat chép nguyên văn nguồn (cả tiếng Anh lẫn OCR) -
     + 'giữ lại beat "sạch" bên cạnh rủi ro làm người review chủ quan bỏ qua beat bẩn')
 })
 
-test('REGRESSION: chép nguyên văn caption OCR (không phải transcript) cũng bị chặn', () => {
+test('REGRESSION: chép nguyên văn caption OCR (không phải transcript) vẫn bị PHÁT HIỆN', () => {
+  // ĐỔI CÓ CHỦ Ý 12/09 — trước đây ca này HUỶ cả kết quả; nay là CẢNH BÁO.
+  //
+  // Vì sao đổi: luật cũ "dòng bằng chứng ngắn (>=2 chữ) thì kiểm CHỨA NGUYÊN
+  // VẸN" không phân biệt được khẩu hiệu bị chép với từ vựng thông thường của
+  // chính ngôn ngữ đầu ra — `STOP SCROLLING` và `hóa đơn` đều hai chữ. Lượt
+  // chạy thật 11/09 của chủ dự án hỏng vì mẩu OCR `hóa đơn`, đúng chủ đề
+  // video, sau gần sáu phút và ~88 Vox.
+  //
+  // Đo trên các ca đang có trước khi chọn: không ngưỡng nào sạch (2 -> chặn
+  // oan 3/3; 4 -> bỏ sót 2/4). Nên tách hai câu hỏi: "có chạm không" giữ
+  // nguyên độ nhạy, "chạm thì có đáng huỷ không" mới dùng ngưỡng 4 chữ.
+  //
+  // Điều KHÔNG được mất là khả năng phát hiện — nên ca này vẫn phải hiện ra,
+  // chỉ ở mức cảnh báo. Xem `tests/sao-chep-dong-ngan-canh-bao.test.js`.
   const beatChepOcr = {
     ...BEAT_HOP_LE,
     overlay_pattern_abstract_vi: 'Chữ overlay ghi đúng dòng STOP SCROLLING trên nền đen',
   }
-  const parsed = assistPrompts.parseFlowBlueprintResult({ beats: [beatChepOcr] }, NGUON)
-  assert.equal(parsed, null)
+  const ket = assistPrompts.parseFlowBlueprintResultChiTiet(
+    { beats: [beatChepOcr] }, NGUON)
+  assert.equal(ket.ok, true, 'dòng hai chữ không còn huỷ cả kết quả')
+  assert.equal(ket.canh_bao.length, 1, 'nhưng PHẢI còn nhìn thấy được')
+  assert.match(ket.canh_bao[0].cum, /stop scrolling/i)
 })
