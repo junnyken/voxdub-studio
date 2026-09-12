@@ -1,0 +1,181 @@
+"""Dịch local worker — chạy TRONG venv riêng .venv-mt (mini-spec V6, xem
+docs/PLAN.md). Standalone script: KHÔNG được import gì từ ``autodub`` (venv
+khác) — đúng quy ước của asr_whisper_worker.py/vieneu_worker.py.
+
+Model: NLLB-200-distilled-600M, chuyển đổi ctranslate2 int8
+(entai2965/JustFrederik ct2 conversion trên HuggingFace — xem
+scripts/setup_translate_local.py cho nguồn tải). Giấy phép CC-BY-NC-4.0 kế
+thừa từ facebook/nllb-200-distilled-600M — CHỈ dùng cho tính năng miễn phí,
+không bán riêng bản dịch từ engine này (ghi rõ cho chủ dự án quyết định).
+
+CLI:
+    python translate_local_worker.py --model-dir models/translate-local
+        --src-lang zho_Hans --tgt-lang vie_Latn
+
+stdin: 1 dòng JSON {"segments": [{"id": 1, "text": "..."}, ...]}
+stdout protocol (mỗi dòng 1 JSON, log khác đi ra stderr):
+    {"ready": true}
+    {"seg": true, "id": 1, "text": "bản dịch..."}
+    {"done": true, "translated": N}
+  | {"error": "..."}   rồi exit code 1
+"""
+import argparse
+import json
+import re
+import sys
+
+# Windows mặc định cho tiến trình con dùng bảng mã cp1252 khi ghi ra ống —
+# in một chữ Việt có dấu là chết ngay giữa chừng với UnicodeEncodeError, và
+# tiến trình cha chỉ thấy "worker kết thúc bất thường". Lỗi thật, xảy ra với
+# người dùng 26/8/2026: chữ "Đ" làm hỏng cả lượt dịch ngoại tuyến.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+
+# mini-spec V21 (docs/PLAN.md, Phase E) — bug thật tìm ra + cô lập nguyên
+# nhân ở V11 (docs/TEST_LOG.md): khi 1 segment ASR chứa NHIỀU câu (Whisper
+# VAD không tách ở đó — vd 2 câu liền không có khoảng lặng đủ dài), model
+# NLLB decode CẢ đoạn trong 1 lượt translate_batch() — gặp từ nhiễu ASR
+# (lỗi nghe nhầm nhẹ) ở đâu đó trong đoạn, model "dừng sớm" (early-stop
+# decode), CHỈ dịch được câu đầu, các câu sau bị bỏ HOÀN TOÀN, không lỗi,
+# không log gì cả — verify thật: cùng câu đó dịch riêng lẻ (không ghép với
+# câu khác) thì đủ đầy. Đây là hạn chế robustness thật của
+# NLLB-200-distilled-600M trước input nhiễu, không sửa được ở tầng model,
+# nhưng THU NHỎ được vùng ảnh hưởng: dịch TỪNG CÂU riêng (tách bằng dấu kết
+# câu) thay vì cả đoạn nhiều câu trong 1 lượt gọi — early-stop khi đó chỉ
+# mất tối đa nội dung của 1 câu duy nhất, không kéo theo các câu SAU nó.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…。！？])\s*")
+
+# C67 (docs/TEST_LOG.md) — tái hiện được bằng model NLLB thật: một "câu" dài
+# mà KHÔNG tách được (không có dấu kết câu) rất có thể là NHIỀU câu ASR gộp
+# lại (paraformer_transcriber.py đã tự cảnh báo kịch bản này khi bộ chấm câu
+# không tải được). Gửi cả cụm vào NLLB trong 1 lượt là đúng kiểu input gây
+# early-stop ở V11 — model có thể trả về nội dung KHÔNG LIÊN QUAN tới nguồn,
+# không lỗi, không dấu hiệu. Không có cách sửa rẻ đã kiểm chứng được (đã thử
+# lọc theo độ dài output/input và theo điểm tin cậy của ctranslate2 — cả hai
+# đều KHÔNG phân biệt được ca lỗi này với bản dịch đúng, xem TEST_LOG.md) nên
+# đây chỉ là CẢNH BÁO để lộ ra trong log, không tự sửa/tự thay nội dung.
+_NGUONG_CAU_DAI_KHONG_DAU = 80
+
+# C69 (docs/TEST_LOG.md) — SỬA THẬT cho early-stop, không chỉ cảnh báo:
+# ctranslate2 nhận `min_decoding_length` (ép model không được phát EOS quá
+# sớm). Đo thật bằng model NLLB thật trên đúng câu gây bug ở V11 ("Đây chỉ
+# là giàn lập, không phải thật" bị bỏ sót hoàn toàn): tỉ lệ 0.5 lần số token
+# nguồn làm model dịch đủ cả câu bị mất trước đây, KHÔNG đổi bất kỳ bản dịch
+# tốt nào trong các ca đã thử (min_decoding_length chỉ là NGƯỠNG SÀN — không
+# ảnh hưởng khi model đã tự nhiên dịch dài hơn ngưỡng đó). Tỉ lệ 1.0 bắt đầu
+# gây lặp chữ ở cuối câu (model phải "độn" thêm nội dung để đạt độ dài ép
+# buộc) — 0.5 có biên an toàn trước ngưỡng đó.
+_TI_LE_DO_DAI_TOI_THIEU_KHI_DICH = 0.5
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Tách 1 đoạn thành các câu theo dấu kết câu (Latin + CJK toàn độ
+    rộng — segment nguồn có thể là tiếng Trung/Nhật, xem V19 cho lý do cần
+    cả dấu CJK). Đoạn không có dấu kết câu nào → trả nguyên đoạn (1 câu)."""
+    parts = [p.strip() for p in _SENTENCE_SPLIT_RE.split(text) if p.strip()]
+    return parts or ([text] if text.strip() else [])
+
+
+def _canh_bao_neu_cau_dai_khong_dau(sentences: list[str]) -> None:
+    """In cảnh báo ra stderr khi CẢ segment chỉ ra đúng 1 "câu" dài mà không
+    có dấu kết câu nào — dấu hiệu rẻ tiền của việc nhiều câu ASR bị gộp lại
+    (xem comment ở trên). Không đổi bản dịch, chỉ để lộ ra trong log."""
+    if (len(sentences) == 1
+            and len(sentences[0]) > _NGUONG_CAU_DAI_KHONG_DAU):
+        print(
+            f"Cảnh báo: một câu dài {len(sentences[0])} ký tự không có dấu "
+            "kết câu — có thể là nhiều câu ASR gộp lại, bản dịch NLLB có "
+            "thể bỏ sót hoặc lẫn nội dung (xem C67, docs/TEST_LOG.md).",
+            file=sys.stderr, flush=True)
+
+
+def _die(msg: str) -> None:
+    print(json.dumps({"error": msg}, ensure_ascii=False), flush=True)
+    sys.exit(1)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-dir", required=True)
+    parser.add_argument("--src-lang", required=True,
+                        help="Mã FLORES-200 nguồn, vd zho_Hans")
+    parser.add_argument("--tgt-lang", required=True,
+                        help="Mã FLORES-200 đích, vd vie_Latn")
+    parser.add_argument("--beam-size", type=int, default=4)
+    args, _thua = parser.parse_known_args()
+    if _thua:
+        # C53 — tiến trình cha đời MỚI gửi tham số worker này chưa biết thì bỏ
+        # qua và nói ra, KHÔNG chết. Lỗi thật 28/08: cha mới gửi `--ram-trong-gb`
+        # xuống worker cũ, argparse sys.exit(2) và giết cả lượt lồng tiếng.
+        print(f"Bỏ qua tham số không nhận ra: {' '.join(_thua)}",
+              file=sys.stderr, flush=True)
+
+    try:
+        import ctranslate2
+        import sentencepiece as spm
+    except ImportError as e:
+        _die(f"Thiếu thư viện dịch local ({e}) — chạy lại "
+             "scripts/setup_translate_local.py")
+        return
+
+    try:
+        translator = ctranslate2.Translator(args.model_dir, device="cpu")
+        sp = spm.SentencePieceProcessor(
+            model_file=f"{args.model_dir}/sentencepiece.bpe.model")
+    except Exception as e:  # noqa: BLE001 — model hỏng/thiếu file
+        _die(f"Không nạp được model dịch local ({e})")
+        return
+
+    print(json.dumps({"ready": True}), flush=True)
+
+    line = sys.stdin.readline()
+    if not line:
+        _die("Không nhận được yêu cầu dịch (stdin rỗng)")
+        return
+    try:
+        request = json.loads(line)
+        segments = request["segments"]
+    except (json.JSONDecodeError, KeyError) as e:
+        _die(f"Yêu cầu dịch sai định dạng ({e})")
+        return
+
+    translated = 0
+    for seg in segments:
+        text = str(seg.get("text") or "").strip()
+        if not text:
+            print(json.dumps({"seg": True, "id": seg.get("id"), "text": ""}),
+                  flush=True)
+            continue
+        # V21: dịch TỪNG CÂU riêng (không chung state decode với nhau) —
+        # early-stop của model khi gặp câu nhiễu chỉ mất đúng câu đó, không
+        # kéo theo các câu sau trong cùng segment (xem comment ở
+        # _split_sentences). C69: mỗi câu một lượt `translate_batch()` RIÊNG
+        # (không gộp chung — trước đó gộp để tận dụng batch, nhưng
+        # `min_decoding_length` của ctranslate2 là MỘT số dùng chung cho cả
+        # lượt gọi, không đặt được riêng từng câu nếu gộp) để ép đúng
+        # `min_decoding_length` theo độ dài CỦA CHÍNH câu đó.
+        sentences = _split_sentences(text)
+        _canh_bao_neu_cau_dai_khong_dau(sentences)
+        out_parts = []
+        for sent in sentences:
+            toks = sp.encode(sent, out_type=str)
+            min_len = max(1, int(len(toks) * _TI_LE_DO_DAI_TOI_THIEU_KHI_DICH))
+            r = translator.translate_batch(
+                [[args.src_lang] + toks + ["</s>"]],
+                target_prefix=[[args.tgt_lang]], beam_size=args.beam_size,
+                min_decoding_length=min_len)[0]
+            hyp = r.hypotheses[0]
+            if hyp and hyp[0] == args.tgt_lang:
+                hyp = hyp[1:]
+            out_parts.append(sp.decode(hyp))
+        out_text = " ".join(p for p in out_parts if p)
+        print(json.dumps({"seg": True, "id": seg.get("id"), "text": out_text},
+                         ensure_ascii=False), flush=True)
+        translated += 1
+
+    print(json.dumps({"done": True, "translated": translated}), flush=True)
+
+
+if __name__ == "__main__":
+    main()
