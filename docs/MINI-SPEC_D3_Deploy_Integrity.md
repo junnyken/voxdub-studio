@@ -285,6 +285,24 @@ CÓ thấy khác (tiền đề), rồi khẳng định **có** loại trừ thì
 > nào mô phỏng**. Thứ bắt được nó là đi đọc số phiên bản trên Vibe Host sau khi
 > đã tuyên bố xong — chứ không phải một bảng test xanh.
 
+**Chứng minh bản vá trên hệ thống thật** — run 34809207038 (`7db0acf`, chỉ
+sửa workflow/test/docs):
+
+```
+05:23:09  python-tests        success
+05:23:11  sinh-nhanh-deploy   success   (sau cổng cuối 2 giây)
+05:23:24  trien-khai-prod     success   — chạy 6 GIÂY
+     · Đưa voxdub-app lên prod         skipped
+     · Đưa voxdub-dub-worker lên prod  skipped
+```
+
+Phiên bản trên Vibe Host đứng nguyên **v92 / v54**. Trước bản vá, đúng lượt này
+sẽ dựng lại cả hai dịch vụ (worker ~11 phút) để nhận về một ảnh giống hệt.
+
+Sau đó `/health` khai `commit: e13a89c80df7` trong khi `main` ở `7db0acf` — và
+đó là **trạng thái đúng**: prod đang chạy ảnh dựng từ `e13a89c`, vì `7db0acf`
+không đổi gì trong thư mục build.
+
 ## Giới hạn còn lại
 
 1. **Chưa xác nhận được cấu hình auto-deploy của Vibe Host.** `get_project`
