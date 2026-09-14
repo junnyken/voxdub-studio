@@ -404,14 +404,17 @@ class MainWindow(QMainWindow):
             page = FlowBlueprintPage(self._fresh_settings, self.pages)
             page.brand_script_requested.connect(
                 lambda: self.switch_page(ROW_BRAND_SCRIPT))
+            self._noi_dai_phase_h(page)
         elif row == ROW_BRAND_SCRIPT:
             from autodub_gui.pages.brand_script_page import BrandScriptPage
             page = BrandScriptPage(self._fresh_settings, self.pages)
             page.storyboard_requested.connect(self.open_storyboard)
+            self._noi_dai_phase_h(page)
         elif row == ROW_STORYBOARD:
             from autodub_gui.pages.storyboard_page import StoryboardPage
             page = StoryboardPage(self._fresh_settings, self.pages)
             page.open_editor_requested.connect(self.open_editor)
+            self._noi_dai_phase_h(page)
         elif row == ROW_ACCOUNT:
             from autodub_gui.pages.account_page import AccountPage
             page = AccountPage(self._fresh_settings, self.pages)
@@ -488,6 +491,23 @@ class MainWindow(QMainWindow):
         page = self._page_widgets.get(ROW_HOME)
         if page is not None and hasattr(page, "dropzone"):
             page.dropzone.browse()
+
+    #: H5 — ba bước của dải điều hướng ứng với ba trang có thật.
+    HANG_PHASE_H = (ROW_FLOW_BLUEPRINT, ROW_BRAND_SCRIPT, ROW_STORYBOARD)
+
+    def _noi_dai_phase_h(self, page) -> None:
+        """Nối dải điều hướng của một trang Phase H vào `switch_page` SẴN CÓ.
+
+        Cố ý đi qua `switch_page` chứ không tự đổi trang: hàm đó còn mang chốt
+        `_blocked_by_unsaved` (hỏi trước khi rời trang còn việc dở). Dựng một
+        đường chuyển trang thứ hai là bỏ qua chốt ấy mà không ai nhận ra.
+        """
+        dai = getattr(page, "ribbon", None)
+        if dai is None:
+            return
+        dai.buoc_duoc_chon.connect(
+            lambda i: self.switch_page(self.HANG_PHASE_H[i])
+            if 0 <= i < len(self.HANG_PHASE_H) else None)
 
     def open_storyboard(self, kich_ban: dict) -> None:
         """Mở trang dựng video với một kịch bản đã duyệt (mini-spec H4e)."""

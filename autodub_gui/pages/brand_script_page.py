@@ -24,6 +24,7 @@ from autodub_gui.pages import BasePage
 from autodub_gui.ui.buttons import GhostButton, PrimaryButton, SecondaryButton
 from autodub_gui.ui.cards import Card
 from autodub_gui.ui.modal import ConfirmDialog
+from autodub_gui.ui.phase_h_ribbon import PhaseHRibbon
 from autodub_gui.ui.table import Column, DataTable
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.workers import BrandProfileWorker, BrandScriptWorker, FlowBlueprintCrudWorker
@@ -133,6 +134,11 @@ class BrandScriptPage(BasePage):
         root = QVBoxLayout(self)
         root.setContentsMargins(_PAGE_MARGIN, tokens.SP_2, _PAGE_MARGIN, tokens.SP_5)
         root.setSpacing(tokens.SP_4)
+        # H5 — dải điều hướng Phase H. Đặt ở ĐẦU vùng nội dung: đây là thứ
+        # trả lời câu "tôi đang ở đâu", nên nó phải đọc được trước tiêu đề chứ
+        # không nằm lẫn giữa các thẻ. Chỉ điều hướng — mọi cổng giữ nguyên.
+        self.ribbon = PhaseHRibbon(1)
+        root.addWidget(self.ribbon)
 
         card = Card(padding=tokens.SP_4)
         card.add_header("Viết kịch bản cho thương hiệu")

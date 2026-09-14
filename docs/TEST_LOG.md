@@ -17117,3 +17117,38 @@ là "đọc rất tệ", sự thật là "không có thang điểm nào ở đâ
 kèm test mặt ngược lại (nhánh «Bỏ qua» phải GIỮ điểm tin cậy, đừng sửa quá tay
 thành "luôn null"). Gỡ bản vá → đỏ đúng test đó. pytest đủ bộ: **2.881 đạt / 0
 hỏng**.
+
+## H5 — Dải điều hướng Phase H (14/09/2026)
+
+Chủ dự án chạy pilot thật rồi báo: *"nó đang bị thiếu quy trình… tôi không
+thấy biểu hiện gì làm tiếp theo"*. Audit trước khi code, và **hai tiền đề của
+bản spec nhận được là sai**:
+
+1. **`H4e` đã có chủ** — là "Giao diện storyboard" (commit `9a90cb1`, 10/09),
+   đang được `app.py:60`, `app.py:493`, `MINI-SPEC_H4_Storyboard:148` và
+   `MINI-SPEC_H4d` tham chiếu. Chủ dự án chốt đổi sang **H5**.
+   *Phát hiện phụ*: backlog ghi chốt `test_so_mini_spec_khong_trung` đã bắt
+   được va chạm tiền tố `C<n>` trước đây — **test ấy không tồn tại trong kho**.
+2. **Component đã có sẵn** — `ui/stepper.py::Stepper` bấm được, ba trạng thái,
+   đang dùng ở hai chỗ. Tạo `PhaseHRibbon` mới là bản sao thứ ba. Đã thêm
+   `compact`/`tu_do_nhay` vào `Stepper` rồi bọc mỏng, thay vì viết lại.
+
+**Một chỗ spec tự mâu thuẫn**: ràng buộc nói "ribbon chỉ đọc status đã có",
+nhưng bốn trạng thái H4 chưa tồn tại tách bạch (`blocked`/`unconfirmed`/
+`failed` gộp một câu; `ready_missing_images` chỉ hiện sau khi bấm Dựng). Phần
+này là dựng MỚI máy trạng thái hiển thị — và là phần tốn công nhất.
+
+**Kiểm**: `tests/test_h5_dai_dieu_huong_phase_h.py` (22). Ba phép chứng minh
+phủ định, mỗi cái gỡ ĐÚNG MỘT chốt, đều đỏ đúng test của nó:
+- gỡ điều kiện `ready` ⇒ 3 test `..._dai_KHONG_mo_cong_dung_video` đỏ;
+- gỡ phần giải thích ⇒ `..._moi_ca_H4_phai_co_cau_RIENG` + `..._DUNG_DOAN_NAO` đỏ;
+- gỡ `_noi_dai_phase_h` ở một trang ⇒ `test_moi_trang_phase_h_deu_duoc_noi_dai` đỏ.
+
+Kèm chốt "đừng sửa quá tay": `ready` + đủ ảnh VẪN dựng được; hai trang dùng
+`Stepper` cũ giữ nguyên 76px và luật nhảy cũ; H3/H4 VẪN ẩn khỏi thanh bên.
+
+pytest ĐỦ BỘ: **2.903 đạt / 0 hỏng / 4 bỏ qua**.
+
+**CÒN THIẾU**: chưa chạy trên desktop app Windows thật. Spec đòi mở ba trang
+rồi đi H2→H3→H4 và ngược lại. Chạy offscreen trên Linux KHÔNG thay thế được
+lượt đó — chủ dự án phải xác nhận.

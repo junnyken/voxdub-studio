@@ -30,6 +30,7 @@ from autodub_gui.status_text import STATUS_ERROR, STATUS_OK, STATUS_WARN
 from autodub_gui.ui.buttons import GhostButton, PrimaryButton, SecondaryButton
 from autodub_gui.ui.cards import Card
 from autodub_gui.ui.modal import ConfirmDialog
+from autodub_gui.ui.phase_h_ribbon import PhaseHRibbon
 from autodub_gui.ui.table import Column, DataTable
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.workers import (
@@ -92,6 +93,11 @@ class StoryboardPage(BasePage):
         root = QVBoxLayout(self)
         root.setContentsMargins(_PAGE_MARGIN, tokens.SP_2, _PAGE_MARGIN, tokens.SP_5)
         root.setSpacing(tokens.SP_4)
+        # H5 — dải điều hướng Phase H. Đặt ở ĐẦU vùng nội dung: đây là thứ
+        # trả lời câu "tôi đang ở đâu", nên nó phải đọc được trước tiêu đề chứ
+        # không nằm lẫn giữa các thẻ. Chỉ điều hướng — mọi cổng giữ nguyên.
+        self.ribbon = PhaseHRibbon(2)
+        root.addWidget(self.ribbon)
 
         card = Card(padding=tokens.SP_4)
         card.add_header("Dựng video từ kịch bản")
@@ -178,20 +184,72 @@ class StoryboardPage(BasePage):
                 break
         self._ve()
 
+    def trang_thai_buoc(self) -> tuple[str, str]:
+        """Trang này đang ở ca nào — mini-spec H5. Trả `(ma, cau_noi)`.
+
+        Bốn ca, BỐN câu khác nhau. Gộp chúng thành một câu "chưa dùng được" là
+        thứ khiến người dùng ngày 14/09 nhìn màn hình rồi hỏi *"nên làm gì
+        tiếp"* — có lý do mà không có đường đi.
+
+        Chỉ ĐỌC trạng thái đã có, không tự quyết định gì: cổng dựng video nằm
+        ở `dung_storyboard`.
+        """
+        kb = self._kich_ban or {}
+        if not kb.get("beats"):
+            return ("chua_chon", "Chưa chọn kịch bản. Quay lại bước «Viết kịch "
+                    "bản» rồi bấm «Dùng kịch bản này».")
+        tt = str(kb.get("status") or "")
+        if tt == "blocked":
+            return ("bi_chan", "Kịch bản đang bị chặn: có đoạn trùng câu chữ "
+                    "video nguồn hoặc chứa cụm bạn đã cấm. Quay lại bước «Viết "
+                    "kịch bản», bấm «Viết lại đoạn» ở những đoạn được đánh dấu.")
+        if tt == "unconfirmed":
+            return ("chua_kiem", "Kịch bản chưa đối chiếu được với video nguồn "
+                    "(bằng chứng không đủ). Quay lại bước «Viết kịch bản» để "
+                    "xem từng đoạn vì sao chưa kiểm được.")
+        if tt != "ready":
+            return ("chua_san_sang", f"Kịch bản đang ở trạng thái «{tt or 'không rõ'}», "
+                    "chưa dùng được. Quay lại bước «Viết kịch bản».")
+
+        thieu = [i + 1 for i, a in enumerate(self._anh) if not a]
+        if thieu:
+            # KHÔNG hứa tự sinh ảnh: cửa sinh ảnh (H4d) đang tắt ở máy chủ, và
+            # hứa một thứ chưa bật là cách nhanh nhất để người dùng ngồi chờ
+            # một nút không bao giờ sáng.
+            return ("thieu_anh", "Kịch bản sẵn sàng, nhưng chưa có ảnh cho đoạn "
+                    + ", ".join(str(i) for i in thieu)
+                    + ". Chọn ảnh cho đủ mọi đoạn rồi mới dựng được.")
+        return ("du_dieu_kien", "")
+
+    def _cap_nhat_dai(self) -> None:
+        """Đẩy câu của ca hiện tại lên dải điều hướng."""
+        dai = getattr(self, "ribbon", None)
+        if dai is not None:
+            dai.dat_trang_thai(self.trang_thai_buoc()[1])
+
     # -- Vẽ ---------------------------------------------------------------
     def _ve(self) -> None:
         from autodub.storyboard import KichBanChuaDungDuoc, dung_storyboard
 
         self.bang.clear_rows()
         if not self._kich_ban:
+            ma, cau = self.trang_thai_buoc()
+            self.status.setText(f"{STATUS_WARN} {cau}")
+            self.btn_dung.setEnabled(False)
+            self.btn_ve_het.setEnabled(False)
             self.bang.auto_state()
+            self._cap_nhat_dai()
             return
         try:
             self._board = dung_storyboard(self._kich_ban, self._blueprint)
         except KichBanChuaDungDuoc as e:
-            # Cổng của H4 nằm ở tầng hàm; giao diện chỉ nói lại cho dễ hiểu.
+            # Cổng của H4 nằm ở tầng hàm; giao diện chỉ nói lại cho dễ hiểu —
+            # kèm ĐƯỜNG XỬ LÝ, vì "chưa dùng được" mà không nói làm gì tiếp là
+            # một ngõ cụt có chữ.
             self._board = None
-            self.status.setText(f"{STATUS_ERROR} {e}")
+            _ma, cau = self.trang_thai_buoc()
+            self.status.setText(f"{STATUS_ERROR} {e}  {cau}")
+            self._cap_nhat_dai()
             self.btn_dung.setEnabled(False)
             # Kịch bản chưa duyệt thì cũng KHÔNG được vẽ ảnh cho nó. Cổng của
             # H4 là "chỉ kịch bản ready" — để hở đường tiêu tiền ở đây thì
@@ -200,6 +258,7 @@ class StoryboardPage(BasePage):
             self.bang.auto_state()
             return
 
+        self._cap_nhat_dai()
         for i, d in enumerate(self._board.doan):
             row = self.bang.add_row()
             self.bang.set_widget(row, 0, QLabel(_NHAN_BEAT.get(d.beat_type, d.beat_type)))
