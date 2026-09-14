@@ -194,6 +194,30 @@ def chia_doan(quan_sat: list) -> list[list[int]]:
 TEP_CHAN_DOAN = "ocr_chan_doan.json"
 
 
+def _tin_cay_thap_nhat(cua_doan: list):
+    """Điểm tin cậy thấp nhất của một đoạn, hoặc None nếu không đoạn nào có.
+
+    Lọc None TRƯỚC khi so: quan sát do máy chủ đọc không mang điểm.
+    """
+    diem = [q.confidence for q in cua_doan
+            if getattr(q, "confidence", None) is not None]
+    return round(min(diem), 3) if diem else None
+
+
+def _bo_doc_cua_doan(cua_doan: list) -> str:
+    """Ai đọc đoạn này — để `tin_cay_nho_nhat: null` tự giải thích được.
+
+    Thiếu trường này thì người đọc tệp chẩn đoán gặp một ô trống và không
+    biết là "đọc hỏng" hay "loại đọc này vốn không chấm điểm".
+    """
+    nguon = {getattr(q, "source", "") or "cuc_bo" for q in cua_doan}
+    if nguon == {"may_chu"}:
+        return "may_chu"
+    if "may_chu" in nguon:
+        return "tron"
+    return "cuc_bo"
+
+
 def ghi_chan_doan_ocr(work_dir: str, quan_sat: list, *, transcript: list,
                       giay_ocr: float, dai_giay: float, so_moc: int,
                       thoi_gian_ocr: dict | None = None) -> None:
@@ -241,8 +265,20 @@ def ghi_chan_doan_ocr(work_dir: str, quan_sat: list, *, transcript: list,
                 # với transcript ở câu hỏi C.1.
                 "chu_cuc_bo": _khoa_doan(theo_khung.get(nhom[0], [])),
                 "so_vung": len(theo_khung.get(nhom[0], [])),
-                "tin_cay_nho_nhat": round(
-                    min((q.confidence for q in cua_doan), default=0.0), 3),
+                # Quan sát do MÁY CHỦ đọc không có điểm tin cậy: `_ap_ket_qua`
+                # đặt `confidence=None` (mô hình nhìn ảnh không trả điểm như
+                # RapidOCR). `min()` trên toàn None ném
+                # "'<' not supported between instances of 'NoneType' and
+                # 'NoneType'" — và vì cả hàm này bọc trong try/except chỉ
+                # cảnh báo, lượt chạy vẫn xanh còn tệp chẩn đoán thì KHÔNG BAO
+                # GIỜ được ghi. Lỗi có từ v3.17.14 và chỉ nổ ở nhánh TRẢ TIỀN,
+                # nên nhánh «Bỏ qua» vẫn ghi được — đó là lý do nó thoát mắt
+                # suốt hai đợt đo.
+                #
+                # `None` chứ KHÔNG phải 0.0: 0.0 đọc ra là "đọc rất tệ", còn
+                # sự thật là "không có thang điểm nào ở đây".
+                "tin_cay_nho_nhat": _tin_cay_thap_nhat(cua_doan),
+                "bo_doc": _bo_doc_cua_doan(cua_doan),
             })
 
         du_lieu = {

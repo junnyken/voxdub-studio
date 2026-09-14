@@ -17064,3 +17064,56 @@ mang cả hai chiều (khẳng định tiền đề: không loại trừ thì C�
 
 Thứ bắt được lỗi này là đi đọc số phiên bản trên Vibe Host SAU KHI đã tuyên bố
 xong — không phải một bảng test xanh.
+
+## E6 — C.4 ĐÃ CÓ CÂU TRẢ LỜI, và một lỗi thứ hai lộ ra (14/09/2026)
+
+Lượt chạy thật của chủ dự án trên v3.17.17 (nhật ký 13:47–13:54).
+
+### ✅ C.4 — bộ chẩn đoán làm đúng việc nó sinh ra để làm
+
+```
+autodub.text_regions - WARNING - Worker OCR ĐỜI CŨ (1) — không đo tách được
+khởi động/quét. Tệp đang chạy: C:\Users\trieunt\Downloads\
+VoxDub-Studio-v3.17.17-win64\_internal\autodub\media\text_regions_worker.py
+```
+
+Đúng thứ bản vá D3/E6 được viết ra để nói. Hai ngày trước câu trả lời là "chưa
+rõ vì sao"; nay nó tự khai đời và **chỉ đúng đường dẫn tệp**.
+
+**Kiểm chéo chính bản phát hành** (không tin suy đoán): tải
+`VoxDub-Studio-v3.17.17-win64.zip` từ GitHub, mở ra đọc
+`_internal/autodub/media/text_regions_worker.py` → `PHIEN_BAN_WORKER = 2`.
+
+⇒ **Bản dựng ĐÚNG. Tệp đời 1 trên máy người dùng là do lượt GIẢI NÉN không ghi
+đè tệp cũ** — họ giải nén bản mới vào thư mục đã có bản cũ (thư mục `output/`
+còn dữ liệu 9/9 và 9/12). Đây gần như chắc chắn cũng là nguyên nhân gốc của
+chính bí ẩn C.4 hôm 12/09.
+
+### 🔴 Lỗi thứ hai: tệp chẩn đoán KHÔNG BAO GIỜ ghi được ở nhánh TRẢ TIỀN
+
+```
+autodub.media.doc_chu_may_chu - WARNING - Không ghi được chẩn đoán OCR
+('<' not supported between instances of 'NoneType' and 'NoneType')
+```
+
+`_ap_ket_qua` đặt `confidence=None` cho mọi quan sát do máy chủ đọc (mô hình
+nhìn ảnh không trả thang điểm như RapidOCR). `ghi_chan_doan_ocr` rồi chạy
+`min()` trên toàn `None`.
+
+**Vì sao nó sống sót qua HAI đợt đo E6**: cả hàm bọc trong `try/except` chỉ
+CẢNH BÁO, nên lượt chạy vẫn xanh. Và nó **chỉ nổ ở nhánh trả tiền** — nhánh
+«Bỏ qua» giữ điểm RapidOCR nên ghi được bình thường. Cả hai tệp mang về phân
+tích trước đây đều là của lượt «Bỏ qua», nên không ai thấy. Lỗi có từ v3.17.14.
+
+> Đúng lớp lỗi đã ghi trong backlog: **nhánh mới phải chạy tới cùng**. Lần này
+> nhánh chưa ai chạy tới cùng lại là nhánh ĐẮT hơn.
+
+**Sửa**: lọc `None` trước khi so; trả `null` chứ KHÔNG phải `0.0` (0.0 đọc ra
+là "đọc rất tệ", sự thật là "không có thang điểm nào ở đây"); thêm trường
+`bo_doc` (`may_chu`/`cuc_bo`/`tron`) để `null` tự giải thích được.
+
+**Kiểm**: `tests/test_e6_chan_doan_ocr.py` — test tái hiện dựng đúng hình dạng
+`_ap_ket_qua` sinh ra và **tái hiện đúng nguyên văn câu lỗi trong nhật ký**;
+kèm test mặt ngược lại (nhánh «Bỏ qua» phải GIỮ điểm tin cậy, đừng sửa quá tay
+thành "luôn null"). Gỡ bản vá → đỏ đúng test đó. pytest đủ bộ: **2.881 đạt / 0
+hỏng**.

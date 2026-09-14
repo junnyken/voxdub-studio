@@ -274,3 +274,53 @@ def test_script_bo_dau_de_so_duoc_hai_phia():
     assert mod.bo_dau("Mệt mỏi thật sự") == "met moi that su"
     assert mod.bo_dau("hóa đơn") == "hoa don"
     assert mod.bo_dau("Đặt hàng") == "dat hang", "`đ` không tách được bằng NFD"
+
+
+# ===== Nhánh TRẢ TIỀN: máy chủ đọc thì quan sát KHÔNG có điểm tin cậy =====
+
+def test_TAI_HIEN_luot_tra_tien_14_09_khong_ghi_duoc_tep(tmp_path):
+    """Tái hiện đúng sự cố ngày 14/09 trên máy chủ dự án.
+
+    Nhật ký thật:
+
+        Không ghi được chẩn đoán OCR
+        ('<' not supported between instances of 'NoneType' and 'NoneType')
+
+    `_ap_ket_qua` đặt `confidence=None` cho mọi quan sát do máy chủ đọc (mô
+    hình nhìn ảnh không trả thang điểm như RapidOCR). `min()` trên toàn None
+    ném đúng câu đó — và vì `ghi_chan_doan_ocr` bọc try/except chỉ CẢNH BÁO,
+    lượt chạy vẫn xanh còn tệp thì không bao giờ có.
+
+    Lỗi có từ v3.17.14 nhưng CHỈ nổ ở nhánh trả tiền, nên nhánh «Bỏ qua» vẫn
+    ghi được — đó là lý do nó sống sót qua hai đợt đo E6: cả hai tệp mang về
+    phân tích đều là của lượt «Bỏ qua».
+    """
+    # Đúng hình dạng `_ap_ket_qua` sinh ra ở nhánh máy chủ: chữ CÓ DẤU,
+    # `confidence=None`, `source="may_chu"`.
+    may_chu = []
+    for i, chu in enumerate(("Hóa đơn điện tử", "Hóa đơn điện tử",
+                             "Mệt mỏi thật sự")):
+        q = _QuanSat(i, chu)
+        q.confidence = None
+        q.source = "may_chu"
+        may_chu.append(q)
+
+    m.ghi_chan_doan_ocr(str(tmp_path), may_chu, transcript=[], giay_ocr=1.0,
+                        dai_giay=10.0, so_moc=5)
+
+    d = _doc(tmp_path)
+    assert d["doan"], "tệp chẩn đoán KHÔNG được ghi — đúng sự cố 14/09"
+    assert d["doan"][0]["tin_cay_nho_nhat"] is None, (
+        "máy chủ không chấm điểm ⇒ phải là null, KHÔNG phải 0.0 — 0.0 đọc ra "
+        "là 'đọc rất tệ', còn sự thật là 'không có thang điểm nào ở đây'")
+    assert d["doan"][0]["bo_doc"] == "may_chu", (
+        "thiếu trường này thì null là một ô trống không giải thích được")
+
+
+def test_nhanh_BO_QUA_van_giu_nguyen_diem_tin_cay(tmp_path, quan_sat):
+    """Mặt ngược lại — đừng sửa quá tay thành 'luôn null'."""
+    m.ghi_chan_doan_ocr(str(tmp_path), quan_sat, transcript=[], giay_ocr=1.0,
+                        dai_giay=10.0, so_moc=5)
+    d = _doc(tmp_path)
+    assert isinstance(d["doan"][0]["tin_cay_nho_nhat"], float)
+    assert d["doan"][0]["bo_doc"] == "cuc_bo"
