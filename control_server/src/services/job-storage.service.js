@@ -95,6 +95,42 @@ async function chunksOf(fileId) {
   return res.deletedCount || 0
 }
 
+/**
+ * Chờ cho MỌI lệnh ghi chunk đang bay hạ cánh xong, rồi mới được phép dọn.
+ *
+ * Đây là mấu chốt của lỗi chunk mồ côi. Driver `mongodb` gửi từng chunk bằng
+ * `insertOne` bất đồng bộ và chỉ hỏi `isAborted()` TRƯỚC khi gửi
+ * (`lib/gridfs/upload.js`), nên lệnh đã bay thì không ai huỷ được: `abort()`
+ * chạy `deleteMany` xong xuôi, rồi chunk kia mới tới, và nằm lại vĩnh viễn —
+ * không bản ghi file nào trỏ tới nó, mọi cách dọn theo `filename` đều mù.
+ *
+ * Xoá thêm một lượt nữa ngay lập tức KHÔNG chữa được, vì lượt ấy đua lại đúng
+ * cuộc đua cũ. Chờ một khoảng cố định thì chỉ là đoán. Cách duy nhất chắc chắn
+ * là hỏi chính bộ đếm của driver: `state.outstandingRequests` là số lệnh đã
+ * gửi mà chưa có hồi đáp. Về 0 nghĩa là không còn gì đang bay, và vì stream đã
+ * huỷ nên cũng không lệnh mới nào được gửi nữa — lượt xoá sau đó là lượt cuối
+ * cùng thật sự.
+ *
+ * Trường này là NỘI BỘ của driver. Dùng thầm rồi im lặng là cách để hai năm
+ * nữa lỗi quay lại mà không ai hiểu vì sao, nên: vắng mặt thì hàm trả `false`
+ * để bên gọi biết mình đang mò, và có một test đỏ thẳng nếu bản driver sau bỏ
+ * nó đi (`tests/backup-excludes-blobs.test.js`).
+ *
+ * @returns `true` nếu chắc chắn không còn lệnh nào bay; `false` nếu hết hạn
+ *   chờ hoặc driver không còn bộ đếm — lúc đó bên gọi phải quét bù.
+ */
+async function choLenhGhiBayXong(dest, hanMs = 5000) {
+  const trangThai = dest && dest.state
+  if (!trangThai || typeof trangThai.outstandingRequests !== 'number') return false
+  const han = Date.now() + hanMs
+  while (trangThai.outstandingRequests > 0) {
+    if (Date.now() >= han) return false
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => { setTimeout(r, 2) })
+  }
+  return true
+}
+
 /** Mọi khoá đang có trong kho — dùng cho test "không sót file mồ côi" và
  * cho việc soi dung lượng khi cần. */
 async function listAll() {
@@ -173,13 +209,35 @@ async function writeUploadToStorage(fileStream, key, { maxMb, makeError, label =
     //  - `remove(key)` cho ca stream ĐÃ finish rồi mới hỏng (vd `truncated`),
     //    lúc đó bản ghi file có thật và `abort()` không còn tác dụng.
     cleanup: async () => {
+      // THỨ TỰ Ở ĐÂY LÀ CẢ BẢN VÁ: chờ trước, dọn sau.
+      //
+      // Bản trước dọn ngay rồi mới hết, nên chunk đang bay hạ cánh SAU lượt
+      // dọn và nằm lại. Lỗi ấy chỉ hiện khoảng 1/12 lượt CI, và 70 lượt chạy
+      // lại ở máy tôi (cả rảnh lẫn dưới tải) không tái hiện nổi lần nào —
+      // nên nó được vá dựa trên mã driver, kèm một test hoãn việc hạ cánh
+      // của lệnh ghi để cuộc đua xảy ra CHẮC CHẮN.
+      const daLang = await choLenhGhiBayXong(dest)
+
       try { await dest.abort() } catch { /* stream đã đóng — rơi xuống 2 bước dưới */ }
       await remove(key).catch(() => {})
-      // Quét lần cuối theo `files_id`: chỉ `abort()` thôi vẫn sót — đo thật
-      // là 1 chunk còn lại, do chunk đang bay được flush song song với lượt
-      // huỷ. Xoá theo id là cách DUY NHẤT tóm được chunk không có bản ghi
-      // file (tìm theo filename không bao giờ thấy chúng).
+      // Quét theo `files_id`: chỉ `abort()` thôi vẫn sót. Xoá theo id là cách
+      // DUY NHẤT tóm được chunk không có bản ghi file (tìm theo filename
+      // không bao giờ thấy chúng).
       await chunksOf(dest.id).catch(() => {})
+
+      // `daLang === false` nghĩa là hết hạn chờ, hoặc driver đã bỏ bộ đếm.
+      // Lúc đó lượt xoá trên KHÔNG còn là lượt cuối cùng chắc chắn, nên quét
+      // bù vài lượt. Đây là mò, và nó được gọi đúng tên: phần sót lại sau
+      // cùng vẫn hiện ra ở `stats().orphanChunks` cho trang quản trị, chứ
+      // không biến mất im lặng.
+      if (!daLang) {
+        for (let i = 0; i < 3; i += 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((r) => { setTimeout(r, 50) })
+          // eslint-disable-next-line no-await-in-loop
+          await chunksOf(dest.id).catch(() => {})
+        }
+      }
     },
     getSize: () => size(key),
     maxMb,

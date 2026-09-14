@@ -17244,3 +17244,53 @@ xanh trên Linux, nút VẪN cắt trên Windows của chủ dự án (`:họn �
 `/ẽ (33 Vox`). Bề rộng chữ phụ thuộc phông của máy, nên mọi con số đo ở đây
 đều là số của máy tôi. Test nay khẳng định **cơ chế** (không có `width`), chứ
 không khẳng định một con số.
+
+## V45-b — chunk mồ côi: vá cuộc đua thật sự, sau khi CI đỏ 1/12 lượt (14/09/2026)
+
+**Triệu chứng**: lượt CI của commit RS-16 đỏ ở `node-tests` —
+`backup-excludes-blobs.test.js:63` báo còn **1 chunk mồ côi** (`files = 0`,
+`chunks = 1`). RS-16 không đụng một dòng Node nào, và 11 lượt CI trước đó đều
+xanh ⇒ đỏ chập chờn có sẵn, không phải do bản vá.
+
+**Không tái hiện được bằng cách chạy lại**: 40 lượt lúc máy rảnh + 30 lượt dưới
+tải (24 tiến trình tranh 12 nhân) = **70 lượt, 0 hỏng**. Nên "chạy nhiều lượt
+thấy hết đỏ" KHÔNG chứng minh được gì ở đây, và không được dùng làm bằng chứng.
+
+**Cuộc đua, đọc từ mã driver `mongodb` 6.20.0** (`lib/gridfs/upload.js`): mỗi
+chunk gửi bằng `insertOne` bất đồng bộ; `++state.outstandingRequests` ngay
+trước khi gửi, `--` khi có hồi đáp; `isAborted()` chỉ được hỏi **trước khi
+gửi**. Lệnh đã bay thì không huỷ được ⇒ `abort()` chạy `deleteMany` xong, chunk
+kia mới hạ cánh, và nằm lại vĩnh viễn: không bản ghi file nào trỏ tới nó nên
+mọi cách dọn theo `filename` đều mù.
+
+**Vì sao bản vá cũ không đủ**: nó thêm một lượt `chunksOf(dest.id)` ngay sau
+`abort()` — tức đua lại đúng cuộc đua cũ.
+
+**Tái hiện TẤT ĐỊNH**: hoãn việc **hạ cánh thật** của lệnh ghi chunk 150 ms.
+Hoãn *lời hứa* thì không tái hiện được — byte vẫn vào DB đúng giờ và
+`deleteMany` vẫn tóm được, tức mô phỏng sai cuộc đua. Làm đúng thì test đỏ
+ngay, đỏ đúng triệu chứng CI: `files = 0, chunks = 1`.
+
+**Bản vá là THỨ TỰ, không phải thêm lượt xoá**: chờ `state.outstandingRequests`
+về 0 rồi mới dọn. Về 0 nghĩa là không còn lệnh nào bay, và stream đã huỷ nên
+không lệnh mới nào được gửi ⇒ lượt xoá sau đó mới là lượt cuối cùng thật sự.
+
+**Kiểm**: `tests/backup-excludes-blobs.test.js` — 4 test (thêm 2).
+
+| Gỡ gì | Kết quả |
+|---|---|
+| Bỏ lượt chờ | **đỏ** — còn 1 chunk mồ côi |
+| Giả lập driver bỏ bộ đếm | **xanh** — đường lùi quét bù cứu được |
+
+npm test **719 đạt / 0 hỏng / 1 bỏ qua** (720).
+
+**Nợ đã nhận, ghi đúng tên**:
+1. Bản vá dựa vào `state.outstandingRequests` — trường **nội bộ** của driver.
+   Có test đỏ thẳng nếu bản sau bỏ nó; hàm trả `false` khi vắng mặt để bên gọi
+   biết mình đang mò.
+2. Đường lùi (quét bù 3 × 50 ms) **là mò**. Chunk hạ cánh muộn hơn vẫn lọt.
+   Phần sót hiện ra ở `stats().orphanChunks` trên trang quản trị — chưa có ai
+   **dọn** nó, chỉ mới **đếm**. Muốn kín hẳn thì cần một lượt quét định kỳ.
+3. Chưa chứng minh được bản vá chữa đúng lượt đỏ trên CI, vì lượt đỏ ấy không
+   tái hiện được. Chỉ chứng minh được: cơ chế đọc từ mã driver khớp triệu
+   chứng, và bản vá đóng đúng cơ chế đó.
