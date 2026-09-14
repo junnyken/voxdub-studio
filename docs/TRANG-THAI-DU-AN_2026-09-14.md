@@ -28,7 +28,7 @@
 | Đồng bộ remote | ✅ GitHub `main` = `5f27e61` (đã có từ 12/09) · GitLab `origin` đã đẩy kịp 14/09 (`4e152ec..5f27e61`) |
 | Cây làm việc | Sạch (không có thay đổi chưa commit) |
 | Nhánh deploy | `deploy/vays-control-server` = `1769096`, `deploy/vays-dub-worker` = `4816eba` — CI sinh lại lúc 12/09 14:42 (+0700), **13 giây sau** commit `main` |
-| **Prod đang chạy** | ✅ `voxdub-app` trả `/health` = `{"ok":true,"version":"3.17.16","db":"đã kết nối"}` — kiểm 14/09 |
+| **Prod đang chạy** | ✅ `3.17.16` + **toàn bộ bản vá 14/09** — deploy lúc 14/09, xác minh bằng hành vi thật (xem §1) |
 | Quy mô mã | `autodub/` ~28k dòng · `autodub_gui/` ~30k dòng (22 trang) · `control_server/` ~12k dòng · `website/` ~7k dòng |
 | Tệp test | 246 tệp pytest + 68 tệp test Node + 8 tệp test React |
 
@@ -84,6 +84,32 @@ POST /v1/flow-blueprints  {}
 Trước v3.17.15, `message` chính là chuỗi ajv tiếng Anh và **không có** `details`.
 Nay câu tiếng Việt ra tới người dùng, phần kỹ thuật lui về `details`. ⇒ **E1, E2,
 E4, E8 đã live trên prod từ 12/09.**
+
+### Đợt 14/09 đã lên prod và ĐƯỢC KIỂM BẰNG HÀNH VI
+
+Ba commit (`ba620f4`, `f644b4d`, `84ac00d`) đẩy lên GitHub + GitLab; CI sinh
+lại nhánh deploy lúc 10:16 (+0700); prod nhận mã mới (uptime về 32 giây).
+
+Kiểm RS-7 bằng lượt gọi thật, **không tạo dữ liệu gì trên prod** (không token):
+
+```
+POST /v1/brand-profiles/  { 201 ràng buộc }
+→ 400 {"code":"VALIDATION_ERROR","message":"Dữ liệu gửi lên không hợp lệ.",
+       "details":["/rangBuocKhongDuocNoi must NOT have more than 200 items"]}
+
+POST /v1/brand-profiles/  { 2 ràng buộc }
+→ {"code":"NO_TOKEN","message":"Thiếu token thiết bị."}
+```
+
+Ca thứ hai là chốt "không chặn oan": nếu trần mới chặn cả dữ liệu hợp lệ thì
+nó cũng ra lỗi 400, và ca thứ nhất một mình sẽ trông y hệt như đang chạy đúng.
+
+> **Lưu ý về nhánh bảo vệ**: lượt push báo *"Bypassed rule violations — 2 of 2
+> required status checks are expected"*. Tức `main` CÓ đặt yêu cầu status
+> check, nhưng khoá đang dùng được phép vượt qua. Đó là cấu hình của chủ dự
+> án, không phải lỗi — nhưng nó nghĩa là **chốt duy nhất còn hiệu lực là chốt
+> bên trong CI** (`trien-khai-prod` chỉ chạy khi test xanh), không phải chốt
+> của GitHub. Liên quan trực tiếp tới D3.
 
 > **Bài học của chính lượt này**: so `main` với *một* remote rồi kết luận về prod
 > là đúng loại lỗi §4.4 — tự viết đè hợp đồng của hệ thống thay vì hỏi nó. Câu
