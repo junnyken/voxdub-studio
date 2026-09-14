@@ -249,6 +249,42 @@ mới xấp xỉ được runner.
 > nguyên ở bản xanh gần nhất. Trước D3, cả ba đã force-push mã đỏ lên nguồn sự
 > thật của prod.
 
+### Lỗi thứ tư — tôi tự gây ra, và nó chỉ lộ ra trên PROD
+
+Sau khi lượt xanh chốt xong, một commit **chỉ sửa tài liệu** vẫn làm prod deploy
+lại. Đo trên Vibe Host trong cùng ngày:
+
+| | trước D3 | sau vài commit tài liệu |
+|---|---|---|
+| `voxdub-app` | v89 | **v92** |
+| `voxdub-dub-worker` | v51 | **v54** |
+
+**Nguyên nhân:** `SOURCE_SHA` mang SHA nguồn nên nó đổi ở **mọi** commit — mà
+nó lại nằm **trong** thư mục build. Nên phép so *"thư mục build có đổi không"*
+(`git diff --quiet "$truoc_app" "$sau_app" -- webapp/`) luôn thấy khác, và
+chính sách **"chỉ deploy dịch vụ có thư mục build thay đổi"** (có từ C57, và là
+một yêu cầu của chính mini-spec này) bị vô hiệu. Riêng worker tốn ~11 phút dựng
+lại mỗi lượt, đổi lại không có gì.
+
+**Sửa:** loại đúng tệp đó khỏi phép so bằng pathspec —
+`-- webapp/ ':(exclude)webapp/control_server/SOURCE_SHA'` và tương tự cho
+worker.
+
+**Không mất truy vết:** prod giữ ảnh cũ thì `/health` khai đúng SHA đã dựng ra
+ảnh đó. Khai SHA `main` mới nhất trong khi *không* dựng lại mới là nói dối —
+nên "`commit` ở `/health` cũ hơn `main`" là trạng thái ĐÚNG, không phải drift.
+
+**Vì sao 26 test trước đó không bắt:** không test nào chạy *hai lượt sinh nhánh
+từ hai commit khác nhau* rồi hỏi đúng câu lệnh CI dùng để quyết định deploy.
+Đã thêm `test_DAU_CUOI_hai_commit_chi_khac_TAI_LIEU_thi_thu_muc_build_KHONG_doi`
+— nó tự mang cả hai chiều: khẳng định trước rằng **không** loại trừ thì phép so
+CÓ thấy khác (tiền đề), rồi khẳng định **có** loại trừ thì không.
+
+> Bốn lỗi, cùng một hình dạng: tôi kiểm ở tầng dễ hơn tầng thứ sẽ chạy. Ba lỗi
+> đầu là môi trường test; lỗi này là **hệ quả trên hệ thống thật mà không test
+> nào mô phỏng**. Thứ bắt được nó là đi đọc số phiên bản trên Vibe Host sau khi
+> đã tuyên bố xong — chứ không phải một bảng test xanh.
+
 ## Giới hạn còn lại
 
 1. **Chưa xác nhận được cấu hình auto-deploy của Vibe Host.** `get_project`

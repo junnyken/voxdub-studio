@@ -194,14 +194,26 @@ jobs:
 
           # Chưa có nhánh cũ để so (lần đầu) thì coi như CÓ đổi — thà dựng thừa
           # một lượt còn hơn để prod đứng im mà tưởng đã lên.
-          if [ -z "$truoc_app" ] || ! git diff --quiet "$truoc_app" "$sau_app" -- webapp/; then
+          # D3 (sửa 14/09, sau khi tự gây ra): LOẠI `SOURCE_SHA` khỏi phép so.
+          # Tệp đó mang SHA nguồn nên nó đổi ở MỌI commit, kể cả commit chỉ sửa
+          # tài liệu — mà nó lại nằm trong thư mục build. Hậu quả đo được ngay
+          # trong ngày: `voxdub-app` nhảy v89→v92 và worker v51→v54 chỉ vì mấy
+          # commit tài liệu, tức chính sách "chỉ deploy dịch vụ có thư mục build
+          # thay đổi" bị vô hiệu, và worker thì tốn ~11 phút dựng lại mỗi lượt.
+          #
+          # Bỏ qua nó ở đây KHÔNG làm mất truy vết: prod giữ ảnh cũ thì `/health`
+          # khai đúng SHA đã dựng ra ảnh đó. Khai SHA `main` mới nhất trong khi
+          # không dựng lại mới là nói dối.
+          if [ -z "$truoc_app" ] || ! git diff --quiet "$truoc_app" "$sau_app" \
+              -- webapp/ ':(exclude)webapp/control_server/SOURCE_SHA'; then
             echo "app=1" >> "$GITHUB_OUTPUT"
             echo "→ thư mục webapp/ có đổi: cần deploy voxdub-app"
           else
             echo "app=0" >> "$GITHUB_OUTPUT"
             echo "→ webapp/ không đổi: bỏ qua deploy voxdub-app"
           fi
-          if [ -z "$truoc_worker" ] || ! git diff --quiet "$truoc_worker" "$sau_worker" -- dub-worker/; then
+          if [ -z "$truoc_worker" ] || ! git diff --quiet "$truoc_worker" "$sau_worker" \
+              -- dub-worker/ ':(exclude)dub-worker/SOURCE_SHA'; then
             echo "worker=1" >> "$GITHUB_OUTPUT"
             echo "→ thư mục dub-worker/ có đổi: cần deploy voxdub-dub-worker"
           else

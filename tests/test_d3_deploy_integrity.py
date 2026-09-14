@@ -439,3 +439,120 @@ def test_SOURCE_SHA_nam_trong_danh_sach_bo_qua_cua_bo_do():
     assert '"SOURCE_SHA"' in bo_do_ma, (
         "tệp do D3 sinh ra nằm đúng vùng bộ dò so sánh — không bỏ qua thì "
         "mọi lượt CI sau này đều đỏ")
+
+
+# ==== 7. SOURCE_SHA không được phá chính sách "chỉ deploy thứ THẬT SỰ đổi" ====
+
+def test_doi_SOURCE_SHA_khong_duoc_tinh_la_THU_MUC_BUILD_doi():
+    """Lỗi tôi tự gây ra trong chính D3, đo được trên prod trong cùng ngày.
+
+    `SOURCE_SHA` mang SHA nguồn nên nó đổi ở MỌI commit — mà nó lại nằm TRONG
+    thư mục build. Kết quả: mọi commit, kể cả commit chỉ sửa tài liệu, đều làm
+    `webapp/` và `dub-worker/` "có đổi" ⇒ deploy lại cả hai dịch vụ. Đo thật
+    14/09: `voxdub-app` nhảy v89→v92 và `voxdub-dub-worker` v51→v54 chỉ vì mấy
+    commit tài liệu; riêng worker tốn ~11 phút dựng lại mỗi lượt.
+
+    Chính sách "chỉ deploy dịch vụ có thư mục build thay đổi" có từ C57 và
+    KHÔNG được mất vì một tệp chẩn đoán.
+    """
+    wf = open(WORKFLOW, encoding="utf-8").read()
+    for loai in ("':(exclude)webapp/control_server/SOURCE_SHA'",
+                 "':(exclude)dub-worker/SOURCE_SHA'"):
+        assert loai in wf, (
+            f"phép so thư mục build không loại {loai} ⇒ mọi commit đều deploy "
+            "lại cả hai dịch vụ")
+
+
+def test_DAU_CUOI_hai_commit_chi_khac_TAI_LIEU_thi_thu_muc_build_KHONG_doi(tmp_path):
+    """Chạy thật: sinh nhánh từ HAI commit chỉ khác nhau ở tài liệu.
+
+    Rồi hỏi đúng câu lệnh mà CI dùng để quyết định có deploy hay không. Đây là
+    phép đo duy nhất chứng minh được chính sách còn nguyên — đọc workflow chỉ
+    chứng minh chuỗi ký tự có mặt.
+    """
+    hai = subprocess.run(
+        ["git", "log", "--format=%H", "-n", "40", "--", "docs/"],
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8",
+        errors="replace", check=True).stdout.split()
+    # Tìm một cặp commit liên tiếp KHÔNG đụng thư mục build nào.
+    cap = None
+    for sau in hai:
+        truoc = subprocess.run(["git", "rev-parse", f"{sau}^"], cwd=REPO,
+                               capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
+        if truoc.returncode != 0:
+            continue
+        truoc = truoc.stdout.strip()
+        doi = subprocess.run(
+            ["git", "diff", "--quiet", truoc, sau, "--",
+             "control_server/", "website/", "autodub/"],
+            cwd=REPO, capture_output=True)
+        if doi.returncode == 0:          # không đụng nguồn của thư mục build
+            cap = (truoc, sau)
+            break
+    if cap is None:
+        pytest.skip("không tìm được cặp commit chỉ khác tài liệu trong 40 lượt")
+
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    subprocess.run(["git", "-C", str(remote), "config",
+                    "receive.shallowUpdate", "true"], check=True)
+
+    def _dau(ref):
+        r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", ref],
+                           cwd=REPO, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        return r.stdout.strip() or None
+
+    NHANH_CUC_BO = ["deploy/vays-control-server", "deploy/vays-dub-worker"]
+    truoc_ref = {n: _dau(n) for n in NHANH_CUC_BO}
+    moi_truong_goc = {
+        "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com",
+        "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@example.com",
+    }
+
+    try:
+        sinh = {}
+        for nhan, sha in zip(("truoc", "sau"), cap):
+            for ten in ("gen_vays_control_server_branch.sh",
+                        "gen_vays_dub_worker_branch.sh"):
+                kq = subprocess.run(
+                    ["bash", os.path.join(REPO, "scripts", ten)], cwd=REPO,
+                    env={**os.environ, **moi_truong_goc,
+                         "REMOTE": str(remote), "GOC": sha},
+                    capture_output=True, text=True, encoding="utf-8",
+                    errors="replace", timeout=300)
+                assert kq.returncode == 0, f"{ten} hỏng: {kq.stderr[-400:]}"
+            sinh[nhan] = {
+                n: subprocess.run(["git", "rev-parse", n], cwd=REPO,
+                                  capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace",
+                                  check=True).stdout.strip()
+                for n in NHANH_CUC_BO}
+
+        # ĐÚNG câu lệnh CI dùng để quyết định deploy hay không.
+        for nhanh, thu_muc, loai in (
+                ("deploy/vays-control-server", "webapp/",
+                 ":(exclude)webapp/control_server/SOURCE_SHA"),
+                ("deploy/vays-dub-worker", "dub-worker/",
+                 ":(exclude)dub-worker/SOURCE_SHA")):
+            a, b = sinh["truoc"][nhanh], sinh["sau"][nhanh]
+
+            khong_loai = subprocess.run(
+                ["git", "diff", "--quiet", a, b, "--", thu_muc],
+                cwd=REPO, capture_output=True)
+            assert khong_loai.returncode != 0, (
+                f"{thu_muc}: tiền đề của test sai — hai commit này đáng lẽ phải "
+                "khác nhau ở SOURCE_SHA")
+
+            co_loai = subprocess.run(
+                ["git", "diff", "--quiet", a, b, "--", thu_muc, loai],
+                cwd=REPO, capture_output=True)
+            assert co_loai.returncode == 0, (
+                f"{thu_muc}: hai commit chỉ khác TÀI LIỆU mà vẫn tính là thư "
+                "mục build đổi ⇒ CI sẽ deploy lại dịch vụ này ở mọi commit")
+    finally:
+        for n, cu in truoc_ref.items():
+            if cu:
+                subprocess.run(["git", "branch", "-f", n, cu], cwd=REPO,
+                               capture_output=True)

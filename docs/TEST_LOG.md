@@ -17042,3 +17042,25 @@ một bản sao NÔNG thật (26 đạt).
 Cả ba lượt đỏ đó đồng thời là bằng chứng live cho chính cổng D3: mỗi lượt đều
 cho `sinh-nhanh-deploy` SKIPPED. Trước D3, cả ba đã force-push mã đỏ lên nguồn
 sự thật của prod.
+
+### D3 — lỗi thứ tư, chỉ lộ ra trên PROD (14/09/2026)
+
+Sau khi lượt CI xanh chốt xong, một commit **chỉ sửa tài liệu** vẫn làm prod
+deploy lại: `voxdub-app` v89→**v92**, `voxdub-dub-worker` v51→**v54**.
+
+`SOURCE_SHA` đổi ở MỌI commit mà lại nằm TRONG thư mục build, nên phép so "thư
+mục build có đổi không" luôn thấy khác ⇒ chính sách "chỉ deploy dịch vụ có thư
+mục build thay đổi" (C57, và là yêu cầu của chính D3) bị vô hiệu. Worker tốn
+~11 phút dựng lại mỗi lượt, đổi lại không có gì.
+
+Sửa: pathspec `':(exclude)webapp/control_server/SOURCE_SHA'` (và bản worker).
+Không mất truy vết — prod giữ ảnh cũ thì `/health` khai đúng SHA đã dựng ra ảnh
+đó; "`commit` cũ hơn `main`" là trạng thái ĐÚNG, không phải drift.
+
+26 test trước đó không bắt được vì không test nào sinh nhánh từ HAI commit khác
+nhau rồi hỏi đúng câu lệnh CI dùng để quyết định deploy. Đã thêm
+`test_DAU_CUOI_hai_commit_chi_khac_TAI_LIEU_thi_thu_muc_build_KHONG_doi`, tự
+mang cả hai chiều (khẳng định tiền đề: không loại trừ thì CÓ thấy khác).
+
+Thứ bắt được lỗi này là đi đọc số phiên bản trên Vibe Host SAU KHI đã tuyên bố
+xong — không phải một bảng test xanh.
