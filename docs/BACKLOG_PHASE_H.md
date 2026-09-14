@@ -528,7 +528,7 @@ Phải **đo trước khi sửa**. Xếp theo mức nghiêm trọng agent gán.
 | ~~RS-13~~ | ⚠️ **MÔ TẢ SAI, đã sửa phần thật 14/09** — `ghiSoDung()` TỰ bắt lỗi và ghi nhật ký bên trong, nên `.catch(()=>{})` là **mã chết**, không nuốt lỗi nào. Trần ngày KHÔNG hề tắt. Phần thật: nó *đọc như* đang nuốt, và không chỗ gọi nào truyền `request.log` | `flow-blueprints.js` |
 | ~~RS-14~~ | ⚠️ **HẬU QUẢ NÓI QUÁ, đã sửa 14/09** — token nằm trong **kho khoá hệ điều hành** nên bản mới vẫn đọc ra token cũ: **KHÔNG** đăng ký lại thiết bị. Phần thật: phiên HTTP thứ hai + không chịu ảnh hưởng `reset_client()` | `doc_chu_may_chu.py` |
 | ~~RS-15~~ | ✅ **ĐÃ SỬA 14/09** — bảng nhãn tiếng Việt; khoá lạ hiện NGUYÊN VĂN chứ không nuốt thành "Không rõ" | `flow_blueprint_page.py` |
-| **RS-16** | 🔴 **XÁC NHẬN CÓ THẬT — CỐ Ý CHƯA SỬA**, cần một lát riêng. Xem mục bên dưới | `storyboard_page.py` |
+| ~~RS-16~~ | ✅ **ĐÃ SỬA 14/09 (lát riêng)** — phán quyết + dấu băm nay đi xuyên tới tầng dựng video; `dung_du_an()` kiểm LẠI và ném `AnhAiChuaDat`. Xem `MINI-SPEC_RS16_*.md` | `du_an_tu_kich_ban.py` + `storyboard_page.py` |
 | ~~RS-17~~ | ✅ **ĐÃ SỬA 14/09** — nói đúng số đoạn (đánh số từ 1) + nguyên nhân thường gặp | `product_video.py` |
 | ~~RS-18~~ | ✅ **ĐÃ SỬA 14/09** — hỏi trần `kiem_anh_minh_hoa` TRƯỚC khi vẽ và trước khi trừ tiền (cùng mẫu RS-3) | `ai.js` |
 | ~~RS-19~~ | ✅ **ĐÃ SỬA 14/09** — dọn trong `finally` (lượt kiểm hỏng thì càng phải dọn) | `story_image.py` |
@@ -552,7 +552,7 @@ quá mức thật; **một** mục có thật nhưng cố ý chưa sửa.
 | RS-13 | **Mô tả sai** — xem dưới. |
 | RS-14 | **Hậu quả nói quá** — xem dưới. |
 | RS-15 | Bảng nhãn tiếng Việt; khoá lạ hiện nguyên văn. |
-| RS-16 | **Có thật, cố ý chưa sửa** — xem dưới. |
+| RS-16 | **Có thật; đã sửa ở lát riêng cùng ngày** — xem dưới. |
 | RS-17 | Nói đúng số đoạn + nguyên nhân thường gặp. |
 | RS-18 | Hỏi trần kiểm TRƯỚC khi vẽ và trừ tiền. |
 | RS-19 | Dọn tệp tạm trong `finally`. |
@@ -586,7 +586,7 @@ thừa, và — đáng kể nhất — **không chịu ảnh hưởng của `res
 đổi địa chỉ máy chủ giữa chừng thì đường này và mọi đường khác trỏ về hai nơi
 khác nhau. Đã đổi sang `get_client()`.
 
-### 🔴 RS-16 — CÓ THẬT, cố ý chưa sửa: cần một lát riêng
+### ✅ RS-16 — CÓ THẬT, đã đóng bằng một lát riêng (14/09)
 
 `storyboard_page._ve_anh_xong()` giữ **đúng đường dẫn** (`self._anh[i] =
 ket.duong_dan`) và vứt toàn bộ `phan_quyet`, `da_kiem`, `da_dong_nhan`,
@@ -610,6 +610,23 @@ một cổng TUÂN THỦ là cách tệ nhất để đóng nó (cùng lý lẽ 
 ở máy chủ, nên chưa máy nào sinh được ảnh minh hoạ AI. Cổng này phải đóng
 **trước** khi chốt đó chuyển sang `calibration` — ghi thẳng vào đây để nó
 không bị quên đúng lúc quan trọng.
+
+**KẾT CỤC (14/09, cùng ngày):** đã đóng. Chi tiết đầy đủ trong
+`docs/MINI-SPEC_RS16_Anh_AI_Qua_Cong_Tuan_Thu.md`. Ba điểm đáng nhớ:
+
+1. **Chốt nằm ở `dung_du_an()`**, không ở giao diện — đó là hàm duy nhất tạo ra
+   tệp video từ kịch bản, tức chỗ cuối cùng còn nói được "không". Cổng ở nút bấm
+   thì mọi lối gọi khác đi vòng qua được.
+2. **Bẫy từ vựng:** H4d phán `"DAT"`, C1 đọc `"SAFE"`. Ánh xạ được VIẾT RA
+   (`_PHAN_QUYET_SANG_KET_LUAN`); phán quyết lạ giữ nguyên chuỗi gốc nên không
+   khớp `"SAFE"` và **bị chặn** — "chưa biết" phải là "không cho qua".
+3. **Xoá bản ghi khi người dùng thay ảnh** (cả `_chon_mot` lẫn `_chon_nhieu`).
+   Giữ lại thì băm của tấm AI cũ đem so với tấm mới ⇒ chặn oan; hoặc nếu tình cờ
+   khớp thì một tấm chưa kiểm được tính là đã duyệt.
+
+12 test. Hai phép chứng minh phủ định cho hai tập đỏ **khác nhau** (bỏ cổng ⇒ 5 ca
+chặn đỏ; bỏ ánh xạ ⇒ 5 ca gồm cả hai ca *cho qua*) — đúng thiết kế: cổng giữ chiều
+chặn, ánh xạ giữ chiều cho qua.
 
 ---
 

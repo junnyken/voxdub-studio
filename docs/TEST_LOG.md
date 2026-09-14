@@ -17192,3 +17192,55 @@ pytest ĐỦ BỘ **2.915 đạt / 0 hỏng**; npm test **717 đạt / 0 hỏng*
 đúng con số, KHÔNG chứng minh mô hình tuân theo. Mốc đối chứng đã có: 170s/34s
 = 5,0×. Lượt đo sau: cùng video, cùng brand, viết lại (12 Vox), đọc dòng cảnh
 báo ngay tại H3. Đạt = tỉ lệ dưới 1,5×.
+
+## RS-16 — ảnh do AI vẽ nay phải qua cổng tuân thủ (14/09/2026)
+
+**Gap** (chi tiết: `docs/MINI-SPEC_RS16_Anh_AI_Qua_Cong_Tuan_Thu.md`): H4d trả
+về phán quyết đầy đủ (`phan_quyet`, `da_kiem`, `da_dong_nhan`, `bam`) nhưng
+trang H4 chỉ giữ `ket.duong_dan` và vứt phần còn lại. `DungDuAnWorker` vì thế
+nhận một danh sách **chuỗi**, nên `kiem_lai_truoc_khi_xuat()` — vốn cần một
+`AnhNguon` đủ bốn trường ấy — **không có gì để chạy**. Cổng tồn tại, viết
+đúng, và không bao giờ được gọi.
+
+Không phải suy đoán: docstring của `product_video.dung_video_tu_anh_nguoi_dung`
+đã cảnh báo đúng chuyện này **từ trước khi H4d ra đời**.
+
+**Sửa**:
+1. Chốt đặt trong `dung_du_an()` — hàm DUY NHẤT tạo ra tệp video từ kịch bản,
+   tức chỗ cuối cùng còn nói được "không". Cổng ở giao diện thì test, script,
+   và mọi trang GUI về sau đều đi vòng qua được.
+2. Kiểm **lại** tại chỗ dựng thay vì tin cờ đã lưu — giữa lúc vẽ và lúc dựng
+   có thể là vài ngày, và phép kiểm so lại BĂM của tệp.
+3. `AnhAiChuaDat` là lỗi riêng, không gộp `ThieuAnh`: ở đây ảnh CÓ, kịch bản
+   SẠCH, chỉ tấm ảnh không được phép đem bán. Câu báo nói thẳng hai lối ra.
+4. Ánh xạ từ vựng `_PHAN_QUYET_SANG_KET_LUAN = {"DAT": "SAFE"}` được VIẾT RA.
+   Phán quyết lạ giữ nguyên chuỗi gốc ⇒ không khớp `"SAFE"` ⇒ bị chặn.
+5. Giao diện giữ `self._anh_ai` và **xoá** bằng `.pop(i, None)` ở CẢ HAI đường
+   chọn ảnh thủ công, reset trong `dat_kich_ban`.
+
+**Kiểm**: `tests/test_rs16_anh_ai_qua_cong_tuan_thu.py` (12) — 5 ca chặn,
+3 ca cho qua, 4 ca nối dây.
+
+**Chứng minh phủ định** cho hai tập đỏ **khác nhau**, đúng thiết kế:
+
+| Gỡ gì | Kết quả |
+|---|---|
+| `if anh_ai:` → `if False:` | 5 đỏ — bốn ca chặn + ca phán quyết lạ |
+| `_PHAN_QUYET_SANG_KET_LUAN = {}` | 5 đỏ — gồm cả hai ca *cho qua* |
+
+Gỡ cổng mà tập đỏ trùng với gỡ ánh xạ thì một trong hai là thừa; chúng khác
+nhau nên cả hai đều có việc.
+
+> Một bẫy trong chính bộ test, đã sửa: ba ca "phải xanh" lúc đầu đỏ với
+> `VideoLechThoiLuong` — không phải RS-16 chặn, mà `do_thoi_luong` giả của tôi
+> trả 10,0s trong khi dòng thời gian là 8,84s, nên cổng **H4c-1** nổ trước.
+> Sửa bằng cách tính tổng thật qua `dung_storyboard()`. Test đỏ vì ĐỒ GIẢ sai,
+> không phải vì mã sai.
+
+**Kèm trong cùng commit — nút bảng tự co theo phông máy.** Bỏ hẳn `width` cứng
+ở cột nút của H3 và H4 (`Column("")` ⇒ `ResizeToContents`). Đây là lần sửa
+**thứ ba** cho cùng triệu chứng: 110→160 rồi 120→240, test đo `sizeHint()`
+xanh trên Linux, nút VẪN cắt trên Windows của chủ dự án (`:họn ảnh..`,
+`/ẽ (33 Vox`). Bề rộng chữ phụ thuộc phông của máy, nên mọi con số đo ở đây
+đều là số của máy tôi. Test nay khẳng định **cơ chế** (không có `width`), chứ
+không khẳng định một con số.

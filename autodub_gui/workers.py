@@ -1214,19 +1214,22 @@ class DungDuAnWorker(QThread):
     failed = Signal(str)
 
     def __init__(self, kich_ban: dict, anh: list, work_dir: str, *,
-                 blueprint: dict | None = None, parent=None):
+                 blueprint: dict | None = None, anh_ai: dict | None = None,
+                 parent=None):
         super().__init__(parent)
         self._kich_ban = kich_ban
         self._anh = list(anh)
         self._work_dir = work_dir
         self._blueprint = blueprint
+        #: RS-16 — phán quyết tuân thủ của các đoạn dùng ảnh do AI vẽ.
+        self._anh_ai = dict(anh_ai or {})
 
     def run(self) -> None:
         from autodub.du_an_tu_kich_ban import dung_du_an
 
         try:
             ket = dung_du_an(self._kich_ban, self._anh, self._work_dir,
-                             blueprint=self._blueprint)
+                             blueprint=self._blueprint, anh_ai=self._anh_ai)
             self.finished_ok.emit(ket)
         except Exception as e:  # noqa: BLE001 — mọi lỗi phải tới được giao diện
             self.failed.emit(_ghi_loi(e))

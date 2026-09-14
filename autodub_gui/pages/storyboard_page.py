@@ -84,6 +84,12 @@ class StoryboardPage(BasePage):
         self._blueprint: dict | None = None
         self._board = None
         self._anh: list[str] = []
+        #: RS-16 — phán quyết tuân thủ của ảnh do AI VẼ, theo chỉ số đoạn.
+        #: Trước đây trang này chỉ giữ đường dẫn và vứt hết phán quyết, nên
+        #: `kiem_lai_truoc_khi_xuat()` ở tầng dựng video không có gì để chạy.
+        #: Đoạn nào dùng ảnh người dùng TỰ CHỌN thì KHÔNG có mặt ở đây — ảnh
+        #: thật của người ta không thuộc diện kiểm ảnh AI.
+        self._anh_ai: dict[int, dict] = {}
         self._worker: DungDuAnWorker | None = None
         self._bp_worker: FlowBlueprintCrudWorker | None = None
         self._ve_worker: SinhAnhMinhHoaWorker | None = None
@@ -128,12 +134,16 @@ class StoryboardPage(BasePage):
              Column("Lời đọc", stretch=True),
              Column("Thời lượng", width=150),
              Column("Ảnh", stretch=True),
-             # 120px chứa HAI nút cạnh nhau («Chọn ảnh…» + «Vẽ (33 Vox)») nên
-             # cả hai bị cắt sạch chữ — người dùng báo 14/09, và ở trang này
-             # nó nặng hơn H3: hai nút trắng trơn thì không đoán nổi cái nào
-             # tốn tiền. Đo bằng `sizeHint` của chính hai nút, không áng chừng
-             # (xem tests/test_h4_nut_anh_du_rong.py).
-             Column("", width=240)],
+             # KHÔNG đặt `width`: cột tự co theo nội dung (`ResizeToContents`).
+             #
+             # Đặt số cứng là sai về nguyên tắc — bề rộng chữ phụ thuộc PHÔNG
+             # CỦA MÁY. Tôi đã nới 120→240 và viết hẳn một test đo `sizeHint()`,
+             # test xanh trên Linux nhưng nút VẪN bị cắt trên Windows của chủ
+             # dự án (`:họn ảnh..` / `/ẽ (33 Vox`). Đo trên máy mình rồi chốt
+             # một con số là đúng cái bẫy mà chính chú thích cũ đã cảnh báo.
+             #
+             # Để Qt tự đo widget thật thì không còn con số nào để sai.
+             Column("")],
             empty_title="Chưa có kịch bản",
             empty_description="Mở một kịch bản đã duyệt từ trang «Viết kịch bản».")
         root.addWidget(self.bang, 1)
@@ -166,6 +176,7 @@ class StoryboardPage(BasePage):
         self._kich_ban = kich_ban or {}
         self._blueprint = None
         self._anh = [""] * len(self._kich_ban.get("beats") or [])
+        self._anh_ai = {}                  # RS-16 — kịch bản khác, ảnh khác
         self._tai_blueprint()
         self._ve()
 
@@ -344,6 +355,11 @@ class StoryboardPage(BasePage):
                                                "", _ANH_FILTER)
         if duong:
             self._anh[i] = duong
+            # RS-16 — đoạn này nay dùng ảnh NGƯỜI DÙNG TỰ CHỌN, nên bỏ bản ghi
+            # ảnh AI cũ đi. Giữ lại thì tầng dựng sẽ đem dấu băm của tấm AI cũ
+            # ra so với tấm ảnh mới và chặn oan; tệ hơn, nếu băm tình cờ khớp
+            # thì một tấm ảnh chưa kiểm lại được tính là đã duyệt.
+            self._anh_ai.pop(i, None)
             self._ve()
 
     def _chon_nhieu(self) -> None:
@@ -355,6 +371,7 @@ class StoryboardPage(BasePage):
             return
         for i, duong in enumerate(ds[:len(self._anh)]):
             self._anh[i] = duong
+            self._anh_ai.pop(i, None)      # RS-16 — xem `_chon_mot`
         if len(ds) < len(self._anh):
             TOASTS.info(f"Đã gán {len(ds)} ảnh, còn "
                         f"{len(self._anh) - len(ds)} đoạn chưa có.")
@@ -455,6 +472,14 @@ class StoryboardPage(BasePage):
             # đều làm hai thứ đó lệch nhau — và ảnh sẽ lên nhầm đoạn.
             if ket.dung_duoc and 0 <= ket.chi_so < len(self._anh):
                 self._anh[ket.chi_so] = ket.duong_dan
+                # RS-16 — giữ CẢ phán quyết và dấu băm, không chỉ đường dẫn.
+                # `dung_duoc` ở đây là phán quyết lúc VẼ; tầng dựng video vẫn
+                # kiểm lại từ đầu, vì giữa hai thời điểm tệp có thể đã đổi.
+                self._anh_ai[ket.chi_so] = {
+                    "phan_quyet": ket.phan_quyet, "ly_do": ket.ly_do,
+                    "da_kiem": ket.da_kiem, "da_dong_nhan": ket.da_dong_nhan,
+                    "bam": ket.bam, "goi_y": ket.goi_y,
+                }
                 dat += 1
         self._ve()
 
@@ -537,6 +562,7 @@ class StoryboardPage(BasePage):
         self.btn_dung.setEnabled(False)
         self.status.setText("Đang ghép ảnh thành video… (không tốn Vox)")
         self._worker = DungDuAnWorker(self._kich_ban, self._anh, work_dir,
+                                      anh_ai=dict(self._anh_ai),
                                       blueprint=self._blueprint, parent=self)
         self._worker.finished_ok.connect(self._xong)
         self._worker.failed.connect(self._hong)

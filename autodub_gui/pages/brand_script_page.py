@@ -216,11 +216,16 @@ class BrandScriptPage(BasePage):
              Column("Chữ trên hình", width=170),
              Column("Cần quay gì", stretch=True),
              Column("Kiểm tra", stretch=True),
-             # 110px không đủ cho nhãn "Viết lại đoạn" (cộng lề hai bên của
-             # `set_widget`), nên chữ bị cắt thành ": lại đi" — người dùng báo
-             # 14/09. Nút mà đọc không ra chữ thì coi như không có nút, đúng
-             # lúc kịch bản bị chặn và đây là đường đi tiếp DUY NHẤT.
-             Column("", width=160)],
+             # KHÔNG đặt `width`: cột tự co theo nội dung (`ResizeToContents`).
+             #
+             # Đặt số cứng là sai về nguyên tắc — bề rộng chữ phụ thuộc PHÔNG
+             # CỦA MÁY. Tôi đã nới 120→240 và viết hẳn một test đo `sizeHint()`,
+             # test xanh trên Linux nhưng nút VẪN bị cắt trên Windows của chủ
+             # dự án (`:họn ảnh..` / `/ẽ (33 Vox`). Đo trên máy mình rồi chốt
+             # một con số là đúng cái bẫy mà chính chú thích cũ đã cảnh báo.
+             #
+             # Để Qt tự đo widget thật thì không còn con số nào để sai.
+             Column("")],
             empty_title="Chưa có kịch bản",
             empty_description="Chọn một nhịp kể chuyện và một thương hiệu rồi "
                               "bấm «Viết kịch bản».")
@@ -237,8 +242,9 @@ class BrandScriptPage(BasePage):
             [Column("Thương hiệu", stretch=True),
              Column("Trạng thái", width=130),
              Column("Số đoạn", width=80),
-             # Hai nút "Mở" + "Xoá" nằm chung một ô; 140px cắt cụt cả hai.
-             Column("Thao tác", width=190)],
+             # Hai nút "Mở" + "Xoá" nằm chung một ô — để Qt tự đo, đừng
+             # chốt số (xem chú thích ở cột nút phía trên).
+             Column("Thao tác")],
             empty_title="Chưa viết kịch bản nào",
             empty_description="Các kịch bản đã viết sẽ hiện ở đây.")
         self.history_table.setMaximumHeight(180)

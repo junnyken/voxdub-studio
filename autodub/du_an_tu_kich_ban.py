@@ -109,9 +109,49 @@ def _segment_tu_doan(doan, thu_tu: int) -> dict:
     }
 
 
+class AnhAiChuaDat(RuntimeError):
+    """Có ảnh do AI vẽ không qua được phép kiểm tuân thủ — RS-16.
+
+    KHÁC `ThieuAnh` (chưa chọn ảnh) và khác `KichBanChuaDungDuoc` (kịch bản
+    chưa duyệt): ở đây ảnh CÓ, kịch bản SẠCH, nhưng tấm ảnh không được phép
+    đi vào một video đem bán.
+    """
+
+
+#: Từ vựng phán quyết của H4d ↔ của C1. Hai mini-spec, hai bộ chữ, cùng một
+#: ý nghĩa "ảnh này dùng để bán được".
+#:
+#: `story_image.kiem_anh` trả "DAT"/"CO_SAN_PHAM"; `product_video.AnhNguon`
+#: đọc "SAFE". Ánh xạ phải VIẾT RA, không được để ngầm: dịch ẩu theo một
+#: chiều thì chặn sạch mọi ảnh, theo chiều kia thì mở toang cổng — và cả hai
+#: đều im lặng.
+_PHAN_QUYET_SANG_KET_LUAN = {"DAT": "SAFE"}
+
+
+def _anh_nguon_tu_ai(duong_dan: str, mo_ta: dict):
+    """Đổi bản ghi ảnh AI của H4d thành `AnhNguon` mà cổng C1 đọc được."""
+    from autodub.product_video import AnhNguon
+
+    phan_quyet = str(mo_ta.get("phan_quyet") or "")
+    return AnhNguon(
+        duong_dan=duong_dan,
+        boi_canh=str(mo_ta.get("goi_y") or ""),
+        # Phán quyết KHÔNG nằm trong bảng ánh xạ thì giữ nguyên chuỗi gốc —
+        # nó sẽ không khớp "SAFE" và bị chặn. Đó là hướng an toàn: một mã
+        # phán quyết lạ nghĩa là bản H4d mới thêm trạng thái mà cổng này chưa
+        # biết, và "chưa biết" phải là "không cho qua".
+        ket_luan=_PHAN_QUYET_SANG_KET_LUAN.get(phan_quyet, phan_quyet),
+        ly_do=str(mo_ta.get("ly_do") or ""),
+        da_kiem=bool(mo_ta.get("da_kiem")),
+        da_dong_nhan=bool(mo_ta.get("da_dong_nhan")),
+        bam_luc_kiem=str(mo_ta.get("bam") or ""),
+    )
+
+
 def dung_du_an(
     kich_ban: dict, anh_moi_doan: list[str], work_dir: str, *,
     blueprint: dict | None = None, giay_chuyen: float = 0.3,
+    anh_ai: dict | None = None,
     ghep_video=None, do_thoi_luong=None,
 ) -> KetQuaDungDuAn:
     """Dựng thư mục dự án mở được trong Trình chỉnh sửa.
@@ -141,6 +181,35 @@ def dung_du_an(
 
     # Thời lượng RIÊNG từng ảnh, lấy thẳng từ storyboard (H4b) — chia đều thì
     # đoạn hook ngắn và đoạn bằng chứng dài giữ hình bằng nhau.
+    # --- RS-16: ảnh do AI vẽ phải qua ĐỦ ba phép kiểm -------------------
+    #
+    # Chú thích trong `product_video.dung_video_tu_anh_nguoi_dung` đã cảnh báo
+    # từ trước khi H4d tồn tại: "Khi H4d thêm đường sinh ảnh AI: ảnh sinh ra
+    # KHÔNG được đi qua hàm này." Nhưng H4d lên rồi mà cổng thì chưa — giao
+    # diện chỉ giữ ĐƯỜNG DẪN ảnh, vứt phán quyết và dấu băm, nên
+    # `kiem_lai_truoc_khi_xuat()` không có gì để chạy.
+    #
+    # Đặt ở ĐÂY chứ không ở giao diện, vì đây là hàm duy nhất tạo ra tệp video
+    # từ kịch bản — nó phải là chỗ cuối cùng nói được "không". Cổng ở giao
+    # diện thì mọi lối gọi khác (test, script, bản sau) đều đi vòng qua được.
+    #
+    # Kiểm LẠI tại đây chứ không tin cờ đã lưu: giữa lúc vẽ xong và lúc dựng
+    # có thể là vài ngày, và `kiem_lai_truoc_khi_xuat` so lại BĂM của tệp —
+    # tệp bị sửa sau khi kiểm thì nội dung không còn là tấm đã được duyệt.
+    if anh_ai:
+        from autodub.product_video import kiem_lai_truoc_khi_xuat
+
+        can_kiem = [_anh_nguon_tu_ai(anh_moi_doan[i], mo_ta)
+                    for i, mo_ta in sorted(anh_ai.items())
+                    if 0 <= i < len(anh_moi_doan)]
+        if can_kiem:
+            kq = kiem_lai_truoc_khi_xuat(can_kiem)
+            if not kq.cho_phep:
+                chi_tiet = "; ".join(f"{t}: {l}" for t, l in kq.bi_chan)
+                raise AnhAiChuaDat(
+                    "Có ảnh do AI vẽ chưa dùng để bán được — " + chi_tiet
+                    + ". Vẽ lại ảnh đó, hoặc chọn ảnh bạn tự chụp cho đoạn ấy.")
+
     giay = [d.giay for d in board.doan]
     if ghep_video is None:
         # `ghep_anh_nguoi_dung` chứ KHÔNG phải `dung_video`: hàm sau bắt mọi
