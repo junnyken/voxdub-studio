@@ -139,8 +139,25 @@ jobs:
   # Nhánh deploy không còn có thể tụt lại, nên không còn gì để quên. Push bằng
   # GITHUB_TOKEN cố ý KHÔNG kích hoạt workflow mới (quy tắc của GitHub) — đó
   # cũng là thứ chặn vòng lặp vô tận.
+  # D3 (14/09/2026) — CỔNG: nhánh deploy chỉ được sinh SAU khi test xanh.
+  #
+  # Trước D3, job này KHÔNG có `needs:` nên nó force-push ở giây thứ 11, còn
+  # cổng test cuối cùng mãi phút thứ 4 mới xanh (đo thật trên lượt 84ac00d:
+  # force-push 03:16:46, python-tests xong 03:20:45 — hở 3 phút 59 giây).
+  #
+  # `trien-khai-prod` thì vẫn chặn đúng (đã chứng minh: lượt 34584418242 ngày
+  # 11/09 python-tests ĐỎ ⇒ bị bỏ qua). Nhưng nhánh deploy là **nguồn sự thật
+  # của production**, và nó đã mang mã trượt test rồi NẰM LẠI ĐÓ tới lần push
+  # xanh kế tiếp. `main` có 58 lượt đỏ trong lịch sử — mỗi lượt là một quãng
+  # mà bất cứ ai bấm redeploy trên giao diện Vibe Host, chạy `mb-deploy`, hay
+  # gọi `redeploy_project` qua MCP đều đưa mã đỏ lên prod, không tín hiệu nào.
+  #
+  # Nay hỏng test thì nhánh deploy ĐỨNG NGUYÊN ở bản xanh gần nhất. Giá phải
+  # trả: nhánh deploy chậm hơn `main` khoảng 4 phút. Đó đúng là cái giá của
+  # việc không để mã chưa kiểm nằm ở nguồn sự thật của prod.
   sinh-nhanh-deploy:
     if: github.ref == 'refs/heads/main'
+    needs: [python-tests, node-tests, chay-that-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -172,6 +189,8 @@ jobs:
 
           sau_app=$(git rev-parse deploy/vays-control-server)
           sau_worker=$(git rev-parse deploy/vays-dub-worker)
+          echo "sha_app=$sau_app" >> "$GITHUB_OUTPUT"
+          echo "sha_worker=$sau_worker" >> "$GITHUB_OUTPUT"
 
           # Chưa có nhánh cũ để so (lần đầu) thì coi như CÓ đổi — thà dựng thừa
           # một lượt còn hơn để prod đứng im mà tưởng đã lên.
@@ -192,6 +211,13 @@ jobs:
     outputs:
       app: ${{ steps.sinh.outputs.app }}
       worker: ${{ steps.sinh.outputs.worker }}
+      # D3 — SHA của chính hai nhánh vừa sinh. `trien-khai-prod` đối chiếu
+      # đầu nhánh TRÊN REMOTE với hai giá trị này ngay trước khi gọi deploy:
+      # `redeploy_project` không nhận tham số SHA, nó dựng "đầu nhánh lúc
+      # này". Một lượt push khác rơi vào quãng đó sẽ sinh lại nhánh, và lượt
+      # chạy của SHA cũ sẽ deploy mã của SHA mới rồi báo thành công cho SHA cũ.
+      sha_app: ${{ steps.sinh.outputs.sha_app }}
+      sha_worker: ${{ steps.sinh.outputs.sha_worker }}
 
   # C58 — ĐƯA PROD THEO `main` TỰ ĐỘNG.
   #
@@ -230,6 +256,16 @@ jobs:
             echo "::warning::Chưa cấu hình secret VIBEHOST_TOKEN — BỎ QUA bước đưa lên prod. Prod sẽ đứng lại ở bản deploy tay gần nhất."
           fi
 
+      # D3 — `--sha-nhanh` và `--sha-nguon` là hai chốt khác nhau, cần cả hai:
+      #
+      #   `--sha-nhanh`  đối chiếu đầu nhánh deploy TRÊN REMOTE ngay trước khi
+      #                  gọi deploy. `redeploy_project` không nhận SHA — nó
+      #                  dựng "đầu nhánh lúc này". Một lượt push khác chen vào
+      #                  giữa sẽ sinh lại nhánh, và lượt chạy này sẽ deploy mã
+      #                  của SHA khác rồi báo thành công cho SHA của mình.
+      #   `--sha-nguon`  đối chiếu SHA mà DỊCH VỤ ĐANG CHẠY tự khai ở `/health`.
+      #                  Chốt trên nói "tôi gửi đúng thứ"; chốt này nói "thứ
+      #                  đang chạy đúng là nó". Chỉ chốt đầu thì vẫn là suy luận.
       - name: Đưa voxdub-app lên prod
         if: steps.khoa.outputs.co == 'true' && needs.sinh-nhanh-deploy.outputs.app == '1'
         env:
@@ -237,16 +273,24 @@ jobs:
         run: |
           python3 scripts/trien_khai_vibehost.py \
             --du-an cmsx1rb7d016w0i5fo0cj2r8c --ten voxdub-app \
-            --suc-khoe https://voxdub-app.cmc-1.vibenode.matbao.ai/health
+            --suc-khoe https://voxdub-app.cmc-1.vibenode.matbao.ai/health \
+            --nhanh-deploy deploy/vays-control-server \
+            --sha-nhanh ${{ needs.sinh-nhanh-deploy.outputs.sha_app }} \
+            --sha-nguon ${{ github.sha }}
 
       - name: Đưa voxdub-dub-worker lên prod
         if: steps.khoa.outputs.co == 'true' && needs.sinh-nhanh-deploy.outputs.worker == '1'
         env:
           VIBEHOST_TOKEN: ${{ secrets.VIBEHOST_TOKEN }}
         run: |
+          # Worker `/health` trả chuỗi "ok" thuần, không có JSON nên không khai
+          # được SHA. Bỏ `--sha-nguon` ở đây thay vì bịa một phép kiểm không
+          # chạy được — chốt đầu nhánh vẫn áp dụng.
           python3 scripts/trien_khai_vibehost.py \
             --du-an cmsxh07sy039q0i5fpxpal7mv --ten voxdub-dub-worker \
-            --suc-khoe https://voxdub-dub-worker.cmc-1.vibenode.matbao.ai/health
+            --suc-khoe https://voxdub-dub-worker.cmc-1.vibenode.matbao.ai/health \
+            --nhanh-deploy deploy/vays-dub-worker \
+            --sha-nhanh ${{ needs.sinh-nhanh-deploy.outputs.sha_worker }}
 
   # lần push, thay vì chỉ lộ ra lúc deploy xong mà không ai hay.
   # C54: chạy CẢ khi push nhánh deploy/*, không chỉ main. Quy trình đúng là
@@ -279,7 +323,22 @@ jobs:
           python-version: "3.12"
 
       - name: Nhánh deploy có khớp main không
+        env:
+          # D3 — kết quả của job sinh nhánh. Từ D3, job đó bị GATE sau test,
+          # nên khi test đỏ nó bị BỎ QUA và nhánh deploy cố ý đứng lại ở bản
+          # xanh gần nhất. Lúc đó "lệch" là ĐÚNG và MONG MUỐN — báo đỏ ở đây
+          # sẽ biến một chốt an toàn thành một bộ canh kêu nhầm, mà chính
+          # backlog dự án đã ghi: bộ canh hay kêu nhầm thì người ta tắt nó đi,
+          # còn tệ hơn không có.
+          KET_QUA_SINH: ${{ needs.sinh-nhanh-deploy.result }}
         run: |
+          if [ "$GITHUB_REF" = "refs/heads/main" ] && [ "$KET_QUA_SINH" != "success" ]; then
+            echo "::notice::Job sinh nhánh deploy không chạy/không xong ($KET_QUA_SINH)."
+            echo "::notice::Nhánh deploy CỐ Ý giữ nguyên bản xanh gần nhất — đây là cổng D3 đang làm đúng việc, KHÔNG phải lệch cần sửa."
+            echo "Đầu nhánh deploy hiện tại (bản xanh gần nhất):"
+            git ls-remote origin 'refs/heads/deploy/*' || true
+            exit 0
+          fi
           # Trên main: chấm đúng commit đang chạy (HEAD), không phải origin/main
           # có thể đã đi tiếp. Trên nhánh deploy: chấm so với main mới nhất.
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then GOC=HEAD; else GOC=origin/main; fi

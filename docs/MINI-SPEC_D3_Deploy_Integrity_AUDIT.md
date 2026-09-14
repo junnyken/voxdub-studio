@@ -1,6 +1,10 @@
 # D3 — Deploy Integrity: AUDIT (14/09/2026)
 
-> **Trạng thái: DỪNG Ở BƯỚC AUDIT, CHƯA SỬA MÃ.**
+> **Trạng thái: AUDIT XONG → chủ dự án chốt hướng A → ĐÃ DỰNG.**
+> Phần thi công và kiểm chứng live: `docs/MINI-SPEC_D3_Deploy_Integrity.md`.
+> Giữ nguyên tệp này làm bản ghi của bước audit — gồm cả tiền đề đã bác bỏ.
+>
+> **Trạng thái lúc viết: DỪNG Ở BƯỚC AUDIT, CHƯA SỬA MÃ.**
 >
 > Mini-spec yêu cầu *"Nếu một tiền đề sai, dừng báo cáo, không sửa theo spec."*
 > **Một tiền đề sai.** Nhưng mục tiêu của D3 vẫn còn một lỗ hổng **có thật, đã

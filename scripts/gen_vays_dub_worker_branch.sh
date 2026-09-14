@@ -29,6 +29,22 @@ BRANCH="deploy/vays-dub-worker"
 REMOTE="${REMOTE:-github}"
 GOC_SINH="${GOC:-main}"
 WORKTREE_DIR="$(mktemp -d)"
+# D3 — GHIM SHA NGUỒN vào chính nhánh deploy.
+#
+# Trước D3, commit sinh ra chỉ có câu "regenerate ..." và không nơi nào nói nó
+# dựng từ commit nào của `main`. Truy vết vẫn có nhưng ở dạng NGẦM (cha của
+# commit deploy chính là SHA nguồn) — ngầm thì đọc được lúc bình tĩnh, không
+# đọc được lúc đang dò một sự cố.
+#
+# Hai chỗ ghi, cố ý:
+#   - trailer `Source-SHA:` trong commit  → đọc bằng `git log`, không cần
+#     dựng lại gì;
+#   - tệp trong thư mục build            → đi VÀO ảnh Docker, nên chính dịch
+#     vụ đang chạy khai được nó ở `/health` (xem control_server/src/version.js).
+#     Không có tệp này thì "prod đang chạy SHA nào" chỉ suy ra được từ nhánh,
+#     tức vẫn là suy luận chứ không phải hỏi.
+SHA_NGUON="$(git rev-parse "$GOC_SINH")"
+
 
 cleanup() {
   git worktree remove "$WORKTREE_DIR" --force >/dev/null 2>&1 || true
@@ -92,11 +108,14 @@ EOF
 } > "$TARGET/Dockerfile.tmp"
 mv "$TARGET/Dockerfile.tmp" "$TARGET/Dockerfile"
 
+printf '%s\n' "$SHA_NGUON" > "$TARGET/SOURCE_SHA"
+
 git add -A
 if git diff --cached --quiet; then
   echo "Không có gì thay đổi so với lần sinh trước — bỏ qua commit."
 else
-  git commit -q -m "chore(deploy): regenerate self-contained worker-dub for VAYS"
+  git commit -q -m "chore(deploy): regenerate self-contained worker-dub for VAYS" \
+    -m "Source-SHA: $SHA_NGUON"
 fi
 
 git push --force "$REMOTE" "HEAD:$BRANCH"

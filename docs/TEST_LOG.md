@@ -16967,3 +16967,47 @@ không thể chạy — vi phạm đúng cảnh báo đã viết sẵn trong `pr
 Sửa đúng nghĩa là đổi hợp đồng của `DungDuAnWorker` và tệp dự án: một lát
 thiết kế. Rủi ro thực tế hiện bằng 0 (`image.scene.stage` = `off`), nhưng
 **phải đóng trước khi bật sang `calibration`**.
+
+## D3 — Deploy Integrity (14/09/2026)
+
+**Audit trước, mã sau — và audit bác bỏ tiền đề chính của spec.**
+
+Spec giả định webhook nền tảng deploy ngay khi force-push nhánh deploy. Hai
+thí nghiệm tự nhiên nói ngược lại: (a) 03:24:04Z nhánh deploy bị force-push lại
+(commit tài liệu `d5d6495`) mà prod KHÔNG deploy — 7 phút sau vẫn đứng ở
+10:22/v89 và 10:28/v51; (b) mọi lượt deploy quan sát được đều khớp
+`trien-khai-prod` (log in ra jobId Vibe Host + câu `/health`), và số phiên bản
+chỉ +1 mỗi dịch vụ. **Giới hạn**: `get_project` không trả trường auto-deploy
+nào, nên đây là kết luận về HÀNH VI chứ không phải về CẤU HÌNH.
+
+**Lỗ hổng thật, khác cơ chế:** `sinh-nhanh-deploy` không có `needs:` nên
+force-push bất kể test. Bằng chứng lịch sử: run 34584418242 (11/09)
+`python-tests` ĐỎ lúc 09:33:04 mà nhánh deploy đã force-push từ 09:29:14; run
+34198840549 (08/09) cùng hình dạng với `node-tests`. `main` có 58 lượt đỏ —
+mỗi lượt là một quãng mà nguồn sự thật của prod mang mã trượt test, và MỌI
+đường redeploy thủ công sẽ đưa nó lên.
+
+Thứ hai: `redeploy_project` không nhận SHA, và `/health` trả `version` lấy từ
+`package.json` nên không phân biệt được commit ⇒ Success Criterion 2 trước D3
+KHÔNG đáp ứng được kể cả khi mọi thứ chạy đúng.
+
+**Ba chốt đã dựng** (chi tiết: `docs/MINI-SPEC_D3_Deploy_Integrity.md`):
+1. `needs: [python-tests, node-tests, chay-that-windows]` cho `sinh-nhanh-deploy`
+   + `deploy-branch-drift` đọc `needs.sinh-nhanh-deploy.result` để không kêu
+   nhầm khi nhánh deploy CỐ Ý đứng lại.
+2. Ghim SHA: xuất `sha_app`/`sha_worker`, `git ls-remote` đối chiếu đầu nhánh
+   TRÊN REMOTE trước khi gọi deploy, từ chối nếu lệch.
+3. `SOURCE_SHA` nướng vào ảnh → `/health` khai `commit` → đối chiếu sau deploy.
+   SHA lệch ở lượt đầu tính là "chưa lên" (container cũ còn trả lời), hết lượt
+   mới là hỏng.
+
+**Kiểm**: `tests/test_d3_deploy_integrity.py` (24). Gỡ toàn bộ bản vá: 21/24
+đỏ. Ba phép chứng minh phủ định, mỗi cái gỡ ĐÚNG MỘT chốt, đều đỏ đúng test
+của nó. Chạy thật hai script sinh nhánh với remote tạm: trailer `Source-SHA`
+đúng, tệp `SOURCE_SHA` nằm đúng thư mục build, cha commit deploy = SHA nguồn.
+Node 713 đạt / 0 hỏng; nhóm deploy 54 đạt.
+
+> **Một test của chính đợt này lúc đầu đỏ vì LÝ DO SAI**: phép chứng minh phủ
+> định #3 truyền kèm `sha_nguon=`, nên gỡ D3 ra nó đỏ vì `TypeError` chứ không
+> phải vì phép kiểm CSDL (vốn có từ C59) bị mất. Đỏ nhầm lý do thì không chứng
+> minh gì. Đã bỏ tham số đó.

@@ -72,3 +72,9 @@ docker-compose.b-satellite.yml
 # Website
 website/node_modules/
 website/dist/
+
+# D3 — SHA nguồn do `scripts/gen_vays_*_branch.sh` ghi vào THƯ MỤC BUILD của
+# nhánh deploy. Trên `main` nó không được tồn tại: một tệp cũ lọt vào đây sẽ
+# khiến `/health` khai một commit khác hẳn thứ đang chạy — tệ hơn là không
+# khai gì, vì nó trông như bằng chứng.
+control_server/SOURCE_SHA

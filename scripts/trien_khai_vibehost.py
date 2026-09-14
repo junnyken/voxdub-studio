@@ -92,6 +92,43 @@ def goi_cong(ten_tac_vu: str, tham_so: dict, *, cong: str, token: str,
         raise DeployHong(f"không đọc được kết quả {ten_tac_vu} ({e})") from e
 
 
+def doi_chieu_dau_nhanh(nhanh: str, sha_mong_doi: str, *,
+                        chay=None) -> None:
+    """Đầu nhánh deploy TRÊN REMOTE có đúng bản vừa sinh không — D3.
+
+    Vì sao cần: ``redeploy_project`` **không nhận tham số SHA**. Nền tảng dựng
+    từ đầu nhánh *tại thời điểm gọi*. Đo thật trên lượt 84ac00d (14/09): giữa
+    lúc cổng test cuối cùng xanh và lúc gọi deploy là 7 giây, giữa lệnh deploy
+    và lúc dịch vụ lên là 96 giây. Một lượt push khác rơi vào quãng đó sẽ sinh
+    lại nhánh deploy, và lượt chạy của SHA CŨ sẽ đẩy mã của SHA MỚI lên prod
+    rồi ghi "thành công" cho SHA cũ — một dòng nhật ký đúng về một việc sai.
+
+    Hỏi REMOTE chứ không đọc bản sao trên máy: bản sao là thứ ta vừa tự ghi ra,
+    hỏi nó là tự xác nhận chính mình (cùng bài học với C57b ở
+    `kiem_nhanh_deploy.py`).
+    """
+    import subprocess
+
+    chay = chay or (lambda cmd: subprocess.run(
+        cmd, capture_output=True, text=True, encoding="utf-8", timeout=60))
+    kq = chay(["git", "ls-remote", "origin", f"refs/heads/{nhanh}"])
+    if kq.returncode != 0:
+        raise DeployHong(
+            f"không hỏi được đầu nhánh {nhanh} trên remote "
+            f"({(kq.stderr or '').strip()[:200]}) — KHÔNG deploy khi chưa biết "
+            "mình sắp đẩy cái gì")
+    dong = (kq.stdout or "").strip()
+    if not dong:
+        raise DeployHong(f"remote không có nhánh {nhanh} — không deploy")
+    thuc_te = dong.split()[0]
+    if thuc_te != sha_mong_doi:
+        raise DeployHong(
+            f"nhánh {nhanh} trên remote đang ở {thuc_te[:12]} nhưng lượt chạy "
+            f"này sinh ra {sha_mong_doi[:12]} — có lượt push khác đã chen vào. "
+            "DỪNG, không deploy: đẩy tiếp là đưa mã của commit khác lên prod "
+            "rồi ghi thành công cho commit này.")
+
+
 def dang_thu_lai_duoc(loi: str) -> bool:
     return any(k.lower() in (loi or "").lower() for k in LOI_DANG_THU_LAI)
 
@@ -132,8 +169,37 @@ def _phu_thuoc_hong(than: str) -> str | None:
     return None
 
 
+def _sha_lech(than: str, sha_mong_doi: str) -> str | None:
+    """Dịch vụ có đang chạy ĐÚNG SHA nguồn không — D3. None = đúng.
+
+    Đây là chốt KHÁC với `doi_chieu_dau_nhanh`: chốt kia nói "tôi gửi đúng
+    thứ", chốt này hỏi chính dịch vụ "thứ đang chạy có đúng là nó không". Chỉ
+    có chốt đầu thì kết luận vẫn là suy luận — mà cả mini-spec D3 sinh ra để
+    thay suy luận bằng bằng chứng.
+
+    `/health` khai SHA qua trường `commit` (`control_server/src/version.js`,
+    đọc tệp `SOURCE_SHA` nướng vào ảnh lúc dựng). Không khai thì đây là ảnh
+    dựng từ bản CHƯA có D3, hoặc tệp không vào được ảnh — cả hai đều là "chưa
+    xác minh được", không phải "đã đúng".
+    """
+    try:
+        d = json.loads(than)
+    except (json.JSONDecodeError, TypeError):
+        return "dịch vụ không trả JSON nên không khai được SHA"
+    khai = str(d.get("commit") or "")
+    if not khai:
+        return ("dịch vụ không khai trường `commit` — ảnh dựng thiếu tệp "
+                "SOURCE_SHA (xem scripts/gen_vays_control_server_branch.sh)")
+    # Dịch vụ cắt còn 12 ký tự; so theo TIỀN TỐ, và so hai chiều để không phụ
+    # thuộc bên nào cắt ngắn hơn.
+    if sha_mong_doi.startswith(khai) or khai.startswith(sha_mong_doi):
+        return None
+    return f"dịch vụ đang chạy {khai} chứ không phải {sha_mong_doi[:12]}"
+
+
 def kiem_suc_khoe(url: str, *, so_lan: int = 30, nhip_s: float = 10.0,
-                  ngu=time.sleep, mo=urllib.request.urlopen) -> str:
+                  ngu=time.sleep, mo=urllib.request.urlopen,
+                  sha_nguon: str = "") -> str:
     """Gọi đường sức khoẻ tới khi 200 VÀ phụ thuộc đều lành.
 
     Tác vụ deploy báo thành công KHÔNG đủ để kết luận dịch vụ sống: nền tảng
@@ -147,6 +213,15 @@ def kiem_suc_khoe(url: str, *, so_lan: int = 30, nhip_s: float = 10.0,
                 than = resp.read().decode("utf-8", "replace")
                 if resp.status == 200:
                     hong = _phu_thuoc_hong(than)
+                    if hong is None and sha_nguon:
+                        # D3 — SHA lệch lúc này thường là CONTAINER CŨ còn
+                        # đang trả lời trong khi bản mới chưa thay xong. Coi
+                        # nó là "chưa lên" và chờ tiếp, chứ không hỏng ngay:
+                        # hỏng ngay là biến một khoảnh khắc chuyển giao bình
+                        # thường thành một lượt deploy đỏ. Hết lượt mà vẫn
+                        # lệch thì mới là hỏng thật — và lúc đó nó nói rõ
+                        # đang chạy cái gì.
+                        hong = _sha_lech(than, sha_nguon)
                     if hong is None:
                         return than[:200]
                     # Lúc vừa khởi động, kết nối CSDL có thể chưa xong — cứ
@@ -162,9 +237,20 @@ def kiem_suc_khoe(url: str, *, so_lan: int = 30, nhip_s: float = 10.0,
 
 
 def trien_khai(du_an: str, ten: str, suc_khoe: str, *, cong: str, token: str,
-               ngu=time.sleep) -> list[str]:
+               ngu=time.sleep, nhanh_deploy: str = "", sha_nhanh: str = "",
+               sha_nguon: str = "") -> list[str]:
     """Trả về các dòng báo cáo; ném :class:`DeployHong` khi không thành."""
     bao_cao: list[str] = []
+
+    # D3 — ĐỐI CHIẾU TRƯỚC KHI KÍCH. Đặt ở đây, trước lượt gọi đầu tiên: kiểm
+    # sau khi đã deploy thì mã sai đã nằm trên prod rồi, và ta chỉ còn biết
+    # viết một dòng nhật ký về việc đó.
+    if nhanh_deploy and sha_nhanh:
+        doi_chieu_dau_nhanh(nhanh_deploy, sha_nhanh)
+        bao_cao.append(
+            f"{ten}: đầu nhánh {nhanh_deploy} trên remote đúng bằng "
+            f"{sha_nhanh[:12]} — deploy được")
+
     for lan in (1, 2):
         kq = goi_cong("redeploy_project", {"projectId": du_an},
                       cong=cong, token=token)
@@ -183,8 +269,11 @@ def trien_khai(du_an: str, ten: str, suc_khoe: str, *, cong: str, token: str,
         raise DeployHong(f"{ten}: tác vụ deploy {job.get('state')} ({loi})")
 
     bao_cao.append(f"{ten}: tác vụ deploy xong — giờ hỏi chính dịch vụ")
-    than = kiem_suc_khoe(suc_khoe, ngu=ngu)
+    than = kiem_suc_khoe(suc_khoe, ngu=ngu, sha_nguon=sha_nguon)
     bao_cao.append(f"{ten}: {suc_khoe} trả 200 — {than}")
+    if sha_nguon:
+        bao_cao.append(
+            f"{ten}: dịch vụ TỰ KHAI đang chạy SHA nguồn {sha_nguon[:12]}")
     return bao_cao
 
 
@@ -195,7 +284,21 @@ def main() -> int:
     ap.add_argument("--ten", required=True, help="tên để in ra nhật ký")
     ap.add_argument("--suc-khoe", required=True, help="URL kiểm dịch vụ sống")
     ap.add_argument("--cong", default=os.environ.get("VIBEHOST_URL", CONG_MAC_DINH))
+    ap.add_argument("--nhanh-deploy", default="",
+                    help="nhánh nền tảng dựng từ (D3); kèm --sha-nhanh")
+    ap.add_argument("--sha-nhanh", default="",
+                    help="SHA đầu nhánh deploy mà lượt chạy này vừa sinh (D3)")
+    ap.add_argument("--sha-nguon", default="",
+                    help="SHA commit nguồn đã pass test; đối chiếu với trường "
+                         "`commit` mà /health tự khai (D3)")
     args = ap.parse_args()
+
+    # Khai một nửa là cái bẫy tệ nhất: lệnh chạy trót lọt, báo xanh, mà chốt
+    # thì chưa từng chạy. Thà đỏ ngay ở đây.
+    if bool(args.nhanh_deploy) != bool(args.sha_nhanh):
+        print("!! --nhanh-deploy và --sha-nhanh phải đi CÙNG NHAU.",
+              file=sys.stderr)
+        return 2
 
     token = os.environ.get("VIBEHOST_TOKEN", "").strip()
     if not token:
@@ -204,7 +307,10 @@ def main() -> int:
 
     try:
         for dong in trien_khai(args.du_an, args.ten, args.suc_khoe,
-                               cong=args.cong, token=token):
+                               cong=args.cong, token=token,
+                               nhanh_deploy=args.nhanh_deploy,
+                               sha_nhanh=args.sha_nhanh,
+                               sha_nguon=args.sha_nguon):
             print(f"  [ok] {dong}", flush=True)
     except DeployHong as e:
         print(f"\n  [HỎNG] {e}", file=sys.stderr)

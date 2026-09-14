@@ -33,6 +33,22 @@ BRANCH="deploy/vays-control-server"
 REMOTE="${REMOTE:-github}"
 GOC_SINH="${GOC:-main}"
 WORKTREE_DIR="$(mktemp -d)"
+# D3 — GHIM SHA NGUỒN vào chính nhánh deploy.
+#
+# Trước D3, commit sinh ra chỉ có câu "regenerate ..." và không nơi nào nói nó
+# dựng từ commit nào của `main`. Truy vết vẫn có nhưng ở dạng NGẦM (cha của
+# commit deploy chính là SHA nguồn) — ngầm thì đọc được lúc bình tĩnh, không
+# đọc được lúc đang dò một sự cố.
+#
+# Hai chỗ ghi, cố ý:
+#   - trailer `Source-SHA:` trong commit  → đọc bằng `git log`, không cần
+#     dựng lại gì;
+#   - tệp trong thư mục build            → đi VÀO ảnh Docker, nên chính dịch
+#     vụ đang chạy khai được nó ở `/health` (xem control_server/src/version.js).
+#     Không có tệp này thì "prod đang chạy SHA nào" chỉ suy ra được từ nhánh,
+#     tức vẫn là suy luận chứ không phải hỏi.
+SHA_NGUON="$(git rev-parse "$GOC_SINH")"
+
 
 cleanup() {
   git worktree remove "$WORKTREE_DIR" --force >/dev/null 2>&1 || true
@@ -58,6 +74,11 @@ cp control_server/Dockerfile "$TARGET/Dockerfile"
 # dùng file này để cài đặt thật.
 cp control_server/package.json "$TARGET/package.json"
 
+# Tệp thường (không phải dotfile) và nằm TRONG `control_server/` để lệnh
+# `COPY control_server/ ./` của Dockerfile mang nó vào ảnh. Dotfile dễ bị bỏ
+# sót bởi một `.dockerignore` thêm vào sau này mà không ai nghĩ tới.
+printf '%s\n' "$SHA_NGUON" > "$TARGET/control_server/SOURCE_SHA"
+
 {
   echo "# ============================================================="
   echo "# FILE SINH TỰ ĐỘNG cho nhánh $BRANCH — KHÔNG sửa tay."
@@ -77,7 +98,8 @@ git add -A
 if git diff --cached --quiet; then
   echo "Không có gì thay đổi so với lần sinh trước — bỏ qua commit."
 else
-  git commit -q -m "chore(deploy): regenerate self-contained webapp for VAYS"
+  git commit -q -m "chore(deploy): regenerate self-contained webapp for VAYS" \
+    -m "Source-SHA: $SHA_NGUON"
 fi
 
 git push --force "$REMOTE" "HEAD:$BRANCH"
