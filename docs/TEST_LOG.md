@@ -17294,3 +17294,30 @@ npm test **719 đạt / 0 hỏng / 1 bỏ qua** (720).
 3. Chưa chứng minh được bản vá chữa đúng lượt đỏ trên CI, vì lượt đỏ ấy không
    tái hiện được. Chỉ chứng minh được: cơ chế đọc từ mã driver khớp triệu
    chứng, và bản vá đóng đúng cơ chế đó.
+
+### Ghi chú cùng lượt: cổng Vibe Host 404, prod KHÔNG nhận được bản mới
+
+Lượt CI của `df980b2` xanh hết phần kiểm (`python-tests`, `node-tests`,
+`chay-that-windows`, `deploy-branch-drift`) và `sinh-nhanh-deploy` cũng xong —
+nhánh deploy đã ở `abd6cca`. Nhưng `trien-khai-prod` hỏng:
+
+```
+[HỎNG] không gọi được cổng Vibe Host (HTTP Error 404: Not Found)
+```
+
+**Không phải lỗi khoá của CI.** Đo tại workspace cùng lúc: `https://vibehost.matbao.ai/`
+và `/api/agent/mcp` đều trả **404** ở cả 3 lượt thử, và **cả 6** cổng MCP Vibe
+Host trong phiên làm việc đều mất kết nối (một cổng lúc đầu phiên còn trả 401
+«khoá không hợp lệ hoặc đã hết hiệu lực», sau đó thành 404). Tức cổng hỏng/đổi
+đường trong lúc phiên đang chạy, không phải `VIBEHOST_TOKEN` sai.
+
+**Hiện trạng prod**: `/health` vẫn sống, `version 3.17.18`, `commit 3a8f680`
+(H6) — tức **chưa có** bản vá chunk mồ côi. RS-16 không ảnh hưởng máy chủ (toàn
+bộ nằm ở Python + GUI), nên thứ duy nhất prod còn thiếu là bản vá V45-b.
+
+**Cố ý KHÔNG làm**: không đổi khoá, không đổi đường cổng, không tự tìm lối khác
+để đẩy vào prod. Cổng hỏng ở phía hạ tầng thì đây là việc của chủ dự án /
+người vận hành Vibe Host, và lách qua nó chính là thứ D3 sinh ra để ngăn.
+
+**Việc cần làm khi cổng sống lại**: chạy lại `trien-khai-prod` của lượt
+`df980b2` (hoặc đẩy một commit mới), rồi đối chiếu `/health` phải ra `df980b2`.
