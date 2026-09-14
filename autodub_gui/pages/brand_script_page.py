@@ -114,6 +114,11 @@ class BrandScriptPage(BasePage):
         self._brands: list[dict] = []
         self._scripts: list[dict] = []
         self._hien_tai: dict | None = None
+        #: Lượt TỐN TIỀN đang chạy ("create"/"regenerate"), None nếu không có.
+        #: RS-4: trước đây mọi lượt xong — kể cả `list` chạy nền — đều bật lại
+        #: nút Viết, nên một lượt `list` về đích giữa lúc đang viết là mở lại
+        #: đúng cái nút vừa khoá, và bấm thêm một cái là trừ tiền lần hai.
+        self._dang_ton_tien: str | None = None
         self._build()
 
     def _build(self) -> None:
@@ -276,6 +281,7 @@ class BrandScriptPage(BasePage):
 
         self.btn_run.setEnabled(False)
         self.btn_use.setEnabled(False)
+        self._dang_ton_tien = "create"
         self.status.setText("Đang viết kịch bản rồi đối chiếu với video nguồn…")
         self._worker = BrandScriptWorker(
             "create",
@@ -286,8 +292,20 @@ class BrandScriptPage(BasePage):
         self._worker.failed.connect(self._on_action_failed)
         self._worker.start()
 
-    def _on_action_ok(self, action: str, ket) -> None:
+    def _mo_lai_nut(self, action: str) -> None:
+        """Chỉ lượt TỐN TIỀN đang chạy mới được mở lại nút Viết — RS-4.
+
+        `list` chạy nền (mở trang, sau mỗi thao tác) và `delete` đều có thể
+        về đích GIỮA LÚC một lượt viết đang chạy. Mở nút theo "có lượt nào
+        vừa xong" là mở nhầm lượt, và cái bấm thêm đó tốn thật 12 Vox.
+        """
+        if action != self._dang_ton_tien:
+            return
+        self._dang_ton_tien = None
         self.btn_run.setEnabled(True)
+
+    def _on_action_ok(self, action: str, ket) -> None:
+        self._mo_lai_nut(action)
         if action == "list":
             self._scripts = list(ket or [])
             self._render_history()
@@ -301,12 +319,38 @@ class BrandScriptPage(BasePage):
         self._list_scripts()
 
     def _on_action_failed(self, action: str, message: str) -> None:
-        self.btn_run.setEnabled(True)
+        self._mo_lai_nut(action)
+
+        # RS-5 — nguồn đã bị xoá: máy chủ VỪA hạ trạng thái bản ghi này xuống,
+        # nên bản sao đang giữ trong bộ nhớ đã sai kể từ giây đó. Giữ nó lại
+        # là để người dùng bấm vào lịch sử, thấy `ready` cũ, rồi đi tiếp sang
+        # H4 bằng một kịch bản mà chính máy chủ vừa nói là không kiểm được.
+        # Bỏ bản sao cũ và hỏi lại máy chủ, chứ không tự đoán trạng thái mới.
+        if "NGUON_DA_MAT" in message or "đã bị xoá" in message:
+            self._hien_tai = None
+            self.btn_use.setEnabled(False)
+            self.beats_table.clear_rows()
+            self.status.setText(
+                f"{message} Danh sách vừa được tải lại từ máy chủ.")
+            TOASTS.error("Nguồn của kịch bản đã bị xoá.")
+            self._list_scripts()
+            return
+
+        # Mọi thất bại khác của một lượt TỐN TIỀN: phán quyết cũ chưa chắc còn
+        # đúng, nên không để cổng sang H4 mở sẵn. Bấm mở lại kịch bản từ lịch
+        # sử là đi qua đường đọc của máy chủ, đúng nguồn sự thật.
+        if action in ("create", "regenerate"):
+            self.btn_use.setEnabled(False)
+
         # Hồ sơ brand thiếu trường: máy chủ CỐ Ý không tự bịa, nên đây là việc
         # người dùng phải làm chứ không phải lỗi hệ thống — nói đúng như vậy.
         if "HO_SO_BRAND_THIEU" in message or "còn thiếu" in message:
             self.status.setText(
                 f"{message} — mở trang «Hồ sơ thương hiệu» bổ sung rồi quay lại.")
+        elif "BLUEPRINT_KHONG_KIEM_DUOC" in message:
+            # RS-3: máy chủ chặn TRƯỚC khi trừ tiền — nói rõ là chưa mất Vox,
+            # không thì người dùng tưởng vừa trả tiền cho một lỗi.
+            self.status.setText(f"{message}")
         else:
             self.status.setText(f"Không viết được kịch bản: {message}")
         TOASTS.error("Chưa viết được kịch bản.")
@@ -356,6 +400,7 @@ class BrandScriptPage(BasePage):
             return
         self.btn_run.setEnabled(False)
         self.btn_use.setEnabled(False)
+        self._dang_ton_tien = "regenerate"
         self.status.setText(
             f"Đang viết lại đoạn {beat_index + 1} rồi kiểm lại TOÀN BỘ kịch bản…")
         self._worker = BrandScriptWorker(

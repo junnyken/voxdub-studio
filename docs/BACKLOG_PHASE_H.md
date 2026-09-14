@@ -409,6 +409,99 @@ chứ không phải lỗi của một route.
 
 ---
 
+## Đã sửa 14/09 — nhóm RS đụng TIỀN và trạng thái `ready` (RS-1…RS-6)
+
+Cả sáu đều **đã kiểm chứng độc lập trước khi sửa** (đúng luật của tệp này:
+🟡 nghĩa là chưa ai đo, và sửa một thứ chưa đo là cách nhanh nhất để sửa
+nhầm). Điểm chung: **một phán quyết cũ được giữ lại sau khi cơ sở của nó đã
+mất** — mà `ready` là chữ mở cổng sang H4, nên giữ nó quá hạn không phải lỗi
+hiển thị, đó là cho đi tiếp bằng một kết luận không còn đúng.
+
+### ✅ RS-1 — ràng buộc brand đổi mà kịch bản vẫn `ready` vĩnh viễn
+
+Bản ghi lưu `originalityCheckVersion`, tức chỉ bắt được bộ kiểm NGUYÊN GỐC
+đổi đời. Người dùng thêm một cụm cấm mới vào hồ sơ brand thì không có gì bắt
+được — kể cả kịch bản chứa đúng cụm vừa cấm.
+
+**Sửa**: lưu `brandRulesFingerprint` lúc kiểm, so lại lúc ĐỌC (không ghi đè
+DB — giữ nguyên lịch sử, đúng như Constraint 13 đã làm).
+
+**Băm đúng ĐẠI LƯỢNG CÓ HIỆU LỰC, không băm chữ thô** — dùng chính `tachTu`
+của bộ kiểm và bỏ ràng buộc dưới `SO_TU_TOI_THIEU_RANG_BUOC`. Băm chữ thô thì
+sửa hoa/thường, thêm dấu chấm than, hay thêm một ràng buộc một từ (bộ kiểm
+KHÔNG dùng) đều hạ cấp OAN hàng loạt kịch bản — và dạy người dùng rằng trạng
+thái là thứ nhiễu, bỏ qua được. Có test riêng cho cả ba ca hạ-oan đó.
+
+Bản ghi tạo trước RS-1 (`brandRulesFingerprint` rỗng) thì **để nguyên**:
+không biết lần đó kiểm bằng luật gì thì hạ cấp là đoán, không phải kết luận.
+
+### ✅ RS-2 — xoá dây chuyền chỉ bị bắt ở một trong ba cửa
+
+`regenerate-beat` có xử lý nguồn đã mất (Constraint 14), nhưng `GET /:id` và
+`GET /` thì không — ai chỉ mở danh sách rồi bấm «Dùng kịch bản này» vẫn thấy
+`ready`. Cùng một constraint, thiếu hai phần ba số cửa.
+
+**Sửa**: hạ cấp lúc đọc ở cả hai cửa. Gom nguồn trong **2 truy vấn cho cả
+lô**, không phải 2 truy vấn mỗi bản ghi — danh sách 50 kịch bản mà hỏi từng
+cái là 100 lượt đi DB.
+
+### ✅ RS-3 — trừ 12 Vox cho lượt đã biết chắc không dùng được
+
+`kiemNguyenGoc` có đúng **ba** ca khiến MỌI beat ra `unconfirmed` (thiếu vân
+tay / sai phiên bản / `dayTran`) ⇒ không đời nào `ready` ⇒ cổng H4 không bao
+giờ mở. Cả ba **biết được trước khi gọi mô hình**.
+
+**Sửa**: chặn ở cùng chỗ với `HO_SO_BRAND_THIEU`/`BLUEPRINT_RONG`, trả 400
+kèm `lyDo` và câu nói rõ **chưa trừ Vox** + làm gì tiếp. Giao diện bỏ tiền tố
+"Không viết được kịch bản:" cho ca này — đây không phải lượt hỏng, đây là máy
+chủ chặn đúng.
+
+> **Hai test cũ phải đổi** (`brand-scripts-route.test.js`). Chúng chốt "tạo
+> được, ra `unconfirmed`" — đúng, nhưng bỏ qua nửa quan trọng hơn: lượt đó
+> TRỪ TIỀN. Đã ghi lý do ngay tại chỗ, không lặng lẽ nới test.
+
+### ✅ RS-4 — nút Viết bị mở lại bởi một lượt KHÁC ⇒ trừ tiền hai lần
+
+`_on_action_ok` mở lại nút cho MỌI `action`. `list` chạy nền (mở trang, sau
+mỗi thao tác) về đích giữa lúc lượt viết đang chạy là mở đúng cái nút vừa
+khoá.
+
+**Sửa**: nhớ lượt TỐN TIỀN đang chạy; chỉ đúng lượt đó xong mới mở nút. Có
+test cho cả mặt ngược lại (lượt viết xong/hỏng thì PHẢI mở lại) — thiếu nó
+thì một bản vá khoá cứng nút vẫn qua.
+
+### ✅ RS-5 — sau `409`, phán quyết cũ vẫn mở được cổng H4
+
+Máy chủ vừa hạ trạng thái bản ghi, nhưng giao diện giữ bản sao `ready` cũ
+trong bộ nhớ **và trong bảng lịch sử**. Bấm lại vào hàng đó là đi tiếp sang
+H4 bằng đúng kịch bản máy chủ vừa nói là không kiểm được.
+
+**Sửa**: bỏ bản sao cũ, đóng cổng, **hỏi lại máy chủ** — không tự đoán trạng
+thái mới. Thất bại loại khác thì chỉ đóng cổng (máy chủ không đổi gì).
+
+### ✅ RS-6 — nhánh `409` xoá luôn phán quyết CÒN GIÁ TRỊ
+
+Nhánh đó đặt tay `doc.status = 'unconfirmed'`, đè phẳng cả `blocked`. Nhưng
+chỉ lớp NGUYÊN GỐC mất chỗ dựa; lớp TUÂN THỦ so kịch bản với ràng buộc do
+chính người dùng nhập — **cả hai vế vẫn còn**, phán quyết `violated` vẫn đúng
+nguyên. Hạ nó xuống `unconfirmed` là đổi "đã kiểm, vi phạm" thành "chưa kiểm
+được": nhẹ đi một bậc và nói sai về thứ đã biết.
+
+**Sửa**: tính lại bằng ĐÚNG bảng ưu tiên của engine (`kiem.tinhTrangThai`),
+không đặt tay.
+
+**Kiểm**: `control_server/tests/rs-nhom-h3.test.js` (14) — gỡ bản vá ra thì
+**8/14 đỏ**, sáu cái còn xanh là các chốt "không được sửa quá tay". Toàn bộ
+Node: **713 đạt / 0 hỏng**. `tests/test_rs4_rs5_brand_script_page.py` (9) —
+gỡ bản vá thì **8/9 đỏ**.
+
+> **Một test của chính đợt này lúc đầu KHÔNG phân biệt được bản vá** (nó chốt
+> hai cụm chữ mà nhánh cũ cũng có, vì nhánh cũ nối cả `message` vào). Xanh cả
+> khi gỡ bản vá thì nó chưa chốt gì. Đã sửa để chốt đúng thứ khác nhau, và
+> ghi lại cái bẫy đó ngay trong test.
+
+---
+
 ## 🟡 Còn mở — agent báo, CHƯA kiểm chứng
 
 > Mã `RS-<n>` = phát hiện của đợt **rà soát**, KHÔNG phải số mini-spec. Tiền
@@ -420,12 +513,12 @@ Phải **đo trước khi sửa**. Xếp theo mức nghiêm trọng agent gán.
 
 | Mã | Việc | Tệp |
 |---|---|---|
-| RS-1 | Sửa ràng buộc brand KHÔNG hạ `ready` ⇒ kịch bản chứa cụm mới cấm vẫn `ready` vĩnh viễn | `brand-scripts.js:86` |
-| RS-2 | Xoá blueprint/brand chỉ bị phát hiện ở `regenerate`, không ở `GET`/`list` | `brand-scripts.js` |
-| RS-3 | Trừ 12 Vox cho blueprint **không đời nào** ra `ready` (thiếu vân tay) | `brand-scripts.js:176` |
-| RS-4 | GUI bật lại nút giữa lúc chạy ⇒ trừ tiền hai lần | `brand_script_page.py:289` |
-| RS-5 | Sau `409`, GUI giữ trạng thái cũ và mở lại được cổng H4 | `brand_script_page.py:303` |
-| RS-6 | Nhánh `409` hạ `blocked` xuống `unconfirmed` — mất phán quyết đã có | `brand-scripts.js:326` |
+| ~~RS-1~~ | ✅ **ĐÃ SỬA 14/09** — kiểm chứng trước: bản ghi lưu `originalityCheckVersion` nhưng KHÔNG lưu gì về bộ ràng buộc brand đã dùng, nên `trangThaiHienTai()` không thể biết luật đã đổi | `brand-scripts.js` |
+| ~~RS-2~~ | ✅ **ĐÃ SỬA 14/09** — `GET`/`list` gọi `viewCapNhat` vốn chỉ so đời bộ kiểm; xoá dây chuyền chỉ bị bắt ở `regenerate` | `brand-scripts.js` |
+| ~~RS-3~~ | ✅ **ĐÃ SỬA 14/09** — cả ba ca khiến kịch bản không đời nào `ready` đều biết trước khi gọi mô hình | `brand-scripts.js` |
+| ~~RS-4~~ | ✅ **ĐÃ SỬA 14/09** — `_on_action_ok` mở lại nút cho MỌI lượt, kể cả `list` chạy nền | `brand_script_page.py` |
+| ~~RS-5~~ | ✅ **ĐÃ SỬA 14/09** — sau `409`, bảng lịch sử vẫn giữ hàng `ready` cũ; bấm mở lại là mở cổng H4 | `brand_script_page.py` |
+| ~~RS-6~~ | ✅ **ĐÃ SỬA 14/09** — nhánh `409` đè phẳng `status` nên xoá cả phán quyết tuân thủ còn giá trị | `brand-scripts.js` |
 | RS-7 | `rangBuocKhongDuocNoi` không có `maxItems` | `brand-profiles.js` |
 | ~~RS-8~~ | ✅ **ĐÃ SỬA 11/09** — đường dẫn dựng bằng `os.path` | `bao_cao_pilot_phase_h.py` |
 | ~~RS-9~~ | ✅ **ĐÃ SỬA 11/09** — hỏi máy chủ trước khi kết luận | `bao_cao_pilot_phase_h.py` |

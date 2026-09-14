@@ -165,15 +165,28 @@ test('beat chứa cụm brand tự cấm -> blocked kèm câu ràng buộc đã 
   assert.equal(body.beats[0].complianceRule, 'tốt nhất')
 })
 
-test('Blueprint KHÔNG có dấu vân tay -> unconfirmed, không bao giờ ready', async () => {
-  gtSach()
+// ĐỔI CÓ CHỦ ĐÍCH 14/09 (RS-3). Test này từng chốt "tạo được, ra
+// `unconfirmed`". Kết luận đó đúng nhưng bỏ qua nửa quan trọng hơn: lượt đó
+// TRỪ 12 VOX cho một kịch bản không đời nào dùng được. Nay máy chủ chặn ngay
+// từ đầu, chưa gọi mô hình, chưa trừ đồng nào — nên phần cần chốt đổi theo.
+// Chi tiết ở `docs/BACKLOG_PHASE_H.md` mục RS-3.
+test('Blueprint KHÔNG có dấu vân tay -> CHẶN TRƯỚC, không gọi mô hình, không trừ Vox', async () => {
+  const fn = gtSach()
   const a = await thietBiMoi('Máy A')
   const bp = await blueprintCo(a.device._id, { vanTay: false })
   const br = await hoSoBrand(a.device._id)
+  const truoc = (await require('../src/models/Device').findById(a.device._id)).balance
 
-  const body = (await goi('POST', '/v1/brand-scripts/', a.token, than('js4'.repeat(4), bp._id, br._id))).json()
-  assert.equal(body.status, 'unconfirmed')
-  assert.equal(body.beats[0].lyDoChuaKiem, 'khong_co_dau_van_tay')
+  const res = await goi('POST', '/v1/brand-scripts/', a.token, than('js4'.repeat(4), bp._id, br._id))
+  assert.equal(res.statusCode, 400)
+  const body = res.json()
+  assert.equal(body.code, 'BLUEPRINT_KHONG_KIEM_DUOC')
+  assert.equal(body.lyDo, 'khong_co_dau_van_tay')
+  assert.equal(fn.mock.callCount(), 0, 'không được gọi mô hình cho lượt chắc chắn hỏng')
+
+  const sau = (await require('../src/models/Device').findById(a.device._id)).balance
+  assert.equal(sau, truoc, 'KHÔNG được trừ Vox')
+  assert.equal(await BrandScript.countDocuments({ ownerDeviceId: a.device._id }), 0)
 })
 
 // -------------------------------------------------- hồ sơ brand thiếu -----
@@ -371,9 +384,19 @@ test('hết hạn mức ngày -> 429, KHÔNG gọi mô hình, KHÔNG trừ tiề
 })
 
 test('HỒI QUY: không có đường nào cho client đặt status = ready', async () => {
-  gtSach()
+  // Trước 14/09 test này lấy script không-ready bằng cách bỏ dấu vân tay.
+  // RS-3 nay chặn ca đó ngay ở cửa, nên đổi sang lấy script `blocked` bằng
+  // một cụm brand tự cấm — vẫn là một bản ghi THẬT trong DB để thử nâng
+  // trạng thái, mà lại kiểm đúng đường người dùng hay gặp hơn.
+  mock.method(gateway, 'assist', async () => ({
+    beats: [
+      { beatType: 'hook', voiceoverTextVi: 'Đây là loại tốt nhất bạn từng thấy', captionSuggestionVi: 'x', visualBriefVi: 'y' },
+      { beatType: 'cta', voiceoverTextVi: 'Câu này thì hoàn toàn mới và sạch sẽ', captionSuggestionVi: 'x', visualBriefVi: 'y' },
+    ],
+    usage: {}, provider: 'f', model: 'f', role: 'assist',
+  }))
   const a = await thietBiMoi('Máy A')
-  const bp = await blueprintCo(a.device._id, { vanTay: false })  // ⇒ unconfirmed
+  const bp = await blueprintCo(a.device._id)
   const br = await hoSoBrand(a.device._id)
   const id = (await goi('POST', '/v1/brand-scripts/', a.token, than('jsE'.repeat(4), bp._id, br._id))).json().id
 

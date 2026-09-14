@@ -83,15 +83,53 @@ async function timCuaThietBi(Model, id, ownerDeviceId) {
  * không còn giá trị. Chỉ hạ lúc ĐỌC, không ghi đè DB: bản ghi vẫn giữ nguyên
  * lịch sử nó từng được duyệt bằng phiên bản nào.
  */
-function trangThaiHienTai(doc) {
-  if (doc.status === 'ready' && doc.originalityCheckVersion !== dauVanTay.PHIEN_BAN) {
+function trangThaiHienTai(doc, nguon) {
+  if (doc.status !== 'ready') return doc.status
+  if (doc.originalityCheckVersion !== dauVanTay.PHIEN_BAN) return 'unconfirmed'
+  if (!nguon) return doc.status
+
+  // RS-2 — xoá dây chuyền. Trước đây việc này CHỈ được phát hiện ở
+  // `regenerate-beat`; ai chỉ mở danh sách rồi bấm «Dùng kịch bản này» thì
+  // thấy `ready` như thường, dù bằng chứng để kiểm lại đã không còn. Cùng
+  // một Constraint 14, chỉ là trước nay thiếu một nửa số cửa.
+  if (nguon.thieuNguon) return 'unconfirmed'
+
+  // RS-1 — ràng buộc brand đã đổi kể từ lần kiểm. Chuỗi rỗng nghĩa là bản
+  // ghi tạo trước RS-1: không biết lần đó kiểm bằng luật gì, mà hạ cấp dựa
+  // trên "không biết" là đoán. Để nguyên, và mọi bản ghi mới đều có dấu.
+  if (doc.brandRulesFingerprint
+      && nguon.vanTayRangBuoc
+      && doc.brandRulesFingerprint !== nguon.vanTayRangBuoc) {
     return 'unconfirmed'
   }
   return doc.status
 }
 
-function viewCapNhat(doc) {
-  return { ...view(doc), status: trangThaiHienTai(doc) }
+/** Gom nguồn cho một lô kịch bản trong 2 truy vấn, không phải 2 truy vấn MỖI
+ * kịch bản — danh sách 50 bản ghi mà hỏi từng cái là 100 lượt đi DB. */
+async function gomNguon(docs, ownerDeviceId) {
+  const idBrand = [...new Set(docs.map((d) => String(d.brandProfileId)))]
+  const idBp = [...new Set(docs.map((d) => String(d.flowBlueprintId)))]
+  const [brands, bps] = await Promise.all([
+    BrandProfile.find({ _id: { $in: idBrand }, ownerDeviceId }).lean(),
+    FlowBlueprint.find({ _id: { $in: idBp }, ownerDeviceId })
+      .select('_id').lean(),
+  ])
+  const theoBrand = new Map(brands.map((b) => [String(b._id), b]))
+  const coBp = new Set(bps.map((b) => String(b._id)))
+  return (doc) => {
+    const brand = theoBrand.get(String(doc.brandProfileId))
+    return {
+      thieuNguon: !brand || !coBp.has(String(doc.flowBlueprintId)),
+      vanTayRangBuoc: brand
+        ? kiem.vanTayRangBuoc(brand.rangBuocKhongDuocNoi || [])
+        : '',
+    }
+  }
+}
+
+function viewCapNhat(doc, nguon) {
+  return { ...view(doc), status: trangThaiHienTai(doc, nguon) }
 }
 
 const createBodySchema = {
@@ -122,7 +160,9 @@ module.exports = async function brandScriptRoutes(fastify) {
   fastify.get('/', async (request) => {
     const list = await BrandScript.find({ ownerDeviceId: request.device._id })
       .sort({ createdAt: -1 }).lean()
-    return { data: list.map(viewCapNhat) }
+    if (!list.length) return { data: [] }
+    const nguonCua = await gomNguon(list, request.device._id)
+    return { data: list.map((d) => viewCapNhat(d, nguonCua(d))) }
   })
 
   fastify.get('/:id', async (request, reply) => {
@@ -131,7 +171,8 @@ module.exports = async function brandScriptRoutes(fastify) {
       return reply.code(404).send({
         code: 'KHONG_THAY_KICH_BAN', message: 'Không thấy kịch bản này.' })
     }
-    return viewCapNhat(doc)
+    const nguonCua = await gomNguon([doc], request.device._id)
+    return viewCapNhat(doc, nguonCua(doc))
   })
 
   fastify.delete('/:id', async (request, reply) => {
@@ -189,6 +230,36 @@ module.exports = async function brandScriptRoutes(fastify) {
       return reply.code(400).send({
         code: 'BLUEPRINT_RONG',
         message: 'Flow Blueprint này chưa có đoạn nào để dựng kịch bản.' })
+    }
+
+    // RS-3 — CHẶN TRƯỚC KHI TRỪ TIỀN.
+    //
+    // `kiemNguyenGoc` có đúng ba ca khiến MỌI beat ra `unconfirmed`, tức
+    // kịch bản KHÔNG ĐỜI NÀO đạt `ready`, tức cổng sang H4 không bao giờ mở.
+    // Cả ba đều biết được từ bây giờ, trước khi gọi mô hình. Thu 12 Vox cho
+    // một lượt đã biết chắc kết quả không dùng được là bán một thứ không tồn
+    // tại — cùng loại với hai cổng `HO_SO_BRAND_THIEU`/`BLUEPRINT_RONG` ngay
+    // trên, chỉ là trước nay thiếu ca này.
+    const vt = blueprint.evidenceFingerprint
+    const canChan = !vt ? 'khong_co_dau_van_tay'
+      : vt.v !== dauVanTay.PHIEN_BAN ? 'khac_phien_ban'
+        : vt.dayTran ? 'day_tran' : ''
+    if (canChan) {
+      const vi = {
+        khong_co_dau_van_tay: 'lượt phân tích này chạy trước khi máy chủ biết '
+          + 'lưu dấu vân tay bằng chứng',
+        khac_phien_ban: 'dấu vân tay của lượt phân tích này dựng bằng thuật '
+          + 'toán đời khác',
+        day_tran: 'lượt phân tích này có quá nhiều bằng chứng nên dấu vân tay '
+          + 'không phủ hết',
+      }[canChan]
+      return reply.code(400).send({
+        code: 'BLUEPRINT_KHONG_KIEM_DUOC',
+        lyDo: canChan,
+        message: `Không đối chiếu được kịch bản với video nguồn vì ${vi}. `
+          + 'Kịch bản viết ra sẽ không bao giờ được duyệt, nên chưa trừ Vox. '
+          + 'Hãy phân tích lại video tham khảo rồi dùng lượt phân tích mới.',
+      })
     }
 
     const spec = assistPrompts.getTask('brand_script_rewrite')
@@ -252,6 +323,8 @@ module.exports = async function brandScriptRoutes(fastify) {
       brandProfileId: brand._id,
       status: daKiem.status,
       originalityCheckVersion: dauVanTay.PHIEN_BAN,
+      // RS-1 — ghi luật ĐÃ DÙNG, để lần đọc sau biết luật có đổi không.
+      brandRulesFingerprint: kiem.vanTayRangBuoc(brand.rangBuocKhongDuocNoi || []),
       beats: daKiem.beats,
     })
 
@@ -323,13 +396,25 @@ module.exports = async function brandScriptRoutes(fastify) {
     if (!blueprint || !brand) {
       // Xoá dây chuyền (Constraint 14): nguồn đã mất thì không kiểm lại được,
       // nên KHÔNG được giữ `ready` — hạ về `unconfirmed` và nói rõ lý do.
-      doc.status = 'unconfirmed'
-      doc.beats = (doc.beats || []).map((b) => ({
+      //
+      // RS-6 — nhưng chỉ lớp NGUYÊN GỐC mất chỗ dựa. Lớp TUÂN THỦ so kịch
+      // bản với ràng buộc do chính người dùng nhập: cả hai vế vẫn còn, phán
+      // quyết `violated` vẫn đúng nguyên. Đè phẳng `blocked` xuống
+      // `unconfirmed` là hạ một phán quyết CÒN GIÁ TRỊ xuống thành "chưa
+      // kiểm được" — nói sai về thứ đã kiểm rồi, và nhẹ đi một bậc.
+      const beatsMoi = (doc.beats || []).map((b) => ({
         ...(b.toObject ? b.toObject() : b),
         originalityFlag: 'unconfirmed',
         flaggedExcerpt: '',
         lyDoChuaKiem: 'bang_chung_khong_du',
       }))
+      doc.beats = beatsMoi
+      // Tính lại bằng ĐÚNG bảng ưu tiên của engine, không đặt tay: có beat
+      // nào `violated` ⇒ vẫn `blocked`; còn lại ⇒ `unconfirmed`.
+      // Tính trên `beatsMoi` chứ không đọc lại `doc.beats`: sau khi gán,
+      // `doc.beats` là DocumentArray của Mongoose — thêm một tầng chuyển đổi
+      // giữa thứ mình vừa tính và thứ mình đang đo.
+      doc.status = kiem.tinhTrangThai(beatsMoi)
       await doc.save()
       return reply.code(409).send({
         code: 'NGUON_DA_MAT',
@@ -402,6 +487,9 @@ module.exports = async function brandScriptRoutes(fastify) {
     doc.beats = daKiem.beats
     doc.status = daKiem.status
     doc.originalityCheckVersion = dauVanTay.PHIEN_BAN
+    // RS-1 — viết lại một đoạn là kiểm lại TOÀN BỘ bằng luật HIỆN TẠI
+    // (Constraint 11), nên dấu vân tay luật cũng phải theo bản hiện tại.
+    doc.brandRulesFingerprint = kiem.vanTayRangBuoc(brand.rangBuocKhongDuocNoi || [])
     await doc.save()
 
     const response = { ...view(doc), creditCharged: paid.charged, balanceAfter: paid.balanceAfter }

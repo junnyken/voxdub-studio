@@ -144,6 +144,40 @@ function kiemToanBo(beats, { rangBuocKhongDuocNoi, vanTay, beatsNguon } = {}) {
   return { beats: daKiem, status: tinhTrangThai(daKiem) }
 }
 
+/**
+ * Dấu vân tay của bộ ràng buộc brand ĐANG CÓ HIỆU LỰC — RS-1.
+ *
+ * Vì sao cần: `originalityCheckVersion` chỉ bắt được việc bộ kiểm NGUYÊN GỐC
+ * đổi đời. Còn người dùng thêm một cụm cấm mới vào hồ sơ brand thì mọi kịch
+ * bản đã `ready` vẫn `ready` vĩnh viễn — kể cả kịch bản chứa đúng cụm vừa
+ * cấm. Đó là cùng một lời nói dối mà Constraint 13 sinh ra để chặn, chỉ khác
+ * lớp kiểm.
+ *
+ * **Băm đúng ĐẠI LƯỢNG có hiệu lực, không băm chữ thô.** Chuẩn hoá bằng
+ * chính `tachTu` mà bộ kiểm dùng, và bỏ ràng buộc ngắn hơn
+ * `SO_TU_TOI_THIEU_RANG_BUOC` — vì bộ kiểm cũng bỏ chúng. Băm chữ thô thì:
+ *   - sửa hoa/thường hay thêm dấu chấm than ⇒ hạ cấp OAN hàng loạt kịch bản
+ *     tuy luật có hiệu lực không đổi;
+ *   - thêm một ràng buộc một từ (bộ kiểm KHÔNG dùng) ⇒ cũng hạ cấp oan.
+ * Cả hai đều dạy người dùng rằng trạng thái là thứ nhiễu, bỏ qua được.
+ *
+ * Sắp xếp trước khi băm: thứ tự nhập không phải là một thay đổi về luật.
+ */
+function vanTayRangBuoc(cacRangBuoc) {
+  const crypto = require('crypto')
+  const coHieuLuc = (cacRangBuoc || [])
+    .map((luat) => dauVanTay.tachTu(luat))
+    .filter((tu) => tu.length >= SO_TU_TOI_THIEU_RANG_BUOC)
+    .map((tu) => tu.join(' '))
+    .sort()
+  // Rỗng vẫn phải ra một giá trị ỔN ĐỊNH, khác chuỗi rỗng: '' được dùng làm
+  // "bản ghi cũ, chưa có dấu vân tay" và hai thứ đó không được lẫn nhau.
+  return crypto.createHash('sha256')
+    .update(JSON.stringify(coHieuLuc), 'utf8')
+    .digest('hex')
+    .slice(0, 32)
+}
+
 module.exports = {
   SO_TU_TOI_THIEU_RANG_BUOC,
   timViPham,
@@ -151,4 +185,5 @@ module.exports = {
   kiemNguyenGoc,
   tinhTrangThai,
   kiemToanBo,
+  vanTayRangBuoc,
 }

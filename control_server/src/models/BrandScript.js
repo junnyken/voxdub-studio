@@ -71,6 +71,13 @@ const brandScriptSchema = new mongoose.Schema({
   // `unconfirmed` khi đọc lại — nếu không, một script duyệt bằng luật cũ sẽ
   // `ready` vĩnh viễn dù luật đã đổi (Constraint 13 của H3).
   originalityCheckVersion: { type: Number, default: 0 },
+  // Dấu vân tay của bộ ràng buộc brand ĐÃ DÙNG lúc kiểm (RS-1).
+  // `originalityCheckVersion` ở trên chỉ bắt được bộ kiểm NGUYÊN GỐC đổi đời;
+  // người dùng thêm một cụm cấm mới vào hồ sơ brand thì không có gì bắt được,
+  // và kịch bản chứa đúng cụm vừa cấm vẫn `ready` vĩnh viễn.
+  // Chuỗi rỗng = bản ghi tạo trước RS-1 ⇒ KHÔNG hạ cấp (không biết luật cũ là
+  // gì thì hạ cấp là đoán); xem `trangThaiHienTai`.
+  brandRulesFingerprint: { type: String, default: '' },
   beats: { type: [beatSchema], default: [] },
 }, { timestamps: true })
 
