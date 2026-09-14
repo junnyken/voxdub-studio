@@ -128,7 +128,12 @@ class StoryboardPage(BasePage):
              Column("Lời đọc", stretch=True),
              Column("Thời lượng", width=150),
              Column("Ảnh", stretch=True),
-             Column("", width=120)],
+             # 120px chứa HAI nút cạnh nhau («Chọn ảnh…» + «Vẽ (33 Vox)») nên
+             # cả hai bị cắt sạch chữ — người dùng báo 14/09, và ở trang này
+             # nó nặng hơn H3: hai nút trắng trơn thì không đoán nổi cái nào
+             # tốn tiền. Đo bằng `sizeHint` của chính hai nút, không áng chừng
+             # (xem tests/test_h4_nut_anh_du_rong.py).
+             Column("", width=240)],
             empty_title="Chưa có kịch bản",
             empty_description="Mở một kịch bản đã duyệt từ trang «Viết kịch bản».")
         root.addWidget(self.bang, 1)

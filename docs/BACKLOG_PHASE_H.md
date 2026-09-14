@@ -686,3 +686,68 @@ Chờ họ báo mới làm — đây là quyết định của họ, không ph�
 >
 > **Không chứng minh**: máy có sẵn một bản ffmpeg khác trên PATH hệ thống sẽ
 > ra sao — PATH hệ thống đứng SAU `bin/` nên ca đó chưa được đo.
+
+---
+
+## 🔴 P1 — PHÁT HIỆN LỚN NHẤT CỦA PILOT (14/09): H3 vứt đi cái nhịp mà H2 học được
+
+Lượt chạy thật của chủ dự án, trang «Dựng video» tự báo:
+
+> `Kịch bản đọc hết khoảng 170 giây, dài gấp 5.0 lần video tham khảo (34 giây)`
+> `— nhịp kể chuyện học được sẽ không còn giống nữa.`
+
+**Đây là mục tiêu của cả sáng kiến Phase H bị hụt.** H2 tốn 8 Vox + 56 Vox đọc
+chữ để học NHỊP của một video 34 giây; H3 viết ra một kịch bản đọc 170 giây.
+Cùng số đoạn, cùng vai trò kể chuyện, nhưng **nhịp thì khác hẳn** — một video
+34 giây và một video gần 3 phút không phải cùng một định dạng.
+
+### Nguyên nhân — đã xác định trong mã, không phải suy đoán
+
+`prompts/assist.js` → `brand_script_rewrite`:
+
+- **Lời nhắc hệ thống KHÔNG có một chữ nào về độ dài.** Không nói video bao
+  nhiêu giây, không nói mỗi đoạn nên mấy câu, không nói tổng bao nhiêu từ.
+- **`buildUser` gửi mỗi đoạn đúng ba thứ**: `beatType`, `narrativeFunctionVi`,
+  và `pacingNoteVi` (nếu còn ngân sách). `startS`/`endS` **không hề được gửi**.
+
+Nên mô hình **không có cách nào biết** nguồn dài 34 giây. Nó viết theo độ dài
+mặc định của văn xuôi quảng cáo. Ra 5× là chuyện đương nhiên, không phải rủi ro.
+
+### Vì sao chưa ai thấy
+
+Bộ dò độ dài nằm ở `storyboard.dung_storyboard` — tức **tận H4**, sau khi đã
+tiêu 12 Vox cho H3. Và nó chỉ **cảnh báo**, không chặn. Trước pilot này chưa ai
+đi tới H4 với một kịch bản thật nên dòng cảnh báo chưa bao giờ hiện ra.
+
+### Chưa sửa — cần một lát riêng
+
+Sửa đúng nghĩa là đưa ràng buộc thời lượng vào lời nhắc H3:
+- gửi `startS`/`endS` (hoặc thời lượng) của từng đoạn nguồn;
+- nói rõ tổng thời lượng đích và ngân sách từ cho mỗi đoạn (tốc độ đọc VieNeu
+  đã đo được, `storyboard` đang dùng nó để ước lượng);
+- rồi **đo lại trên cùng video này** — 170 giây so với 34 giây là mốc đối chứng
+  đã có sẵn.
+
+**Không vá vội**: đổi lời nhắc là đổi đầu ra của mọi lượt viết, và mỗi lượt đo
+tốn 12 Vox. Phải có mốc trước/sau rõ ràng.
+
+**Tạm thời làm được gì**: người dùng bấm «Viết lại đoạn» cho từng đoạn quá dài
+(12 Vox/lượt) — đắt và không giải quyết gốc.
+
+---
+
+## Đã sửa 14/09 (đợt 4) — hai nút bị cắt chữ, và ô ràng buộc dạy sai
+
+### ✅ Cột nút ở H3 và H4 quá hẹp
+
+`Column("", width=110)` ở H3 (nhãn «Viết lại đoạn» → hiện ra `: lại đi`) và
+`width=120)` ở H4 chứa **hai** nút («Chọn ảnh…» + «Vẽ (33 Vox)») → cả hai
+**trắng trơn**.
+
+Không phải chuyện thẩm mỹ: ở H3, «Viết lại đoạn» là đường thoát DUY NHẤT khi
+kịch bản bị chặn; ở H4, một trong hai nút **tốn 33 Vox** còn nút kia miễn phí —
+hai ô trắng cạnh nhau thì không đoán nổi cái nào.
+
+**Sửa**: H3 110→160, cột Thao tác 140→190, H4 120→240. Kèm
+`tests/test_h4_nut_anh_du_rong.py` — **đo `sizeHint()` thật của chính hai nút**
+thay vì áng chừng, vì độ rộng chữ phụ thuộc phông của máy.
