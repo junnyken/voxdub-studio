@@ -136,12 +136,57 @@ Kèm theo: đại diện của mỗi đoạn nay là khung **đọc rõ nhất**
 khung đầu — ca thật `surersale` (0,944) rồi `supersale` (0,989), gửi khung
 đầu là trả tiền để máy chủ đọc lại một khung vốn đã đọc sai.
 
-### C.4 vẫn CHƯA trả lời được — thời gian không giảm
+### C.4 — NGUYÊN NHÂN ĐÃ TÌM RA 14/09: worker chạy thật là bản CŨ
 
-Tệp thật **không có** `khoi_dong_s`/`quet_s` dù mã đã có trong v3.17.14.
-Chưa rõ vì sao. Đã thêm tổng đo ở tiến trình cha làm mức chặn trên và một
-dòng cảnh báo nói thẳng là chưa tách được — tuyệt đối không suy hai phần ra
-từ con số gộp.
+Tệp thật không có `khoi_dong_s`/`quet_s` dù mã đã có trong v3.17.14. Ngày
+14/09 lần ra được, **bằng chính tệp chẩn đoán đó**, không cần máy người dùng:
+
+```json
+"thoi_gian": {"ocr_cuc_bo_s": 176.53, "duong": "subprocess", "so_khung": 104}
+```
+
+`duong` và `so_khung` nằm **cùng một khối dict** với hai khoá còn thiếu, và
+vào **cùng một commit** (`4f338dd`, v3.17.14). Chúng có mặt ⇒ mã phía tiến
+trình cha đã là bản mới ⇒ thứ không trả về hai khoá kia là **tệp
+`text_regions_worker.py` thật sự được chạy**: một bản CŨ.
+
+Đường đi: `read_text_regions` → `_detect_via_subprocess` chỉ chép khoá nào
+**worker gửi lên**; worker cũ không gửi ⇒ `thong_ke` rỗng ⇒ phép spread
+không lấy được gì. Không có lỗi nào được ném, không dòng log nào nói tệp
+worker nào đã chạy.
+
+**Đây là lớp lỗi đã có tên trong dự án**: "cha đời mới + worker đời cũ" —
+xem chú thích C53 trong `text_regions_worker.py:main()` (28/08: cha gửi
+`--ram-trong-gb` xuống worker cũ, argparse `sys.exit(2)` giết cả lượt lồng
+tiếng). Lần đó nó nổ to nên tìm ra ngay. Lần này nó **im lặng**, nên mất hai
+ngày và một lượt chạy thật của chủ dự án.
+
+**Vì sao mất lâu đến thế**: không ai khai đời, và không ai ghi lại đã chạy
+tệp nào. Hai thiếu sót đó mới là lỗi thật — bản thân "worker cũ" chỉ là
+triệu chứng, và nó sẽ còn tái diễn mỗi lần bản đóng gói lệch với mã nguồn.
+
+**Đã sửa (14/09)** — không phải sửa phép đo, mà sửa việc nó im lặng:
+
+- Worker khai `worker_phien_ban` (`PHIEN_BAN_WORKER = 2`) ngay trong JSON.
+  Thiếu khoá này **nghĩa là đời 1**, không phải "không rõ" — đời 1 là bản
+  duy nhất không khai.
+- `_detect_via_subprocess` ghi `worker_duong_dan` **trước khi chạy**, để cả
+  ca worker chết giữa chừng cũng còn manh mối.
+- Tệp chẩn đoán nay tự nói ra nguyên nhân kèm đường dẫn:
+  *"worker OCR đời 1 (bản cũ, chưa biết đo tách khởi động/quét) — tệp đang
+  chạy: C:\...\text_regions_worker.py. Cập nhật tệp này lên bản mới rồi
+  chạy lại thì E6 câu C.4 trả lời được."*
+- Cha **không** từ chối worker cũ vì con số này. Từ chối là biến một lỗi đo
+  đạc thành một lỗi chặn người dùng.
+
+Test: `tests/test_e6_worker_doi_cu.py` (6) — trong đó một test **tái hiện
+đúng hình dạng JSON của lượt 12/09**, và một test chốt mặt ngược lại (worker
+đời mới thì không được kêu oan; thiếu nó thì một bản vá kêu-mọi-lúc vẫn qua).
+Đã gỡ bản vá để chứng minh **5/6 đỏ** trước khi tin.
+
+**C.4 vẫn CHƯA có SỐ ĐO** — mới có đường để lấy. Lượt chạy thật tiếp theo
+trên bản mới sẽ cho hai con số, hoặc nói thẳng ra là worker vẫn cũ và cũ ở
+tệp nào. Tuyệt đối không suy hai phần ra từ con số gộp.
 
 **Vì vậy: D5 cắt TIỀN (88→48 Vox) nhưng KHÔNG cắt thời gian.** OCR cục bộ
 vẫn quét đủ 104 khung. Muốn nhanh hơn thì phải qua D3, mà D3 cần đúng con số

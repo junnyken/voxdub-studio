@@ -8,8 +8,12 @@ CLI:
 
 stdout: 1 dòng JSON duy nhất
     {"ok": true, "boxes": [{"x":..,"y":..,"w":..,"h":..,"confidence":..}, ...],
-     "anh_loi": 0}
+     "anh_loi": 0, "worker_phien_ban": 2, "khoi_dong_s": .., "quet_s": ..}
   | {"ok": false, "error": "..."}
+
+``worker_phien_ban`` (E6, 14/09/2026): để tiến trình cha biết nó vừa chạy
+worker ĐỜI NÀO. Thiếu khoá này nghĩa là worker đời 1 — bản chưa đo tách
+khởi động/quét.
 
 ``--doc-chu`` (mini-spec H2a, 08/09/2026): mặc định TẮT — giữ nguyên hành
 vi cũ (vứt nội dung chữ, chỉ trả vùng) cho caller cũ
@@ -24,6 +28,18 @@ import argparse
 import json
 import time
 import sys
+
+#: Đời hợp đồng stdout của worker này. Tăng khi THÊM khoá vào JSON trả về.
+#:
+#: Vì sao cần (E6 câu C.4, 12/09/2026): lượt chạy thật trả về tệp chẩn đoán
+#: KHÔNG có `khoi_dong_s`/`quet_s` dù mã trong repo đã có. Mất hai ngày mới
+#: lần ra được là **tệp worker chạy thật là bản CŨ** — vì không ai nói được
+#: worker nào đã chạy. Cha đời mới + worker đời cũ là lớp lỗi đã có tên
+#: trong dự án này (xem C53 ở `main()`), chỉ là trước nay nó im lặng.
+#:
+#: Cha KHÔNG được từ chối worker cũ vì con số này — vẫn chạy, chỉ ghi ra để
+#: chẩn đoán. Từ chối là biến một lỗi đo đạc thành một lỗi chặn người dùng.
+PHIEN_BAN_WORKER = 2
 
 # Windows mặc định cho tiến trình con dùng bảng mã cp1252 khi ghi ra ống —
 # in một chữ Việt có dấu là chết ngay giữa chừng với UnicodeEncodeError, và
@@ -101,6 +117,7 @@ def main() -> None:
             boxes.append(muc)
 
     print(json.dumps({"ok": True, "boxes": boxes, "anh_loi": anh_loi,
+                      "worker_phien_ban": PHIEN_BAN_WORKER,
                       "khoi_dong_s": round(khoi_dong_s, 3),
                       "quet_s": round(time.monotonic() - _t1, 3)},
                      ensure_ascii=False))

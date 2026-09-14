@@ -337,11 +337,19 @@ Soi tay cả 17 nhóm gộp ở mức 80%: không nhóm nào gộp nhầm. Chạ
 `surersale` (0,944) rồi `supersale` (0,989): gửi khung đầu là trả tiền để máy
 chủ đọc lại một khung vốn đã đọc sai.
 
-**CÒN MỞ — C.4 chưa trả lời được.** Tệp thật không có `khoi_dong_s`/`quet_s`
-dù mã đã có trong v3.17.14; chưa rõ vì sao. Đã thêm tổng đo ở tiến trình cha
-làm mức chặn trên + cảnh báo trong Nhật ký để lượt sau lần ra. **D5 cắt TIỀN
-nhưng KHÔNG cắt thời gian** — OCR cục bộ vẫn quét đủ 104 khung (~3 phút).
-Đòn bẩy thời gian là D3, mà D3 cần đúng con số đang thiếu.
+**C.4 — NGUYÊN NHÂN ĐÃ TÌM RA 14/09 (số đo thì vẫn chưa có).** Tệp thật
+không có `khoi_dong_s`/`quet_s` vì **tệp worker chạy thật là bản CŨ**, trong
+khi mã phía cha đã mới — chứng minh được ngay từ chính tệp chẩn đoán: `duong`
+và `so_khung` nằm cùng khối dict, cùng commit với hai khoá thiếu, mà chúng
+lại có mặt. Lớp lỗi "cha đời mới + worker đời cũ" (C53) tái diễn, lần này
+**im lặng**. Đã sửa phần im lặng: worker khai `worker_phien_ban`, cha ghi
+`worker_duong_dan` trước khi chạy, tệp chẩn đoán tự nói ra nguyên nhân kèm
+đường dẫn. Test `tests/test_e6_worker_doi_cu.py` (6), đã chứng minh 5/6 đỏ
+khi gỡ bản vá.
+
+**Vẫn CÒN MỞ**: chưa có SỐ ĐO thật, mới có đường lấy — cần một lượt chạy trên
+bản mới. **D5 cắt TIỀN nhưng KHÔNG cắt thời gian** — OCR cục bộ vẫn quét đủ
+104 khung (~3 phút). Đòn bẩy thời gian là D3, mà D3 cần đúng con số đó.
 
 ---
 

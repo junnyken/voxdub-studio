@@ -270,8 +270,14 @@ def _detect_via_subprocess(image_paths: list[str], settings,
 
     if not settings.ocr_configured():
         return None
-    cmd = [settings.ocr_venv_python_path(),
-          bundled_file("autodub", "media", "text_regions_worker.py")]
+    duong_worker = bundled_file("autodub", "media", "text_regions_worker.py")
+    if thong_ke is not None:
+        # E6 câu C.4 — ghi NGAY, trước khi chạy. Lượt thật 12/09 thiếu
+        # `khoi_dong_s`/`quet_s` và không ai nói được vì sao, vì không có gì
+        # ghi lại tệp worker nào đã chạy. Ghi trước khi chạy để cả ca worker
+        # chết giữa chừng cũng còn manh mối.
+        thong_ke["worker_duong_dan"] = duong_worker
+    cmd = [settings.ocr_venv_python_path(), duong_worker]
     for path in image_paths:
         cmd += ["--image", path]
     if doc_chu:
@@ -332,6 +338,9 @@ def _detect_via_subprocess(image_paths: list[str], settings,
         for khoa in ("khoi_dong_s", "quet_s"):
             if data.get(khoa) is not None:
                 thong_ke[khoa] = float(data[khoa])
+        # Worker đời 1 không khai `worker_phien_ban` — thiếu khoá NGHĨA LÀ
+        # đời 1, không phải "không rõ". Đó chính là ca đã xảy ra 12/09.
+        thong_ke["worker_phien_ban"] = int(data.get("worker_phien_ban") or 1)
     return data.get("boxes") or []
 
 
@@ -645,16 +654,35 @@ def read_text_regions(
         "duong": nguon,
         "so_khung": len(image_paths),
         **{k: thong_ke[k] for k in ("khoi_dong_s", "quet_s") if k in thong_ke},
+        # Hai khoá dưới đây trả lời câu "vì sao thiếu số đo" ngay trong tệp
+        # chẩn đoán, thay vì phải dò lại bằng tay như lượt 12/09.
+        **{k: thong_ke[k] for k in ("worker_phien_ban", "worker_duong_dan")
+           if k in thong_ke},
     }
     thoi_gian["tong_o_tien_trinh_cha_s"] = round(
         time.monotonic() - _bat_dau_tong, 3)
     if "khoi_dong_s" not in thong_ke:
-        thoi_gian["thieu_tach_khoi_dong"] = (
-            "worker không báo `khoi_dong_s`/`quet_s` — chỉ có tổng, KHÔNG "
-            "suy ra được cắt khung có rút ngắn thời gian không")
-        logger.warning(
-            "Worker OCR (%s) không báo thời gian khởi động/quét — E6 câu C.4 "
-            "không trả lời được từ lượt này", nguon)
+        doi = thong_ke.get("worker_phien_ban")
+        duong_w = thong_ke.get("worker_duong_dan")
+        # NGUYÊN NHÂN ĐÃ BIẾT (14/09): lượt 12/09 thiếu số đo vì tệp worker
+        # chạy thật là bản CŨ, trong khi mã phía cha đã mới. Nói thẳng ra
+        # điều đó kèm ĐƯỜNG DẪN, để người dùng sửa được trong một bước thay
+        # vì gửi tệp về rồi chờ dò.
+        if doi is not None and doi < 2:
+            thoi_gian["thieu_tach_khoi_dong"] = (
+                f"worker OCR đời {doi} (bản cũ, chưa biết đo tách khởi "
+                f"động/quét) — tệp đang chạy: {duong_w}. Cập nhật tệp này "
+                "lên bản mới rồi chạy lại thì E6 câu C.4 trả lời được.")
+            logger.warning(
+                "Worker OCR ĐỜI CŨ (%s) — không đo tách được khởi động/quét. "
+                "Tệp đang chạy: %s", doi, duong_w)
+        else:
+            thoi_gian["thieu_tach_khoi_dong"] = (
+                "worker không báo `khoi_dong_s`/`quet_s` — chỉ có tổng, KHÔNG "
+                "suy ra được cắt khung có rút ngắn thời gian không")
+            logger.warning(
+                "Worker OCR (%s) không báo thời gian khởi động/quét — E6 câu "
+                "C.4 không trả lời được từ lượt này", nguon)
     return KetQuaDocChu(
         trang_thai=("co_chu" if quan_sat else "no_text"),
         quan_sat=quan_sat, thoi_gian=thoi_gian)
