@@ -345,8 +345,16 @@ def _chuan_hoa_giay(anh: list[str], giay_moi_anh) -> list[float]:
         raise ValueError(
             f"Có {len(anh)} ảnh nhưng {len(ds)} thời lượng — lệch nhau thì "
             "mọi cảnh phía sau gán sai thời gian mà không có dấu hiệu gì.")
-    if any(g <= 0 for g in ds):
-        raise ValueError("Thời lượng mỗi ảnh phải lớn hơn 0.")
+    xau = [i for i, g in enumerate(ds) if g <= 0]
+    if xau:
+        # RS-17 — nói ĐOẠN NÀO. Kịch bản H4 có thể 40 đoạn; một đoạn không có
+        # lời đọc thì thời lượng của nó ra 0, và câu "Thời lượng mỗi ảnh phải
+        # lớn hơn 0" bắt người dùng tự dò 40 đoạn để tìm đoạn rỗng.
+        # Đánh số từ 1 — đây là câu cho người đọc, không phải chỉ số mảng.
+        ten = ", ".join(str(i + 1) for i in xau)
+        raise ValueError(
+            f"Đoạn {ten} không có thời lượng (thường là do đoạn đó chưa có "
+            "lời đọc). Điền lời cho đoạn đó rồi dựng lại.")
     return ds
 
 

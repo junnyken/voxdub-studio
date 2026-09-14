@@ -890,9 +890,10 @@ class SaasClient:
             data = self._request("GET", "/v1/brand-profiles/", timeout=timeout)
         except SaasError as e:
             logger.warning(f"Không lấy được danh sách hồ sơ brand ({e})")
-            return []
+            # RS-10 — rỗng vì HỎNG, không phải rỗng vì chưa có gì.
+            return DanhSachCoLoi.hong(e)
         muc = data.get("data")
-        return muc if isinstance(muc, list) else []
+        return DanhSachCoLoi(muc if isinstance(muc, list) else [])
 
     def create_brand_profile(
         self, ten_brand: str, *, mo_ta_san_pham: str = "",
@@ -948,9 +949,10 @@ class SaasClient:
             data = self._request("GET", "/v1/flow-blueprints/", timeout=timeout)
         except SaasError as e:
             logger.warning(f"Không lấy được danh sách Flow Blueprint ({e})")
-            return []
+            # RS-10 — rỗng vì HỎNG, không phải rỗng vì chưa có gì.
+            return DanhSachCoLoi.hong(e)
         muc = data.get("data")
-        return muc if isinstance(muc, list) else []
+        return DanhSachCoLoi(muc if isinstance(muc, list) else [])
 
     def get_flow_blueprint(self, blueprint_id: str, timeout: float = 20.0) -> dict:
         """Một Flow Blueprint của chính máy này. `404 KHONG_THAY_BLUEPRINT`
@@ -1008,9 +1010,10 @@ class SaasClient:
             data = self._request("GET", "/v1/brand-scripts/", timeout=timeout)
         except SaasError as e:
             logger.warning(f"Không lấy được danh sách kịch bản brand ({e})")
-            return []
+            # RS-10 — rỗng vì HỎNG, không phải rỗng vì chưa có gì.
+            return DanhSachCoLoi.hong(e)
         muc = data.get("data")
-        return muc if isinstance(muc, list) else []
+        return DanhSachCoLoi(muc if isinstance(muc, list) else [])
 
     def get_brand_script(self, script_id: str, timeout: float = 20.0) -> dict:
         """Một kịch bản của chính máy này. `404 KHONG_THAY_KICH_BAN` nếu
@@ -1108,6 +1111,29 @@ def _app_version() -> str:
 # nên tồn tại một bản. Dựng lười để nạp module không tốn gì.
 _client: SaasClient | None = None
 _client_lock = threading.Lock()
+
+
+class DanhSachCoLoi(list):
+    """Danh sách kèm LÝ DO nếu lượt hỏi máy chủ hỏng — RS-10.
+
+    Vì sao cần: các hàm ``list_*`` trả ``[]`` khi mất mạng, đúng chủ ý "thiếu
+    danh sách chỉ chặn trang này, không chặn việc khác". Nhưng phía giao diện
+    thì ``[]`` vì mất mạng trông **y hệt** ``[]`` vì chưa có gì — nên màn hình
+    nói "Chưa có hồ sơ nào", và người dùng đi tạo lại một hồ sơ họ đã có.
+
+    Vẫn LÀ một `list` nên mọi chỗ gọi cũ không đổi một dòng; chỗ nào muốn phân
+    biệt thì đọc ``.loi``. Không ném ngoại lệ — ném là đổi hợp đồng của một
+    hàm đang có bốn chỗ gọi và làm mất đúng tính chất "không chặn việc khác".
+    """
+
+    #: Chuỗi rỗng = hỏi được (kể cả khi thật sự không có mục nào).
+    loi: str = ""
+
+    @classmethod
+    def hong(cls, ly_do: str) -> "DanhSachCoLoi":
+        ds = cls()
+        ds.loi = str(ly_do) or "không rõ lý do"
+        return ds
 
 
 def get_client() -> SaasClient:

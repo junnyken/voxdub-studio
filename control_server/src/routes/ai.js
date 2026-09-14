@@ -46,7 +46,7 @@ const { containsCjk } = require('../utils/json-repair')
 // `replay`/`remember`/`precheck`/`charge`: tách sang assist-billing.service.js
 // (mini-spec H2) để `routes/flow-blueprints.js` dùng lại đúng logic billing
 // thay vì viết lại — xem chú thích đầy đủ ở tệp đó.
-const { replay, remember, ghiSoDung, precheck, charge, assistUsedToday } = require('../services/assist-billing.service')
+const { replay, remember, ghiSoDung, precheck, charge, assistUsedToday, kiemHanMucNgay } = require('../services/assist-billing.service')
 
 module.exports = async function aiRoutes(fastify) {
   const { requireDevice } = require('../middleware/auth.middleware')
@@ -1276,7 +1276,11 @@ module.exports = async function aiRoutes(fastify) {
         },
       },
     },
-    preHandler: requireDevice,
+    // RS-21 — KHÔNG khai `preHandler: requireDevice` ở đây: plugin này đã gắn
+    // `addHook('preHandler', requireDevice)` cho MỌI route (đầu tệp). Khai
+    // thêm là chạy xác thực hai lần cho mỗi lượt — thừa một lượt xác minh
+    // token và một lượt đọc DB, và làm người đọc sau tưởng route này nằm
+    // ngoài hook chung.
   }, async (request, reply) => {
     const { jobId, brief, holdId, provider: tenNoiGoi = '' } = request.body
     const device = request.device
@@ -1297,9 +1301,15 @@ module.exports = async function aiRoutes(fastify) {
     const cached = await replay(jobId, device.fingerprint)
     if (cached) return cached
 
-    const cfg = await config.getMany(['credit.enabled', 'credit.cost.image.scene',
+    // RS-22 — khoá giá RIÊNG cho ảnh minh hoạ (H4d). Trước đây dùng chung
+    // `credit.cost.image.scene` với ảnh sản phẩm (C1), nên người quản trị
+    // không thể định giá hai thứ khác nhau: sửa một cái là đổi cả hai. Hai
+    // đường này khác hẳn nhau về chi phí lẫn hồ sơ tuân thủ.
+    // Mặc định của khoá mới đặt ĐÚNG BẰNG khoá cũ (30) nên giá hôm nay không
+    // đổi một đồng — tách khoá không được lặng lẽ đổi giá.
+    const cfg = await config.getMany(['credit.enabled', 'credit.cost.image.story',
       'image.daily.limit'])
-    const cost = cfg['credit.enabled'] ? (cfg['credit.cost.image.scene'] || 0) : 0
+    const cost = cfg['credit.enabled'] ? (cfg['credit.cost.image.story'] || 0) : 0
 
     if (cfg['image.daily.limit'] > 0) {
       const daDung = await demAnhTrongNgay(device.fingerprint)
@@ -1310,6 +1320,29 @@ module.exports = async function aiRoutes(fastify) {
             + 'Thử lại vào ngày mai.',
         })
       }
+    }
+
+    // RS-18 — HAI TRẦN TÁCH RỜI. Vẽ ảnh đi qua trần `image.daily.limit` ngay
+    // trên; nhưng tấm ảnh vẽ ra chỉ dùng được sau khi qua bước KIỂM, mà bước
+    // kiểm (`kiem_anh_minh_hoa`) là một tác vụ trợ lý, ăn trần
+    // `assist.daily.limit` — một trần hoàn toàn khác.
+    //
+    // Hết trần trợ lý mà trần ảnh còn: người dùng vẫn vẽ được, vẫn bị trừ
+    // 30 Vox mỗi tấm, rồi mọi tấm đều không kiểm được ⇒ theo Guardrail 1 của
+    // H4d, ảnh chưa kiểm KHÔNG được ghép vào video. Tức trả tiền cho một
+    // chồng ảnh không dùng được.
+    //
+    // Cùng một lẽ với RS-3: điều kiện khiến kết quả chắc chắn vô dụng thì
+    // phải chặn TRƯỚC khi trừ tiền, không phải sau.
+    const hetTranKiem = await kiemHanMucNgay(config, device.fingerprint,
+      'kiem_anh_minh_hoa')
+    if (hetTranKiem) {
+      return reply.code(429).send({
+        code: 'DAILY_LIMIT_KIEM',
+        message: 'Hôm nay đã hết lượt kiểm ảnh, mà ảnh chưa kiểm thì không '
+          + 'được ghép vào video — nên chưa vẽ và chưa trừ Vox. '
+          + 'Thử lại vào ngày mai.',
+      })
     }
 
     const lacking = await precheck(device.fingerprint, holdId, cost,

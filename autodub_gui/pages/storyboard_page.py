@@ -41,7 +41,10 @@ logger = logging.getLogger(__name__)
 _PAGE_MARGIN = 28
 _ANH_FILTER = "Ảnh (*.png *.jpg *.jpeg *.webp);;Tất cả (*.*)"
 
-#: Giá THẬT của một ảnh minh hoạ: 30 Vox vẽ (`credit.cost.image.scene`) cộng
+#: Giá THẬT của một ảnh minh hoạ: 30 Vox vẽ (`credit.cost.image.story` —
+#: khoá RIÊNG từ 14/09 theo RS-22; trước đó dùng chung
+#: `credit.cost.image.scene` với ảnh sản phẩm nên không định giá riêng
+#: được. Mặc định vẫn 30, con số dưới đây KHÔNG đổi) cộng
 #: 3 Vox kiểm (`credit.cost.assist.kiem_anh_minh_hoa`) — mỗi ảnh là HAI lượt
 #: tính tiền, không phải một.
 #:

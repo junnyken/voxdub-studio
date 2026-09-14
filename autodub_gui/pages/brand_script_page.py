@@ -307,7 +307,10 @@ class BrandScriptPage(BasePage):
     def _on_action_ok(self, action: str, ket) -> None:
         self._mo_lai_nut(action)
         if action == "list":
-            self._scripts = list(ket or [])
+            # RS-10 — KHÔNG dùng `ket or []` / `list(ket)`: danh sách rỗng là
+            # falsy nên `or []` trả về một list trần và VỨT MẤT `.loi`, đúng
+            # cái ca cần phân biệt. `list(...)` thì đổi kiểu, mất y như vậy.
+            self._scripts = ket if isinstance(ket, list) else []
             self._render_history()
             return
         if action == "delete":
@@ -431,7 +434,9 @@ class BrandScriptPage(BasePage):
             xoa = GhostButton("Xoá")
             xoa.clicked.connect(lambda _c=False, k=kb: self._delete(k))
             self.history_table.set_widgets(row, 3, [mo, xoa])
-        self.history_table.auto_state()
+        # RS-10 — "chưa có kịch bản nào" và "không hỏi được máy chủ" là hai
+        # câu khác nhau; trước đây cả hai ra cùng một màn hình.
+        self.history_table.auto_state(getattr(self._scripts, "loi", ""))
 
     def _open(self, kb: dict) -> None:
         self._hien_tai = kb

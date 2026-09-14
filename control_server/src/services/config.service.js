@@ -95,6 +95,9 @@ const DEFAULTS = {
   // Sinh ảnh đắt hơn hẳn tác vụ chữ (một ảnh ~ vài trăm lần token một câu
   // hỏi ngắn), nên giá cao hơn nhưng vẫn dưới giá một lần sinh nhạc.
   'credit.cost.image.scene': 30,
+  // RS-22 — ảnh minh hoạ H4d có khoá giá riêng, nhưng mặc định ĐÚNG BẰNG ảnh
+  // sản phẩm: tách khoá là để định giá được khác nhau, không phải để đổi giá.
+  'credit.cost.image.story': 30,
   // Hạn mức RIÊNG cho chế độ CONCEPT (dựng lại bao bì) — đây là chế độ khiến
   // người bán bị TikTok cưỡng chế, nên trần thấp hẳn và tách khỏi trần chung.
   'image.daily.limit': 60,

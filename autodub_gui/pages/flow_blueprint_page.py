@@ -41,6 +41,22 @@ from autodub_gui.workers import FlowBlueprintCrudWorker, FlowBlueprintWorker
 
 logger = logging.getLogger(__name__)
 
+#: RS-15 — cột "Trạng thái" từng hiện thẳng chữ máy chủ (`ready`, `queued`,
+#: `failed`). Người dùng của app này đọc tiếng Việt; một cột toàn chữ Anh
+#: giữa giao diện tiếng Việt trông như lỗi hiển thị, và `failed` thì không
+#: nói được là hỏng ở đâu hay làm gì tiếp.
+#:
+#: Khoá lạ thì hiện NGUYÊN VĂN, không thay bằng "Không rõ": trạng thái mới
+#: do máy chủ thêm mà bị nuốt thành một chữ chung là mất đúng manh mối cần
+#: cho lần gỡ lỗi sau.
+_NHAN_TRANG_THAI = {
+    "queued": "Đang chờ",
+    "running": "Đang chạy",
+    "ready": "Xong",
+    "failed": "Hỏng",
+    "cancelled": "Đã huỷ",
+}
+
 _ACTION_ICON = 28
 _PAGE_MARGIN = 28
 
@@ -405,7 +421,10 @@ class FlowBlueprintPage(BasePage):
 
     def _on_crud_ok(self, action: str, ket) -> None:
         if action == "list":
-            self._history = ket or []
+            # RS-10 — KHÔNG dùng `ket or []` / `list(ket)`: danh sách rỗng là
+            # falsy nên `or []` trả về một list trần và VỨT MẤT `.loi`, đúng
+            # cái ca cần phân biệt. `list(...)` thì đổi kiểu, mất y như vậy.
+            self._history = ket if isinstance(ket, list) else []
             self._render_history()
         elif action == "delete":
             TOASTS.success("Đã xoá lượt phân tích.")
@@ -433,11 +452,14 @@ class FlowBlueprintPage(BasePage):
             nguon = QLabel(str(bp.get("sourceReference") or ""))
             nguon.setWordWrap(True)
             self.history_table.set_widget(row, 0, nguon)
-            self.history_table.set_widget(row, 1, QLabel(str(bp.get("status") or "")))
+            self.history_table.set_widget(
+                row, 1, QLabel(_NHAN_TRANG_THAI.get(
+                    str(bp.get("status") or ""), str(bp.get("status") or ""))))
             self.history_table.set_widget(
                 row, 2, QLabel(str(len(bp.get("beats") or []))))
             self.history_table.set_widgets(row, 3, self._history_actions(bp))
-        self.history_table.auto_state()
+        # RS-10 — phân biệt "chưa có lượt nào" với "không hỏi được máy chủ".
+        self.history_table.auto_state(getattr(self._history, "loi", ""))
 
     def _history_actions(self, bp: dict) -> list[QWidget]:
         view = IconButton(icons.external(tokens.TEXT_SECONDARY), "Xem lại",

@@ -57,7 +57,14 @@ const bodySchema = {
     // áp dụng khi trường VẮNG MẶT, mà "required" đã chặn đúng ca đó trước
     // cả khi default có cơ hội chạy, nên đặt cả hai chỉ gây hiểu lầm).
     rangBuocKhongDuocNoi: {
-      type: 'array', items: { type: 'string', maxLength: 300 },
+      // RS-7 — `maxLength` chặn từng mục, KHÔNG chặn số mục. Thiếu `maxItems`
+      // thì một hồ sơ có thể mang hàng vạn ràng buộc, và bộ kiểm tuân thủ
+      // duyệt TỪNG ràng buộc trên TỪNG đoạn của TỪNG kịch bản — chi phí nhân
+      // ba, âm thầm. Cùng bài học với trần `maxItems: 400` của bằng chứng
+      // H2 (E7): trần phải đặt ở CẢ HAI chiều của một mảng.
+      // 200 là rộng rãi so với thực tế (hồ sơ thật hiếm khi quá vài chục) mà
+      // vẫn hữu hạn. Câu từ chối nay nói tiếng Việt nhờ bản vá E8.
+      type: 'array', maxItems: 200, items: { type: 'string', maxLength: 300 },
     },
   },
 }

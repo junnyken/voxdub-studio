@@ -120,9 +120,19 @@ def test_so_thoi_luong_lech_so_anh_thi_NEM_LOI():
 
 
 def test_thoi_luong_khong_duong_thi_NEM_LOI():
+    # ĐỔI CÓ CHỦ ĐÍCH 14/09 (RS-17). Câu cũ là "Thời lượng mỗi ảnh phải lớn
+    # hơn 0" — đúng, nhưng không nói ĐOẠN NÀO. Kịch bản H4 có thể 40 đoạn, và
+    # một đoạn không có lời đọc thì thời lượng của nó ra 0: người dùng phải tự
+    # dò 40 đoạn để tìm đoạn rỗng. Nay câu lỗi chỉ đúng số đoạn (đánh số từ 1)
+    # kèm nguyên nhân thường gặp, nên phần cần chốt đổi theo.
     for xau in ([0.0, 3.0], [-1.0, 3.0]):
-        with pytest.raises(ValueError, match="lớn hơn 0"):
+        with pytest.raises(ValueError, match="Đoạn 1"):
             pv._lenh_ghep(["a.png", "b.png"], "ra.mp4", xau, 0.5)
+
+    # Nhiều đoạn xấu thì phải kể ra HẾT, không dừng ở cái đầu tiên.
+    with pytest.raises(ValueError, match="Đoạn 2, 4"):
+        pv._lenh_ghep(["a.png", "b.png", "c.png", "d.png"], "ra.mp4",
+                      [1.0, 0.0, 2.0, -1.0], 0.5)
 
 
 def test_kieu_chuyen_la_van_nem_loi_nhu_cu():

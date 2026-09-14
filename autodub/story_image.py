@@ -254,14 +254,28 @@ def sinh_mot_anh(goi_y: str, thu_muc_ra: str, *, ten_tep: str = "",
     # Gửi bản THU NHỎ đi kiểm, không phải ảnh mô hình vừa trả về: ảnh gốc quá
     # nặng nên lượt kiểm bị chặn ở tầng vận chuyển (bài học C7). Phán quyết
     # vẫn đúng vì bước này nhìn có hộp/nhãn/chữ hay không, không soi điểm ảnh.
+    tep_tam = ""
     try:
         anh_de_kiem = thu_nho_de_gui(ra_path, thu_muc_ra, "_anh_kiem_tam.jpg")
+        tep_tam = os.path.join(thu_muc_ra, "_anh_kiem_tam.jpg")
     except (OSError, ValueError) as e:
         logger.warning(f"Không chuẩn bị được ảnh để kiểm ({e})")
         anh_de_kiem = anh_moi
 
-    phan_quyet, ly_do, da_kiem, vox_kiem = kiem_anh(khach, anh_de_kiem,
-                                                    goi_y=goi_y)
+    try:
+        phan_quyet, ly_do, da_kiem, vox_kiem = kiem_anh(khach, anh_de_kiem,
+                                                        goi_y=goi_y)
+    finally:
+        # RS-19 — tệp tạm này nằm ngay trong THƯ MỤC KẾT QUẢ, cạnh những ảnh
+        # người dùng sẽ mở ra xem và chọn. Để lại là bắt họ đoán xem
+        # `_anh_kiem_tam.jpg` có phải một ảnh của mình không, và một lượt vẽ
+        # sau sẽ ghi đè nó — nên nội dung nó mang cũng không dùng được vào
+        # việc gì. Dọn trong `finally`: lượt kiểm hỏng thì càng phải dọn.
+        if tep_tam:
+            try:
+                os.remove(tep_tam)
+            except OSError as e:
+                logger.debug(f"Không xoá được ảnh tạm {tep_tam} ({e})")
     da_dong_nhan = dong_nhan_chu(ra_path, NHAN)
 
     return AnhMinhHoa(

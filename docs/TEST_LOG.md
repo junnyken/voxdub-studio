@@ -16873,3 +16873,97 @@ Cần **tệp log từ máy chủ dự án**. Lần chạy tới sẽ có traceb
 đúng dòng. Trước khi có nó, mọi phỏng đoán về nguyên nhân đều là phỏng đoán.
 
 Python: **2.736 passed / 0 fail**.
+
+## E6 câu C.4 — tìm ra vì sao thiếu số đo (14/09/2026)
+
+**Câu hỏi mở hai ngày**: lượt chạy thật 12/09 trả về `ocr_chan_doan.json`
+thiếu `khoi_dong_s`/`quet_s` dù mã đã có trong v3.17.14. Backlog ghi "chưa rõ
+vì sao".
+
+**Cách lần ra — không cần máy người dùng.** Đọc lại chính tệp họ đã gửi:
+
+```json
+"thoi_gian": {"ocr_cuc_bo_s": 176.53, "duong": "subprocess", "so_khung": 104}
+```
+
+`duong` và `so_khung` được dựng trong **cùng một khối dict** với hai khoá còn
+thiếu, và vào **cùng một commit** (`4f338dd`). Chúng có mặt ⇒ mã phía cha đã
+mới ⇒ phép spread `**{k: thong_ke[k] ...}` không lấy được gì ⇒ `thong_ke`
+rỗng sau `_detect_via_subprocess` ⇒ **JSON của worker không có hai khoá đó**
+⇒ tệp worker chạy thật là bản CŨ.
+
+**Ba giả thuyết đã LOẠI bằng lượt chạy thật, không bằng suy luận:**
+
+| Nghi ngờ | Kiểm thế nào | Kết quả |
+|---|---|---|
+| Đường ống trong `text_regions.py` đứt | chạy thật qua `.venv-ocr`, 3 khung | đủ cả hai khoá — không phải |
+| Nhánh có `cancel_event` (app dùng) khác nhánh không có | chạy lại với `threading.Event()` | vẫn đủ — không phải |
+| Người ghi tệp (`ghi_chan_doan_ocr`) làm rơi khoá | đọc bản v3.17.14 của hàm đó | có `**(thoi_gian_ocr or {})` — không phải |
+
+Tôi cũng **đọc hụt một lần**: `grep -A6` cắt ngang dataclass `KetQuaDocChu`
+của v3.17.14 làm tôi tưởng bản đó thiếu trường `thoi_gian`. Đọc đủ thì có.
+Kết luận dựa trên một đoạn grep bị cắt là kết luận dựa trên thứ mình chưa đọc.
+
+**Sửa** — không sửa phép đo mà sửa việc hệ thống không tự nói được:
+`PHIEN_BAN_WORKER = 2` khai trong JSON; `worker_duong_dan` ghi TRƯỚC khi
+chạy; tệp chẩn đoán tự nói nguyên nhân kèm đường dẫn. Cha **không** từ chối
+worker cũ — từ chối là biến lỗi đo đạc thành lỗi chặn người dùng.
+
+**Kiểm**: `tests/test_e6_worker_doi_cu.py` (6), gỡ bản vá thì **5/6 đỏ**; một
+test tái hiện đúng hình dạng JSON của lượt 12/09, một test chốt mặt ngược
+lại. Nhóm OCR/E6/flow: **111 đạt**. Lượt chạy thật qua `.venv-ocr`:
+`worker_phien_ban=2` + đường dẫn vào đúng tệp chẩn đoán.
+
+**Còn tồn**: C.4 vẫn chưa có SỐ ĐO, mới có đường lấy.
+
+---
+
+## RS-1…RS-22 — đóng nhóm rà soát Phase H (14/09/2026)
+
+22 mục: 3 đã sửa từ trước, **17 sửa trong ngày**, 2 hoá ra đã xong từ trước
+(RS-11 do E8, RS-12 do E1), **1 cố ý chưa sửa** (RS-16).
+
+**Nhóm đụng tiền (RS-1…RS-6)** — kiểm chứng độc lập từng cái trước khi sửa.
+Điểm chung: một phán quyết cũ được giữ lại sau khi cơ sở của nó đã mất.
+
+- RS-1 lưu `brandRulesFingerprint`, so lúc ĐỌC. Băm đúng **đại lượng có hiệu
+  lực** (qua `tachTu`, bỏ ràng buộc dưới ngưỡng từ) — băm chữ thô thì đổi
+  hoa/thường hay thêm một ràng buộc một từ đều hạ cấp oan hàng loạt.
+- RS-2 hạ cấp ở cả `GET /:id` lẫn `GET /`; gom nguồn **2 truy vấn cho cả lô**.
+- RS-3 chặn TRƯỚC khi trừ tiền cho cả ba ca không đời nào ra `ready`.
+- RS-4 nhớ lượt TỐN TIỀN đang chạy; `list` chạy nền không được mở lại nút.
+- RS-5 sau `409` thì bỏ bản sao cũ, đóng cổng H4, hỏi lại máy chủ.
+- RS-6 tính lại `status` bằng bảng ưu tiên của engine thay vì đặt tay.
+
+Kiểm: `control_server/tests/rs-nhom-h3.test.js` (14) — gỡ bản vá **8/14 đỏ**;
+`tests/test_rs4_rs5_brand_script_page.py` (9) — gỡ bản vá **8/9 đỏ**.
+
+**Nhóm còn lại** — RS-7 (`maxItems: 200`), RS-10 (`DanhSachCoLoi` mang `.loi`
++ `auto_state(loi)`), RS-13, RS-14, RS-15, RS-17, RS-18 (hỏi trần kiểm trước
+khi vẽ), RS-19, RS-21, RS-22 (khoá giá riêng, mặc định bằng khoá cũ).
+Kiểm: `tests/test_rs_nhom_python.py` (13) — gỡ bản vá **12/13 đỏ**.
+
+**Hai mô tả trong backlog là SAI — ghi lại đúng mức thật thay vì sửa theo lời
+mô tả:**
+
+- **RS-13** *"trần ngày tắt hẳn"* — không đúng. `ghiSoDung()` đã tự bắt lỗi
+  và ghi nhật ký, nên `.catch(()=>{})` ngoài **không bao giờ chạy**.
+- **RS-14** *"đăng ký lại thiết bị mỗi lượt"* — không đúng. Token nằm trong
+  kho khoá hệ điều hành nên bản mới vẫn đọc ra token cũ.
+
+**Một cái bẫy tự tạo, bắt được khi viết test RS-10**: `DanhSachCoLoi.hong(...)`
+rỗng, mà rỗng là **falsy** — nên `ket or []` ở ba trang trả về `list` trần và
+**vứt sạch `.loi`**, đúng cái ca cần phân biệt. `list(ket)` cũng vậy. Cả hai
+lối viết đó đều có thật trong mã lúc bắt đầu. Có test chốt riêng CHỖ GÁN, vì
+chốt mỗi hàm thì bản vá vẫn vô nghĩa.
+
+**Một test lúc đầu không phân biệt được bản vá** (chốt hai cụm chữ mà nhánh cũ
+cũng có). Xanh cả khi gỡ bản vá thì nó chưa chốt gì — đã sửa để chốt đúng chỗ
+khác nhau.
+
+**RS-16 cố ý chưa sửa**: `storyboard_page` chỉ giữ đường dẫn ảnh, vứt
+`phan_quyet`/`da_kiem`/`da_dong_nhan`/`bam`, nên `kiem_lai_truoc_khi_xuat()`
+không thể chạy — vi phạm đúng cảnh báo đã viết sẵn trong `product_video.py`.
+Sửa đúng nghĩa là đổi hợp đồng của `DungDuAnWorker` và tệp dự án: một lát
+thiết kế. Rủi ro thực tế hiện bằng 0 (`image.scene.stage` = `off`), nhưng
+**phải đóng trước khi bật sang `calibration`**.

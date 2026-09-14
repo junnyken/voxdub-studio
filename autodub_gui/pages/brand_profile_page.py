@@ -188,7 +188,10 @@ class BrandProfilePage(BasePage):
 
     def _on_worker_ok(self, action: str, ket) -> None:
         if action == "list":
-            self._profiles = ket or []
+            # RS-10 — KHÔNG dùng `ket or []` / `list(ket)`: danh sách rỗng là
+            # falsy nên `or []` trả về một list trần và VỨT MẤT `.loi`, đúng
+            # cái ca cần phân biệt. `list(...)` thì đổi kiểu, mất y như vậy.
+            self._profiles = ket if isinstance(ket, list) else []
             self._render_table()
         elif action == "create":
             TOASTS.success(f"Đã tạo hồ sơ «{ket.get('tenBrand', '')}».")
@@ -222,7 +225,9 @@ class BrandProfilePage(BasePage):
             self.table.set_widget(row, 1, QLabel(profile.get("doiTuongKhach", "")))
             self.table.set_widget(row, 2, QLabel(profile.get("usp", "")))
             self.table.set_widgets(row, 3, self._actions(profile))
-        self.table.auto_state()
+        # RS-10 — mất mạng KHÔNG được hiện ra như "chưa có hồ sơ nào": người
+        # dùng sẽ đi tạo lại đúng hồ sơ họ đang có.
+        self.table.auto_state(getattr(self._profiles, "loi", ""))
 
     def _actions(self, profile: dict) -> list[QWidget]:
         edit = IconButton(icons.edit(tokens.TEXT_SECONDARY), "Sửa hồ sơ",

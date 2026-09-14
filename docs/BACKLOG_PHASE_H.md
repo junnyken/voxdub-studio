@@ -519,22 +519,97 @@ Phải **đo trước khi sửa**. Xếp theo mức nghiêm trọng agent gán.
 | ~~RS-4~~ | ✅ **ĐÃ SỬA 14/09** — `_on_action_ok` mở lại nút cho MỌI lượt, kể cả `list` chạy nền | `brand_script_page.py` |
 | ~~RS-5~~ | ✅ **ĐÃ SỬA 14/09** — sau `409`, bảng lịch sử vẫn giữ hàng `ready` cũ; bấm mở lại là mở cổng H4 | `brand_script_page.py` |
 | ~~RS-6~~ | ✅ **ĐÃ SỬA 14/09** — nhánh `409` đè phẳng `status` nên xoá cả phán quyết tuân thủ còn giá trị | `brand-scripts.js` |
-| RS-7 | `rangBuocKhongDuocNoi` không có `maxItems` | `brand-profiles.js` |
+| ~~RS-7~~ | ✅ **ĐÃ SỬA 14/09** — `maxLength` chặn từng mục, không chặn SỐ mục; thêm `maxItems: 200` | `brand-profiles.js` |
 | ~~RS-8~~ | ✅ **ĐÃ SỬA 11/09** — đường dẫn dựng bằng `os.path` | `bao_cao_pilot_phase_h.py` |
 | ~~RS-9~~ | ✅ **ĐÃ SỬA 11/09** — hỏi máy chủ trước khi kết luận | `bao_cao_pilot_phase_h.py` |
-| RS-10 | Danh sách rỗng vì mất mạng trông y hệt "chưa có gì" | `saas_client.py:848,906` |
-| RS-11 | Lỗi kiểm dữ liệu về tới người dùng chỉ còn câu trống không (`details` bị bỏ) | `app.js:153` |
-| RS-12 | Bộ chặn sao chép huỷ kết quả nhưng báo "thử lại sau" | `flow-blueprints.js:210` |
-| RS-13 | `UsageLog.create(...).catch(()=>{})` ⇒ trần ngày tắt hẳn mà không ai biết | `flow-blueprints.js:261` |
-| RS-14 | `doc_chu_may_chu` dựng `SaasClient()` mới thay vì `get_client()` ⇒ đăng ký lại thiết bị mỗi lượt | `doc_chu_may_chu.py:140` |
-| RS-15 | Cột "Trạng thái" hiện tiếng Anh (`ready`/`queued`/`failed`) | `flow_blueprint_page.py:368` |
-| RS-16 | Ảnh AI của H4d đi qua cửa mà H4b cấm; `bam` bị vứt ⇒ mất phép kiểm C6 | `storyboard_page.py:335` |
-| RS-17 | Đoạn không có lời đọc ⇒ `ValueError` không nói đoạn nào | `product_video.py:348` |
-| RS-18 | Hết hạn mức **trợ lý** ⇒ vẽ xong mà ảnh nào cũng bị loại (hai trần tách rời) | `ai.js` |
-| RS-19 | `_anh_kiem_tam.jpg` để lại trong thư mục ảnh kết quả | `story_image.py:141` |
+| ~~RS-10~~ | ✅ **ĐÃ SỬA 14/09** — `DanhSachCoLoi` mang theo `.loi`; bảng hiện màn hình LỖI thay vì "chưa có gì" | `saas_client.py` + 3 trang |
+| ~~RS-11~~ | ✅ **ĐÃ XONG TỪ TRƯỚC** — chính bản vá **E8** (v3.17.15) đã sửa; xác minh trên **prod thật** 14/09: `details` có mặt, `message` tiếng Việt | `app.js` |
+| ~~RS-12~~ | ✅ **ĐÃ XONG TỪ TRƯỚC** — bản vá **E1** (v3.17.13) cho `AiError` đi thẳng lên máy khách; `SAO_CHEP_NGUYEN_VAN` nay ra 422 kèm đúng cụm và lời khuyên đổi video | `flow-blueprints.js` |
+| ~~RS-13~~ | ⚠️ **MÔ TẢ SAI, đã sửa phần thật 14/09** — `ghiSoDung()` TỰ bắt lỗi và ghi nhật ký bên trong, nên `.catch(()=>{})` là **mã chết**, không nuốt lỗi nào. Trần ngày KHÔNG hề tắt. Phần thật: nó *đọc như* đang nuốt, và không chỗ gọi nào truyền `request.log` | `flow-blueprints.js` |
+| ~~RS-14~~ | ⚠️ **HẬU QUẢ NÓI QUÁ, đã sửa 14/09** — token nằm trong **kho khoá hệ điều hành** nên bản mới vẫn đọc ra token cũ: **KHÔNG** đăng ký lại thiết bị. Phần thật: phiên HTTP thứ hai + không chịu ảnh hưởng `reset_client()` | `doc_chu_may_chu.py` |
+| ~~RS-15~~ | ✅ **ĐÃ SỬA 14/09** — bảng nhãn tiếng Việt; khoá lạ hiện NGUYÊN VĂN chứ không nuốt thành "Không rõ" | `flow_blueprint_page.py` |
+| **RS-16** | 🔴 **XÁC NHẬN CÓ THẬT — CỐ Ý CHƯA SỬA**, cần một lát riêng. Xem mục bên dưới | `storyboard_page.py` |
+| ~~RS-17~~ | ✅ **ĐÃ SỬA 14/09** — nói đúng số đoạn (đánh số từ 1) + nguyên nhân thường gặp | `product_video.py` |
+| ~~RS-18~~ | ✅ **ĐÃ SỬA 14/09** — hỏi trần `kiem_anh_minh_hoa` TRƯỚC khi vẽ và trước khi trừ tiền (cùng mẫu RS-3) | `ai.js` |
+| ~~RS-19~~ | ✅ **ĐÃ SỬA 14/09** — dọn trong `finally` (lượt kiểm hỏng thì càng phải dọn) | `story_image.py` |
 | ~~RS-20~~ | ✅ **ĐÃ SỬA 11/09** — app TỰ KIỂM: thêm mục «Đóng nhãn chữ lên hình» vào bộ kiểm hệ thống, chạy thật bộ lọc chứ không chỉ hỏi danh sách | `preflight.py` |
-| RS-21 | `/story-image` khai `preHandler: requireDevice` trong khi plugin đã có hook ⇒ xác thực hai lần | `ai.js:1267` |
-| RS-22 | Ảnh minh hoạ dùng chung khoá giá với ảnh sản phẩm | `ai.js:1288` |
+| ~~RS-21~~ | ✅ **ĐÃ SỬA 14/09** — bỏ khai trùng; hook chung ở đầu plugin đã phủ mọi route | `ai.js` |
+| ~~RS-22~~ | ✅ **ĐÃ SỬA 14/09** — khoá riêng `credit.cost.image.story`, mặc định ĐÚNG BẰNG khoá cũ (30) nên giá không đổi | `ai.js` |
+
+---
+
+## Đã sửa 14/09 (đợt 2) — 11 mục RS còn lại, và hai mô tả SAI
+
+Sửa được **11**; **hai** mục hoá ra đã xong từ trước; **hai** mục bị mô tả
+quá mức thật; **một** mục có thật nhưng cố ý chưa sửa.
+
+| Mã | Kết cục |
+|---|---|
+| RS-7 | Thêm `maxItems: 200`. `maxLength` chặn từng mục, KHÔNG chặn số mục — mà bộ kiểm tuân thủ duyệt TỪNG ràng buộc trên TỪNG đoạn của TỪNG kịch bản. Cùng bài học với trần `maxItems: 400` của E7: trần phải đặt ở **cả hai chiều** của một mảng. |
+| RS-10 | `DanhSachCoLoi` (vẫn là `list`, có thêm `.loi`) + `auto_state(loi)` hiện màn hình LỖI. |
+| RS-11 | **Đã xong từ trước** — chính E8. Xác minh trên prod thật, không chỉ đọc mã. |
+| RS-12 | **Đã xong từ trước** — chính E1. `SAO_CHEP_NGUYEN_VAN` nay ra 422 kèm cụm gây chặn. |
+| RS-13 | **Mô tả sai** — xem dưới. |
+| RS-14 | **Hậu quả nói quá** — xem dưới. |
+| RS-15 | Bảng nhãn tiếng Việt; khoá lạ hiện nguyên văn. |
+| RS-16 | **Có thật, cố ý chưa sửa** — xem dưới. |
+| RS-17 | Nói đúng số đoạn + nguyên nhân thường gặp. |
+| RS-18 | Hỏi trần kiểm TRƯỚC khi vẽ và trừ tiền. |
+| RS-19 | Dọn tệp tạm trong `finally`. |
+| RS-21 | Bỏ `preHandler` trùng. |
+| RS-22 | Khoá giá riêng, mặc định bằng khoá cũ. |
+
+### ⚠️ RS-13 — mô tả SAI, phần thật nhỏ hơn nhiều
+
+Backlog ghi *"`UsageLog.create(...).catch(()=>{})` ⇒ trần ngày tắt hẳn mà
+không ai biết"*. **Không đúng.** `ghiSoDung()` đã có `try/catch` bên trong,
+tự ghi nhật ký với đúng câu *"trần ngày sẽ đếm thiếu lượt này"* — nên
+`.catch(() => {})` ở ngoài **không bao giờ chạy**. Trần ngày không hề tắt.
+
+Phần thật còn lại, nhỏ nhưng có: (1) đoạn đó **đọc như** đang nuốt lỗi, và
+nếu ai bỏ `try/catch` bên trong thì nó thành chỗ nuốt thật; (2) **không chỗ
+gọi nào** truyền `request.log`, nên câu cảnh báo rơi vào `console` trần, mất
+ngữ cảnh request. Đã sửa cả hai.
+
+> Đây là lý do tệp này phân biệt 🔴 với 🟡. RS-13 là 🟡 — agent báo, chưa ai
+> đo. Sửa theo đúng lời mô tả là đi thêm một lớp `.catch` có ghi log vào một
+> chỗ vốn đã ghi log, rồi ghi vào TEST_LOG rằng đã chữa một lỗi không tồn tại.
+
+### ⚠️ RS-14 — hậu quả nói quá
+
+Ghi là *"đăng ký lại thiết bị mỗi lượt"*. **Không phải**: token nằm trong kho
+khoá hệ điều hành (`keystore.get_secret`), nên `SaasClient()` mới vẫn đọc ra
+token cũ và không gọi `_register_device()`.
+
+Phần thật: một phiên HTTP thứ hai (mất gộp kết nối), một lượt đọc kho khoá
+thừa, và — đáng kể nhất — **không chịu ảnh hưởng của `reset_client()`**, nên
+đổi địa chỉ máy chủ giữa chừng thì đường này và mọi đường khác trỏ về hai nơi
+khác nhau. Đã đổi sang `get_client()`.
+
+### 🔴 RS-16 — CÓ THẬT, cố ý chưa sửa: cần một lát riêng
+
+`storyboard_page._ve_anh_xong()` giữ **đúng đường dẫn** (`self._anh[i] =
+ket.duong_dan`) và vứt toàn bộ `phan_quyet`, `da_kiem`, `da_dong_nhan`,
+`bam`. Sau đó `DungDuAnWorker` nhận một danh sách **chuỗi**, nên
+`kiem_lai_truoc_khi_xuat()` — vốn cần `AnhNguon` có đủ bốn trường đó —
+**không thể chạy**.
+
+Điều này vi phạm đúng một cảnh báo **đã viết sẵn trong mã** từ trước khi H4d
+tồn tại (`product_video.py`, docstring của `dung_video_tu_anh_nguoi_dung`):
+
+> ⚠ **Khi H4d thêm đường sinh ảnh AI**: ảnh sinh ra KHÔNG được đi qua hàm
+> này. Chúng phải qua `dung_video()` với đủ ba phép kiểm, vì lúc đó đúng là
+> ảnh AI và cổng C1 áp dụng.
+
+**Vì sao chưa sửa trong đợt này:** sửa đúng nghĩa là mang phán quyết + băm
+xuyên qua lớp dựng dự án tới tận bước Xuất trong Trình chỉnh sửa — đổi hợp
+đồng của `DungDuAnWorker` và của tệp dự án. Đó là một lát thiết kế, và vá vội
+một cổng TUÂN THỦ là cách tệ nhất để đóng nó (cùng lý lẽ đã dùng cho D3).
+
+**Rủi ro hiện tại bằng 0 trên thực tế**: `image.scene.stage` mặc định **off**
+ở máy chủ, nên chưa máy nào sinh được ảnh minh hoạ AI. Cổng này phải đóng
+**trước** khi chốt đó chuyển sang `calibration` — ghi thẳng vào đây để nó
+không bị quên đúng lúc quan trọng.
 
 ---
 

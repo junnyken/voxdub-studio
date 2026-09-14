@@ -10,8 +10,8 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-12 · phiên bản ứng dụng `3.17.16` · 2.823 test Python +
-> 700 test Node + 74 test React
+> Cập nhật: 2026-09-14 · phiên bản ứng dụng `3.17.16` · **đo thật cùng ngày**:
+> 2.851 test Python + 714 test Node + 74 test React, 0 hỏng (xem §10).
 
 ---
 
@@ -654,8 +654,14 @@ chỉ thiếu nút bấm tại chỗ.
 | `docs/BACKLOG_PHASE_H.md` | Mọi phát hiện Phase H còn mở, có trạng thái thật: đã sửa / đã tự kiểm chứng / chưa kiểm chứng |
 | `docs/PILOT_PHASE_H.md` | Runbook chạy thử xuyên suốt H2→H3 trên máy thật + bốn cổng phải đóng trước khi mở H4 |
 
-**Quy mô test tại thời điểm cập nhật tệp này:** 2.449 test Python (4 bỏ qua —
-chỉ có nghĩa trên Windows) + 542 test Node (1 bỏ qua, 0 hỏng) + 74 test React (0 hỏng).
+**Quy mô test — ĐO THẬT 14/09/2026, không phải chép lại:** **2.851 test
+Python** (4 bỏ qua — chỉ có nghĩa trên Windows, 0 hỏng) + **714 test Node**
+(1 bỏ qua, 0 hỏng) + 74 test React (0 hỏng).
+
+> Trước lần đo này, tệp đang tự mâu thuẫn: phần đầu ghi *2.823 Python + 700
+> Node*, mục này ghi *2.449 Python + 542 Node*. Không con số nào đúng. Chép
+> lại một con số cũ rẻ hơn chạy `pytest` bảy phút, và đó đúng là cách hai con
+> số sai sống sót qua nhiều đợt.
 Con số này tăng gần như mỗi đợt — dùng nó để hình dung quy mô, đừng dùng làm
 mốc đối chiếu.
 

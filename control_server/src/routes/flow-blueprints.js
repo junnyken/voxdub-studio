@@ -303,7 +303,13 @@ module.exports = async function flowBlueprintRoutes(fastify) {
         status: 'success',
         ip: request.ip,
         appVersion: device.appVersion,
-      }).catch(() => {}),
+        // RS-13 — `ghiSoDung()` đã TỰ bắt lỗi và ghi nhật ký bên trong, nên
+        // `.catch(() => {})` ở đây là mã chết. Nó không nuốt lỗi nào cả,
+        // nhưng nó ĐỌC như đang nuốt — và ngày nào đó ai bỏ try/catch bên
+        // trong thì nó thành chỗ nuốt thật. Bỏ đi, và truyền `request.log`
+        // để câu cảnh báo "trần ngày sẽ đếm thiếu lượt này" đi vào đúng
+        // nhật ký có ngữ cảnh request, thay vì `console` trần.
+      }, request.log),
     ])
 
     return reply.code(201).send(response)

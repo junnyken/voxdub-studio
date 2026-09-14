@@ -139,6 +139,13 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     // credit.cost.image.scene: dựng bối cảnh ảnh sản phẩm (mini-spec C1) —
     // thêm có chủ đích, không phải rò rỉ giá nội bộ.
     'credit.cost.image.scene',
+    // credit.cost.image.story: ảnh MINH HOẠ cho đoạn kịch bản (mini-spec H4d)
+    // — RS-22, thêm có chủ đích. Trước 14/09 đường này dùng chung khoá
+    // `image.scene` với ảnh sản phẩm, nên người quản trị không định giá riêng
+    // được: sửa một cái là đổi cả hai, dù hai đường khác hẳn nhau về chi phí
+    // lẫn hồ sơ tuân thủ. Mặc định đặt ĐÚNG BẰNG khoá cũ (30) — tách khoá
+    // không phải cái cớ để lặng lẽ đổi giá.
+    'credit.cost.image.story',
     'credit.cost.metadata',
     'credit.cost.segment.autotranslate',
     'credit.cost.segment.base',

@@ -92,9 +92,26 @@ class DataTable(QStackedWidget):
         self.error.set_message(title, description)
         self.setCurrentWidget(self.error)
 
-    def auto_state(self) -> None:
-        """Tự chọn giữa bảng và màn hình trống dựa vào số hàng hiện có."""
-        self.show_table() if self.table.rowCount() else self.show_empty()
+    def auto_state(self, loi: str = "") -> None:
+        """Tự chọn giữa bảng, màn hình trống, và màn hình LỖI.
+
+        ``loi``: lý do lượt hỏi dữ liệu hỏng (RS-10). Không rỗng thì bảng
+        trống là vì **không hỏi được**, không phải vì chưa có gì — hai thứ
+        đó nói cho người dùng hai việc khác hẳn nhau. Trước đây cả hai đều
+        ra "Chưa có ... nào", nên mất mạng là người dùng đi tạo lại thứ họ
+        đã có.
+
+        Có hàng thì vẫn hiện bảng dù ``loi`` có gì: dữ liệu cũ còn đọc được
+        vẫn hơn một màn hình lỗi trắng trơn.
+        """
+        if self.table.rowCount():
+            self.show_table()
+        elif loi:
+            self.show_error("Không tải được danh sách",
+                            f"{loi} — kiểm tra mạng rồi bấm tải lại. "
+                            "Đây KHÔNG phải là danh sách trống.")
+        else:
+            self.show_empty()
 
     # -- Dựng hàng -----------------------------------------------------
     def clear_rows(self) -> None:

@@ -335,7 +335,18 @@ def doc_lai_bang_may_chu(quan_sat: list, image_paths: list[str], *,
             logger.info("Chưa cấu hình máy chủ VoxDub — giữ bản đọc tại máy "
                         "(chữ tiếng Việt sẽ không có dấu)")
             return quan_sat
-        client = saas_client.SaasClient()
+        # RS-14 — máy khách DÙNG CHUNG, không dựng bản mới. Mọi chỗ khác
+        # (`story_image`, `product_scene`, `billing`, `telemetry`) đều gọi
+        # `get_client()`; riêng chỗ này dựng `SaasClient()` nên có một phiên
+        # HTTP thứ hai, đọc lại kho khoá, và KHÔNG chịu ảnh hưởng của
+        # `reset_client()` — tức đổi địa chỉ máy chủ trong lúc chạy thì đường
+        # này và mọi đường khác trỏ về hai nơi khác nhau.
+        #
+        # (Backlog ghi hậu quả là "đăng ký lại thiết bị mỗi lượt" — ĐO LẠI
+        # 14/09 thì không phải: token nằm trong kho khoá hệ điều hành nên bản
+        # mới vẫn đọc ra token cũ. Hậu quả thật nhỏ hơn, nhưng vi phạm quy ước
+        # thì có thật.)
+        client = saas_client.get_client()
 
     dai_dien = [dai_dien_cua_doan(d, quan_sat) for d in doan]
 

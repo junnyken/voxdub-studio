@@ -32,11 +32,18 @@
 | Quy mô mã | `autodub/` ~28k dòng · `autodub_gui/` ~30k dòng (22 trang) · `control_server/` ~12k dòng · `website/` ~7k dòng |
 | Tệp test | 246 tệp pytest + 68 tệp test Node + 8 tệp test React |
 
-**Về số lượng test:** `FEATURES.md` đang tự mâu thuẫn — phần đầu ghi *2.823
-Python + 700 Node + 74 React*, phần §10 ghi *2.449 Python + 542 Node + 74
-React*. **Chưa chạy lại trong phiên này**, nên đừng dùng con số nào làm mốc
-đối chiếu; cần thì chạy `pytest` + `npm test` rồi cập nhật cả hai chỗ cho
-khớp.
+**Số lượng test — ĐO THẬT 14/09** (trước đó `FEATURES.md` tự mâu thuẫn: đầu
+tệp ghi *2.823 Python + 700 Node*, §10 ghi *2.449 + 542* — không con số nào
+đúng, đã sửa cả hai):
+
+| | Đạt | Bỏ qua | Hỏng |
+|---|---|---|---|
+| Python (`pytest`) | **2.851** | 4 | 0 |
+| Node (`npm test`) | **713** | 1 | 0 |
+| React (`website`) | 74 | 0 | 0 |
+
+4 test Python bỏ qua chỉ có nghĩa trên Windows. Con số này tăng gần như mỗi
+đợt — dùng để hình dung quy mô, đừng dùng làm mốc đối chiếu.
 
 ---
 
@@ -188,25 +195,46 @@ ca gate.
 Bốn cổng phải đóng trước khi mở H4. Mọi việc ở mục 3.3 nên **đợi số liệu của
 pilot này**.
 
-### 3.3 🟡 RS-1 → RS-22 — rà soát báo, **chưa ai kiểm chứng**
+### 3.3 ✅ RS-1 → RS-22 — ĐÃ XỬ LÝ 14/09, còn đúng 1 mục mở
 
-Còn mở 19 mục (RS-8, RS-9, RS-20 đã sửa). Nhóm theo rủi ro:
+22 mục rà soát, kết cục thật sau khi **kiểm chứng độc lập từng cái**:
 
-**Nhóm H3 — đụng trạng thái `ready` và TIỀN (ưu tiên cao nhất sau pilot):**
-- RS-1 `brand-scripts.js:86` — sửa ràng buộc brand không hạ `ready` ⇒ kịch bản
-  chứa cụm mới cấm vẫn `ready` vĩnh viễn.
-- RS-2 — xoá blueprint/brand chỉ bị phát hiện ở `regenerate`, không ở `GET`/`list`.
-- RS-3 `:176` — trừ 12 Vox cho blueprint **không đời nào** ra `ready` (thiếu vân tay).
-- RS-4 `brand_script_page.py:289` — GUI bật lại nút giữa lúc chạy ⇒ **trừ tiền hai lần**.
-- RS-5 `:303` — sau `409`, GUI giữ trạng thái cũ và mở lại được cổng H4.
-- RS-6 `brand-scripts.js:326` — nhánh `409` hạ `blocked` xuống `unconfirmed`, mất phán quyết đã có.
+| Kết cục | Số mục | Mã |
+|---|---|---|
+| Đã sửa (trước 14/09) | 3 | RS-8, RS-9, RS-20 |
+| **Đã sửa 14/09** | **17** | RS-1…RS-7, RS-10, RS-13, RS-14, RS-15, RS-17, RS-18, RS-19, RS-21, RS-22 |
+| Hoá ra đã xong từ trước | 2 | RS-11 (do E8), RS-12 (do E1) |
+| **Còn mở, cố ý** | **1** | **RS-16** |
 
-**Nhóm trải nghiệm + dọn dẹp:** RS-7 (thiếu `maxItems`), RS-10 (danh sách rỗng
-vì mất mạng trông y hệt "chưa có gì"), RS-11, RS-12, RS-13 (`.catch(()=>{})` ⇒
-trần ngày tắt hẳn mà không ai biết), RS-14 (đăng ký lại thiết bị mỗi lượt),
-RS-15 (cột Trạng thái hiện tiếng Anh `ready`/`queued`/`failed`), RS-16, RS-17,
-RS-18 (hai trần tách rời ⇒ vẽ xong mà ảnh nào cũng bị loại), RS-19 (để lại tệp
-tạm), RS-21, RS-22 (ảnh minh hoạ dùng chung khoá giá với ảnh sản phẩm).
+**Hai mô tả trong backlog là SAI, đã sửa lại tại chỗ:**
+
+- **RS-13** ghi *"trần ngày tắt hẳn mà không ai biết"* — **không đúng**.
+  `ghiSoDung()` đã tự bắt lỗi và ghi nhật ký, nên `.catch(()=>{})` bên ngoài
+  không bao giờ chạy. Trần ngày không hề tắt. Phần thật nhỏ hơn nhiều (mã
+  chết gây hiểu lầm + không truyền `request.log`).
+- **RS-14** ghi *"đăng ký lại thiết bị mỗi lượt"* — **không đúng**. Token nằm
+  trong kho khoá hệ điều hành nên bản máy khách mới vẫn đọc ra token cũ. Phần
+  thật: phiên HTTP thừa + không chịu ảnh hưởng `reset_client()`.
+
+> Đây đúng là lý do backlog phân biệt 🔴 (tự kiểm chứng) với 🟡 (chưa ai đo).
+> Sửa theo lời mô tả của một mục 🟡 là cách nhanh nhất để "chữa" một lỗi không
+> tồn tại rồi ghi vào nhật ký rằng đã chữa.
+
+**🔴 RS-16 — mục duy nhất còn mở, và là mục CỐ Ý chưa sửa.**
+
+`storyboard_page._ve_anh_xong()` chỉ giữ ĐƯỜNG DẪN ảnh, vứt `phan_quyet`,
+`da_kiem`, `da_dong_nhan`, `bam`. `DungDuAnWorker` nhận một danh sách chuỗi,
+nên `kiem_lai_truoc_khi_xuat()` **không thể chạy** — vi phạm đúng một cảnh
+báo đã viết sẵn trong mã từ trước khi H4d tồn tại.
+
+Sửa đúng nghĩa là mang phán quyết + băm xuyên qua lớp dựng dự án tới bước
+Xuất, tức đổi hợp đồng của `DungDuAnWorker` và của tệp dự án — **một lát
+thiết kế, không phải một bản vá**. Vá vội một cổng TUÂN THỦ là cách tệ nhất
+để đóng nó.
+
+**Rủi ro thực tế hiện bằng 0**: `image.scene.stage` mặc định `off`, chưa máy
+nào sinh được ảnh minh hoạ AI. Nhưng cổng này **phải đóng trước** khi chốt đó
+chuyển sang `calibration` — xem mục 3.1.
 
 ### 3.4 🔴 Lát đã biết trước, chưa làm
 
@@ -271,11 +299,12 @@ thì nghi môi trường trước khi nghi mã.**
    `3.17.16`, E8 xác minh bằng lượt gọi thật; GitLab mirror đã đuổi kịp.
 2. **Chạy pilot H2→H3** theo `docs/PILOT_PHASE_H.md` (hai video, máy Windows,
    60–80 Vox). Đây là cổng chặn: mọi việc dưới đây nên đợi số liệu của nó.
-3. **Lần ra C.4** — vì sao `khoi_dong_s`/`quet_s` không vào được tệp chẩn đoán.
-   Không có nó thì D3 (đòn bẩy thời gian duy nhất) không quyết được.
-4. **RS-1 → RS-6** — nhóm H3, đều đụng trạng thái `ready` và tiền. **Kiểm chứng
-   từng cái trước khi sửa.**
-5. **RS-15 → RS-22** — nhóm trải nghiệm và dọn dẹp.
+3. ~~**Lần ra C.4**~~ ✅ **XONG 14/09** — nguyên nhân: **worker chạy thật là bản
+   CŨ**, chứng minh từ chính tệp chẩn đoán. Đã bịt chỗ im lặng (worker khai
+   đời, cha ghi đường dẫn). **Vẫn chưa có SỐ ĐO** — cần một lượt chạy trên bản
+   mới, rồi D3 mới quyết được.
+4. ~~**RS-1 → RS-22**~~ ✅ **XONG 14/09** trừ **RS-16** (xem 3.3) — RS-16 phải
+   đóng TRƯỚC khi bật `image.scene.stage` sang `calibration`.
 6. **D1** (khớp giọng thật), rồi mới tới **hiệu chỉnh H4d** (sinh ảnh có tính
    tiền thật) — và H4d còn chờ thao tác quản trị ở mục 3.1.
 7. **D2** (định giá lại) sau khi có 10–20 lượt thật.
