@@ -357,6 +357,13 @@ def test_DAU_CUOI_sinh_nhanh_that_thi_bo_do_phai_noi_KHONG_LECH(tmp_path):
     """
     remote = tmp_path / "remote.git"
     subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    # Runner của `python-tests` dùng `actions/checkout@v4` KHÔNG kèm
+    # `fetch-depth: 0`, tức bản sao NÔNG — và đẩy từ bản sao nông bị từ chối
+    # với `shallow update not allowed` (đã xảy ra thật ở lượt CI 34806866247).
+    # Kiểm bằng một bản sao nông thật: thiếu dòng này thì hỏng đúng câu đó, có
+    # thì đẩy được.
+    subprocess.run(["git", "-C", str(remote), "config",
+                    "receive.shallowUpdate", "true"], check=True)
     sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO,
                          capture_output=True, text=True, encoding="utf-8",
                          errors="replace", check=True).stdout.strip()
