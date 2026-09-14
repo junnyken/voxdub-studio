@@ -334,3 +334,90 @@ def test_gitignore_chan_SOURCE_SHA_lot_len_main():
     thứ đang chạy — tệ hơn không khai gì, vì nó trông như bằng chứng."""
     bo_qua = open(os.path.join(REPO, ".gitignore"), encoding="utf-8").read()
     assert "control_server/SOURCE_SHA" in bo_qua
+
+
+# ===== 6. ĐẦU-CUỐI: sinh nhánh THẬT rồi bắt bộ dò chấm — không mô phỏng =====
+
+def test_DAU_CUOI_sinh_nhanh_that_thi_bo_do_phai_noi_KHONG_LECH(tmp_path):
+    """Chạy hai script sinh nhánh THẬT rồi bắt chính bộ dò drift chấm.
+
+    Vì sao phải là đầu-cuối: tệp `SOURCE_SHA` của D3 nằm TRONG vùng bộ dò so
+    sánh, mà `main` không có nó ⇒ bộ dò báo "1 tệp thừa" và làm CI đỏ. Chuyện
+    đó đã xảy ra THẬT ở lượt 34804806017 — **sau khi 24 test khác của chính D3
+    đều xanh**, vì không test nào chạy hai thứ đó CÙNG NHAU.
+
+    Test cũ `test_anh_xa_phu_het_thu_ma_script_sinh_nhanh_chep` không bắt được
+    vì nó đọc các lệnh `cp -r`, còn `SOURCE_SHA` thì được `printf` ra.
+
+    So bằng `_liet_ke` trên nhánh VỪA SINH (local), không gọi `kiem_mot_nhanh`:
+    hàm đó cố ý ưu tiên nhánh trên REMOTE (C57b), mà remote ở máy dev là bản
+    cũ — dùng nó ở đây thì test đỏ vì ref cũ chứ không vì thứ đang kiểm. (Bản
+    đầu của chính test này mắc đúng lỗi đó và báo `src/version.js` khác nội
+    dung.)
+    """
+    remote = tmp_path / "remote.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO,
+                         capture_output=True, text=True, encoding="utf-8",
+                         errors="replace", check=True).stdout.strip()
+
+    # Script reset nhánh deploy CỤC BỘ. Nhớ lại để trả về nguyên trạng — một
+    # bộ test làm bẩn repo của người chạy nó là một bộ test người ta sẽ tắt.
+    def _dau(ref):
+        r = subprocess.run(["git", "rev-parse", "--verify", "--quiet", ref],
+                           cwd=REPO, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        return r.stdout.strip() or None
+
+    NHANH_CUC_BO = ["deploy/vays-control-server", "deploy/vays-dub-worker"]
+    truoc = {n: _dau(n) for n in NHANH_CUC_BO}
+
+    try:
+        moi_truong = {**os.environ, "REMOTE": str(remote), "GOC": sha}
+        for ten in ("gen_vays_control_server_branch.sh",
+                    "gen_vays_dub_worker_branch.sh"):
+            kq = subprocess.run(["bash", os.path.join(REPO, "scripts", ten)],
+                                cwd=REPO, env=moi_truong, capture_output=True,
+                                text=True, encoding="utf-8", errors="replace",
+                                timeout=300)
+            assert kq.returncode == 0, f"{ten} hỏng: {kq.stderr[-500:]}"
+
+        spec = importlib.util.spec_from_file_location(
+            "kiem_nhanh_deploy",
+            os.path.join(REPO, "scripts", "kiem_nhanh_deploy.py"))
+        bo_do = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bo_do)
+
+        cwd = os.getcwd()
+        os.chdir(REPO)
+        try:
+            lech = []
+            for nhanh, cap in bo_do.NHANH.items():
+                for tren_main, tren_deploy in cap:
+                    a = bo_do._liet_ke(sha, tren_main)
+                    b = bo_do._liet_ke(nhanh, tren_deploy)
+                    thua = sorted(set(b) - set(a))
+                    thieu = sorted(set(a) - set(b))
+                    khac = sorted(t for t in set(a) & set(b) if a[t] != b[t])
+                    if thua or thieu or khac:
+                        lech.append(f"{tren_main} ⇄ {tren_deploy}: "
+                                    f"thừa={thua[:3]} thiếu={thieu[:3]} khác={khac[:3]}")
+        finally:
+            os.chdir(cwd)
+
+        assert not lech, (
+            "vừa sinh nhánh xong mà bộ dò đã thấy lệch ⇒ CI sẽ đỏ ngay lượt "
+            "sau:\n" + "\n".join(lech))
+    finally:
+        for n, cu in truoc.items():
+            if cu:
+                subprocess.run(["git", "branch", "-f", n, cu], cwd=REPO,
+                               capture_output=True)
+
+
+def test_SOURCE_SHA_nam_trong_danh_sach_bo_qua_cua_bo_do():
+    bo_do_ma = open(os.path.join(REPO, "scripts", "kiem_nhanh_deploy.py"),
+                    encoding="utf-8").read()
+    assert '"SOURCE_SHA"' in bo_do_ma, (
+        "tệp do D3 sinh ra nằm đúng vùng bộ dò so sánh — không bỏ qua thì "
+        "mọi lượt CI sau này đều đỏ")

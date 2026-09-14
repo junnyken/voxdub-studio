@@ -124,6 +124,81 @@ cha của commit deploy đúng bằng SHA nguồn.
 
 Hồi quy: Node **713 đạt / 0 hỏng**; nhóm deploy 54 đạt.
 
+## Kiểm chứng LIVE — hai lượt CI thật
+
+### Lượt 1 — `128bcd9` (run 34804079842): cổng D3 nổ lần đầu
+
+```
+03:57:26  python-tests        FAILURE
+03:57:27  sinh-nhanh-deploy   SKIPPED   ← cổng D3
+03:57:27  trien-khai-prod     skipped
+03:57:37  deploy-branch-drift success   ← KHÔNG kêu nhầm
+```
+
+**Trước D3, `sinh-nhanh-deploy` đã force-push từ ~03:52:55** — tức nguồn sự
+thật của prod sẽ mang đúng mã vừa trượt test. Đây là bằng chứng live cho cả
+chốt 1 lẫn phần chống-kêu-nhầm.
+
+Lượt đó đỏ vì một chốt SẴN CÓ của dự án bắt mã mới của tôi:
+`subprocess.run(..., encoding="utf-8")` trong `doi_chieu_dau_nhanh` thiếu
+`errors="replace"` (`tests/test_subprocess_encoding.py`) — đúng lớp lỗi cp1252
+ngày 11/09. Lỗi quy trình của tôi: chạy test **chọn lọc** rồi đẩy thay vì chạy
+đủ bộ; chốt bắt được, nhưng bắt ở CI thì tốn một lượt đỏ trên `main`.
+
+### Lượt 2 — `8f17a70` (run 34804806017): thứ tự đúng, prod khai đúng SHA
+
+```
+04:06:42  node-tests          success
+04:08:42  chay-that-windows   success
+04:10:03  python-tests        success   ← cổng cuối cùng
+04:10:06  sinh-nhanh-deploy   BẮT ĐẦU   ← SAU cổng cuối, không còn trước
+04:10:15  sinh-nhanh-deploy   success
+04:12:05  trien-khai-prod     success
+```
+
+Nhánh deploy sinh **sau** cổng cuối cùng 3 giây, thay vì **trước** nó 4 phút.
+
+Prod, hỏi trực tiếp:
+
+```
+GET https://voxdub-app.cmc-1.vibenode.matbao.ai/health
+{"ok":true,"version":"3.17.16","commit":"8f17a706f1eb","db":"đã kết nối","uptimeS":314}
+```
+
+`git log -1 --format=%b github/deploy/vays-control-server` →
+`Source-SHA: 8f17a706f1ebece618c47ad1588c9afe9f0e1bdb`.
+
+**`commit` = đúng SHA `main` mà test của chính nó vừa xanh.** Success Criterion
+2 nay đạt bằng cách **hỏi dịch vụ**, không phải suy ra từ nhánh.
+
+### Lượt 2 cũng lộ ra lỗi thứ hai của tôi — và cách chặn nó tái diễn
+
+`deploy-branch-drift` đỏ với đúng câu:
+
+```
+control_server/ ⇄ webapp/control_server/: 1 tệp thừa (vd SOURCE_SHA)
+```
+
+Tệp `SOURCE_SHA` phải nằm TRONG `webapp/control_server/` (chỗ duy nhất
+`COPY control_server/ ./` mang được vào ảnh), nên nó rơi đúng vào vùng bộ dò so
+sánh — mà `main` không có nó. Bộ dò làm đúng việc; thứ sai là danh sách bỏ qua
+chưa theo kịp thứ script sinh ra. Đã thêm `"SOURCE_SHA"` vào `BO_QUA`.
+
+**24 test D3 đều xanh mà vẫn lọt** — vì không test nào chạy *script sinh nhánh*
+và *bộ dò* CÙNG NHAU. Test cũ `test_anh_xa_phu_het_thu_ma_script_sinh_nhanh_chep`
+cũng không bắt được: nó đọc các lệnh `cp -r`, còn `SOURCE_SHA` thì `printf` ra.
+
+Đã thêm `test_DAU_CUOI_sinh_nhanh_that_thi_bo_do_phai_noi_KHONG_LECH`: sinh
+nhánh THẬT vào một remote tạm rồi bắt chính bộ dò chấm. Bỏ `SOURCE_SHA` khỏi
+`BO_QUA` ⇒ test đỏ. Test tự trả nhánh deploy cục bộ về nguyên trạng — một bộ
+test làm bẩn repo của người chạy nó là một bộ test người ta sẽ tắt.
+
+> **Bản đầu của chính test đầu-cuối đó cũng sai**, và cách nó sai đáng ghi
+> lại: nó gọi `kiem_mot_nhanh()`, mà hàm này CỐ Ý ưu tiên nhánh trên REMOTE
+> (C57b) — ở máy dev remote là bản cũ, nên test đỏ vì ref cũ chứ không vì thứ
+> đang kiểm (báo `src/version.js` khác nội dung). Đã đổi sang so trực tiếp
+> bằng `_liet_ke` trên nhánh vừa sinh.
+
 ## Giới hạn còn lại
 
 1. **Chưa xác nhận được cấu hình auto-deploy của Vibe Host.** `get_project`

@@ -53,8 +53,18 @@ TEP_LE = {
     ],
 }
 
-#: Thư mục sinh ra lúc build, không tính vào so sánh.
-BO_QUA = ("node_modules", "dist", "__pycache__", ".venv")
+#: Thứ SINH RA, không tính vào so sánh — vì nó cố ý CHỈ có ở một bên.
+#:
+#: `SOURCE_SHA` (D3, 14/09/2026): script sinh nhánh ghi SHA nguồn vào thư mục
+#: build để `/health` khai được prod đang chạy commit nào. Nó nằm TRONG
+#: `webapp/control_server/` — chỗ duy nhất mà `COPY control_server/ ./` của
+#: Dockerfile mang được vào ảnh — nên nó rơi đúng vào vùng bộ dò này so sánh,
+#: và `main` thì không có nó.
+#:
+#: Bỏ sót dòng này đã làm lượt CI 34804806017 đỏ với đúng câu
+#: "1 tệp thừa (vd SOURCE_SHA)". Đây là bộ dò làm ĐÚNG việc của nó — thứ sai
+#: là danh sách bỏ qua chưa theo kịp thứ script sinh ra.
+BO_QUA = ("node_modules", "dist", "__pycache__", ".venv", "SOURCE_SHA")
 
 
 def chay(*args: str) -> str:
