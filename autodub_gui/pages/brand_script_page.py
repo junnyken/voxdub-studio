@@ -187,6 +187,12 @@ class BrandScriptPage(BasePage):
         # dung thì luôn phải đưa kịch bản cho người quay, người dựng. Và khi
         # kịch bản bị CHẶN thì `Dùng kịch bản này` tắt, nên màn hình không còn
         # nút nào sáng: trông như ngõ cụt.
+        self.canh_bao_nhip = QLabel("")
+        self.canh_bao_nhip.setObjectName("hint")
+        self.canh_bao_nhip.setWordWrap(True)
+        self.canh_bao_nhip.setVisible(False)
+        root.addWidget(self.canh_bao_nhip)
+
         self.btn_xuat = SecondaryButton("Xuất kịch bản…")
         self.btn_xuat.setEnabled(False)
         self.btn_xuat.clicked.connect(self._xuat_kich_ban)
@@ -406,6 +412,7 @@ class BrandScriptPage(BasePage):
             self.beats_table.set_widget(row, 5, btn)
         self.beats_table.auto_state()
 
+        self._canh_bao_nhip()
         trang_thai = str(kb.get("status") or "")
         # Cửa sang H4: CHỈ `ready` mới mở. Đây là chốt cuối cùng phía giao
         # diện — máy chủ đã chặn, nhưng nút sáng lên khi chưa sạch vẫn là dạy
@@ -486,6 +493,49 @@ class BrandScriptPage(BasePage):
         w.failed.connect(self._on_action_failed)
         w.start()
         self._del_worker = w
+
+    def _canh_bao_nhip(self) -> None:
+        """Kịch bản đọc hết bao lâu so với video nguồn — H6.
+
+        Bộ dò này vốn nằm ở H4 (`storyboard.dung_storyboard`), tức người dùng
+        chỉ biết SAU KHI đã tiêu 12 Vox viết kịch bản và đi thêm một trang.
+        Pilot 14/09 lộ ra đúng chỗ đó: nguồn 34 giây, kịch bản 170 giây, và
+        chủ dự án chỉ thấy dòng cảnh báo ở màn hình cuối.
+
+        Dùng LẠI `uoc_luong_giay_doc` của `autodub.storyboard` — không tự tính
+        lại, vì hai hằng số tốc độ đọc ở đó đã đo thật trên bốn giọng.
+        """
+        # XOÁ chữ, không chỉ ẩn: một nhãn ẩn mà còn chữ cũ sẽ hiện lại nguyên
+        # cảnh báo của kịch bản TRƯỚC ngay khi có thứ khác bật nó lên.
+        self.canh_bao_nhip.setText("")
+        self.canh_bao_nhip.setVisible(False)
+        kb = self._hien_tai or {}
+        beats = kb.get("beats") or []
+        if not beats:
+            return
+        bp = next((b for b in self._blueprints
+                   if str(b.get("id")) == str(kb.get("flowBlueprintId"))), None)
+        cuoi = [float(b.get("endS") or 0) for b in ((bp or {}).get("beats") or [])]
+        nguon_giay = max(cuoi) if cuoi else 0.0
+        if nguon_giay <= 0:
+            return
+
+        from autodub.storyboard import uoc_luong_giay_doc
+
+        tong = sum(uoc_luong_giay_doc(str(b.get("voiceoverTextVi") or "")).giay
+                   for b in beats)
+        if tong <= 0:
+            return
+        ti_le = tong / nguon_giay
+        if ti_le < 1.5 and ti_le > 1 / 1.5:
+            return
+        huong = "dài gấp" if ti_le >= 1.5 else "ngắn hơn"
+        self.canh_bao_nhip.setText(
+            f"{STATUS_WARN} Kịch bản đọc hết khoảng {tong:.0f} giây, {huong} "
+            f"{ti_le:.1f} lần video tham khảo ({nguon_giay:.0f} giây) — nhịp "
+            "kể chuyện học được sẽ không còn giống nữa. Bấm «Viết lại đoạn» ở "
+            "những đoạn dài nhất, hoặc chọn một video tham khảo dài tương đương.")
+        self.canh_bao_nhip.setVisible(True)
 
     def _xuat_kich_ban(self) -> None:
         """Ghi kịch bản ra tệp chữ đọc được, kèm phần KIỂM của từng đoạn.

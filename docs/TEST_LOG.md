@@ -17152,3 +17152,43 @@ pytest ĐỦ BỘ: **2.903 đạt / 0 hỏng / 4 bỏ qua**.
 **CÒN THIẾU**: chưa chạy trên desktop app Windows thật. Spec đòi mở ba trang
 rồi đi H2→H3→H4 và ngược lại. Chạy offscreen trên Linux KHÔNG thay thế được
 lượt đó — chủ dự án phải xác nhận.
+
+## H6 — H3 giữ đúng nhịp H2 học được (14/09/2026)
+
+Phát hiện lớn nhất của pilot: nguồn **34 giây**, kịch bản H3 đọc hết **170
+giây** — gấp **5,0 lần**. Mục tiêu của cả Phase H bị hụt.
+
+**Nguyên nhân, một dòng**: `brand-scripts.js::dungInput` lọc bỏ `startS`/`endS`
+nên thời lượng KHÔNG BAO GIỜ tới được mô hình; lời nhắc hệ thống cũng không có
+một chữ nào về độ dài. Ra gấp 5 là đương nhiên, không phải rủi ro ngẫu nhiên.
+Bộ dò nằm ở tận H4 và chỉ cảnh báo, nên trước pilot chưa ai thấy.
+
+**Sửa** (chi tiết: `docs/MINI-SPEC_H6_Nhip_Kich_Ban.md`):
+1. `dungInput` gửi `giay = endS - startS`.
+2. Ngân sách từ tính từ tốc độ đọc ĐO THẬT (`0,39 × số_câu + 0,504 × âm_tiết`,
+   sai lệch 3,3% trên câu chưa từng dùng để khớp), sàn 4 từ. Video 34 giây ⇒
+   tổng 62 từ; kiểm vòng tròn 62×0,504 + 7×0,39 = 33,9 giây ≈ 34.
+3. Lời nhắc nói rõ ngân sách là RÀNG BUỘC CỨNG và "thà bỏ bớt ý còn hơn viết
+   tràn" — nói "nên ngắn gọn" thì mô hình coi là gợi ý, pilot đã chứng minh.
+4. Cảnh báo nhịp chuyển lên H3 (trước đây chỉ có ở H4, tức sau khi đã tiêu 12
+   Vox và đi thêm một trang), dùng LẠI `uoc_luong_giay_doc` chứ không tự tính.
+
+**Nợ đã nhận**: hai hằng số tốc độ đọc nay có bản sao trong `assist.js`. Trả
+lãi bằng test đọc hằng số TỪ CHÍNH TỆP JS rồi so với Python, cộng phép kiểm
+VÒNG TRÒN (đưa ngân sách JS qua hàm ước lượng thật của Python, phải ra xấp xỉ
+số giây ban đầu ±0,6s) — so hai hằng số chỉ chứng minh chúng bằng nhau, không
+chứng minh dùng đúng cách.
+
+**Kiểm**: `tests/test_h6_ngan_sach_tu.py` (9). Gỡ từng chốt thì đỏ đúng chốt
+đó. Kèm chốt "đừng sửa quá tay": kịch bản vừa nhịp phải IM LẶNG; không có
+blueprint thì không kết luận gì.
+pytest ĐỦ BỘ **2.915 đạt / 0 hỏng**; npm test **717 đạt / 0 hỏng**.
+
+> Một lỗi tôi tự tạo khi làm H6, tự bắt khi chạy thử: nhãn cảnh báo được
+> `setVisible(False)` nhưng KHÔNG xoá chữ, nên kịch bản sau hiện lại nguyên
+> cảnh báo của kịch bản trước. Có test riêng.
+
+**CÒN THIẾU — chưa đo trên mô hình thật.** Tất cả chỉ chứng minh lời nhắc mang
+đúng con số, KHÔNG chứng minh mô hình tuân theo. Mốc đối chứng đã có: 170s/34s
+= 5,0×. Lượt đo sau: cùng video, cùng brand, viết lại (12 Vox), đọc dòng cảnh
+báo ngay tại H3. Đạt = tỉ lệ dưới 1,5×.

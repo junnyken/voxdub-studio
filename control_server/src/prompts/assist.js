@@ -74,6 +74,32 @@ function catCung(text, max) {
 // người — hệ thống sinh ảnh không giữ được nhân vật nhất quán giữa các cảnh.
 const PROMPT_VERSION = 2
 
+/**
+ * Tốc độ đọc của VieNeu — H6 (14/09/2026).
+ *
+ * **Hai con số này là BẢN SAO** của `autodub/storyboard.py`, nơi chúng được đo
+ * thật trên 4 giọng dựng sẵn và kiểm chéo trên câu chưa từng dùng để khớp (sai
+ * lệch tuyệt đối trung bình 3,3%). Bản sao là nợ, nên có
+ * `tests/test_h6_ngan_sach_tu.py` chốt hai bên không lệch — đổi một bên mà
+ * quên bên kia thì test đỏ ngay, không trôi âm thầm.
+ *
+ * Vì sao phải sao chép: hàm ước lượng nằm ở Python (máy khách), còn lời nhắc
+ * dựng ở Node (máy chủ). Gọi chéo ngôn ngữ cho hai phép nhân là đắt hơn nhiều
+ * so với một chốt so số.
+ */
+const GIAY_MOI_AM_TIET = 0.504
+const PHU_TROI_MOI_CAU_GIAY = 0.39
+
+/** Ngân sách từ cho một đoạn dài `giay` giây, giả định 1 câu.
+ *
+ * Sàn 4 từ: đoạn chuyển cảnh 2 giây ra ngân sách âm, mà một đoạn không thể
+ * rỗng — thà lệch một chút ở đoạn ngắn nhất còn hơn ra một con số vô nghĩa. */
+function soTuChoDoan(giay) {
+  const g = Number(giay) || 0
+  if (g <= 0) return 0
+  return Math.max(4, Math.round((g - PHU_TROI_MOI_CAU_GIAY) / GIAY_MOI_AM_TIET))
+}
+
 const TASKS = {
   /**
    * Gợi ý mô tả nhạc nền từ lời thoại.
@@ -626,6 +652,15 @@ const TASKS = {
       'của người nào. Cần có người trong khung thì chỉ nói VAI TRÒ và HÀNH',
       'ĐỘNG (ví dụ "một người đang bế con", "tay người bán mở nắp hộp"),',
       'tuyệt đối không thêm chi tiết nhận dạng.',
+      'NGÂN SÁCH TỪ của mỗi đoạn là RÀNG BUỘC CỨNG, không phải gợi ý.',
+      'Video tham khảo dài bao nhiêu thì kịch bản phải đọc hết trong chừng ấy',
+      '— viết dài hơn là làm hỏng đúng cái nhịp mà bộ khung này dùng để dạy',
+      'bạn. Một đoạn 4 giây chỉ chứa được khoảng 7 từ tiếng Việt khi đọc',
+      'thành tiếng.',
+      'Thà BỎ BỚT Ý còn hơn viết tràn: chọn một ý sắc nhất cho mỗi đoạn, đừng',
+      'gói ba ý vào một đoạn rồi vượt ngân sách.',
+      'Ngân sách chỉ tính cho loi_doc. caption luôn ngắn hơn nữa (3-8 từ);',
+      'visual_brief KHÔNG bị giới hạn vì nó không được đọc thành tiếng.',
       'Trả đúng số đoạn được yêu cầu, theo đúng thứ tự.',
     ].join(' '),
     buildUser: (input) => {
@@ -674,15 +709,30 @@ const TASKS = {
 
       let dongBeat = ''
       for (const [nfv, pn] of NGAN_SACH_BEAT) {
-        dongBeat = beats.map((b, i) => [
-          `${i + 1}. [${b?.beatType || 'unknown'}]`,
-          b?.narrativeFunctionVi ? `vai trò: ${cat(b.narrativeFunctionVi, nfv)}` : '',
-          pn && b?.pacingNoteVi ? `nhịp: ${cat(b.pacingNoteVi, pn)}` : '',
-        ].filter(Boolean).join(' | ')).join('\n')
+        dongBeat = beats.map((b, i) => {
+          const soTu = soTuChoDoan(b?.giay)
+          return [
+            `${i + 1}. [${b?.beatType || 'unknown'}]`,
+            // Ngân sách đặt NGAY SAU số thứ tự, trước phần mô tả: khối mô tả
+            // có thể bị cắt bớt khi hết ngân sách prompt (xem vòng lặp
+            // NGAN_SACH_BEAT), còn con số này thì không được phép mất.
+            soTu ? `${b.giay.toFixed(1)} giây — TỐI ĐA ${soTu} từ` : '',
+            b?.narrativeFunctionVi ? `vai trò: ${cat(b.narrativeFunctionVi, nfv)}` : '',
+            pn && b?.pacingNoteVi ? `nhịp: ${cat(b.pacingNoteVi, pn)}` : '',
+          ].filter(Boolean).join(' | ')
+        }).join('\n')
         if (dongBeat.length <= conLai) break
       }
 
-      return [dauTrang,
+      const tongGiay = beats.reduce((t, b) => t + (Number(b?.giay) || 0), 0)
+      const tongTu = beats.reduce((t, b) => t + soTuChoDoan(b?.giay), 0)
+      const dongTong = tongGiay > 0
+        ? `Video tham khảo dài ${tongGiay.toFixed(0)} giây. TOÀN BỘ kịch bản `
+          + `phải đọc hết trong khoảng chừng ấy — tổng lời đọc không quá `
+          + `${tongTu} từ.`
+        : ''
+
+      return [dauTrang, dongTong,
         `Bộ khung nhịp gồm ${beats.length} đoạn, theo thứ tự:`,
         dongBeat, vietLai].filter(Boolean).join('\n')
     },

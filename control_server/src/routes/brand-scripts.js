@@ -550,6 +550,12 @@ function dungInput(blueprint, brand, vietLai) {
       beatType: b.beatType,
       narrativeFunctionVi: b.narrativeFunctionVi,
       pacingNoteVi: b.pacingNoteVi,
+      // H6 — THỜI LƯỢNG của đoạn nguồn. Trước 14/09 hàm này lọc bỏ
+      // `startS`/`endS`, nên mô hình KHÔNG BAO GIỜ biết video tham khảo dài
+      // bao nhiêu và viết theo độ dài mặc định của văn quảng cáo. Lượt chạy
+      // thật của chủ dự án: nguồn 34 giây, kịch bản đọc hết 170 giây — gấp
+      // 5 lần, tức đúng cái NHỊP mà cả H2 tốn 64 Vox để học đã bị vứt đi.
+      giay: Math.max(0, Number(b.endS || 0) - Number(b.startS || 0)),
     })),
     brand: {
       tenBrand: brand.tenBrand,
