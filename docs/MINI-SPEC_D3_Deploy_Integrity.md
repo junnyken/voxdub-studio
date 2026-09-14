@@ -199,6 +199,56 @@ test làm bẩn repo của người chạy nó là một bộ test người ta s
 > đang kiểm (báo `src/version.js` khác nội dung). Đã đổi sang so trực tiếp
 > bằng `_liet_ke` trên nhánh vừa sinh.
 
+### Lượt cuối — `bd62f3f` (run 34807643557): XANH TOÀN BỘ
+
+```
+04:54:00  node-tests          success
+04:55:21  chay-that-windows   success
+04:57:16  python-tests        success   ← cổng cuối cùng
+04:57:19  sinh-nhanh-deploy   BẮT ĐẦU   ← SAU cổng cuối đúng 3 giây
+04:57:30  sinh-nhanh-deploy   success
+04:57:33  deploy-branch-drift success   ← không kêu nhầm
+04:57:33  trien-khai-prod     BẮT ĐẦU
+04:59:59  trien-khai-prod     success   ← gồm cả đối chiếu đầu nhánh + SHA ở /health
+```
+
+Trước D3 con số tương ứng là **force-push trước cổng cuối 3 phút 59 giây**.
+Nay là **sau nó 3 giây**.
+
+Prod, hỏi trực tiếp ngay sau lượt chạy:
+
+```
+{"ok":true,"version":"3.17.16","commit":"bd62f3f5e93d","db":"đã kết nối","uptimeS":66}
+```
+
+`git log -1 --format=%b github/deploy/vays-control-server` →
+`Source-SHA: bd62f3f5e93d80b1f5a9c91bfe9630021bf92ae3`
+
+Ba con số khớp nhau: SHA `main` đã pass test = `Source-SHA` trên nhánh deploy =
+`commit` mà dịch vụ đang chạy tự khai.
+
+### Ba lượt đỏ trên đường tới đây — đều là LỖI QUY TRÌNH của tôi, cùng một lỗi
+
+| Lượt | Đỏ vì | Lẽ ra bắt được ở đâu |
+|---|---|---|
+| 34804079842 | `subprocess.run(encoding=)` thiếu `errors="replace"` | chạy ĐỦ BỘ pytest tại máy (chốt `test_subprocess_encoding.py` đã có sẵn) |
+| 34805967418 | `fatal: empty ident name` | chạy với `GIT_CONFIG_GLOBAL=/dev/null` |
+| 34806866247 | `shallow update not allowed` | chạy trong một bản sao NÔNG |
+
+Cùng một sai sót ba lần: **dựng một test chạy THẬT rồi kiểm nó ở môi trường DỄ
+HƠN chỗ nó sẽ chạy.** Máy tôi có git config, có repo đầy đủ, và tôi chạy test
+chọn lọc. Runner thì không có gì trong ba thứ đó.
+
+Cách chữa đã áp dụng: chạy lượt cuối bằng
+`GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null` trên ĐỦ BỘ, **và**
+chạy riêng nhóm D3 bên trong một bản sao nông thật. Hai điều kiện đó cộng lại
+mới xấp xỉ được runner.
+
+> Đáng ghi: cả ba lượt đỏ đó đồng thời là **bằng chứng live cho chính cổng
+> D3** — mỗi lượt đều cho `sinh-nhanh-deploy` SKIPPED và nhánh deploy đứng
+> nguyên ở bản xanh gần nhất. Trước D3, cả ba đã force-push mã đỏ lên nguồn sự
+> thật của prod.
+
 ## Giới hạn còn lại
 
 1. **Chưa xác nhận được cấu hình auto-deploy của Vibe Host.** `get_project`

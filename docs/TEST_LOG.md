@@ -17011,3 +17011,34 @@ Node 713 đạt / 0 hỏng; nhóm deploy 54 đạt.
 > định #3 truyền kèm `sha_nguon=`, nên gỡ D3 ra nó đỏ vì `TypeError` chứ không
 > phải vì phép kiểm CSDL (vốn có từ C59) bị mất. Đỏ nhầm lý do thì không chứng
 > minh gì. Đã bỏ tham số đó.
+
+### D3 — kiểm chứng LIVE, lượt cuối (14/09/2026)
+
+Run **34807643557** (`bd62f3f`) xanh toàn bộ:
+
+```
+04:57:16  python-tests        success   ← cổng cuối cùng
+04:57:19  sinh-nhanh-deploy   BẮT ĐẦU   ← SAU cổng cuối 3 GIÂY
+04:57:30  sinh-nhanh-deploy   success
+04:57:33  deploy-branch-drift success
+04:59:59  trien-khai-prod     success
+```
+
+Trước D3: force-push **trước** cổng cuối 3 phút 59 giây. Nay: **sau** nó 3 giây.
+
+Prod tự khai: `{"ok":true,"version":"3.17.16","commit":"bd62f3f5e93d","db":"đã
+kết nối"}`; nhánh deploy mang `Source-SHA: bd62f3f5e93d...`. Ba con số khớp.
+
+**Ba lượt đỏ trên đường tới đây đều là lỗi quy trình của tôi, cùng một lỗi:**
+thiếu `errors="replace"` (34804079842), `fatal: empty ident name`
+(34805967418), `shallow update not allowed` (34806866247). Tôi dựng test chạy
+THẬT rồi kiểm nó ở môi trường dễ hơn chỗ nó sẽ chạy — máy tôi có git config, có
+repo đầy đủ, và tôi chạy test chọn lọc. Runner không có thứ nào trong ba.
+
+Chữa: lượt cuối chạy ĐỦ BỘ với `GIT_CONFIG_GLOBAL=/dev/null
+GIT_CONFIG_SYSTEM=/dev/null` (2.877 đạt), **và** chạy riêng nhóm D3 bên trong
+một bản sao NÔNG thật (26 đạt).
+
+Cả ba lượt đỏ đó đồng thời là bằng chứng live cho chính cổng D3: mỗi lượt đều
+cho `sinh-nhanh-deploy` SKIPPED. Trước D3, cả ba đã force-push mã đỏ lên nguồn
+sự thật của prod.
