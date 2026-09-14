@@ -109,8 +109,14 @@ def doi_chieu_dau_nhanh(nhanh: str, sha_mong_doi: str, *,
     """
     import subprocess
 
+    # `errors="replace"` đi CÙNG `encoding=`, không bao giờ tách: một byte
+    # hỏng trong đầu ra git sẽ ném UnicodeDecodeError trong luồng đọc và giết
+    # cả lượt deploy bằng một câu không nói gì về nguyên nhân (đúng sự cố
+    # cp1252 ngày 11/09 ở worker OCR). Dự án có chốt riêng cho luật này —
+    # `tests/test_subprocess_encoding.py` — và nó đã bắt đúng chỗ này trên CI.
     chay = chay or (lambda cmd: subprocess.run(
-        cmd, capture_output=True, text=True, encoding="utf-8", timeout=60))
+        cmd, capture_output=True, text=True, encoding="utf-8",
+        errors="replace", timeout=60))
     kq = chay(["git", "ls-remote", "origin", f"refs/heads/{nhanh}"])
     if kq.returncode != 0:
         raise DeployHong(
