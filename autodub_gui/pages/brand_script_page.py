@@ -94,6 +94,14 @@ def _tom_tat_co(beat: dict) -> str:
         ly_do = _LY_DO_CHUA_KIEM.get(
             str(beat.get("lyDoChuaKiem") or ""), "Chưa đối chiếu được với video nguồn.")
         return f"{STATUS_WARN} Chưa kiểm được — {ly_do}"
+    cham = str(beat.get("chamCumNgan") or "")
+    if cham:
+        # Sạch, NHƯNG có chạm một cụm ngắn của nguồn. Nói ra thay vì giấu:
+        # 2-3 âm tiết thường là từ vựng chủ đề ("hóa đơn" cho một brand làm
+        # phần mềm hoá đơn) nên KHÔNG chặn, nhưng người viết vẫn nên biết để
+        # tự quyết có đổi chữ không.
+        return (f"{STATUS_OK} Không trùng câu chữ nguồn — có chạm cụm ngắn "
+                f"«{cham}», không đủ để coi là chép")
     return f"{STATUS_OK} Không trùng câu chữ nguồn, không chứa cụm bị cấm"
 
 
@@ -168,6 +176,15 @@ class BrandScriptPage(BasePage):
         self.btn_reload = GhostButton("Tải lại danh sách")
         self.btn_reload.clicked.connect(self._reload_all)
         hanh_dong.addWidget(self.btn_reload)
+        # Lấy kịch bản RA. Trước 14/09 không có đường nào: xem được trên bảng
+        # mà không sao chép, không lưu, không in ra được — mà người viết nội
+        # dung thì luôn phải đưa kịch bản cho người quay, người dựng. Và khi
+        # kịch bản bị CHẶN thì `Dùng kịch bản này` tắt, nên màn hình không còn
+        # nút nào sáng: trông như ngõ cụt.
+        self.btn_xuat = SecondaryButton("Xuất kịch bản…")
+        self.btn_xuat.setEnabled(False)
+        self.btn_xuat.clicked.connect(self._xuat_kich_ban)
+        hanh_dong.addWidget(self.btn_xuat)
         hanh_dong.addStretch()
         # Cửa sang H4. CHỈ sáng khi máy chủ trả `ready` — xem `_render_script`.
         self.btn_use = PrimaryButton("Dùng kịch bản này")
@@ -187,7 +204,11 @@ class BrandScriptPage(BasePage):
              Column("Chữ trên hình", width=170),
              Column("Cần quay gì", stretch=True),
              Column("Kiểm tra", stretch=True),
-             Column("", width=110)],
+             # 110px không đủ cho nhãn "Viết lại đoạn" (cộng lề hai bên của
+             # `set_widget`), nên chữ bị cắt thành ": lại đi" — người dùng báo
+             # 14/09. Nút mà đọc không ra chữ thì coi như không có nút, đúng
+             # lúc kịch bản bị chặn và đây là đường đi tiếp DUY NHẤT.
+             Column("", width=160)],
             empty_title="Chưa có kịch bản",
             empty_description="Chọn một nhịp kể chuyện và một thương hiệu rồi "
                               "bấm «Viết kịch bản».")
@@ -204,7 +225,8 @@ class BrandScriptPage(BasePage):
             [Column("Thương hiệu", stretch=True),
              Column("Trạng thái", width=130),
              Column("Số đoạn", width=80),
-             Column("Thao tác", width=140)],
+             # Hai nút "Mở" + "Xoá" nằm chung một ô; 140px cắt cụt cả hai.
+             Column("Thao tác", width=190)],
             empty_title="Chưa viết kịch bản nào",
             empty_description="Các kịch bản đã viết sẽ hiện ở đây.")
         self.history_table.setMaximumHeight(180)
@@ -383,6 +405,10 @@ class BrandScriptPage(BasePage):
         # diện — máy chủ đã chặn, nhưng nút sáng lên khi chưa sạch vẫn là dạy
         # người dùng rằng cảnh báo có thể bỏ qua.
         self.btn_use.setEnabled(trang_thai == "ready")
+        # Xuất được kể cả khi BỊ CHẶN: kịch bản chặn vẫn là thứ người dùng vừa
+        # trả 12 Vox để có, và họ cần đọc/sửa nó ở ngoài. Chỉ cổng sang H4 mới
+        # đòi sạch.
+        self.btn_xuat.setEnabled(bool(kb.get("beats")))
         if trang_thai == "ready":
             self.status.setText("Kịch bản sạch — không trùng câu chữ nguồn, "
                                 "không chứa cụm bị cấm.")
@@ -454,6 +480,50 @@ class BrandScriptPage(BasePage):
         w.failed.connect(self._on_action_failed)
         w.start()
         self._del_worker = w
+
+    def _xuat_kich_ban(self) -> None:
+        """Ghi kịch bản ra tệp chữ đọc được, kèm phần KIỂM của từng đoạn.
+
+        Xuất cả cột kiểm tra chứ không chỉ lời đọc: người cầm kịch bản đi quay
+        cần biết đoạn nào đang bị chặn và vì sao, nếu không họ quay cả đoạn sẽ
+        phải bỏ.
+        """
+        from PySide6.QtWidgets import QFileDialog
+
+        kb = self._hien_tai or {}
+        beats = kb.get("beats") or []
+        if not beats:
+            return
+        ten_goi_y = f"kich-ban-{self._ten_brand(kb)}.txt".replace(" ", "-")
+        duong_dan, _ = QFileDialog.getSaveFileName(
+            self, "Lưu kịch bản", ten_goi_y, "Tệp chữ (*.txt)")
+        if not duong_dan:
+            return
+
+        dong = [
+            f"KỊCH BẢN — {self._ten_brand(kb)}",
+            f"Trạng thái: {_NHAN_TRANG_THAI.get(str(kb.get('status') or ''), kb.get('status'))}",
+            "",
+        ]
+        for i, b in enumerate(beats, 1):
+            dong += [
+                f"--- Đoạn {i}: {_nhan_beat(b)} ---",
+                f"Lời đọc     : {b.get('voiceoverTextVi') or ''}",
+                f"Chữ trên hình: {b.get('captionSuggestionVi') or ''}",
+                f"Cần quay gì  : {b.get('visualBriefVi') or ''}",
+                f"Kiểm tra     : {_tom_tat_co(b)}",
+                "",
+            ]
+        # Dựng chuỗi XONG rồi mới mở tệp: `open(p, "w")` cắt trắng tệp cũ ngay
+        # cả khi phần dựng ném lỗi sau đó.
+        tho = "\n".join(dong)
+        try:
+            with open(duong_dan, "w", encoding="utf-8") as f:
+                f.write(tho)
+        except OSError as e:
+            TOASTS.error(f"Không lưu được: {e}")
+            return
+        TOASTS.success(f"Đã lưu kịch bản: {duong_dan}")
 
     def _use_script(self) -> None:
         # Nút này CHỈ sáng khi trạng thái `ready` (xem `_render_script`), nên

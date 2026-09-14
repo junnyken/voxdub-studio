@@ -48,6 +48,11 @@ const beatSchema = new mongoose.Schema({
   flaggedExcerpt: { type: String, default: '', maxlength: 500 },
   lyDoChuaKiem: { type: String, enum: [...LY_DO_CHUA_KIEM, ''], default: '' },
 
+  // Cụm NGẮN (2-3 từ) của nguồn mà beat này có chạm. KHÔNG chặn — xem
+  // `SO_TU_NGAN_DE_CHAN`. Giữ lại để nói ra được, vì "sạch" mà giấu việc có
+  // chạm là bỏ mất thứ người viết cần biết để tự quyết.
+  chamCumNgan: { type: String, default: '', maxlength: 200 },
+
   complianceFlag: { type: String, enum: CO_TUAN_THU, default: 'clear' },
   complianceExcerpt: { type: String, default: '', maxlength: 500 },
   // Câu trong `rangBuocKhongDuocNoi` đã kích hoạt cờ vi phạm. Trường này CÓ

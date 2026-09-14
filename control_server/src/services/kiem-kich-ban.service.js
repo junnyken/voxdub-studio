@@ -85,6 +85,27 @@ function kiemTuanThu(beat, cacRangBuoc) {
  */
 const TRANG_THAI_NGUON_KHONG_DU = new Set(['unavailable', 'failed', 'no_text'])
 
+/** Số từ tối thiểu của một cụm NGẮN để việc chạm nó đáng CHẶN cả kịch bản.
+ *
+ * Vì sao cần (lượt chạy thật 14/09/2026): brand «Mắt Bão Invoice» viết kịch
+ * bản cho phần mềm hoá đơn, video tham khảo cũng về phần mềm hoá đơn. Dấu vân
+ * tay chứa dòng bằng chứng 2 âm tiết `hoa don`, nên beat nào nói "hóa đơn" —
+ * tức gần như mọi beat — đều bị `flagged`, và `blocked` thắng cả kịch bản.
+ * Viết kịch bản hoá đơn mà cấm chữ "hóa đơn" là việc KHÔNG LÀM ĐƯỢC.
+ *
+ * Đây đúng lớp lỗi E2 (11/09) ở gate H2, chỉ khác lớp: ngưỡng theo SỐ TỪ
+ * không phân biệt được khẩu hiệu bị chép với từ vựng chủ đề, vì `STOP
+ * SCROLLING` và `hóa đơn` đều hai từ. E2 đã chốt cách xử: **tách hai câu
+ * hỏi** — "có chạm bằng chứng không" giữ nguyên độ nhạy (ngưỡng 2, KHÔNG
+ * đổi), còn "chạm thì có đáng chặn không" mới dùng ngưỡng 4. Cụm 2–3 từ
+ * thành CẢNH BÁO gắn vào kết quả, không giết cả kịch bản.
+ *
+ * Phát hiện KHÔNG hề giảm: cụm dài (>= 6 từ, `cum_dai`) vẫn chặn như cũ, và
+ * `timTrungLap` xét cụm dài TRƯỚC — nên một đoạn chép thật vẫn bị bắt trước
+ * khi tới nhánh này.
+ */
+const SO_TU_NGAN_DE_CHAN = 4
+
 function kiemNguyenGoc(beat, vanTay, evidenceStatusNguon) {
   const chuaKiem = (lyDo) => ({
     originalityFlag: 'unconfirmed', flaggedExcerpt: '', lyDoChuaKiem: lyDo,
@@ -97,16 +118,28 @@ function kiemNguyenGoc(beat, vanTay, evidenceStatusNguon) {
     return chuaKiem('bang_chung_khong_du')
   }
 
+  let chamCumNgan = ''
   for (const doan of _cacDoan(beat)) {
     const r = dauVanTay.timTrungLap(doan, vanTay)
     // `kiemDuoc: false` ở đây là ca lọt lưới của bốn chốt trên — vẫn phải
     // tôn trọng, KHÔNG được rơi xuống nhánh "clear".
     if (!r.kiemDuoc) return chuaKiem('khac_phien_ban')
-    if (r.trung) {
-      return { originalityFlag: 'flagged', flaggedExcerpt: r.cum, lyDoChuaKiem: '' }
+    if (!r.trung) continue
+
+    const soTu = String(r.cum || '').split(' ').filter(Boolean).length
+    if (r.kieu === 'dong_ngan' && soTu < SO_TU_NGAN_DE_CHAN) {
+      // GHI NHẬN nhưng KHÔNG chặn — và đi tiếp, vì đoạn sau của cùng beat có
+      // thể còn một cụm dài đáng chặn thật. Thoát sớm ở đây là đánh đổi một
+      // cảnh báo vô hại lấy việc bỏ lọt một ca chép thật.
+      if (!chamCumNgan) chamCumNgan = r.cum
+      continue
     }
+    return { originalityFlag: 'flagged', flaggedExcerpt: r.cum, lyDoChuaKiem: '' }
   }
-  return { originalityFlag: 'clear', flaggedExcerpt: '', lyDoChuaKiem: '' }
+  return {
+    originalityFlag: 'clear', flaggedExcerpt: '', lyDoChuaKiem: '',
+    chamCumNgan,
+  }
 }
 
 /**
@@ -180,6 +213,7 @@ function vanTayRangBuoc(cacRangBuoc) {
 
 module.exports = {
   SO_TU_TOI_THIEU_RANG_BUOC,
+  SO_TU_NGAN_DE_CHAN,
   timViPham,
   kiemTuanThu,
   kiemNguyenGoc,

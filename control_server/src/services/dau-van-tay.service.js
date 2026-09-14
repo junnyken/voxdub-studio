@@ -183,7 +183,11 @@ function timTrungLap(vanBan, dvt) {
 
   const ngan = new Set(dvt.ngan || [])
   if (ngan.size) {
-    for (const k of dvt.nganSoTu || []) {
+    // Duyệt độ dài GIẢM DẦN: gặp cả cụm 2 từ lẫn cụm 5 từ thì cụm 5 từ mới là
+    // thứ đáng nói. Trước đây thứ tự là thứ tự lưu, nên một cụm 2 từ vô hại
+    // ("hóa đơn") có thể trả về trước và che mất một cụm 5 từ chép thật.
+    const doDai = [...(dvt.nganSoTu || [])].sort((a, b) => b - a)
+    for (const k of doDai) {
       if (!Number.isInteger(k) || k < SO_TU_NGAN_MIN || k > SO_TU_NGAN_MAX) continue
       for (let i = 0; i + k <= tu.length; i += 1) {
         const cum = tu.slice(i, i + k).join(' ')

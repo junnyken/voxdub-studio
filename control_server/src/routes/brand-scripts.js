@@ -55,6 +55,7 @@ function view(doc) {
       originalityFlag: b.originalityFlag,
       flaggedExcerpt: b.flaggedExcerpt,
       lyDoChuaKiem: b.lyDoChuaKiem,
+      chamCumNgan: b.chamCumNgan || '',
       complianceFlag: b.complianceFlag,
       complianceExcerpt: b.complianceExcerpt,
       complianceRule: b.complianceRule,
