@@ -109,7 +109,7 @@ nó cũng ra lỗi 400, và ca thứ nhất một mình sẽ trông y hệt như
 > check, nhưng khoá đang dùng được phép vượt qua. Đó là cấu hình của chủ dự
 > án, không phải lỗi — nhưng nó nghĩa là **chốt duy nhất còn hiệu lực là chốt
 > bên trong CI** (`trien-khai-prod` chỉ chạy khi test xanh), không phải chốt
-> của GitHub. Liên quan trực tiếp tới D3.
+> của GitHub. **D3 (14/09) đã dựng chốt kỹ thuật thay thế**: nhánh deploy — nguồn sự thật của prod — chỉ được sinh sau khi mọi cổng test xanh, nên vượt được branch protection cũng không đưa được mã chưa kiểm vào nhánh đó. Bản thân việc bypass thì vẫn còn, và gỡ nó là thao tác của chủ dự án trên GitHub (đụng D4).
 
 > **Bài học của chính lượt này**: so `main` với *một* remote rồi kết luận về prod
 > là đúng loại lỗi §4.4 — tự viết đè hợp đồng của hệ thống thay vì hỏi nó. Câu
@@ -268,7 +268,7 @@ chuyển sang `calibration` — xem mục 3.1.
 |---|---|---|
 | D1 | Khớp video với **giọng đọc thật** (hiện chỉ bảo đảm khớp transcript; đo thật lệch ~5%) | Cần lát riêng H4c-3, 0 Vox, **sau** pilot H2→H3 |
 | D2 | Định giá lại theo số liệu thật (H3 đang tính **phẳng** 12 Vox bất kể 5 hay 40 đoạn) | Cần **10–20 lượt thật**. Chủ dự án đã dặn: *"Đừng sửa pricing trước pilot nếu chưa có token data"* |
-| D3 | Chốt deploy bị webhook đi vòng qua — `sinh-nhanh-deploy` force-push ở giây 12, webhook dựng ngay; `trien-khai-prod` (có 3 chốt "chỉ deploy sau khi test xanh") mãi phút 4 mới chạy ⇒ **prod nhận mã trước khi test xong** | Đáng một mini-spec riêng, không nên vá vội |
+| ~~D3~~ | ✅ **XONG 14/09** — audit **bác bỏ** tiền đề webhook: nó không deploy khi force-push. Lỗ hổng thật là nhánh deploy mang mã **ĐỎ** rồi nằm lại đó cho mọi đường redeploy **thủ công** (`main` có 58 lượt đỏ). Đã gate việc sinh nhánh sau test + ghim SHA chống đua + cho dịch vụ tự khai SHA. Live: run 34807643557 xanh toàn bộ, prod trả `commit: bd62f3f5e93d` | `docs/MINI-SPEC_D3_Deploy_Integrity.md` |
 | D4 | Bảo mật vận hành: thu hồi token GitHub cũ `…CjoKKY`; 2 remote còn nhúng token trong URL | ⏸ **CHỦ DỰ ÁN ĐÃ HOÃN (11/09)** — thu hồi giữa chừng sẽ chặn đường push/deploy của việc đang chạy dở. **Đừng tự làm** |
 
 ### 3.5 🔴 Chưa từng kiểm chứng
@@ -334,7 +334,7 @@ thì nghi môi trường trước khi nghi mã.**
 6. **D1** (khớp giọng thật), rồi mới tới **hiệu chỉnh H4d** (sinh ảnh có tính
    tiền thật) — và H4d còn chờ thao tác quản trị ở mục 3.1.
 7. **D2** (định giá lại) sau khi có 10–20 lượt thật.
-8. **D3** (chốt deploy) — mini-spec riêng.
+8. ~~**D3** (chốt deploy)~~ ✅ **XONG 14/09** — nhánh deploy nay sinh SAU cổng test cuối cùng 3 giây, thay vì trước nó 3 phút 59 giây. Xem `docs/MINI-SPEC_D3_Deploy_Integrity.md`.
 
 ---
 
