@@ -373,7 +373,18 @@ def test_DAU_CUOI_sinh_nhanh_that_thi_bo_do_phai_noi_KHONG_LECH(tmp_path):
     truoc = {n: _dau(n) for n in NHANH_CUC_BO}
 
     try:
-        moi_truong = {**os.environ, "REMOTE": str(remote), "GOC": sha}
+        # Danh tính git ĐẶT QUA BIẾN MÔI TRƯỜNG, không dựa vào cấu hình máy.
+        # Runner của `python-tests` không `git config user.*` (chỉ job
+        # `sinh-nhanh-deploy` mới làm), nên script sẽ chết với
+        # `fatal: empty ident name` — đã xảy ra thật ở lượt CI 34805967418.
+        # Một test chỉ chạy được trên máy đã cấu hình sẵn là một test nói về
+        # cái máy, không nói về mã.
+        moi_truong = {
+            **os.environ, "REMOTE": str(remote), "GOC": sha,
+            "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "test@example.com",
+        }
         for ten in ("gen_vays_control_server_branch.sh",
                     "gen_vays_dub_worker_branch.sh"):
             kq = subprocess.run(["bash", os.path.join(REPO, "scripts", ten)],
