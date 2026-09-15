@@ -140,3 +140,46 @@ def test_sha_lech_NAY_da_doc_duoc_worker(worker, monkeypatch):
     than = _than(worker)["than"].decode("utf-8")
     assert tkv._sha_lech(than, "e" * 40) is None
     assert tkv._sha_lech(than, "f" * 40) is not None
+
+
+# ==================================================================
+# Tệp có trong build context ≠ tệp vào được trong ẢNH
+# ==================================================================
+
+def test_DOCKERFILE_SINH_RA_phai_chep_SOURCE_SHA_vao_anh(tmp_path):
+    """Đo thật 15/09: lượt deploy đầu tiên sau khi thêm chốt, worker trả
+    ``{"ok": true}`` KHÔNG kèm ``commit``.
+
+    Nguyên nhân: `SOURCE_SHA` được ghi vào build context nhưng Dockerfile chỉ
+    có ``COPY dub_worker.py /app/dub_worker.py`` — tệp không bao giờ vào ảnh,
+    nên `doc_sha_nguon()` tìm cạnh `/app/dub_worker.py` không thấy gì.
+
+    Đây đúng cái bẫy `control_server/src/version.js` đã ghi chú: tệp phải nằm
+    trong thứ lệnh COPY **thật sự mang đi**; có mặt trong context là CHƯA ĐỦ.
+
+    Test này đọc Dockerfile **do script sinh ra**, không đọc bản trên main —
+    vì bản trên main cố ý KHÔNG có dòng đó (gốc repo không có tệp SOURCE_SHA
+    nào, một dòng COPY cứng ở đó sẽ làm hỏng mọi lượt dựng từ main).
+    """
+    import re
+    import subprocess
+
+    kich_ban = os.path.join(GOC, "scripts", "gen_vays_dub_worker_branch.sh")
+    noi_dung = open(kich_ban, encoding="utf-8").read()
+
+    # Bóc đúng phần THAY THẾ của lệnh sed dựng Dockerfile.
+    m = re.search(r"sed -e 's#\^COPY control_server/worker-dub/dub_worker[^#]*#([^#]*)#'",
+                  noi_dung)
+    assert m, "không tìm thấy lệnh sed dựng Dockerfile cho nhánh deploy"
+    thay_the = m.group(1)
+    assert "COPY SOURCE_SHA" in thay_the, (
+        "Dockerfile sinh ra không chép SOURCE_SHA vào ảnh ⇒ worker sẽ không "
+        "khai được `commit`, và chốt --sha-nguon sẽ làm ĐỎ mọi lượt deploy "
+        f"worker. Phần thay thế hiện tại: {thay_the!r}")
+
+    # Và nó phải vào ĐÚNG chỗ `doc_sha_nguon()` đi tìm: cạnh dub_worker.py.
+    dich_worker = re.search(r"COPY dub_worker\.py (\S+)", thay_the).group(1)
+    dich_sha = re.search(r"COPY SOURCE_SHA (\S+)", thay_the).group(1)
+    assert os.path.dirname(dich_sha) == os.path.dirname(dich_worker), (
+        f"SOURCE_SHA vào {dich_sha} nhưng dub_worker.py ở {dich_worker} — "
+        "`doc_sha_nguon()` tìm cạnh chính nó nên sẽ không thấy")

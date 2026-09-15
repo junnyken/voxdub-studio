@@ -72,7 +72,18 @@ cp scripts/setup_whisper.py scripts/setup_vieneu.py \
 cp "$SRC/dub_worker.py" "$TARGET/dub_worker.py"
 
 # dub_worker.py giờ nằm ngay trong build context (không còn prefix control_server/worker-dub/)
-sed 's#^COPY control_server/worker-dub/dub_worker\.py /app/dub_worker\.py#COPY dub_worker.py /app/dub_worker.py#' \
+#
+# D5 (15/09) — chép LUÔN `SOURCE_SHA` vào ảnh. Thiếu dòng này thì tệp có mặt
+# trong build context nhưng KHÔNG vào ảnh, nên `doc_sha_nguon()` tìm cạnh
+# `/app/dub_worker.py` không thấy gì và `/health` trả `{"ok": true}` KHÔNG kèm
+# `commit` — đo thật ngay lượt deploy đầu tiên sau khi thêm chốt. Đúng cái bẫy
+# mà `control_server/src/version.js` đã ghi chú: tệp phải nằm trong thứ lệnh
+# COPY thật sự mang đi, chứ có mặt trong context là chưa đủ.
+#
+# Thêm ở script sinh chứ KHÔNG ở Dockerfile trên main: trên main không có tệp
+# `SOURCE_SHA` nào ở gốc, nên một dòng COPY cứng sẽ làm hỏng mọi lượt dựng từ
+# main.
+sed -e 's#^COPY control_server/worker-dub/dub_worker\.py /app/dub_worker\.py#COPY dub_worker.py /app/dub_worker.py\nCOPY SOURCE_SHA /app/SOURCE_SHA#' \
   "$SRC/Dockerfile" > "$TARGET/Dockerfile"
 
 # requirements.txt CHỈ để VAYS auto-detect nhận diện đây là app Python (xác

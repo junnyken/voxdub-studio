@@ -17392,3 +17392,47 @@ lâu sẽ có người tắt chốt. Đây là lựa chọn, không phải sơ s
 chữa thì lần sau hỏng thật sẽ tự che mất. Và **chưa có lượt chạy định kỳ**: lát
 này bảo đảm *lượt push kế tiếp* phát hiện ra, chưa bảo đảm phát hiện khi nhiều
 ngày không ai push.
+
+### D5, lượt chạy thật đầu tiên — chốt bắt được lỗi, và lỗi ấy là của tôi
+
+Lượt CI của `b71c453` (chính commit thêm D5):
+
+```
+python-tests success · node-tests success · chay-that-windows success
+sinh-nhanh-deploy success · deploy-branch-drift success
+trien-khai-prod  FAILURE
+kiem-prod-theo-main success
+```
+
+Nhật ký deploy:
+
+```
+[ok]   voxdub-app: dịch vụ TỰ KHAI đang chạy SHA nguồn b71c453fb6e3
+[HỎNG] voxdub-dub-worker …/health chưa lành (200 nhưng dịch vụ không khai
+       trường `commit` — ảnh dựng thiếu tệp SOURCE_SHA) — đừng coi là đã lên
+```
+
+**Nguyên nhân — lỗi của tôi**: `gen_vays_dub_worker_branch.sh` ghi `SOURCE_SHA`
+vào **build context**, nhưng Dockerfile của worker chỉ có
+`COPY dub_worker.py /app/dub_worker.py`. Tệp **không bao giờ vào ảnh**, nên
+`doc_sha_nguon()` tìm cạnh `/app/dub_worker.py` không thấy gì và `/health` trả
+`{"ok": true}` không kèm `commit`.
+
+Tôi giả định tệp nằm cạnh `dub_worker.py` trong ảnh mà **không kiểm Dockerfile**
+— đúng cái bẫy `control_server/src/version.js` đã ghi chú sẵn: *tệp phải nằm
+trong thứ lệnh `COPY` thật sự mang đi; có mặt trong build context là CHƯA ĐỦ*.
+
+**Sửa ở script sinh, không ở Dockerfile trên main**: gốc repo không có tệp
+`SOURCE_SHA` nào, nên một dòng `COPY` cứng trên main sẽ làm hỏng mọi lượt dựng
+từ đó. Script sinh vốn đã `sed` lại dòng `COPY dub_worker.py`, nay phát ra thêm
+`COPY SOURCE_SHA /app/SOURCE_SHA`.
+
+**Kiểm**: test đọc **Dockerfile do script sinh ra** (không đọc bản trên main, vì
+bản ấy cố ý không có dòng đó), và bắt buộc `SOURCE_SHA` vào **đúng thư mục** mà
+`doc_sha_nguon()` đi tìm. Gỡ dòng ấy ⇒ đỏ.
+
+**Điều đáng ghi nhất**: chốt `--sha-nguon` đã làm **đúng** việc của nó — nó từ
+chối ghi "đã lên" cho một dịch vụ không tự khai được mã. Trước hôm nay worker
+chạy sai mã hay không khai được mã đều **im lặng hoàn toàn**, và nó đã từng
+chạy mã cũ nhiều ngày mà không ai hay. Một chốt mới mà lượt đầu tiên đã bắt
+được lỗi thật là chốt đáng giữ — kể cả khi lỗi ấy do chính người dựng nó gây ra.
