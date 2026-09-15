@@ -17321,3 +17321,74 @@ người vận hành Vibe Host, và lách qua nó chính là thứ D3 sinh ra đ
 
 **Việc cần làm khi cổng sống lại**: chạy lại `trien-khai-prod` của lượt
 `df980b2` (hoặc đẩy một commit mới), rồi đối chiếu `/health` phải ra `df980b2`.
+
+## D5 — không chốt nào so PROD với MAIN (15/09/2026)
+
+**Gap** (chi tiết: `docs/MINI-SPEC_D5_Prod_Theo_Main.md`): cả hai chốt của D3
+(`--sha-nhanh`, `--sha-nguon`) nằm **bên trong** lượt deploy. Deploy không chạy
+thì chốt cũng không chạy.
+
+Chuỗi đã xảy ra thật 14/09: `df980b2` deploy hỏng vì cổng Vibe Host **404**;
+commit kế tiếp chỉ sửa tài liệu nên bước "có cần deploy không" so **bản dựng
+mới với bản dựng trước**, thấy giống nhau, kết luận `app=0`, **bỏ qua deploy**,
+job báo **thành công**. Prod chạy mã cũ **21 giờ** với CI xanh toàn bộ.
+
+Đo được trước khi sửa tay (15/09 06:32 UTC): `/health` trả `commit
+= 3a8f6809c800`, `uptimeS = 77237` — prod **không hề khởi động lại** sau lượt
+`6baf2f2`, dù job `trien-khai-prod` của lượt ấy báo `success`.
+
+**Bất biến đã chốt**: prod đúng nhịp ⟺ **mã nguồn sinh ra ảnh prod đang chạy**
+giống hệt mã nguồn `main` bảo phải chạy. Cố ý **không** phải `prod.commit ==
+main HEAD`: commit chỉ sửa tài liệu không deploy lại (C58 chốt 2), nên so SHA
+trực tiếp sẽ đỏ ở mọi commit tài liệu — biến chốt thành bộ canh kêu nhầm, mà
+backlog đã ghi: bộ canh hay kêu nhầm thì người ta tắt nó đi.
+
+**Làm gì**:
+1. `scripts/kiem_prod_theo_main.py` — hỏi `/health`, nở SHA prod khai ra, rồi
+   `git diff` các **đường dẫn nguồn** giữa SHA đó và `main`.
+2. Job `kiem-prod-theo-main`, `needs: [trien-khai-prod]` + `always()` — chạy
+   **sau** deploy (chạy trước thì mọi commit mã đều đỏ oan), và chạy **cả khi**
+   deploy hỏng hoặc bị bỏ qua: đó chính là hai ca đang im lặng.
+3. **Worker nay tự khai SHA** — `/health` trả JSON `{"ok", "commit"}` đọc từ
+   `dub-worker/SOURCE_SHA`, đúng cách `control_server/src/version.js` làm. Nhờ
+   đó `--sha-nguon` áp dụng được cho worker (trước phải bỏ trống).
+
+**Chống danh sách nguồn mục nát**: danh sách đường dẫn nguồn chép tay sẽ mục —
+ai thêm một dòng `cp` vào script sinh mà quên khai thì D5 **im lặng bỏ sót**.
+Nên có chốt **tĩnh** đọc chính script sinh, bóc mọi đường dẫn nó chép, và bắt
+mọi đường dẫn ấy phải nằm trong `NGUON`.
+
+**Kiểm**: `tests/test_d5_prod_theo_main.py` (15) + `tests/test_d5_worker_khai_sha.py` (9).
+
+| Gỡ gì | Kết quả |
+|---|---|
+| Quên khai `website` trong `NGUON` | **đỏ** ở chốt tĩnh |
+| Bỏ phép so nguồn | **đỏ** ở chốt hành vi |
+| Worker quay về trả chuỗi `"ok"` | **8/9 đỏ** |
+
+Ba lần gỡ cho ba tập đỏ khác nhau.
+
+**Phép kiểm có giá trị nhất — diễn lại đúng sự cố**: với prod ở `3a8f680` và
+main ở `6baf2f2`, D5 phải báo **tụt lại**. Kèm một test ghim lại rằng chốt **cũ**
+(`app==1`) *không thể* thấy điều đó, vì hai lượt dựng liền nhau vốn giống hệt
+nhau. Không có hai test này thì mọi test còn lại chỉ chứng minh chốt **chạy**,
+không chứng minh nó **có ích**.
+
+**Chạy thật với prod đang sống** (15/09):
+
+```
+[ĐÚNG NHỊP] app: prod chạy 6baf2f2d46ca, nguồn giống hệt d28bc37c1e1b
+::warning::D5 CHƯA XÁC MINH ĐƯỢC worker — trả về không phải JSON
+```
+
+Dòng thứ hai đúng là trạng thái thật: worker prod còn chạy bản cũ chưa khai SHA.
+Nó ra **cảnh báo**, không ra "đã đúng" — đó là điểm chính.
+
+**Đánh đổi ghi rõ**: prod câm (mạng chập, cổng hỏng) thì D5 cảnh báo to nhưng
+**thoát 0**, không làm đỏ CI. Một cú chập mạng biến thành lượt đỏ thì chẳng bao
+lâu sẽ có người tắt chốt. Đây là lựa chọn, không phải sơ suất.
+
+**Chưa làm, có chủ đích**: D5 **không tự deploy lại** khi thấy lệch — chốt tự
+chữa thì lần sau hỏng thật sẽ tự che mất. Và **chưa có lượt chạy định kỳ**: lát
+này bảo đảm *lượt push kế tiếp* phát hiện ra, chưa bảo đảm phát hiện khi nhiều
+ngày không ai push.

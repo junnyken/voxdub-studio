@@ -295,14 +295,17 @@ jobs:
         env:
           VIBEHOST_TOKEN: ${{ secrets.VIBEHOST_TOKEN }}
         run: |
-          # Worker `/health` trả chuỗi "ok" thuần, không có JSON nên không khai
-          # được SHA. Bỏ `--sha-nguon` ở đây thay vì bịa một phép kiểm không
-          # chạy được — chốt đầu nhánh vẫn áp dụng.
+          # D5 (15/09) — worker NAY tự khai SHA ở `/health` (JSON, trường
+          # `commit`, đọc `dub-worker/SOURCE_SHA` y như control_server làm),
+          # nên `--sha-nguon` áp dụng được cho nó. Trước đó đường này trả
+          # chuỗi "ok" thuần và chốt phải bỏ trống — hậu quả: worker từng chạy
+          # mã cũ nhiều ngày mà không cách nào phát hiện từ xa.
           python3 scripts/trien_khai_vibehost.py \
             --du-an cmsxh07sy039q0i5fpxpal7mv --ten voxdub-dub-worker \
             --suc-khoe https://voxdub-dub-worker.cmc-1.vibenode.matbao.ai/health \
             --nhanh-deploy deploy/vays-dub-worker \
-            --sha-nhanh ${{ needs.sinh-nhanh-deploy.outputs.sha_worker }}
+            --sha-nhanh ${{ needs.sinh-nhanh-deploy.outputs.sha_worker }} \
+            --sha-nguon ${{ github.sha }}
 
   # lần push, thay vì chỉ lộ ra lúc deploy xong mà không ai hay.
   # C54: chạy CẢ khi push nhánh deploy/*, không chỉ main. Quy trình đúng là
@@ -355,3 +358,54 @@ jobs:
           # có thể đã đi tiếp. Trên nhánh deploy: chấm so với main mới nhất.
           if [ "$GITHUB_REF" = "refs/heads/main" ]; then GOC=HEAD; else GOC=origin/main; fi
           python3 scripts/kiem_nhanh_deploy.py --goc "$GOC"
+
+  # ==================================================================
+  # D5 — PROD CÓ ĐANG CHẠY ĐÚNG MÃ CỦA `main` KHÔNG?
+  #
+  # Câu hỏi này KHÔNG chốt nào của D3 trả lời được, vì cả `--sha-nhanh` lẫn
+  # `--sha-nguon` nằm BÊN TRONG lượt deploy: deploy không chạy thì chốt cũng
+  # không chạy. Chuyện thật 14/09: `df980b2` deploy hỏng vì cổng Vibe Host
+  # 404; commit kế tiếp chỉ sửa tài liệu nên bước "có cần deploy không" so bản
+  # dựng MỚI với bản dựng TRƯỚC, thấy giống nhau, kết luận `app=0` và bỏ qua
+  # deploy. Prod chạy mã cũ 21 GIỜ với CI xanh toàn bộ.
+  #
+  # `needs: trien-khai-prod` + `always()`: phải chạy SAU lượt deploy (chạy
+  # trước thì mọi commit mã đều đỏ oan vì prod chưa kịp lên), và phải chạy CẢ
+  # KHI lượt deploy hỏng hoặc bị bỏ qua — đó chính là hai ca đang im lặng.
+  kiem-prod-theo-main:
+    if: always() && github.ref == 'refs/heads/main'
+    needs: [trien-khai-prod, python-tests, node-tests, chay-that-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Cần lịch sử đầy đủ: chốt này nở SHA prod tự khai rồi `git diff`
+          # ngược về đó. Clone nông (mặc định) thì không có commit ấy và chốt
+          # sẽ phải trả lời "không kết luận được" ở MỌI lượt.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prod có chạy đúng mã của main không
+        env:
+          # Test đỏ ⇒ `sinh-nhanh-deploy` bị bỏ qua ⇒ prod CỐ Ý đứng lại ở bản
+          # xanh gần nhất. Lúc đó "prod tụt lại" là ĐÚNG và MONG MUỐN, và báo
+          # đỏ ở đây sẽ biến một chốt an toàn thành bộ canh kêu nhầm — đúng
+          # cái bẫy mà `deploy-branch-drift` đã phải tránh, và backlog dự án
+          # đã ghi: bộ canh hay kêu nhầm thì người ta tắt nó đi, còn tệ hơn
+          # không có.
+          PY: ${{ needs.python-tests.result }}
+          ND: ${{ needs.node-tests.result }}
+          WIN: ${{ needs.chay-that-windows.result }}
+        run: |
+          if [ "$PY" != "success" ] || [ "$ND" != "success" ] || [ "$WIN" != "success" ]; then
+            echo "::notice::Test chưa xanh (python=$PY node=$ND windows=$WIN) — prod CỐ Ý giữ bản xanh gần nhất."
+            echo "::notice::D5 bỏ qua lượt này: 'prod tụt lại' lúc này là cổng D3 đang làm đúng việc, không phải lệch cần sửa."
+            exit 0
+          fi
+          python3 scripts/kiem_prod_theo_main.py \
+            --sha-main ${{ github.sha }} \
+            --app https://voxdub-app.cmc-1.vibenode.matbao.ai/health \
+            --worker https://voxdub-dub-worker.cmc-1.vibenode.matbao.ai/health

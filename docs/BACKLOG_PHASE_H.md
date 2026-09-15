@@ -652,6 +652,24 @@ hơn hẳn 5 đoạn. Máy chủ đã ghi đủ token vào/ra mỗi lượt. C�
 thật** rồi mới viết mini-spec định giá. Chủ dự án đã dặn: *"Đừng sửa pricing
 trước pilot nếu chưa có token data."*
 
+### ✅ D5. Không chốt nào so PROD với MAIN — ĐÃ SỬA 15/09
+
+Cả hai chốt của D3 (`--sha-nhanh`, `--sha-nguon`) nằm **bên trong** lượt
+deploy. Deploy không chạy thì chốt cũng không chạy.
+
+Chuỗi thật 14/09: `df980b2` deploy hỏng vì cổng Vibe Host 404; commit kế tiếp
+chỉ sửa tài liệu nên bước "có cần deploy không" so **bản dựng mới với bản dựng
+trước**, thấy giống nhau, kết luận `app=0`, bỏ qua deploy, job báo **thành
+công**. Prod chạy mã cũ **21 giờ** với CI xanh toàn bộ.
+
+Đã đóng: job `kiem-prod-theo-main` chạy **sau** lượt deploy và chạy **cả khi**
+deploy hỏng/bị bỏ qua, so **nội dung nguồn** (không so SHA — commit tài liệu cố
+ý không deploy lại). Worker nay cũng tự khai SHA ở `/health` nên chốt phủ được
+cả nó. Chi tiết: `docs/MINI-SPEC_D5_Prod_Theo_Main.md`.
+
+**Còn hở, ghi rõ**: chốt chỉ chạy khi có người push. Nhiều ngày không ai push
+thì prod tụt lại vẫn im — cần một lượt chạy theo giờ, cố ý để làm sau.
+
 ### D3. Chốt deploy bị webhook đi vòng qua
 
 `sinh-nhanh-deploy` force-push nhánh deploy ở giây thứ 12, webhook Vibe Host

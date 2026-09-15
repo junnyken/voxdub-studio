@@ -71,12 +71,54 @@ TRUYEN_FILE_SO_LAN = int(os.environ.get("TRUYEN_FILE_SO_LAN", "3"))
 _shutdown = threading.Event()
 
 
+def doc_sha_nguon() -> str | None:
+    """SHA nguồn nướng sẵn vào ảnh lúc dựng — D5 (15/09/2026).
+
+    Vì sao cần: trước đây đường này trả đúng chuỗi ``"ok"``, nên **không ai
+    kiểm được worker đang chạy mã nào**. Chốt ``--sha-nguon`` của
+    ``scripts/trien_khai_vibehost.py`` phải bỏ trống cho worker, và chốt D5
+    (prod có theo kịp main không) cũng không phủ nổi worker. Đã trả giá thật:
+    worker chạy mã trước C53 nhiều ngày mà không ai hay.
+
+    Làm **đúng cách ``control_server/src/version.js`` đang làm**, không bịa
+    cách mới: biến môi trường được ưu tiên, rồi mới tới tệp ``SOURCE_SHA`` do
+    ``scripts/gen_vays_dub_worker_branch.sh`` ghi cạnh tệp này.
+
+    Không có tệp là chuyện BÌNH THƯỜNG (chạy từ mã nguồn, chạy test) ⇒ im
+    lặng. Có tệp mà đọc không được thì KHÔNG im: đó là ảnh dựng hỏng, và nuốt
+    nó đi là để đường sức khoẻ khai thiếu SHA mà không ai biết vì sao.
+    """
+    sha = os.environ.get("APP_COMMIT") or os.environ.get("SOURCE_COMMIT")
+    if not sha:
+        tep = os.path.join(os.path.dirname(os.path.abspath(__file__)), "SOURCE_SHA")
+        try:
+            with open(tep, encoding="utf-8") as f:
+                sha = f.read().strip()
+        except FileNotFoundError:
+            return None
+        except OSError as e:
+            print(f"[dub_worker] không đọc được {tep} ({e}) — đường sức khoẻ "
+                  "sẽ không khai được SHA nguồn", flush=True)
+            return None
+    return sha[:12] if sha else None
+
+
 class _HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802 — tên bắt buộc bởi BaseHTTPRequestHandler
+        # Trả JSON thay vì chuỗi "ok" — xem `doc_sha_nguon`. Đã kiểm chéo
+        # trước khi đổi: `_phu_thuoc_hong()` trong scripts/trien_khai_vibehost.py
+        # parse JSON rồi CHỈ soi trường `db`; worker không có trường đó nên nó
+        # trả None, tức lượt deploy KHÔNG vì thay đổi này mà đỏ.
+        than = {"ok": True}
+        sha = doc_sha_nguon()
+        if sha:
+            than["commit"] = sha
+        goi = json.dumps(than, ensure_ascii=False).encode("utf-8")
         self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(goi)))
         self.end_headers()
-        self.wfile.write(b"ok")
+        self.wfile.write(goi)
 
     def log_message(self, *args) -> None:  # im lặng — không spam log poll loop
         pass
