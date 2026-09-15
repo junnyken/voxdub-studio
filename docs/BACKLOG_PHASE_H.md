@@ -706,7 +706,7 @@ Chờ họ báo mới làm — đây là quyết định của họ, không ph�
 
 ---
 
-## 🔴 P1 — PHÁT HIỆN LỚN NHẤT CỦA PILOT (14/09): H3 vứt đi cái nhịp mà H2 học được
+## ✅ P1 — PHÁT HIỆN LỚN NHẤT CỦA PILOT (14/09) — ĐÃ ĐÓNG BẰNG H6 CÙNG NGÀY
 
 Lượt chạy thật của chủ dự án, trang «Dựng video» tự báo:
 
@@ -750,6 +750,16 @@ tốn 12 Vox. Phải có mốc trước/sau rõ ràng.
 
 **Tạm thời làm được gì**: người dùng bấm «Viết lại đoạn» cho từng đoạn quá dài
 (12 Vox/lượt) — đắt và không giải quyết gốc.
+
+### KẾT CỤC — H6 (14/09, cùng ngày). Xem `docs/MINI-SPEC_H6_Nhip_Kich_Ban.md`
+
+Đã làm đúng ba việc nêu trên: gửi thời lượng từng đoạn xuống mô hình, nói rõ
+ngân sách từ là **ràng buộc cứng**, và dời cảnh báo nhịp lên **H3** thay vì để
+tận H4 (tức sau khi đã tiêu 12 Vox và đi thêm một trang).
+
+**Đo lại trên CHÍNH video đối chứng** (34 giây): kịch bản mới đọc hết **26–37
+giây**, tức ≈ **1,0×** — trước đó là 170 giây / **5,0×**. Đoạn hook 4 giây nhận
+ngân sách 7 từ và đọc hết 3,9 giây (trước: 23,5 giây).
 
 ---
 
