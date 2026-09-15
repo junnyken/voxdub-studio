@@ -17541,3 +17541,47 @@ nên phải giải nén 2.056 luồng rồi mới tìm:
 
 Dòng thứ ba là **đối chứng âm** — nó mới làm hai dòng trên đáng tin. Phép tìm mà
 "thấy" cả thứ chưa tồn tại thì nó không chứng minh được gì.
+
+## D2 — chưa định giá được, nhưng đã làm cho nó ĐỌC ĐƯỢC (15/09/2026)
+
+**D2 không làm được lúc này, và tôi không giả vờ làm.** Nó cần **10–20 lượt H3
+thật** để có dữ liệu token; hiện chưa có. Viết công thức giá bây giờ là bịa số.
+
+**Nhưng rà soát lộ ra một chuyện đáng làm ngay.** Ba tầng của D2:
+
+| Tầng | Trạng thái thật (đã kiểm, không suy đoán) |
+|---|---|
+| Ghi `promptTokens`/`completionTokens` | ✅ có sẵn |
+| Ghi `inputSize` (số đoạn mỗi lượt) | ✅ có sẵn, và **có trong schema** nên không bị Mongoose vứt im lặng |
+| **Đọc ra được quan hệ token ↔ số đoạn** | ❌ **không có đường nào** |
+
+Tầng ba mới là chỗ quyết định. Thiếu nó thì **dù có 100 lượt thật**, ta vẫn chỉ
+biết *tổng* token chứ không biết nó *tăng theo số đoạn thế nào* — đúng câu hỏi
+D2 phải trả lời. Dữ liệu nằm sẵn trong CSDL mà không ai hỏi được.
+
+**Đã thêm** hai cột vào `theoTacVu`:
+- `quyMoTB` — số đoạn trung bình mỗi lượt;
+- `tokenMoiDonVi` — **token trên mỗi đoạn**, tức con số D2 thật sự cần. Giá hiện
+  tại phẳng theo *lượt*, chi phí thì theo *đơn vị đầu vào*; hai thứ lệch nhau
+  bao nhiêu chính là mức bù chéo giữa kịch bản 5 đoạn và 40 đoạn.
+
+**Lượt dùng lại kết quả cũ bị loại khỏi mẫu số** — nó tốn 0 token, gộp vào sẽ
+kéo "token mỗi đoạn" xuống **thấp giả** và người đọc sẽ tưởng việc này rẻ hơn
+thực tế. Tổng lượt vẫn đếm đủ cả hai.
+
+**Kiểm**: `control_server/tests/assist-stats-quy-mo.test.js` (6) — chạy **truy
+vấn thật trên CSDL**, không soi hình dạng. Bộ test cũ (`assist-stats.test.js`)
+cố ý chỉ soi hình dạng, mà chính docstring của nó cảnh báo: *truy vấn gộp sai
+thì không kêu lên, nó vẫn trả về số, chỉ là số sai*. Soi hình dạng không bao giờ
+bắt được lỗi số học.
+
+| Gỡ gì | Kết quả |
+|---|---|
+| Gộp lượt dùng lại vào mẫu số | **2 đỏ** — gồm cả ca chia cho 0 |
+
+> Lỗi trong đồ giả của tôi, đã sửa: dùng `status: 'ok'` trong khi enum là
+> `pending|success|error`. Đỏ vì ĐỒ GIẢ sai, không phải vì mã sai.
+
+**Việc còn lại của D2 là ĐO, không phải viết mã**: sau 10–20 lượt H3 thật, mở
+trang quản trị, đọc `tokenMoiDonVi`, rồi mới viết mini-spec định giá. Chủ dự án
+đã dặn: *"Đừng sửa pricing trước pilot nếu chưa có token data."*

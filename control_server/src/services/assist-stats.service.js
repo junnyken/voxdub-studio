@@ -46,6 +46,14 @@ function theoTacVu(days, now = new Date()) {
         tokenRa: { $sum: '$completionTokens' },
         thoiGian: { $avg: '$durationMs' },
         soMay: { $addToSet: '$fingerprint' },
+        // D2 — QUY MÔ đầu vào (vd số đoạn của kịch bản). `inputSize` đã được
+        // ghi từ lâu, nhưng chưa đường nào ĐỌC nó ra, nên câu hỏi định giá
+        // vẫn không trả lời được dù dữ liệu nằm sẵn trong CSDL.
+        //
+        // Chỉ tính trên lượt GỌI THẬT: lượt dùng lại kết quả cũ tốn 0 token,
+        // gộp vào sẽ kéo "token mỗi đơn vị" xuống thấp giả.
+        quyMoTong: { $sum: { $cond: ['$fromCache', 0, '$inputSize'] } },
+        luotThat: { $sum: { $cond: ['$fromCache', 0, 1] } },
       },
     },
     {
@@ -55,6 +63,18 @@ function theoTacVu(days, now = new Date()) {
         luot: 1, hong: 1, dungLai: 1, vox: 1, tokenVao: 1, tokenRa: 1,
         thoiGianMs: { $round: ['$thoiGian', 0] },
         soMay: { $size: '$soMay' },
+        quyMoTB: {
+          $cond: [{ $gt: ['$luotThat', 0] },
+            { $round: [{ $divide: ['$quyMoTong', '$luotThat'] }, 1] }, 0],
+        },
+        // Con số D2 thật sự cần: giá HIỆN TẠI là phẳng theo lượt, còn chi phí
+        // thì theo đơn vị đầu vào. Hai cột này lệch nhau bao nhiêu chính là
+        // mức bù chéo giữa kịch bản 5 đoạn và kịch bản 40 đoạn.
+        tokenMoiDonVi: {
+          $cond: [{ $gt: ['$quyMoTong', 0] },
+            { $round: [{ $divide: [{ $add: ['$tokenVao', '$tokenRa'] },
+              '$quyMoTong'] }, 1] }, 0],
+        },
       },
     },
     { $sort: { vox: -1, luot: -1 } },

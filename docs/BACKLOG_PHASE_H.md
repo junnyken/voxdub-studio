@@ -657,6 +657,15 @@ hơn hẳn 5 đoạn. Máy chủ đã ghi đủ token vào/ra mỗi lượt. C�
 thật** rồi mới viết mini-spec định giá. Chủ dự án đã dặn: *"Đừng sửa pricing
 trước pilot nếu chưa có token data."*
 
+**Cập nhật 15/09** — vẫn CHƯA định giá (chưa có dữ liệu), nhưng đã bịt một
+khoảng hở khiến dữ liệu ấy **không đọc được**: `inputSize` được ghi từ lâu và có
+trong schema, nhưng không đường nào đọc ra quan hệ **token ↔ số đoạn**. Thiếu nó
+thì dù có 100 lượt thật cũng chỉ biết TỔNG token. Nay `theoTacVu` trả thêm
+`quyMoTB` và `tokenMoiDonVi` (lượt dùng lại bị loại khỏi mẫu số — nó tốn 0 token
+và sẽ kéo con số xuống thấp giả).
+
+**Việc còn lại của D2 là ĐO, không phải viết mã.**
+
 ### ✅ D5. Không chốt nào so PROD với MAIN — ĐÃ SỬA 15/09
 
 Cả hai chốt của D3 (`--sha-nhanh`, `--sha-nguon`) nằm **bên trong** lượt
