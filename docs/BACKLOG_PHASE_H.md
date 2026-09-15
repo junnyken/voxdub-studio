@@ -632,7 +632,7 @@ chặn, ánh xạ giữ chiều cho qua.
 
 ## Lát chưa làm, đã biết trước
 
-### D1. Khớp video với GIỌNG ĐỌC THẬT (không chỉ transcript)
+### ✅ D1. Khớp video với GIỌNG ĐỌC THẬT — ĐÃ LÀM 15/09 (chờ đo lượt thật)
 
 Pilot H4 cục bộ đo được: slideshow **19,30s**, video cuối **20,31s** — giọng
 thật dài hơn ước lượng **~5%**. Nằm trong ±15% đã ghi ở H4a, và `merge_video`
@@ -642,8 +642,13 @@ Nhưng hợp đồng H4c-1 chỉ bảo đảm video khớp **transcript**. Muố
 thật thì phải **lấy thời lượng TTS sau khi đọc xong rồi ghép lại** — mỗi đoạn
 giữ hình đúng bằng câu nói của nó.
 
-**Chưa làm.** Cần một lát riêng (tạm gọi H4c-3), 0 Vox, sau khi pilot H2→H3
-xong.
+**ĐÃ LÀM 15/09** — `docs/MINI-SPEC_D1_Hinh_Theo_Giong_That.md`. Hướng sửa hoá
+ra là **ngược** với dự tính ban đầu: không ép giọng cho vừa hình mà **dựng lại
+hình theo giọng**, vì ảnh tĩnh không có nhịp riêng. Và timeline thật thì
+`apply_soft_timing` đã tính sẵn, nên không phải đo lại gì.
+
+**Còn nợ số đo lượt chạy thật**: mốc đối chứng là 19,30s (slideshow) so với
+20,31s (video cuối) của pilot H4. Lượt sau hai số này phải **bằng nhau**.
 
 ### D2. Định giá lại theo số liệu thật
 

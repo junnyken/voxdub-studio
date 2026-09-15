@@ -17,6 +17,7 @@ from autodub.config import Settings
 from autodub.languages import TargetLang, get_target
 from autodub.progress import ProgressReporter
 from autodub.utils import save_json_atomic, setup_logging, seg_wav_path
+from autodub.du_an_tu_kich_ban import TEN_VIDEO_NGUON
 from autodub.workdir import data_dir, data_path
 
 logger = setup_logging("autodub.editor")
@@ -851,6 +852,31 @@ def rebuild_output(
     emit("merge_audio", "done", detail=merged_audio_path)
 
     check()
+    # --- D1: hình chạy theo GIỌNG ĐỌC THẬT ------------------------------
+    #
+    # Tới đây `segments` đã mang mốc THẬT (bước đặt lại thời điểm ở trên cập
+    # nhật `start`/`end` theo vị trí đặt thật), nên dựng lại slideshow theo
+    # đúng mốc ấy là hình khớp lời, không còn lệch dần về cuối.
+    #
+    # ĐÂY LÀ ĐƯỜNG XUẤT CỦA MỌI DỰ ÁN, kể cả lồng tiếng video quay thật. Dựng
+    # lại nhầm ở đó nghĩa là thay video gốc của người ta bằng một slideshow —
+    # nên hàm dưới tự kiểm đủ điều kiện và trả None (giữ nguyên hành vi cũ)
+    # khi thiếu bất kỳ cái nào. Chỉ chạy khi video đang ghép ĐÚNG LÀ slideshow
+    # do dự án kịch bản dựng ra: có `slowed_video.mp4` nghĩa là đã làm chậm,
+    # đừng chồng lên.
+    if video_path and os.path.basename(video_path) == TEN_VIDEO_NGUON:
+        from autodub.du_an_tu_kich_ban import dung_lai_video_theo_giong
+        try:
+            moi_ = dung_lai_video_theo_giong(work_dir, segments)
+            if moi_:
+                video_path = moi_
+        except Exception as e:  # noqa: BLE001
+            # Dựng lại hỏng KHÔNG được giết lượt xuất: bản cũ vẫn dùng được,
+            # chỉ là hình lệch dần. Nói to rồi đi tiếp.
+            logger.warning(
+                "D1: không dựng lại được hình theo giọng thật (%s) — xuất "
+                "bằng bản cũ, hình có thể lệch dần về cuối.", e)
+
     if not video_path:
         raise EditorError("Thư mục dự án không còn video gốc nên không ghép "
                           "lại được. Hãy chọn lại tệp video rồi chạy tiếp.")

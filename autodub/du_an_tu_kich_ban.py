@@ -148,6 +148,124 @@ def _anh_nguon_tu_ai(duong_dan: str, mo_ta: dict):
     )
 
 
+#: Mốc lệch dưới ngưỡng này thì KHÔNG dựng lại — chốt "đừng sửa quá tay".
+#:
+#: Dựng lại tốn hàng chục giây ffmpeg, và thay một tệp đang đúng bằng một tệp
+#: cũng đúng là rủi ro không đổi lại được gì. 0,25 giây là dưới ngưỡng người
+#: xem nhận ra hình lệch lời.
+NGUONG_DANG_DUNG_LAI_S = 0.25
+
+
+def _moc_that(segments: list[dict]) -> list[float] | None:
+    """Thời lượng từng cảnh, suy từ mốc THẬT của các câu — D1.
+
+    ``segments`` ở đây đã đi qua bước đặt lại thời điểm, nên ``start``/``end``
+    là vị trí người nghe sẽ nghe thật, không còn là ước lượng.
+
+    Trả ``None`` khi không lát kín được dòng thời gian (câu chồng nhau, hoặc
+    mốc không tăng dần) — lúc đó giữ nguyên video cũ chứ không đoán.
+    """
+    if len(segments) < 1:
+        return None
+    moc = [float(s.get("start") or 0.0) for s in segments]
+    cuoi = float(segments[-1].get("end") or 0.0)
+    giay = [moc[i + 1] - moc[i] for i in range(len(moc) - 1)] + [cuoi - moc[-1]]
+    if any(g <= 0 for g in giay):
+        return None
+    return giay
+
+
+def dung_lai_video_theo_giong(
+    work_dir: str, segments: list[dict], *,
+    ghep_video=None, do_thoi_luong=None,
+) -> str | None:
+    """Dựng lại slideshow theo GIỌNG ĐỌC THẬT — D1. 0 Vox.
+
+    Trả về đường dẫn video vừa dựng, hoặc ``None`` khi **cố ý không làm gì**.
+
+    Vì sao cần: `dung_du_an()` dựng hình theo ƯỚC LƯỢNG thời gian đọc. Giọng
+    thật lệch ~5% (đo pilot H4: 19,30s so với 20,31s), và vì các đoạn kịch bản
+    nối liền nhau **không có khoảng lặng nào để dồn trễ**, phần lệch ấy cộng
+    dồn: càng về cuối hình càng chạy trước lời.
+
+    Engine vốn xử lý chuyện này bằng cách **nén giọng đọc** cho vừa chỗ
+    (`timing_max_atempo`). Với video quay thì đúng. Với slideshow thì ngược
+    mới đúng: ảnh tĩnh KHÔNG có nhịp riêng, giữ 2,0 hay 2,3 giây đều không ai
+    nhận ra — ép giọng đọc nhanh lên để vừa một tấm ảnh tĩnh là hy sinh đúng
+    thứ người xem nghe được.
+
+    **Mọi nhánh trả ``None`` đều là cố ý.** Hàm này được gọi từ đường xuất
+    CHUNG của mọi dự án, nên nghi ngờ gì thì giữ nguyên hành vi cũ.
+    """
+    duong_video = os.path.join(work_dir, TEN_VIDEO_NGUON)
+    from autodub.workdir import data_path
+
+    duong_nguon = data_path(work_dir, TEN_NGUON_GOC)
+    if not os.path.isfile(duong_nguon):
+        return None                     # không phải dự án dựng từ kịch bản
+    try:
+        with open(duong_nguon, encoding="utf-8") as f:
+            nguon = json.load(f)
+    except (ValueError, OSError) as e:
+        logger.warning("D1: không đọc được %s (%s) — giữ nguyên video cũ",
+                       duong_nguon, e)
+        return None
+
+    anh = [str(a or "") for a in (nguon.get("anh_moi_doan") or [])]
+    if not anh:
+        # Dự án dựng bằng bản CŨ hơn D1: không có danh sách ảnh nào để dựng
+        # lại. Không phải lỗi — chỉ là không làm được.
+        return None
+    if len(anh) != len(segments):
+        logger.warning(
+            "D1: dự án có %d ảnh nhưng %d câu — kịch bản đã đổi số câu, "
+            "giữ nguyên video cũ", len(anh), len(segments))
+        return None
+    thieu = [a for a in anh if not os.path.isfile(a)]
+    if thieu:
+        logger.warning(
+            "D1: %d tệp ảnh không còn ở chỗ cũ (vd %s) — giữ nguyên video cũ",
+            len(thieu), thieu[0])
+        return None
+
+    giay = _moc_that(segments)
+    if giay is None:
+        logger.warning("D1: mốc các câu không lát kín được dòng thời gian "
+                       "(câu chồng nhau?) — giữ nguyên video cũ")
+        return None
+
+    # "Đừng sửa quá tay": ước lượng đã đúng sẵn thì đừng dựng lại. Đo CHÍNH
+    # video đang có chứ không so với con số ghi trong tệp truy nguồn — tệp ghi
+    # ý ĐỊNH lúc dựng, còn thứ người xem gặp là tệp trên đĩa.
+    do = do_thoi_luong or _do_thoi_luong_that
+    hien_co = do(duong_video) if os.path.isfile(duong_video) else None
+    if hien_co is not None and abs(hien_co - sum(giay)) <= NGUONG_DANG_DUNG_LAI_S:
+        logger.info("D1: giọng thật khớp ước lượng (lệch %.2f giây) — "
+                    "không dựng lại", abs(hien_co - sum(giay)))
+        return None
+
+    if ghep_video is None:
+        from autodub.product_video import ghep_anh_nguoi_dung
+        ghep_video = ghep_anh_nguoi_dung
+    giay_chuyen = float(nguon.get("giay_chuyen") or 0.0)
+    ghep_video(list(anh), duong_video, giay_moi_anh=giay,
+               giay_chuyen=giay_chuyen)
+
+    # Cổng thời lượng H4c-1 vẫn áp dụng — dựng lại mà lệch thì phải hỏng TO
+    # TIẾNG, không âm thầm ghi đè một video sai lên một video đúng.
+    thuc_te = do(duong_video)
+    if thuc_te is None or abs(thuc_te - sum(giay)) > LECH_THOI_LUONG_TOI_DA_S:
+        raise VideoLechThoiLuong(
+            f"Dựng lại hình theo giọng đọc thật nhưng video ra "
+            f"{thuc_te if thuc_te is not None else float('nan'):.2f} giây "
+            f"trong khi lời đọc dài {sum(giay):.2f} giây. Giữ bản cũ thì hình "
+            "lệch dần so với tiếng; dựng tiếp bản này còn lệch hơn.")
+
+    logger.info("D1: đã dựng lại hình theo giọng thật — %d cảnh, %.1f giây",
+                len(giay), sum(giay))
+    return duong_video
+
+
 def dung_du_an(
     kich_ban: dict, anh_moi_doan: list[str], work_dir: str, *,
     blueprint: dict | None = None, giay_chuyen: float = 0.3,
@@ -290,6 +408,11 @@ def dung_du_an(
             "so_doan": len(board.doan),
             "tong_giay_uoc_luong": board.tong_giay,
             "canh_bao": board.canh_bao,
+            # D1 — GIỮ LẠI danh sách ảnh. Trước đây hàm này dựng video xong
+            # rồi vứt danh sách đi, nên về sau không còn gì để dựng lại khi
+            # đã biết giọng đọc thật dài bao nhiêu.
+            "anh_moi_doan": list(anh_moi_doan),
+            "giay_chuyen": giay_chuyen,
         }, f, ensure_ascii=False, indent=1)
 
     logger.info("Đã dựng dự án %s: %d đoạn, ước %.1f giây",

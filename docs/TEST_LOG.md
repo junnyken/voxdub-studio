@@ -17476,3 +17476,68 @@ file lành.
 > mốc thời gian trùng `_id`. Ghép tay 4 byte thời gian + 8 byte đếm tăng dần.
 > Đỏ vì ĐỒ GIẢ sai, không phải vì mã sai — cùng kiểu với bẫy `do_thoi_luong`
 > của RS-16 hôm qua.
+
+## D1 — hình chạy theo GIỌNG ĐỌC THẬT, không theo ước lượng (15/09/2026)
+
+**Gap** (chi tiết: `docs/MINI-SPEC_D1_Hinh_Theo_Giong_That.md`): `dung_du_an()`
+dựng slideshow theo **ước lượng** thời gian đọc. Giọng thật lệch ~5% (pilot H4
+đo: 19,30s so với 20,31s).
+
+**Vì sao 5% không phải "trong ngưỡng nên bỏ qua"**: lệch ấy **cộng dồn theo
+đoạn**. `apply_soft_timing` dồn phần trễ vào khoảng lặng — mà kịch bản
+storyboard có các đoạn **nối liền nhau, không có khoảng lặng nào để dồn**. Nên
+mỗi đoạn đọc lâu hơn ước lượng đẩy toàn bộ phần sau trễ thêm, trong khi hình vẫn
+đổi theo mốc cũ. Càng về cuối hình càng chạy trước lời.
+
+**Hướng sửa — đổi HÌNH, đừng ép GIỌNG**: engine vốn nén giọng cho vừa chỗ
+(`timing_max_atempo` 1,1). Với video quay thì đúng. Với slideshow thì ngược mới
+đúng: ảnh tĩnh **không có nhịp riêng**, giữ 2,0 hay 2,3 giây đều không ai nhận
+ra — ép giọng đọc nhanh lên để vừa một tấm ảnh tĩnh là hy sinh đúng thứ người
+xem nghe được, để bảo toàn đúng thứ họ không để ý.
+
+**May mắn đã có sẵn**: `apply_soft_timing()` **đã tính sẵn timeline thật** (nó
+cập nhật `start`/`end` theo vị trí đặt thật). D1 không phải tự đo lại gì. Và bẫy
+`xfade` đã được xử lý sẵn trong `ghep_anh_nguoi_dung` + cổng H4c-1.
+
+**Làm gì**: `dung_du_an` ghi lại `anh_moi_doan` + `giay_chuyen` (trước đây dựng
+video xong **vứt danh sách ảnh đi**); thêm `dung_lai_video_theo_giong()`; nối
+vào `editor.rebuild_output`.
+
+**Chỗ nguy hiểm nhất**: `rebuild_output` là đường xuất **của mọi dự án**. Dựng
+lại nhầm ở đó = **thay video quay thật của người ta bằng một slideshow**. Năm
+điều kiện phải đúng hết, sai một cái là bỏ qua im lặng, giữ nguyên hành vi cũ.
+Cổng H4c-1 vẫn chạy trên video mới, và lỗi dựng lại **không giết lượt xuất**.
+
+**Kiểm**: `tests/test_d1_hinh_theo_giong_that.py` (14).
+
+| Gỡ gì | Kết quả |
+|---|---|
+| Bỏ chốt "chỉ đụng slideshow" | **1 đỏ** — đúng chốt giữ dự án lồng tiếng thường |
+| Không ghi danh sách ảnh | **1 đỏ** — mất thứ để dựng lại |
+| Dùng mốc ước lượng thay mốc thật | **6 đỏ** |
+
+> Một tiền đề SAI của tôi, đã sửa: test "câu chồng nhau thì bỏ qua" đỏ, và mã
+> đúng chứ không phải test đúng. Hai câu chồng tiếng (`end` lấn sang câu sau)
+> **vẫn lát kín được** vì cảnh chỉ cần đổi tại `start` của câu kế. Ca thật sự
+> hỏng là **mốc không tăng dần**. Đã sửa dữ liệu test và thêm một chốt ngược để
+> không chặn oan ca chồng tiếng bình thường.
+
+**CHƯA đo trên lượt chạy thật.** Mọi test trên chỉ chứng minh hình đi theo đúng
+mốc mà bước đặt lại thời điểm đưa ra. Mốc đối chứng đã có sẵn từ pilot H4:
+slideshow 19,30s so với video cuối 20,31s. Lượt đo sau phải cho hai số này
+**bằng nhau**.
+
+### Xác minh bản phát hành v3.17.19 (cùng ngày)
+
+Tải chính tệp zip đã phát hành (74,4 MB) và soi **bên trong kho nén PYZ** của
+`VoxDub.exe` — tìm byte thô luôn trượt vì PyInstaller nén từng module bằng zlib,
+nên phải giải nén 2.056 luồng rồi mới tìm:
+
+| Dấu hiệu | Kết quả |
+|---|---|
+| `AnhAiChuaDat` (RS-16 cổng tuân thủ) | **CÓ** |
+| `_anh_ai` (RS-16 giao diện) | **CÓ** |
+| `dung_lai_video_theo_giong` (D1, cố ý chưa đẩy) | **KHÔNG** |
+
+Dòng thứ ba là **đối chứng âm** — nó mới làm hai dòng trên đáng tin. Phép tìm mà
+"thấy" cả thứ chưa tồn tại thì nó không chứng minh được gì.
