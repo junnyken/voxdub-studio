@@ -56,9 +56,19 @@ gian ghi ra đĩa nên chạy lại được từ giữa chừng.
 | **H2a/b/c** | Đọc chữ trên hình (có dấu tiếng Việt) + dấu vân tay bằng chứng | 56 Vox (tuỳ chọn) | Chạy được |
 | **H3** | Viết kịch bản riêng cho thương hiệu + 2 lớp chặn sao chép | 12 Vox | Chạy được, **H6 vừa siết nhịp** |
 | **H4a–c** | Dựng dòng thời gian + ghép ảnh thành video theo đúng thời lượng từng đoạn | 0 Vox | Chạy được |
-| **H4d** | Sinh ảnh minh hoạ bằng AI | 33 Vox | **Đang khoá ở máy chủ** (`image.scene.stage = off`) |
+| **H4d** | Sinh ảnh minh hoạ bằng AI | 33 Vox (30 vẽ + 3 kiểm) | **Đang ở nấc `calibration`** — chỉ thiếu vân tay máy |
 | **H5** | Dải điều hướng H2 → H3 → H4 | — | Chạy được |
 | **H6** | Ngân sách từ theo thời lượng nguồn | — | Chạy được, đã đo |
+
+> **Đính chính (15/09)**: bản đầu của tài liệu này ghi `image.scene.stage = off`.
+> Sai. Bằng chứng là chính câu báo lỗi chủ dự án nhận được — *"đang trong giai
+> đoạn **hiệu chỉnh**, chưa mở cho máy này"* — đó là mã `IMAGE_STAGE_CALIBRATION`,
+> chỉ phát ra khi nấc **đã là `calibration`**. Nấc `off` báo câu khác hẳn
+> (*"đang tắt"*). Tôi lấy giá trị mặc định trong mã làm giá trị trên prod, mà
+> hai thứ đó không phải một.
+>
+> **Việc còn lại nhỏ hơn hẳn**: không phải đổi nấc, chỉ cần **thêm vân tay máy**
+> vào `image.scene.calibration.devices`.
 
 ### 3.3 Các lớp chặn đang hoạt động
 
