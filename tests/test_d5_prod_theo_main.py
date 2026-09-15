@@ -130,17 +130,17 @@ def _hai_commit_that():
 
 def test_nguon_GIONG_HET_thi_dung_nhip():
     moi, _cu = _hai_commit_that()
-    dung, cau = d5.kiem_mot_dich_vu("app", "http://x/health", moi,
-                                    doc=_doc_gia(moi[:12]))
-    assert dung is True and "đúng nhịp" in cau
+    tt, cau = d5.kiem_mot_dich_vu("app", "http://x/health", moi,
+                                  doc=_doc_gia(moi[:12]))
+    assert tt == d5.DUNG_NHIP and "đúng nhịp" in cau
 
 
 def test_nguon_DA_DOI_thi_bao_tut_lai_va_NOI_RO_TEP_NAO():
     moi, cu = _hai_commit_that()
-    dung, cau = d5.kiem_mot_dich_vu("app", "http://x/health", moi,
-                                    doc=_doc_gia(cu[:12]))
-    assert dung is False
-    assert "TỤT" in cau.upper() or "ĐÃ ĐỔI" in cau
+    tt, cau = d5.kiem_mot_dich_vu("app", "http://x/health", moi,
+                                  doc=_doc_gia(cu[:12]))
+    assert tt == d5.TUT_LAI
+    assert "ĐÃ ĐỔI" in cau
     assert "control_server" in cau, "phải nói rõ tệp nào, không chỉ 'có lệch'"
 
 
@@ -160,9 +160,9 @@ def test_DUNG_SUA_QUA_TAY_commit_chi_sua_tai_lieu_KHONG_bi_bao_tut_lai():
             ["git", "diff", "--name-only", cu, moi, "--", *d5.NGUON["app"]],
             capture_output=True, text=True, cwd=GOC, check=True).stdout.strip()
         if not doi:                      # đúng một cặp commit KHÔNG đụng nguồn app
-            dung, _ = d5.kiem_mot_dich_vu("app", "http://x/health", moi,
-                                          doc=_doc_gia(cu[:12]))
-            assert dung is True, "commit không đụng nguồn mà vẫn báo prod tụt lại"
+            tt, _ = d5.kiem_mot_dich_vu("app", "http://x/health", moi,
+                                        doc=_doc_gia(cu[:12]))
+            assert tt == d5.DUNG_NHIP, "commit không đụng nguồn mà vẫn báo lệch"
             return
     pytest.skip("40 commit gần nhất đều đụng nguồn app")
 
@@ -248,9 +248,9 @@ def test_DIEN_LAI_su_co_14_09_D5_phai_bat_duoc():
     if co.returncode != 0:
         pytest.skip("kho này không có commit của sự cố (clone nông)")
 
-    dung, cau = d5.kiem_mot_dich_vu("app", "http://x/health", MAIN_LUC_DO,
-                                    doc=_doc_gia(PROD_LUC_DO))
-    assert dung is False, (
+    tt, cau = d5.kiem_mot_dich_vu("app", "http://x/health", MAIN_LUC_DO,
+                                  doc=_doc_gia(PROD_LUC_DO))
+    assert tt == d5.TUT_LAI, (
         "D5 báo ĐÚNG NHỊP cho đúng trạng thái mà prod đang chạy mã cũ 21 giờ")
     assert "job-storage" in cau or "control_server" in cau, (
         f"phải chỉ ra tệp đã đổi, câu nhận được: {cau}")
@@ -340,3 +340,32 @@ def test_worker_NAY_duoc_doi_chieu_SHA_nguon(cong_viec):
             if "voxdub-dub-worker" in str(b.get("run", ""))]
     assert buoc, "không thấy bước deploy worker"
     assert "--sha-nguon" in buoc[0]["run"]
+
+
+def test_BANG_CHUNG_prod_DI_TRUOC_khong_duoc_bao_la_TUT_LAI():
+    """Đo thật 15/09, ngay lượt chạy thứ hai của chốt này.
+
+    Lượt CI của `5af86a3` đi tới bước D5 **sau khi** bản đẩy kế tiếp `f6384e0`
+    đã lên prod. Chốt thấy prod khác commit của lượt mình và báo **"prod tụt
+    lại"** — trong khi prod đang đi TRƯỚC. CI đỏ oan.
+
+    Kêu nhầm là thứ giết một bộ canh: `deploy-branch-drift` đã phải tránh đúng
+    bẫy này, và backlog ghi sẵn *bộ canh hay kêu nhầm thì người ta tắt nó đi*.
+    """
+    import subprocess
+    cu, moi = "5af86a3692da", "f6384e00ad15"
+    for sha in (cu, moi):
+        if subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+                          cwd=GOC, capture_output=True).returncode != 0:
+            pytest.skip("kho này không có commit của sự cố")
+
+    tt, cau = d5.kiem_mot_dich_vu("app", "http://x/health", cu,
+                                  doc=_doc_gia(moi))
+    assert tt == d5.DI_TRUOC, f"báo sai chiều: {tt} — {cau}"
+    assert "ĐỜI SAU" in cau
+
+
+def test_di_truoc_KHONG_bi_gop_vao_dung_nhip():
+    """Gộp vào «đúng nhịp» thì mất thông tin: người đọc nhật ký sẽ tưởng lượt
+    này đã kiểm prod, trong khi nó chưa kiểm gì cả — lượt mới hơn mới kiểm."""
+    assert d5.DI_TRUOC != d5.DUNG_NHIP

@@ -110,6 +110,24 @@ def day_du_sha(sha_ngan: str) -> str:
     return kq.stdout.strip()
 
 
+def prod_di_truoc(sha_prod: str, sha_main: str) -> bool:
+    """Prod đang chạy một commit ĐỜI SAU của `sha_main`?
+
+    Vì sao cần — đo thật 15/09, ngay lượt chạy thứ hai của chốt này: lượt CI
+    của `5af86a3` đi tới bước D5 **sau khi** bản đẩy kế tiếp `f6384e0` đã lên
+    prod. Chốt thấy prod khác commit của lượt mình và kết luận **"prod tụt
+    lại"** — trong khi prod đang đi TRƯỚC.
+
+    Đó là kêu nhầm, và kêu nhầm là thứ giết một bộ canh: `deploy-branch-drift`
+    đã phải tránh đúng bẫy này, và backlog dự án ghi sẵn *bộ canh hay kêu nhầm
+    thì người ta tắt nó đi, còn tệ hơn không có*.
+
+    `merge-base --is-ancestor A B` trả 0 khi A là tổ tiên của B (hoặc bằng B).
+    """
+    return _chay(["git", "merge-base", "--is-ancestor",
+                  sha_main, sha_prod]).returncode == 0
+
+
 def nguon_da_doi(sha_a: str, sha_b: str, duong_dan: list[str]) -> list[str]:
     """Những đường dẫn nguồn khác nhau giữa hai commit. Rỗng = giống hệt."""
     kq = _chay(["git", "diff", "--name-only", sha_a, sha_b, "--", *duong_dan])
@@ -118,18 +136,33 @@ def nguon_da_doi(sha_a: str, sha_b: str, duong_dan: list[str]) -> list[str]:
     return [d for d in kq.stdout.splitlines() if d.strip()]
 
 
+#: Ba kết cục có thể có. Gộp "đi trước" vào "đúng nhịp" thì mất thông tin;
+#: gộp nó vào "tụt lại" thì chốt kêu nhầm mỗi lần hai lượt đẩy chồng nhau.
+DUNG_NHIP, DI_TRUOC, TUT_LAI = "dung_nhip", "di_truoc", "tut_lai"
+
+
 def kiem_mot_dich_vu(ten: str, url: str, sha_main: str, *,
-                     doc=doc_health) -> tuple[bool, str]:
-    """Trả `(dung_nhip, câu giải thích)`. Ném `KhongKetLuanDuoc` khi không rõ."""
+                     doc=doc_health) -> tuple[str, str]:
+    """Trả `(trạng thái, câu giải thích)`. Ném `KhongKetLuanDuoc` khi không rõ."""
     ngan = sha_prod(doc(url))
     day_du = day_du_sha(ngan)
+
     doi = nguon_da_doi(day_du, sha_main, NGUON[ten])
     if not doi:
-        return True, (f"{ten}: prod chạy {ngan}, nguồn giống hệt {sha_main[:12]} "
-                      "— đúng nhịp")
+        return DUNG_NHIP, (f"{ten}: prod chạy {ngan}, nguồn giống hệt "
+                           f"{sha_main[:12]} — đúng nhịp")
+
+    # Nguồn có khác, nhưng khác theo chiều NÀO? Prod đời sau nghĩa là một lượt
+    # đẩy mới hơn đã lên trước khi lượt này chạy tới đây — lượt này đã cũ, và
+    # chính lượt mới kia mới là nơi kiểm. Không phải lỗi.
+    if prod_di_truoc(day_du, sha_main):
+        return DI_TRUOC, (f"{ten}: prod chạy {ngan}, ĐỜI SAU của "
+                          f"{sha_main[:12]} — một lượt đẩy mới hơn đã lên "
+                          "trước; lượt kiểm này đã cũ")
+
     dau = ", ".join(doi[:5]) + (f" (và {len(doi) - 5} tệp nữa)" if len(doi) > 5 else "")
-    return False, (f"{ten}: prod chạy {ngan} nhưng nguồn ĐÃ ĐỔI so với "
-                   f"{sha_main[:12]} — {len(doi)} tệp: {dau}")
+    return TUT_LAI, (f"{ten}: prod chạy {ngan} nhưng nguồn ĐÃ ĐỔI so với "
+                     f"{sha_main[:12]} — {len(doi)} tệp: {dau}")
 
 
 def main() -> int:
@@ -146,7 +179,7 @@ def main() -> int:
         if not url:
             continue
         try:
-            dung, cau = kiem_mot_dich_vu(ten, url, args.sha_main)
+            trang_thai, cau = kiem_mot_dich_vu(ten, url, args.sha_main)
         except KhongKetLuanDuoc as e:
             # CHƯA XÁC MINH ĐƯỢC, không phải ĐÃ ĐÚNG. Cảnh báo to nhưng không
             # làm đỏ CI: một cú chập mạng biến thành lượt đỏ thì chẳng bao lâu
@@ -155,8 +188,10 @@ def main() -> int:
             chua_ro.append(f"{ten}: {e}")
             print(f"::warning::D5 CHƯA XÁC MINH ĐƯỢC {ten} — {e}")
             continue
-        print(("  [ĐÚNG NHỊP] " if dung else "  [TỤT LẠI]   ") + cau)
-        if not dung:
+        nhan = {DUNG_NHIP: "  [ĐÚNG NHỊP] ", DI_TRUOC: "  [ĐỜI SAU]   ",
+                TUT_LAI: "  [TỤT LẠI]   "}[trang_thai]
+        print(nhan + cau)
+        if trang_thai == TUT_LAI:
             tut_lai.append(cau)
 
     if tut_lai:

@@ -17585,3 +17585,40 @@ bắt được lỗi số học.
 **Việc còn lại của D2 là ĐO, không phải viết mã**: sau 10–20 lượt H3 thật, mở
 trang quản trị, đọc `tokenMoiDonVi`, rồi mới viết mini-spec định giá. Chủ dự án
 đã dặn: *"Đừng sửa pricing trước pilot nếu chưa có token data."*
+
+### D5 lượt chạy thứ hai — chốt kêu NHẦM, và đó là lỗi nặng hơn bỏ sót
+
+Lượt CI của `5af86a3` (D1): mọi thứ xanh, `trien-khai-prod` thành công, nhưng
+`kiem-prod-theo-main` **ĐỎ**:
+
+```
+[TỤT LẠI] app: prod chạy f6384e00ad15 nhưng nguồn ĐÃ ĐỔI so với 5af86a3692da
+```
+
+**Prod không tụt lại — prod đi TRƯỚC.** Lượt CI của `5af86a3` đi tới bước D5
+*sau khi* bản đẩy kế tiếp `f6384e0` đã lên prod. Chốt chỉ hỏi "nguồn có khác
+không" mà **không hỏi khác theo chiều nào**.
+
+**Vì sao đây là lỗi nặng**: bỏ sót thì mất một lần phát hiện; kêu nhầm thì mất
+**cả cái chốt** — `deploy-branch-drift` đã phải tránh đúng bẫy này, và backlog
+ghi sẵn *bộ canh hay kêu nhầm thì người ta tắt nó đi, còn tệ hơn không có*. Tôi
+vừa tự dựng lại đúng cái bẫy mình đã trích dẫn khi thiết kế nó.
+
+**Sửa**: thêm phép soi chiều bằng `git merge-base --is-ancestor`. Ba kết cục
+thay vì hai — `DUNG_NHIP`, `DI_TRUOC`, `TUT_LAI`. Cố ý **không gộp** `DI_TRUOC`
+vào `DUNG_NHIP`: gộp thì người đọc nhật ký tưởng lượt này đã kiểm prod, trong
+khi nó chưa kiểm gì — lượt mới hơn mới là nơi kiểm.
+
+**Kiểm**: gỡ phép soi chiều ⇒ đúng một test đỏ, chính test diễn lại sự cố. Chạy
+thật với prod đang sống, đúng cặp SHA đã gây đỏ:
+
+```
+[ĐỜI SAU]   app: prod chạy f6384e00ad15, ĐỜI SAU của 5af86a3692da — một lượt
+            đẩy mới hơn đã lên trước; lượt kiểm này đã cũ
+[ĐÚNG NHỊP] worker: prod chạy 5af86a3692da, nguồn giống hệt — đúng nhịp
+```
+
+Hai lỗi D5 tự bắt trong ngày đầu (worker thiếu `SOURCE_SHA` trong ảnh, và lần
+này), **cả hai đều của tôi**. Một chốt mà lượt đầu đã lôi ra hai lỗi thật là
+chốt đáng giữ — nhưng nó cũng nói rõ: viết chốt xong mà chưa chạy thật thì chưa
+biết nó đúng hay sai.
