@@ -56,6 +56,26 @@ async function main() {
   }, sweepMinutes * 60 * 1000)
   sweepTimer.unref()
 
+  // V45-b (15/09) — dọn chunk mồ côi: chunk không bản ghi file nào trỏ tới,
+  // để lại bởi upload đứt giữa chừng. Bản vá 14/09 đã bịt chỗ rò chính, nhưng
+  // đường lùi của nó vẫn phỏng đoán theo thời gian nên vẫn lọt được, và
+  // `stats().orphanChunks` từ trước tới nay mới ĐẾM chứ chưa ai DỌN.
+  //
+  // Chốt an toàn nằm trong chính hàm quét: chỉ đụng chunk đã già hơn hạn —
+  // upload ĐANG CHẠY DỞ cũng có chunk mà chưa có bản ghi file, nên quét không
+  // mốc thời gian là xoá giữa chừng của người đang tải lên.
+  const kho = require('./src/services/job-storage.service')
+  const chunkSweepPhut = Number(
+    await config.get('storage.orphan.chunk.sweep.interval.minutes')) || 60
+  const chunkSweepTimer = setInterval(async () => {
+    try {
+      await kho.quetChunkMoCoi(app.log)
+    } catch (err) {
+      app.log.warn({ err }, 'vòng quét chunk mồ côi thất bại')
+    }
+  }, chunkSweepPhut * 60 * 1000)
+  chunkSweepTimer.unref()
+
   // Đối soát ví ↔ sổ cái mỗi ngày: chỉ đọc và báo (audit log + log server),
   // không tự sửa. Lệch tiền phải có người nhìn vào trước khi đụng ví.
   const credit = require('./src/services/credit.service')

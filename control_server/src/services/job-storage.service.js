@@ -32,7 +32,7 @@
  * crash.
  */
 const mongoose = require('mongoose')
-const { GridFSBucket } = require('mongodb')
+const { GridFSBucket, ObjectId } = require('mongodb')
 
 const { writeUploadStream } = require('../utils/upload-stream')
 
@@ -129,6 +129,67 @@ async function choLenhGhiBayXong(dest, hanMs = 5000) {
     await new Promise((r) => { setTimeout(r, 2) })
   }
   return true
+}
+
+/**
+ * Số phút một chunk phải "già" hơn thì mới được coi là rác.
+ *
+ * ĐÂY LÀ CHỐT AN TOÀN CỦA CẢ VÒNG QUÉT, không phải một con số tuỳ tiện.
+ * GridFS chỉ tạo bản ghi `files` lúc luồng ghi KẾT THÚC, nên một upload **đang
+ * chạy dở** trông y hệt một upload đã chết: có chunk, không có bản ghi file.
+ * Quét theo "không có bản ghi file" mà không có mốc thời gian nghĩa là xoá
+ * giữa chừng dữ liệu của người đang tải lên — hỏng nặng hơn hẳn thứ nó định
+ * dọn.
+ *
+ * 60 phút là ~6 lần hạn tải lên thật (`UPLOAD_TIMEOUT_S = 600`, tức 10 phút),
+ * nên một upload còn sống không đời nào chạm tới mốc này.
+ */
+const PHUT_QUA_HAN_MAC_DINH = 60
+
+/**
+ * Xoá chunk MỒ CÔI — chunk không bản ghi file nào trỏ tới (V45-b, 15/09/2026).
+ *
+ * Vì sao cần dù đã vá chỗ rò: bản vá 14/09 chờ mọi lệnh ghi hạ cánh xong rồi
+ * mới dọn, nhưng đường lùi của nó (khi driver `mongodb` đổi, bỏ bộ đếm lệnh
+ * đang bay) vẫn là phỏng đoán theo thời gian — chunk hạ cánh muộn hơn vẫn lọt.
+ * `stats().orphanChunks` từ trước tới nay mới **ĐẾM**, chưa ai **DỌN**, nên
+ * phần lọt ấy nằm lại vĩnh viễn: không bản ghi file nào trỏ tới nó, và mọi
+ * cách dọn theo `filename` đều mù.
+ *
+ * Mốc thời gian lấy từ chính `_id` của chunk — ObjectId có sẵn dấu thời gian
+ * tạo, không cần thêm trường hay thêm chỉ mục.
+ *
+ * @returns số chunk đã xoá.
+ */
+async function quetChunkMoCoi(log = null, { quaHanPhut = PHUT_QUA_HAN_MAC_DINH } = {}) {
+  const { db } = mongoose.connection
+  const colChunk = db.collection(`${BUCKET}.chunks`)
+  const colFile = db.collection(`${BUCKET}.files`)
+
+  const nguong = ObjectId.createFromTime(
+    Math.floor(Date.now() / 1000) - quaHanPhut * 60)
+
+  // Chỉ xét những chủ sở hữu CÓ ÍT NHẤT MỘT chunk đủ già. Upload đang chạy
+  // dở không lọt vào đây.
+  const chuSoHuu = await colChunk.distinct('files_id', { _id: { $lt: nguong } })
+  if (!chuSoHuu.length) return 0
+
+  const coThat = new Set(
+    (await colFile.find({ _id: { $in: chuSoHuu } }, { projection: { _id: 1 } })
+      .toArray()).map((f) => String(f._id)))
+  const moCoi = chuSoHuu.filter((id) => !coThat.has(String(id)))
+  if (!moCoi.length) return 0
+
+  const res = await colChunk.deleteMany({ files_id: { $in: moCoi } })
+  const daXoa = res.deletedCount || 0
+  if (daXoa && log) {
+    // NÓI TO. Vòng quét này dọn hậu quả của một chỗ rò — im lặng dọn nghĩa là
+    // chỗ rò có thể tệ đi mà không ai thấy.
+    log.warn({ chunks: daXoa, chuSoHuu: moCoi.length },
+      'đã xoá chunk mồ côi (upload đứt giữa chừng) — nếu số này không về 0 '
+      + 'thì chỗ rò ở writeUploadToStorage đang tệ hơn, xem mini-spec V45-b')
+  }
+  return daXoa
 }
 
 /** Mọi khoá đang có trong kho — dùng cho test "không sót file mồ côi" và
@@ -259,4 +320,6 @@ module.exports = {
   listAll,
   stats,
   writeUploadToStorage,
+  quetChunkMoCoi,
+  PHUT_QUA_HAN_MAC_DINH,
 }

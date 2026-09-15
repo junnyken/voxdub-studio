@@ -17436,3 +17436,43 @@ chối ghi "đã lên" cho một dịch vụ không tự khai được mã. Trư
 chạy sai mã hay không khai được mã đều **im lặng hoàn toàn**, và nó đã từng
 chạy mã cũ nhiều ngày mà không ai hay. Một chốt mới mà lượt đầu tiên đã bắt
 được lỗi thật là chốt đáng giữ — kể cả khi lỗi ấy do chính người dựng nó gây ra.
+
+## V45-c — DỌN chunk mồ côi, chứ không chỉ đếm (15/09/2026)
+
+**Gap**: bản vá 14/09 (V45-b) bịt chỗ rò chính — chờ mọi lệnh ghi hạ cánh xong
+rồi mới dọn. Nhưng **đường lùi** của nó, dùng khi driver `mongodb` bỏ bộ đếm
+lệnh đang bay, vẫn là **phỏng đoán theo thời gian**: chunk hạ cánh muộn hơn
+~150 ms vẫn lọt. Và `stats().orphanChunks` từ trước tới nay mới **ĐẾM**, chưa
+ai **DỌN**, nên phần lọt nằm lại vĩnh viễn — không bản ghi file nào trỏ tới nó,
+mọi cách dọn theo `filename` đều mù.
+
+**Bẫy lớn nhất, và là cả thiết kế của lát này**: upload **đang chạy dở** trông
+**y hệt** upload đã chết — GridFS chỉ tạo bản ghi `files` lúc luồng ghi KẾT
+THÚC. Quét theo "không có bản ghi file" mà **không có mốc thời gian** nghĩa là
+xoá giữa chừng dữ liệu của người đang tải lên: hỏng nặng hơn hẳn thứ nó định
+dọn.
+
+**Cách phân biệt**: tuổi của chunk, lấy từ chính `_id` — ObjectId mang sẵn dấu
+thời gian tạo, không cần thêm trường hay thêm chỉ mục. Mặc định **60 phút**, tức
+~6 lần hạn tải lên thật (`UPLOAD_TIMEOUT_S = 600` = 10 phút).
+
+**Nối vào** `server.js` theo đúng mẫu sweeper sẵn có (chu kỳ lấy từ config,
+`.unref()`, lỗi một vòng không làm sập app). Dọn được thì **nói to** — vòng quét
+này dọn hậu quả của một chỗ rò, im lặng dọn nghĩa là chỗ rò có thể tệ đi mà
+không ai thấy.
+
+**Kiểm**: `control_server/tests/orphan-chunk-sweep.test.js` (8).
+
+| Gỡ gì | Kết quả |
+|---|---|
+| Bỏ chốt tuổi | **3 đỏ** — gồm chốt "upload đang chạy dở" |
+| Bỏ phép kiểm "có bản ghi file" | **2 đỏ** — gồm "file lành mạnh không bị đụng" |
+
+Hai tập đỏ khác nhau: chốt tuổi giữ người đang tải lên, phép kiểm bản ghi giữ
+file lành.
+
+> Lỗi trong chính đồ giả của tôi, đã sửa: hai test đầu đỏ với `E11000 duplicate
+> key`. `ObjectId.createFromTime()` **zero hoá 8 byte sau**, nên hai chunk cùng
+> mốc thời gian trùng `_id`. Ghép tay 4 byte thời gian + 8 byte đếm tăng dần.
+> Đỏ vì ĐỒ GIẢ sai, không phải vì mã sai — cùng kiểu với bẫy `do_thoi_luong`
+> của RS-16 hôm qua.
