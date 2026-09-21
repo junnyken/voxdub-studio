@@ -17700,3 +17700,90 @@ hai đều cho `cả tệp = 20,31s` — đúng con số đã che mất lỗi.
 `rebuild_output:812` tính `total_duration = max(end) + 1.0` TRƯỚC bước đặt lại
 thời điểm, nên nó vẫn theo ước lượng. Cắt nó là đổi hành vi đường xuất của MỌI
 dự án (dự án lồng tiếng cần tiếng phủ hết video nguồn) — ngoài phạm vi D1.
+
+## Deploy — build worker chết ở bước tải VieNeu, vì hub đổi chỗ đặt blob (21/09/2026)
+
+`python-tests`, `node-tests`, `chay-that-windows` đều xanh; chỉ `trien-khai-prod`
+đỏ khi dựng lại `voxdub-dub-worker`. `diagnose_deploy` của Vibe Host chỉ đúng
+bước `[10/12] RUN python3 scripts/setup_vieneu.py`, lỗi nguyên văn:
+
+```
+External data path validation failed for initializer: c.layers.0.self_attn.q_norm.weight.
+Error: External data path escapes model directory.
+External data path: "vieneu_backbone_shared.data"
+resolved path:      ".../hub/blobs/5c/5cdab01c7698..."
+allowed directory:  ".../hub/blobs/8b"
+```
+
+**Tái hiện TRƯỚC khi sửa, bằng Docker thật** (không tin mỗi lời chẩn đoán):
+ảnh nền `python:3.12-slim` y hệt Dockerfile worker, cùng hai tệp được COPY
+(`setup_vieneu.py` + `_python_ho_tro.py`), cùng một lệnh `RUN` — chết đúng chữ
+trên. Trong ảnh: `vieneu==3.8.1`, `onnxruntime==1.30.0`, `huggingface_hub==1.32.0`.
+
+**Nguyên nhân KHÔNG phải nâng onnxruntime.** Đo tay để tách hai nghi phạm:
+
+| Dựng cache kiểu gì | ORT 1.29 | ORT 1.30 |
+|---|---|---|
+| Cache cũ trong workspace (tải 03/09, blob **phẳng**: `blobs/<sha>`) | nạp OK | nạp OK |
+| Layout hub mới (blob **chia theo 2 ký tự**: `blobs/8b/…`, `blobs/5c/…`) | **từ chối** | **từ chối** |
+
+Hàng dưới dựng tay từ chính hai blob thật (hardlink vào hai thư mục shard rồi
+đặt symlink y như hub làm). Cái đổi là **chỗ hub đặt blob**: `vieneu_prefill.onnx`
+và tệp trọng số ngoài của nó nay trỏ sang hai thư mục thật khác nhau, nên ORT
+canonical-hoá xong thấy tệp `.data` nằm ngoài thư mục model và chặn — đúng cơ
+chế an toàn của nó. Hệ quả: **lỗi chỉ lộ ở máy tải mới**; máy nào đã có sẵn
+model (như workspace này) vẫn chạy ngon, nên nhìn từ máy dev thì mọi thứ "bình
+thường". Bộ test cũng không bắt được: không test nào tải model thật, bước này
+chỉ chạy trong Docker build.
+
+**Sửa** (chỉ `scripts/setup_vieneu.py`, hai chốt):
+
+1. `HF_HUB_DISABLE_SYMLINKS=1` lúc tải → hub **chuyển** tệp thẳng vào thư mục
+   snapshot thay vì để blob + symlink. Model và `.data` về cùng một thư mục thật.
+2. `go_symlink_trong_cache()` — gỡ symlink **còn sót** thành tệp thật (hardlink)
+   trước khi tải. Cần cho cảnh chạy lại sau một lần tải hỏng: biến môi trường
+   chỉ có tác dụng lúc TẢI, cache đã trót tải kiểu cũ thì bản vá không cứu
+   được — đúng bẫy "đã có sẵn nên bỏ qua" mà `step_venv` từng dính (V80).
+
+**Xác nhận SAU khi sửa** — đo trên ảnh Docker, không suy từ mã:
+
+| Đo | Kết quả |
+|---|---|
+| Build lạnh (`--no-cache`, cache HF trống) | 7 phút 01 giây, `model OK, 25 giọng` |
+| Smoke của chính script | `smoke_test.wav` 245.804 byte + `installed_ok.json` → model **nạp và đọc được**, không chỉ tải xong |
+| Symlink còn lại trong cache ảnh | **0** |
+| `vieneu_prefill.onnx` / `vieneu_backbone_shared.data` | 324.499 B / 415.319.040 B, **tệp thật** |
+| Hai thư mục `blobs/` sau khi tải | 4 KB — tệp được **chuyển**, không nhân đôi đĩa |
+| Cả cache | 581 MB, đúng bằng cache cũ |
+
+**Đường CHẠY THẬT cũng phải đo, không chỉ đường build**: `vieneu_worker.py:437‑445`
+đặt `HF_HOME` rồi gọi `Vieneu(backend="onnx")` trên **cùng cache** đó và KHÔNG
+đặt biến mới nào. Chạy lại đúng đoạn ấy trong ảnh: đọc được, 25 giọng, 122.880
+mẫu. Chạy lại lần nữa với `--network none`: vẫn đọc được (145.920 mẫu) sau vài
+lượt thử HEAD hỏng. Nghĩa là không phải sửa `vieneu_worker.py`, và lúc chạy
+không phụ thuộc mạng.
+
+**Cảnh chạy lại sau lần hỏng** (build riêng: chạy bản CŨ cho chết trước, rồi
+chạy bản mới trên đúng cache bẩn đó):
+
+```
+BUOC-CU-THAT-BAI-NHU-MONG-DOI          ← bản cũ chết đúng lỗi trên
+[setup-vieneu] gỡ 24 symlink còn sót trong cache thành tệp thật
+model OK, 25 giọng
+```
+
+Thiếu chốt 2 thì lượt này vẫn đỏ dù đã vá — nên nó ở lại.
+
+**Test**: `pytest -k "vieneu or setup"` 59 xanh; ba tệp đụng script cài
+(`test_setup_python_version.py`, `test_preflight.py`, `test_cong_kiem_den_cuoi.py`)
+40 xanh. Không chạy cả bộ: thay đổi nằm gọn trong script hạ tầng, không đụng
+`autodub/`.
+
+**Cố ý không đụng / chưa dựng**: không dựng CẢ ảnh worker (context là gốc repo
+~13 GB vì `models/` và các `.venv-*` không có trong `.dockerignore`) — hai bước
+`[8/12]`, `[9/12]` đã qua được trên Vibe Host nên chỗ chưa dựng lại không phải
+chỗ nghi ngờ; bước `[10/12]` thì đã dựng lại nguyên vẹn. Cảnh báo thiếu
+`HF_TOKEN` vẫn còn nhưng cả ba lượt tải đều xong — không phải nguyên nhân.
+Nhánh deploy do `scripts/gen_vays_dub_worker_branch.sh` sinh (CI chạy sau khi
+push `main`) có chép `scripts/setup_vieneu.py`, nên bản vá đi theo đúng đường
+đó, không phải sửa tay nhánh deploy.

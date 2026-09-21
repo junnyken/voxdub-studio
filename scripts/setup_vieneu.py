@@ -68,17 +68,74 @@ def step_install() -> None:
                    check=True)
 
 
+def go_symlink_trong_cache() -> int:
+    """Biến symlink trong cache HF thành tệp thật (hardlink) — trả về số tệp đã đổi.
+
+    Cần cho lần chạy LẠI sau một lần tải hỏng: `HF_HUB_DISABLE_SYMLINKS` chỉ có
+    tác dụng lúc TẢI, nên cache đã tải trước đó vẫn còn symlink và onnxruntime
+    vẫn từ chối y như cũ — đúng cái bẫy "đã có sẵn nên bỏ qua" mà `step_venv`
+    đã dính một lần (V80). Dùng hardlink nên không tốn thêm đĩa, và realpath
+    của tệp nằm ngay trong thư mục model nên onnxruntime chấp nhận.
+    """
+    if not os.path.isdir(MODEL_DIR):
+        return 0
+    doi = 0
+    for thu_muc, _, ten_tep in os.walk(MODEL_DIR):
+        for ten in ten_tep:
+            duong_dan = os.path.join(thu_muc, ten)
+            if not os.path.islink(duong_dan):
+                continue
+            dich = os.path.realpath(duong_dan)
+            if not os.path.isfile(dich):
+                continue
+            tam = duong_dan + ".that"
+            try:
+                os.link(dich, tam)
+            except OSError:
+                shutil.copyfile(dich, tam)
+            os.replace(tam, duong_dan)   # đổi chỗ nguyên tử, không để hở
+            doi += 1
+    return doi
+
+
 def step_model_and_voices() -> None:
     if os.path.isfile(VOICES_JSON) and os.path.isfile(MARKER):
         log("model + voices.json đã có — bỏ qua")
         return
     log("tải model VieNeu-TTS-v3-Turbo (~300 MB, lần đầu hơi lâu) ...")
     os.makedirs(MODEL_DIR, exist_ok=True)
+    da_go = go_symlink_trong_cache()
+    if da_go:
+        log(f"gỡ {da_go} symlink còn sót trong cache thành tệp thật")
     code = f"""
 import json, os, sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 os.environ["HF_HOME"] = {MODEL_DIR!r}
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+# Tải về TỆP THẬT, không phải symlink trỏ vào kho blob.
+#
+# Mặc định huggingface_hub giữ 1 bản blob rồi đặt symlink trong thư mục
+# snapshot trỏ sang. Bản hub mới CHIA blob theo 2 ký tự đầu (blobs/5c/..,
+# blobs/8b/..), nên `vieneu_prefill.onnx` và tệp trọng số ngoài đi kèm nó
+# (`vieneu_backbone_shared.data`) trỏ sang HAI thư mục blob KHÁC nhau.
+# onnxruntime canonical-hoá đường dẫn rồi chặn tệp dữ liệu ngoài nằm ngoài
+# thư mục của model:
+#   External data path escapes model directory.
+#   resolved path: ".../blobs/5c/5cdab..."  allowed directory: ".../blobs/8b"
+# Đo thật 21/09: build Docker `voxdub-dub-worker` chết ở đúng bước này trên
+# Vibe Host, dựng lại được y nguyên trong workspace bằng chính ảnh nền của
+# worker (xem docs/TEST_LOG.md).
+#
+# KHÔNG phải do nâng onnxruntime: dựng tay đúng layout chia thư mục thì
+# 1.29 và 1.30 cùng từ chối, còn cache CŨ (blob phẳng, model và .data cùng
+# một thư mục thật) thì cả hai cùng nạp được. Cái đổi là chỗ hub ĐẶT blob —
+# nên lỗi chỉ lộ ở máy tải mới, không lộ ở máy đã có sẵn model.
+#
+# Tắt symlink thì tệp được CHUYỂN thẳng vào snapshot (không nhân đôi đĩa),
+# model và tệp .data cùng một thư mục → ORT nạp bình thường. Lúc chạy thật
+# (vieneu_worker.py) không cần đặt gì thêm: tệp đã là tệp thật nên hub trả
+# về luôn, không tạo symlink nữa.
+os.environ["HF_HUB_DISABLE_SYMLINKS"] = "1"
 from vieneu import Vieneu
 v = Vieneu(backend="onnx")
 voices = v.list_preset_voices()
