@@ -294,19 +294,130 @@ def test_them_tep_moi_khong_bi_tinh_la_pha_hoai(tmp_path):
     assert khac["nguyen_ven"] is True and khac["them_moi"]
 
 
-def test_thu_muc_nang_chi_dem_tep_va_byte(tmp_path):
-    """`.venv-*`/`models/` có hàng chục nghìn tệp — băm hết là hàng phút CI."""
+def test_thu_muc_nang_ghi_ten_va_kich_thuoc_khong_bam(tmp_path):
+    """`.venv-*` đo thật 20.388 tệp — băm hết là hàng phút CI mỗi lần chụp.
+
+    Nhưng chỉ đếm tệp/byte thì người đọc bằng chứng chỉ biết "có thứ gì đó
+    đổi" rồi tắc. Nên: tên + kích thước từng tệp, không băm.
+    """
     cu = tmp_path / "VoxDub-previous"
     (cu / ".venv-vieneu" / "Lib").mkdir(parents=True)
-    (cu / ".venv-vieneu" / "Lib" / "a.py").write_text("x")
-    m = manifest_thu_muc(str(cu))
-    assert m["thu_muc_nang"][".venv-vieneu"]["so_tep"] == 1
-    assert not any(k.startswith(".venv-vieneu") for k in m["tep"])
+    (cu / ".venv-vieneu" / "Lib" / "a.py").write_text("xin chao")
+    (cu / "models" / "vieneu").mkdir(parents=True)
+    (cu / "models" / "vieneu" / "m.onnx").write_bytes(b"0" * 100)
 
-    (cu / ".venv-vieneu" / "Lib" / "a.py").unlink()
-    khac = so_sanh_manifest(m, manifest_thu_muc(str(cu)))
-    assert khac["thu_muc_nang_doi"] == [".venv-vieneu"]
+    m = manifest_thu_muc(str(cu))
+    venv = m["thu_muc_nang"][".venv-vieneu"]
+    assert venv["so_tep"] == 1 and venv["tong_byte"] == 8
+    assert venv["tep"] == {".venv-vieneu/Lib/a.py": 8}
+    assert m["thu_muc_nang"]["models"]["tep"] == {"models/vieneu/m.onnx": 100}
+    assert not any(k.startswith((".venv-vieneu", "models")) for k in m["tep"]), (
+        "thư mục nặng KHÔNG được băm"
+    )
+
+
+# ------------------ THÊM thì được, MẤT và ĐỔI thì không (chính sách I0-E) --
+#
+# Run 35621763885 đỏ oan ở đúng chỗ này: `models/` của bản cũ đi từ 39 tệp lên
+# 51 tệp (+231.946.522 byte) trong khi `.venv-vieneu` (20.388 tệp) và
+# `.venv-whisper` (4.557 tệp) không đổi một byte. Đó là hành vi ĐÚNG của thiết
+# kế "dùng lại tại chỗ, không chép": sau nâng cấp, models/ của bản cũ CHÍNH LÀ
+# kho model dùng chung, thiếu model thì tải về đúng đó. Chốt cũ bắt mọi thay
+# đổi số byte là vi phạm — quá thô, và nó chặn đúng cái mà I0-E đang canh.
+
+#: Kích thước 12 tệp model mới, cộng lại đúng bằng số đo thật của lượt chạy.
+_THEM_THAT = [19_328_876] * 11 + [231_946_522 - 19_328_876 * 11]
+
+
+def _kho_model_39_tep() -> dict:
+    tep = {f"models/vieneu/tep_{i:02d}.onnx": 133_284_800 + i
+           for i in range(39)}
+    return {"goc": "X", "tep": {},
+            "thu_muc_nang": {"models": {
+                "so_tep": len(tep), "tong_byte": sum(tep.values()),
+                "tep": tep}}}
+
+
+def test_them_tep_vao_kho_model_dung_chung_la_HOP_LE():
+    """Chiều 1: đúng số đo của run 35621763885 — 39 → 51 tệp, phải XANH."""
+    truoc = _kho_model_39_tep()
+    sau = json.loads(json.dumps(truoc))
+    moi = {f"models/whisper/them_{i:02d}.bin": byte
+           for i, byte in enumerate(_THEM_THAT)}
+    sau["thu_muc_nang"]["models"]["tep"].update(moi)
+    sau["thu_muc_nang"]["models"]["so_tep"] = 51
+    sau["thu_muc_nang"]["models"]["tong_byte"] += 231_946_522
+
+    khac = so_sanh_manifest(truoc, sau)
+    assert khac["nguyen_ven"] is True, (
+        "cấm THÊM là buộc mỗi lần nâng cấp phải nhân đôi 5,4 GB model — đi "
+        "ngược đúng lời hứa mà I0-E đang canh")
+    assert khac["nang_bi_mat"] == [] and khac["nang_doi_kich_thuoc"] == []
+    assert len(khac["them_moi_trong_thu_muc_nang"]) == 12
+    assert khac["them_moi_trong_thu_muc_nang"][0].startswith("models/whisper/")
+    assert (sau["thu_muc_nang"]["models"]["tong_byte"]
+            - truoc["thu_muc_nang"]["models"]["tong_byte"]) == 231_946_522
+
+
+def test_xoa_tep_cu_trong_thu_muc_nang_la_VI_PHAM():
+    """Chiều 2a: mất tệp của bản cũ = đúng thứ I0-E cấm."""
+    truoc = _kho_model_39_tep()
+    sau = json.loads(json.dumps(truoc))
+    mat = sau["thu_muc_nang"]["models"]["tep"].pop("models/vieneu/tep_07.onnx")
+    sau["thu_muc_nang"]["models"]["so_tep"] -= 1
+    sau["thu_muc_nang"]["models"]["tong_byte"] -= mat
+
+    khac = so_sanh_manifest(truoc, sau)
     assert khac["nguyen_ven"] is False
+    assert khac["nang_bi_mat"] == ["models/vieneu/tep_07.onnx"]
+
+
+def test_doi_kich_thuoc_tep_cu_la_VI_PHAM():
+    """Chiều 2b: ghi đè tệp cũ — kể cả khi tổng byte TĂNG lên."""
+    truoc = _kho_model_39_tep()
+    sau = json.loads(json.dumps(truoc))
+    sau["thu_muc_nang"]["models"]["tep"]["models/vieneu/tep_07.onnx"] += 999
+    sau["thu_muc_nang"]["models"]["tong_byte"] += 999
+
+    khac = so_sanh_manifest(truoc, sau)
+    assert khac["nguyen_ven"] is False
+    assert khac["nang_doi_kich_thuoc"] == [
+        "models/vieneu/tep_07.onnx (133284807 → 133285806 byte)"]
+
+
+def test_ca_thu_muc_nang_bien_mat_la_VI_PHAM():
+    truoc = _kho_model_39_tep()
+    sau = {"goc": "X", "tep": {}, "thu_muc_nang": {}}
+    khac = so_sanh_manifest(truoc, sau)
+    assert khac["nguyen_ven"] is False
+    assert khac["nang_bi_mat"] == ["models/** (cả thư mục biến mất)"]
+
+
+def test_thieu_danh_sach_thi_chi_ket_luan_duoc_ve_MAT():
+    """Ảnh chụp không có danh sách tệp: phải nói ra là mình đang mù."""
+    truoc = {"thu_muc_nang": {"models": {"so_tep": 39, "tong_byte": 1000}}}
+    tang = {"thu_muc_nang": {"models": {"so_tep": 51, "tong_byte": 2000}}}
+    giam = {"thu_muc_nang": {"models": {"so_tep": 30, "tong_byte": 900}}}
+
+    khac = so_sanh_manifest(truoc, tang)
+    assert khac["nguyen_ven"] is True
+    assert khac["thu_muc_nang_khong_so_duoc"] == ["models"]
+
+    khac = so_sanh_manifest(truoc, giam)
+    assert khac["nguyen_ven"] is False
+    assert khac["nang_bi_mat"] == ["models/** (số tệp hoặc byte GIẢM)"]
+
+
+def test_thu_muc_nang_khong_doi_thi_nguyen_ven(tmp_path):
+    """`.venv-*` không đổi một byte (đúng như đo thật) → xanh."""
+    cu = tmp_path / "VoxDub-previous"
+    (cu / ".venv-whisper" / "Scripts").mkdir(parents=True)
+    (cu / ".venv-whisper" / "Scripts" / "python.exe").write_bytes(b"MZ")
+    m = manifest_thu_muc(str(cu))
+    khac = so_sanh_manifest(m, manifest_thu_muc(str(cu)))
+    assert khac["nguyen_ven"] is True
+    assert khac["them_moi_trong_thu_muc_nang"] == []
+
 
 
 # ------------------------------------------------- ĐƯỜNG DẪN QUA RANH GIỚI --

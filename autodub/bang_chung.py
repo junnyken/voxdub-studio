@@ -151,12 +151,20 @@ NANG_KHONG_BAM = (".venv-", "models", "pw-browsers", "libs", "vendor")
 def manifest_thu_muc(goc: str, bam_het: bool = False) -> dict:
     """Dấu vân tay của MỘT bản cài để so trước/sau (mini-spec I0-E).
 
-    Trả về ``{"tep": {đường_dẫn_tương_đối: {...}}, "thu_muc_nang": {...}}``.
+    Trả về ``{"tep": {rel: {byte, sha256}}, "thu_muc_nang": {tên: {so_tep,
+    tong_byte, tep: {rel: byte}}}}``.
+
+    Thư mục nặng (``models/``, ``.venv-*``…) **không băm** — `.venv-vieneu`
+    đo thật có 20.388 tệp, băm hết là hàng phút CI mỗi lần chụp, mà chụp thì
+    hai lần một lượt. Nhưng chỉ đếm tệp/byte như bản đầu thì cũng không đủ:
+    nó không nói được **tệp nào** đổi, nên người đọc bằng chứng chỉ biết "có
+    thứ gì đó khác" rồi tắc. Nay ghi **tên tệp + kích thước** cho từng tệp:
+    đủ để trả lời "mất cái gì, thêm cái gì", vẫn không tốn một phép băm nào.
     """
     goc = os.path.abspath(goc)
     tep: dict[str, dict] = {}
     nang: dict[str, dict] = {}
-    for thu_muc, cac_thu_muc_con, cac_tep in os.walk(goc):
+    for thu_muc, _cac_thu_muc_con, cac_tep in os.walk(goc):
         rel_dir = os.path.relpath(thu_muc, goc).replace(os.sep, "/")
         if rel_dir == ".":
             rel_dir = ""
@@ -164,13 +172,16 @@ def manifest_thu_muc(goc: str, bam_het: bool = False) -> dict:
         la_nang = (not bam_het) and any(
             goc_nang == t or goc_nang.startswith(t) for t in NANG_KHONG_BAM)
         if la_nang:
-            muc = nang.setdefault(goc_nang, {"so_tep": 0, "tong_byte": 0})
+            muc = nang.setdefault(goc_nang,
+                                  {"so_tep": 0, "tong_byte": 0, "tep": {}})
             for ten in cac_tep:
+                rel = f"{rel_dir}/{ten}" if rel_dir else ten
                 try:
-                    muc["tong_byte"] += os.path.getsize(
-                        os.path.join(thu_muc, ten))
+                    byte = os.path.getsize(os.path.join(thu_muc, ten))
                 except OSError:
                     continue
+                muc["tep"][rel] = byte
+                muc["tong_byte"] += byte
                 muc["so_tep"] += 1
             continue
         for ten in cac_tep:
@@ -185,19 +196,63 @@ def manifest_thu_muc(goc: str, bam_het: bool = False) -> dict:
 
 
 def so_sanh_manifest(truoc: dict, sau: dict) -> dict:
-    """Khác biệt giữa hai lần chụp: tệp bị SỬA, bị XOÁ, hoặc mới THÊM.
+    """Khác biệt giữa hai lần chụp bản cài cũ (mini-spec I0-E).
 
-    Bản mới KHÔNG được sửa hay xoá tệp nào của bản cũ. "Thêm" thì tuỳ ca gọi
-    quyết định (vd app ghi nhật ký vào bản cũ cũng là sai, nhưng đó là quyết
-    định của tầng trên, không phải của hàm so sánh).
+    **Luật: THÊM thì được, MẤT và ĐỔI thì không.**
+
+    Vì sao không phải "mọi thay đổi đều là vi phạm" (bản đầu đã làm thế, và
+    nó đỏ oan ở run 35621763885): thiết kế của sản phẩm là *dùng lại tại chỗ,
+    không chép* (`autodub/venv_discovery.py`). Sau nâng cấp, `models/` của bản
+    cũ **chính là kho model dùng chung** — thiếu model thì tải về đúng đó. Đo
+    thật ở lượt chạy đó: `models/` đi từ 39 tệp lên 51 tệp (+231.946.522
+    byte), còn `.venv-vieneu` (20.388 tệp) và `.venv-whisper` (4.557 tệp)
+    **không đổi một byte**. Đó là hành vi ĐÚNG, không phải hỏng.
+
+    Cả hai mini-spec đều định nghĩa vi phạm là **xoá/ghi đè/phá huỷ** tệp của
+    bản cũ, không phải "thêm vào". Cấm ghi hẳn (phương án B) thì mỗi lần nâng
+    cấp phải nhân đôi 5,4 GB model — đi ngược đúng lời hứa mà I0-E đang canh.
+
+    Giới hạn phải nói thẳng: thư mục nặng chỉ so **tên + kích thước**, nên ca
+    *ghi đè mà giữ nguyên kích thước* KHÔNG bắt được. Giá của việc không băm
+    25.000 tệp hai lần mỗi lượt CI — và nó chỉ áp cho thư mục nặng; phần còn
+    lại của bản cài vẫn băm đầy đủ.
     """
     t, s = truoc.get("tep", {}), sau.get("tep", {})
     sua = sorted(k for k in t if k in s and t[k]["sha256"] != s[k]["sha256"])
     xoa = sorted(k for k in t if k not in s)
     them = sorted(k for k in s if k not in t)
-    nang_doi = sorted(
-        k for k, v in truoc.get("thu_muc_nang", {}).items()
-        if sau.get("thu_muc_nang", {}).get(k, {}) != v)
+
+    nang_truoc = truoc.get("thu_muc_nang", {})
+    nang_sau = sau.get("thu_muc_nang", {})
+    bi_mat: list[str] = []
+    doi_co: list[str] = []
+    them_nang: list[str] = []
+    khong_so_duoc: list[str] = []
+    for ten, muc_truoc in nang_truoc.items():
+        muc_sau = nang_sau.get(ten)
+        if muc_sau is None:
+            bi_mat.append(f"{ten}/** (cả thư mục biến mất)")
+            continue
+        tep_truoc, tep_sau = muc_truoc.get("tep"), muc_sau.get("tep")
+        if tep_truoc is None or tep_sau is None:
+            # Ảnh chụp cũ không có danh sách tệp: chỉ còn kết luận được về
+            # MẤT (tệp hoặc byte giảm đi), và phải nói ra là mình đang mù.
+            khong_so_duoc.append(ten)
+            if (muc_sau.get("so_tep", 0) < muc_truoc.get("so_tep", 0)
+                    or muc_sau.get("tong_byte", 0)
+                    < muc_truoc.get("tong_byte", 0)):
+                bi_mat.append(f"{ten}/** (số tệp hoặc byte GIẢM)")
+            continue
+        for rel, byte in tep_truoc.items():
+            if rel not in tep_sau:
+                bi_mat.append(rel)
+            elif tep_sau[rel] != byte:
+                doi_co.append(f"{rel} ({byte} → {tep_sau[rel]} byte)")
+        them_nang += [rel for rel in tep_sau if rel not in tep_truoc]
+
     return {"sua_doi": sua, "bi_xoa": xoa, "them_moi": them,
-            "thu_muc_nang_doi": nang_doi,
-            "nguyen_ven": not (sua or xoa or nang_doi)}
+            "nang_bi_mat": sorted(bi_mat),
+            "nang_doi_kich_thuoc": sorted(doi_co),
+            "them_moi_trong_thu_muc_nang": sorted(them_nang),
+            "thu_muc_nang_khong_so_duoc": sorted(khong_so_duoc),
+            "nguyen_ven": not (sua or xoa or bi_mat or doi_co)}

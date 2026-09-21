@@ -718,12 +718,20 @@ def che_do_nang_cap(args, bang_chung: Path) -> list[str]:
     (bang_chung / "upgrade-diff.json").write_text(
         json.dumps(khac, ensure_ascii=False, indent=2), encoding="utf-8")
     if not khac["nguyen_ven"]:
-        raise Hong(f"Bản mới ĐỤNG vào bản cũ: sửa {khac['sua_doi'][:5]}, xoá "
-                   f"{khac['bi_xoa'][:5]}, thư mục nặng đổi "
-                   f"{khac['thu_muc_nang_doi']}. Nâng cấp không được phép "
-                   "làm hỏng bản đang dùng được.")
-    bao_cao.append(f"bản cũ nguyên vẹn sau lượt chạy "
-                   f"(thêm mới {len(khac['them_moi'])} tệp, không sửa/xoá)")
+        raise Hong(
+            "Bản mới LÀM MẤT hoặc ĐỔI tệp của bản cũ — nâng cấp không được "
+            f"phép làm hỏng bản đang dùng được.\n  sửa: {khac['sua_doi'][:5]}"
+            f"\n  xoá: {khac['bi_xoa'][:5]}"
+            f"\n  tệp cũ biến mất: {khac['nang_bi_mat'][:5]}"
+            f"\n  tệp cũ đổi kích thước: {khac['nang_doi_kich_thuoc'][:5]}")
+    # THÊM là hợp lệ (kho model dùng chung), nhưng phải NÓI RA thêm cái gì:
+    # "có thứ gì đó đổi" thì người đọc không có đường nào đi tiếp.
+    them_nang = khac["them_moi_trong_thu_muc_nang"]
+    bao_cao.append(
+        f"bản cũ nguyên vẹn: không tệp nào mất hay đổi kích thước; "
+        f"THÊM {len(khac['them_moi'])} tệp thường + {len(them_nang)} tệp "
+        f"trong thư mục nặng"
+        + (f" (vd {them_nang[:3]})" if them_nang else ""))
     return bao_cao
 
 

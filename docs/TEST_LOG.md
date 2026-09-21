@@ -18112,3 +18112,108 @@ trong `khong_phai_duong_dan`.
   chạy ở cuối.
 - **I0-E** (bước 12) và **ba ca âm** (bước 13): **chưa chạy lần nào** — bị bỏ
   qua vì bước 11 đỏ.
+
+## I0-FDE(d) — I0-D + I0-F ĐẠT THẬT; I0-E đỏ oan vì chốt "mọi thay đổi là vi phạm" (21/09/2026)
+
+Run **35621763885** (`workflow_dispatch`, commit `2d6d120`).
+
+### Bước 11 XANH — đây là bằng chứng I0-D + I0-F mà cả hai mini-spec đòi
+
+Lần đầu tiên bản `.exe` người dùng tải về được chạy thử trọn vẹn trên một thư
+mục cài **mới hoàn toàn**, và có số đo:
+
+| Mục | Số đo (đọc từ artifact) |
+|---|---|
+| `sach/tom-tat.json` | `ket_qua="dat"`, **114,1 giây** |
+| `sach/chang2/result.json` | `trang_thai_pipeline="completed"`, **42 tiến trình con** |
+| `sach/output-probe.json` | `codec_tieng="aac"` · **`mean_volume_db=-18,5`** · `giay_ra=54,398005` vs `giay_nguon=53,498776` · `byte=4.255.588` · `sha256 b20fa1df871b109195725a2f7e17769a0043618ca15c5a72c45fda7d8c19442f` |
+| `sach/chang2/duong-da-dung.json` | `ngoai_vung=[]`, `tu_cay_ma_nguon=[]` — **sạch**; `khong_phai_duong_dan` gom đúng **40** cờ/bộ lọc ffmpeg (`-c:v`, `atempo=1.100`, `highpass=f=80,loudnorm=…`, `h264_nvenc`…) |
+
+Bản vá kêu nhầm của lượt trước ăn đúng chỗ, và danh sách "thứ đã bị bỏ qua"
+soi được từ ngoài đúng như thiết kế — bộ lọc của bộ canh cũng phải kiểm được.
+
+### Bước 12 ĐỎ — và lỗi nằm ở chốt, không nằm ở sản phẩm
+
+```
+Bản mới ĐỤNG vào bản cũ: sửa [], xoá [], thư mục nặng đổi ['models'].
+```
+
+Số đo thật (`upgrade-previous-before/after.json`):
+
+| Thư mục nặng của bản cũ | Trước | Sau |
+|---|---|---|
+| `models` | 39 tệp · 5.198.107.191 byte | **51 tệp · 5.430.053.713 byte** (+12 tệp, +231.946.522 byte) |
+| `.venv-vieneu` | 20.388 tệp · 762.315.728 byte | **không đổi** |
+| `.venv-whisper` | 4.557 tệp · 285.491.109 byte | **không đổi** |
+
+`sua_doi=[]`, `bi_xoa=[]`, `them_moi=[]` — **không mất gì, không đổi gì, chỉ
+thêm**. Đây là hệ quả trực tiếp của thiết kế *dùng lại tại chỗ, không chép*
+(`autodub/venv_discovery.py`): sau nâng cấp, `models/` của bản cũ **chính là
+kho model dùng chung**, thiếu model thì tải về đúng đó.
+
+### Quyết định của chủ dự án: **THÊM thì được, MẤT và ĐỔI thì không**
+
+Lý do chốt (ghi lại để lần sau không ai phải nghĩ lại):
+
+1. **Cả hai mini-spec định nghĩa vi phạm là xoá/ghi đè/phá huỷ** — *"must not
+   delete/overwrite the prior sibling's files"* — **không phải "thêm vào"**.
+   Chốt cũ bắt mọi thay đổi số byte là vi phạm: quá thô.
+2. Phương án B (cấm ghi vào bản cũ) **bị bác**: nó buộc mỗi lần nâng cấp phải
+   nhân đôi **5,4 GB** model, tức đi ngược đúng lời hứa mà I0-E đang canh —
+   *nâng cấp phải giữ được thứ người dùng đã tải về*.
+3. Hành vi tải model vào kho dùng chung là **ĐÚNG thiết kế**. Không ai được
+   đi "sửa" sản phẩm vì chốt kêu.
+
+### Đã sửa (chỉ phép so manifest + test của nó)
+
+- `manifest_thu_muc()`: thư mục nặng nay ghi **tên tệp + kích thước từng tệp**
+  (`thu_muc_nang[<tên>]["tep"]`), vẫn **không băm** — giữ nguyên lý do chi phí
+  (`.venv-vieneu` 20.388 tệp, chụp hai lần một lượt).
+- `so_sanh_manifest()`: chốt mới là **không tệp cũ nào biến mất**
+  (`nang_bi_mat`) và **không tệp cũ nào đổi kích thước**
+  (`nang_doi_kich_thuoc`). Tệp mới xuất hiện → hợp lệ, liệt kê ở
+  **`them_moi_trong_thu_muc_nang`** để người đọc thấy **thêm cái gì** (trước
+  đây `them_moi=[]` trong khi `models/` rõ ràng có 12 tệp mới — người đọc
+  không có đường nào nhìn ra).
+- Ảnh chụp thiếu danh sách tệp → chỉ kết luận được về **MẤT** (số tệp/byte
+  giảm), và nói thẳng ra là mình đang mù (`thu_muc_nang_khong_so_duoc`).
+- Câu lỗi của bộ lái nay liệt kê đúng bốn nhóm: sửa · xoá · tệp cũ biến mất ·
+  tệp cũ đổi kích thước.
+
+**Giới hạn phải nói thẳng:** thư mục nặng chỉ so **tên + kích thước**, nên ca
+*ghi đè tệp cũ mà giữ nguyên kích thước* **KHÔNG bắt được**. Đó là giá của
+việc không băm ~25.000 tệp hai lần mỗi lượt CI. Phần còn lại của bản cài vẫn
+băm SHA-256 đầy đủ.
+
+### Test
+
+`python3 -m pytest` (4 lô): **3067 đạt · 4 bỏ qua · 0 hỏng** (trước 3061/4 —
+bỏ 1 test của luật cũ, thêm 7 test mới).
+
+Sáu phép cấy lỗi, đỏ đúng test, khoá **cả hai chiều**:
+
+| Gỡ / cấy | Test đỏ theo | Chiều |
+|---|---|---|
+| trả lại luật cũ (mọi thay đổi là vi phạm) | `test_them_tep_vao_kho_model_dung_chung_la_HOP_LE` | chống kêu nhầm |
+| bỏ phép bắt MẤT tệp cũ | `test_xoa_tep_cu_trong_thu_muc_nang_la_VI_PHAM` | **giữ độ nhạy** |
+| bỏ phép bắt ĐỔI kích thước | `test_doi_kich_thuoc_tep_cu_la_VI_PHAM` | **giữ độ nhạy** |
+| bỏ phép bắt cả thư mục biến mất | `test_ca_thu_muc_nang_bien_mat_la_VI_PHAM` | **giữ độ nhạy** |
+| bỏ danh sách tên+kích thước | `test_thu_muc_nang_ghi_ten_va_kich_thuoc_khong_bam` | nền của cả hai |
+| bỏ phép bắt MẤT khi thiếu danh sách | `test_thieu_danh_sach_thi_chi_ket_luan_duoc_ve_MAT` | **giữ độ nhạy** |
+
+Ca "hợp lệ" dùng **đúng số đo thật** của lượt chạy: 39 → 51 tệp, +231.946.522
+byte, và kiểm luôn rằng `them_moi_trong_thu_muc_nang` có đủ 12 tên.
+
+Chạy lại bộ lái với exe GIẢ, nay bắt chước hành vi thật (tải model vào kho
+dùng chung của bản cũ):
+
+- **thêm tệp** → `nguyen_ven=true`, báo cáo in ra *"THÊM 0 tệp thường + 1 tệp
+  trong thư mục nặng (vd `models/whisper/tai_them_…bin`)"* — **xanh**;
+- **cấy lỗi xoá `models/vieneu/installed_ok.json` của bản cũ** → **đỏ**, câu
+  lỗi nêu đúng tên tệp biến mất.
+
+### Còn lại
+
+Bước 13 (**ba ca âm**: khác thư mục cha · thiếu thành phần · cấu hình hỏng)
+**vẫn chưa chạy lần nào** — bị bỏ qua ở cả ba lượt. Lượt tới là lần đầu nó
+được chạm tới.
