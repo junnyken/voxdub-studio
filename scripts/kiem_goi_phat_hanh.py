@@ -50,8 +50,8 @@ from kiem_chay_that import (  # noqa: E402
 )
 
 from autodub.bang_chung import (  # noqa: E402
-    bam_tep, che_bi_mat, duong_ngoai_vung, manifest_thu_muc, so_sanh_manifest,
-    trong_vung,
+    bam_tep, che_bi_mat, che_dong, duong_ngoai_vung, manifest_thu_muc,
+    so_sanh_manifest, trong_vung,
 )
 
 for _luong in (sys.stdout, sys.stderr):
@@ -154,6 +154,48 @@ def kiem_hop_cat_sach(thu_muc_cai: Path) -> list[str]:
     return bao_cao
 
 
+# --------------------------------------------- nhật ký của tiến trình con --
+#
+# Lỗ hổng đo được ở run 35633769008: cổng ĐỎ đúng chỗ, nhưng tệp bằng chứng
+# chỉ còn lại 1500 ký tự CUỐI của trình cài, mà 1500 ký tự cuối là… cái
+# traceback của chính nó (`CalledProcessError: Command '[…]' returned non-zero
+# exit status 1`) — tức TÊN LỆNH, không phải LÝ DO. Lỗi thật của tiến trình
+# cháu (onnxruntime/pip) nằm ở phía TRÊN nên bị cắt mất, và điều phối viên
+# phải đi vòng qua `git show` + so sánh A/B mới chẩn được.
+#
+# Một cổng khi đỏ mà không nói được VÌ SAO thì mới làm xong một nửa việc. Nên
+# từ đây: ghi TOÀN BỘ stdout/stderr ra tệp, cả khi đạt lẫn khi hỏng, và câu
+# lỗi chỉ thẳng tên tệp.
+
+
+def ghi_nhat_ky_tien_trinh(bang_chung: Path | None, ten: str, lenh: list,
+                           kq, giay: float) -> dict:
+    """Ghi trọn stdout/stderr của một lượt gọi tiến trình con ra bằng chứng.
+
+    Trả hồ sơ ngắn (lệnh đã che bí mật, mã thoát, số giây, tên tệp nhật ký)
+    để nơi gọi ghép vào `result.json`/`tom-tat.json` của nó.
+    """
+    ho_so = {
+        "lenh": che_bi_mat([str(x) for x in lenh]),
+        "ma_thoat": kq.returncode,
+        "giay": round(giay, 1),
+        "byte_stdout": len(kq.stdout or ""),
+        "byte_stderr": len(kq.stderr or ""),
+        "nhat_ky": [],
+    }
+    if bang_chung is None:
+        return ho_so
+    bang_chung.mkdir(parents=True, exist_ok=True)
+    for duoi, noi_dung in (("stdout", kq.stdout or ""),
+                           ("stderr", kq.stderr or "")):
+        tep = bang_chung / f"{ten}.{duoi}.log"
+        # Che theo DÒNG: nhật ký trình cài có thể mang `HF_TOKEN=…` hay
+        # `--api-key …`; artifact CI là nơi ai cũng tải được.
+        tep.write_text(che_dong(noi_dung), encoding="utf-8")
+        ho_so["nhat_ky"].append(tep.name)
+    return ho_so
+
+
 # ------------------------------------------------------------ cài bộ máy --
 
 #: Bộ máy cần cho đường kiểm tối thiểu: nghe (Whisper) + giọng đọc (VieNeu).
@@ -167,23 +209,36 @@ BO_MAY_CAN = (
 
 
 def cai_bo_may(thu_muc_cai: Path, cach: str, timeout_s: int,
-               nhan: str = "") -> list[str]:
+               nhan: str = "", thu_muc_script: Path | None = None,
+               bang_chung: Path | None = None, ma_ghi: str = "") -> list[str]:
     """Cài Whisper + VieNeu vào ĐÚNG thư mục cài, theo đường người dùng đi.
 
     ``cach="bat"`` chạy chính tệp `.bat` được đóng gói (đường thật của người
     dùng: đúp chuột). Lưu ý đã đo: tệp `.bat` kết thúc bằng `pause` và KHÔNG
     trả mã lỗi ra ngoài — nên ở đây bắt buộc phải tự kiểm dấu `installed_ok`
-    sau khi chạy, không được tin mã thoát.
+    sau khi chạy, không được tin mã thoát. Thêm một điều đã đo ở run
+    35633769008: tệp `.bat` gọi ba lượt đầu kèm ``2>nul``, tức **nuốt luôn
+    stderr** của chúng — nên nhật ký ghi lại có thể thiếu phần đầu.
 
     ``nhan`` đi vào MỌI câu lỗi của hàm này. Từ lúc "bản cũ" được dựng từ một
     gói phát hành KHÁC (``--zip-ban-cu``), hàm này chạy trình cài của HAI bản
     khác nhau trong cùng một lượt: trình cài của gói ứng viên (chế độ sạch) và
-    trình cài của bản phát hành cũ (chế độ nâng cấp). Hai ca hỏng đó đòi hai
-    hành động khác hẳn nhau — không ghi rõ là bản nào thì người đọc log lại
-    ngồi chẩn nhầm sản phẩm.
+    trình cài dùng để gieo bộ máy cho bản cũ. Hai ca hỏng đó đòi hai hành động
+    khác hẳn nhau — không ghi rõ là bản nào thì người đọc log lại ngồi chẩn
+    nhầm sản phẩm.
+
+    ``thu_muc_script`` đổi chỗ lấy `setup_*.py` (mặc định ``<thư mục cài>/
+    scripts``). Dùng để gieo bộ máy cho bản cũ bằng trình cài của gói ỨNG
+    VIÊN — xem :func:`gieo_bo_may_ban_cu`.
+
+    ``bang_chung`` + ``ma_ghi``: nơi ghi TRỌN stdout/stderr của trình cài.
+    Thiếu nó thì lúc đỏ chỉ còn lại mã thoát, và mã thoát chưa bao giờ nói
+    được vì sao.
     """
     bao_cao = []
     ten_ban = f" [{nhan}]" if nhan else ""
+    goc_script = Path(thu_muc_script) if thu_muc_script else (
+        thu_muc_cai / "scripts")
     for ten, bat, script, venv, dau in BO_MAY_CAN:
         dich_dau = thu_muc_cai / dau
         if dich_dau.is_file():
@@ -197,9 +252,9 @@ def cai_bo_may(thu_muc_cai: Path, cach: str, timeout_s: int,
                            f"dùng không có cách nào cài {ten} bằng đúp chuột.")
             lenh = ["cmd", "/c", str(tep_bat)]
         else:
-            tep_py = thu_muc_cai / "scripts" / script
+            tep_py = goc_script / script
             if not tep_py.is_file():
-                raise Hong(f"Gói phát hành{ten_ban} THIẾU scripts/{script}.")
+                raise Hong(f"Gói phát hành{ten_ban} THIẾU {tep_py}.")
             lenh = [sys.executable, str(tep_py)]
         log(f"cài {ten} bằng {'tệp .bat' if cach == 'bat' else script} …")
         with open(os.devnull) as nul:   # `pause` trong .bat: stdin rỗng = qua
@@ -208,18 +263,28 @@ def cai_bo_may(thu_muc_cai: Path, cach: str, timeout_s: int,
                                 encoding="utf-8", errors="replace",
                                 timeout=timeout_s)
         giay = time.time() - bat_dau
+        ten_tep = f"cai-{ten}" + (f"-{ma_ghi}" if ma_ghi else "")
+        ho_so = ghi_nhat_ky_tien_trinh(bang_chung, ten_tep, lenh, kq, giay)
         if not dich_dau.is_file():
             duoi = ((kq.stdout or "") + (kq.stderr or ""))[-1500:]
+            ten_nhat_ky = (", ".join(ho_so["nhat_ky"]) or
+                           "(KHÔNG ghi được — nơi gọi không truyền thư mục "
+                           "bằng chứng)")
             raise Hong(
                 f"Cài {ten}{ten_ban} xong nhưng KHÔNG có {dau} trong "
                 f"{thu_muc_cai} — trên máy người dùng mới đây chính là ca "
-                f"'cài mãi không xong'. Mã thoát {kq.returncode}, 1500 ký tự "
-                f"cuối:\n{duoi}")
+                f"'cài mãi không xong'. Mã thoát {kq.returncode}. "
+                f"NHẬT KÝ ĐẦY ĐỦ: {ten_nhat_ky} "
+                f"({ho_so['byte_stdout']} + {ho_so['byte_stderr']} ký tự). "
+                f"1500 ký tự cuối (chỉ là phần ĐUÔI, lý do thật thường nằm "
+                f"phía trên — đọc tệp nhật ký):\n{duoi}")
         if not (thu_muc_cai / venv).is_dir():
             raise Hong(f"Có dấu {dau} nhưng KHÔNG có {venv} — bộ máy được ghi "
                        "nhận là cài xong trong khi môi trường chạy không tồn "
                        "tại.")
-        bao_cao.append(f"{ten}: cài xong trong thư mục cài ({giay:.0f}s)")
+        bao_cao.append(f"{ten}: cài xong trong thư mục cài ({giay:.0f}s"
+                       + (f", nhật ký {', '.join(ho_so['nhat_ky'])}"
+                          if ho_so["nhat_ky"] else "") + ")")
     return bao_cao
 
 
@@ -580,7 +645,9 @@ def che_do_sach(args, bang_chung: Path) -> list[str]:
     bao_cao.append("trước khi cài: báo thiếu đúng bộ máy "
                    f"{ket.get('bo_may_thieu')}, không nhận vơ bản cũ")
 
-    bao_cao += cai_bo_may(cai, args.cai_dat, args.timeout)
+    bao_cao += cai_bo_may(cai, args.cai_dat, args.timeout,
+                          nhan=f"BẢN ỨNG VIÊN {Path(args.zip).name}",
+                          bang_chung=bang_chung, ma_ghi="ung-vien")
     do = mot_luot_dub_bang_goi(cai / "VoxDub.exe", Path(args.video), hop,
                                bang_chung, args.timeout, _goc_cho_phep(args, hop))
     return bao_cao + do["bao_cao"]
@@ -789,11 +856,115 @@ def _ghi_nguon(bang_chung: Path, ho_so: dict) -> None:
         json.dumps(ho_so, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _dung_ban_cu(nguon_zip: Path, thu_muc: Path, args) -> Path:
-    """Dựng 'bản cũ' cạnh bên: cùng gói, nhưng ĐÃ cài bộ máy + có .env giả."""
+#: Trình cài lấy từ GÓI ỨNG VIÊN để gieo bộ máy cho bản cũ, cùng module dùng
+#: chung của chúng (thiếu `_python_ho_tro.py` là chết ngay dòng import).
+TRINH_CAI_GIEO = ("setup_whisper.py", "setup_vieneu.py", "_python_ho_tro.py")
+
+#: Thư mục TẠM trong bản cũ để đặt trình cài gieo. Đặt ở cấp 1 là cố ý:
+#: `setup_*.py` suy ra thư mục cài bằng `dirname(dirname(__file__))`, nên để ở
+#: đây thì chúng cài vào ĐÚNG bản cũ mà không phải sửa một dòng nào của chúng.
+THU_MUC_GIEO = "gieo-bo-may"
+
+
+def gieo_bo_may_ban_cu(cu: Path, zip_ung_vien: Path, args,
+                       bang_chung: Path) -> list[str]:
+    """Gieo Whisper + VieNeu cho bản cũ bằng trình cài của GÓI ỨNG VIÊN.
+
+    **Vì sao không dùng trình cài của chính bản cũ** (đã từng làm, và đã đỏ ở
+    run `35633769008`): trình cài VieNeu của `v3.17.19` **hỏng trên máy
+    trắng** — nó không đặt `HF_HUB_DISABLE_SYMLINKS`, nên cache HuggingFace
+    trên Windows còn symlink và onnxruntime từ chối nạp model; `installed_ok
+    .json` không bao giờ được ghi. Đó là lỗi THẬT của bản phát hành cũ (cùng
+    lượt CI đó, trình cài của bản ứng viên chạy xanh ở bước cài mới — cùng
+    runner, cùng mạng), và chính bản kế tiếp sửa nó.
+
+    **Kịch bản cần kiểm là gì**: *người dùng ĐANG CÓ một bản v3.17.19 chạy
+    được, giờ nâng cấp*. Ai cài được v3.17.19 thì đã cài từ lúc nó còn chạy —
+    nên trạng thái đầu vào đúng là "bản cũ đã có bộ máy", chứ không phải "cài
+    mới v3.17.19 hôm nay". Cổng này kiểm hai câu, và cả hai đều không đổi:
+    bản MỚI có dùng lại được bộ máy của bản cũ không, và bản cũ có còn nguyên
+    vẹn sau đó không.
+
+    **Vì sao gieo bằng trình cài thay vì chép thư mục đã cài**: chép
+    `.venv-vieneu` là chép 20.388 tệp (đo thật) qua đĩa Windows CI, và một
+    venv chép đi chỗ khác là một venv chưa ai chứng minh còn chạy được. Chạy
+    trình cài thì ra một môi trường THẬT, ngay tại chỗ, đúng hình dạng mà
+    một bản cài thành công để lại.
+
+    Phần đánh đổi phải nói thẳng (và có ghi vào `upgrade-seed.json`): lượt
+    này **không** còn kiểm trình cài của bản phát hành cũ nữa. Nó chưa bao
+    giờ là việc của I0-E, và trình cài của bản ỨNG VIÊN vẫn bị kiểm nguyên
+    vẹn ở chế độ `sach` bằng đúng đường đúp chuột (`.bat`).
+    """
+    # Thư mục bằng chứng phải có TRƯỚC: nếu bộ máy đã sẵn (lượt chạy lại) thì
+    # không trình cài nào chạy, không nhật ký nào được ghi — và `upgrade-seed
+    # .json` sẽ rơi vào một thư mục không tồn tại. Đo được đúng ca này khi
+    # diễn thử với gói v3.17.19 thật.
+    bang_chung.mkdir(parents=True, exist_ok=True)
+    goc_gieo = cu / THU_MUC_GIEO
+    goc_gieo.mkdir(parents=True, exist_ok=True)
+    da_chep = []
+    with zipfile.ZipFile(zip_ung_vien) as zf:
+        muc_theo_ten = {m.filename.replace("\\", "/").rsplit("/", 1)[-1]: m
+                        for m in zf.infolist()
+                        if m.filename.replace("\\", "/").rsplit("/", 2)[-2:-1]
+                        == ["scripts"]}
+        for ten in TRINH_CAI_GIEO:
+            muc = muc_theo_ten.get(ten)
+            if muc is None:
+                raise Hong(
+                    f"Gói ứng viên KHÔNG có scripts/{ten} — không gieo được "
+                    "bộ máy cho bản cũ, mà cũng có nghĩa là người dùng tải "
+                    "bản này về sẽ không cài nổi bộ máy đó.")
+            dich = goc_gieo / ten
+            dich.write_bytes(zf.read(muc))
+            da_chep.append({"ten": ten, "trong_goi": muc.filename,
+                            "sha256": bam_tep(str(dich)),
+                            "byte": dich.stat().st_size})
+
+    bao_cao = cai_bo_may(cu, "script", args.timeout,
+                         nhan=f"BẢN CŨ {Path(zip_ung_vien).name} gieo bộ máy",
+                         thu_muc_script=goc_gieo, bang_chung=bang_chung,
+                         ma_ghi="ban-cu")
+    (bang_chung / "upgrade-seed.json").write_text(json.dumps({
+        "vi_sao": (
+            "Bộ máy của BẢN CŨ được gieo bằng trình cài của GÓI ỨNG VIÊN, "
+            "không phải trình cài của chính bản cũ."),
+        "kich_ban_duoc_kiem": (
+            "Người dùng ĐANG CÓ một bản cũ chạy được (đã cài bộ máy từ "
+            "trước) rồi nâng cấp — không phải 'cài mới bản cũ hôm nay'."),
+        "ly_do_khong_dung_trinh_cai_ban_cu": (
+            "Trình cài VieNeu của v3.17.19 hỏng trên máy trắng (thiếu "
+            "HF_HUB_DISABLE_SYMLINKS → onnxruntime từ chối model có symlink, "
+            "installed_ok.json không được ghi). Đo ở run CI 35633769008: "
+            "cùng lượt đó, trình cài của bản ứng viên cài xanh ở chế độ "
+            "sạch. Lỗi của BẢN PHÁT HÀNH CŨ, và bản kế tiếp sửa nó."),
+        "khong_con_duoc_kiem_o_luot_nay": (
+            "Trình cài của bản phát hành cũ. Trình cài của bản ỨNG VIÊN vẫn "
+            "bị kiểm nguyên vẹn ở chế độ 'sach' qua đường .bat."),
+        "goi_lay_trinh_cai": {"ten_tep": Path(zip_ung_vien).name,
+                              "sha256": bam_tep(str(zip_ung_vien))},
+        "trinh_cai_da_dung": da_chep,
+        "thu_muc_gieo": str(goc_gieo),
+        "da_xoa_thu_muc_gieo_sau_khi_cai": True,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    # Dọn: bản cũ phải mang đúng hình dạng một bản cài thật (tệp của gói +
+    # bộ máy), không kèm thư mục lạ mà không bản phát hành nào có.
+    shutil.rmtree(goc_gieo, ignore_errors=True)
+    return [f"gieo bộ máy cho bản cũ bằng trình cài của gói ứng viên "
+            f"({len(da_chep)} tệp, xem upgrade-seed.json)"] + bao_cao
+
+
+def _dung_ban_cu(nguon_zip: Path, thu_muc: Path, args,
+                 bang_chung: Path) -> Path:
+    """Dựng 'bản cũ' cạnh bên: gói phát hành cũ + bộ máy đã cài + `.env` giả.
+
+    Bộ máy gieo bằng trình cài của gói ỨNG VIÊN — xem
+    :func:`gieo_bo_may_ban_cu` cho lý do đầy đủ và phần đánh đổi.
+    """
     cu = giai_nen(nguon_zip, thu_muc)
-    cai_bo_may(cu, args.cai_dat, args.timeout,
-               nhan=f"BẢN CŨ dựng từ {Path(nguon_zip).name}")
+    gieo_bo_may_ban_cu(cu, Path(args.zip), args, Path(bang_chung))
     (cu / "bin").mkdir(exist_ok=True)
     for ten in ("ffmpeg", "ffprobe"):
         that = shutil.which(ten)
@@ -832,7 +1003,7 @@ def che_do_nang_cap(args, bang_chung: Path) -> list[str]:
     # Nguồn gốc bản cũ ghi TRƯỚC khi dựng: dựng mất vài phút (cài cả hai bộ
     # máy), hỏng giữa chừng mà chưa ghi thì không ai biết đã tải phải tệp nào.
     bao_cao = ghi_nguon_ban_cu(args, bang_chung, zip_cu)
-    cu = _dung_ban_cu(zip_cu, cha / "VoxDub-previous", args)
+    cu = _dung_ban_cu(zip_cu, cha / "VoxDub-previous", args, bang_chung)
     moi = giai_nen(zip_goc, cha / "VoxDub-candidate")
     bao_cao += [f"bản cũ: {cu} (đã cài bộ máy + .env giả)",
                 f"bản mới: {moi} (chưa cài gì)"]
@@ -846,15 +1017,20 @@ def che_do_nang_cap(args, bang_chung: Path) -> list[str]:
     # 1) Khởi động bản mới theo ĐƯỜNG THẬT của người dùng (chế độ tự kiểm sẵn
     #    có: dựng GUI rồi ghi smoke_test_result.json). Đây là đường duy nhất
     #    chạy phép chép `.env` của bản cũ sang (app.py:1050).
+    bat_dau_smoke = time.time()
     kq_smoke = subprocess.run([str(moi / "VoxDub.exe")],
                               cwd=str(moi), env=dict(os.environ,
                                                      AUTODUB_SMOKE="1"),
                               capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=600)
+    ho_so_smoke = ghi_nhat_ky_tien_trinh(
+        bang_chung, "smoke-ban-moi", [str(moi / "VoxDub.exe")], kq_smoke,
+        time.time() - bat_dau_smoke)
     tep_smoke = moi / "smoke_test_result.json"
     if not tep_smoke.is_file():
         raise Hong(f"Bản mới không ghi smoke_test_result.json (mã "
-                   f"{kq_smoke.returncode}) — không khởi động được cạnh bản cũ.")
+                   f"{kq_smoke.returncode}) — không khởi động được cạnh bản "
+                   f"cũ. Nhật ký: {', '.join(ho_so_smoke['nhat_ky']) or '(không ghi được)'}")
     smoke = json.loads(tep_smoke.read_text(encoding="utf-8"))
     shutil.copy2(tep_smoke, bang_chung / "smoke_test_result.json")
     if not smoke.get("ok"):
@@ -941,7 +1117,8 @@ def che_do_am_tinh(args, bang_chung: Path) -> list[str]:
     # bản, nó chỉ tìm thư mục cạnh bên có `venv + installed_ok.json` — dựng
     # thêm một bản cũ nữa tốn vài phút CI mà không trả lời thêm câu hỏi nào.
     co_san = _ban_cu_co_san(args)
-    cu = co_san or _dung_ban_cu(zip_cu, hop / "cha-A" / "VoxDub-previous", args)
+    cu = co_san or _dung_ban_cu(zip_cu, hop / "cha-A" / "VoxDub-previous",
+                                args, bang_chung)
     bao_cao.append("bản cũ: " + ("dùng lại bản chế độ nâng cấp đã dựng"
                                  if co_san else f"dựng mới từ {zip_cu.name}"))
     moi = giai_nen(zip_goc, cu.parent.parent / "cha-khac" / "VoxDub-candidate")
@@ -1086,7 +1263,8 @@ def bang_tom_tat(goc_bang_chung: Path, trang_thai_nguon: str = "") -> str:
             continue
         duong = _doc(thu_muc / "duong-da-dung.json")
         muon = duong.get("tu_cay_ma_nguon") or duong.get("ngoai_vung")
-        ban_cu = _mo_ta_ban_cu(_doc(thu_muc / "previous-artifact.json"))
+        ban_cu = _mo_ta_ban_cu(_doc(thu_muc / "previous-artifact.json"),
+                               _doc(thu_muc / "upgrade-seed.json"))
         soi = (f"{probe['mean_volume_db']} dB · {probe['giay_ra']:.1f}s "
                f"(nguồn {probe['giay_nguon']:.1f}s)") if probe else "—"
         ket = {"dat": "đạt", "hong": "**HỎNG**",
@@ -1099,12 +1277,16 @@ def bang_tom_tat(goc_bang_chung: Path, trang_thai_nguon: str = "") -> str:
     return "\n".join(dong)
 
 
-def _mo_ta_ban_cu(ho_so: dict) -> str:
+def _mo_ta_ban_cu(ho_so: dict, seed: dict | None = None) -> str:
     """Một ô bảng cho câu hỏi "bản cũ của lượt này từ đâu ra".
 
     Chế độ không dùng bản cũ (cài mới) thì để trống — nhưng chế độ CÓ dùng mà
     lại dựng từ chính gói ứng viên thì phải hiện ra đúng chữ đó, chứ không
     được hiện một dấu tích trông y như đã kiểm liên phiên bản.
+
+    Bộ máy của bản cũ được **gieo** bằng trình cài của gói ứng viên, nên ô
+    này phải nói ra luôn: người đọc bảng không được hiểu nhầm là trình cài
+    của bản phát hành cũ cũng vừa được chạy thử.
     """
     if not ho_so:
         return "n/a"
@@ -1112,9 +1294,12 @@ def _mo_ta_ban_cu(ho_so: dict) -> str:
         return "**cùng gói ứng viên**"
     tag = (ho_so.get("nguon_khai_bao") or {}).get("tag") or ""
     khac = ho_so.get("khac_goi_ung_vien") or {}
-    return (f"`{tag or ho_so.get('ten_tep', '')}` · "
-            f"`{(ho_so.get('sha256') or '')[:12]}` · "
-            f"{khac.get('so_tep_khac_noi_dung', '?')} tệp khác")
+    mo_ta = (f"`{tag or ho_so.get('ten_tep', '')}` · "
+             f"`{(ho_so.get('sha256') or '')[:12]}` · "
+             f"{khac.get('so_tep_khac_noi_dung', '?')} tệp khác")
+    if seed:
+        mo_ta += " · bộ máy **gieo bằng trình cài ứng viên**"
+    return mo_ta
 
 
 def main() -> int:

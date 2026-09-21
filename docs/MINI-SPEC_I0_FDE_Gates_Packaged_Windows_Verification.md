@@ -19,6 +19,15 @@
   Không có cờ thì hành vi giữ nguyên. Giới hạn (2) chỉ đóng khi có một lượt
   `windows-latest` xanh — xem `docs/TEST_LOG.md`, mục *I0-FDE(f)*. Bản vá này
   vẫn **không tạo tag và không publish**.
+- **Lượt chạy 35633769008 (bản vá trên, commit `d453981`):** cơ chế chạy đúng
+  (bước tải xanh 4s, `previous-artifact.json` đủ trường), nhưng cổng I0-E **đỏ
+  vì trình cài VieNeu của chính `v3.17.19` hỏng trên máy trắng** (thiếu
+  `HF_HUB_DISABLE_SYMLINKS`). Chốt **phương án A**: bộ máy của bản cũ nay được
+  **gieo bằng trình cài của gói ứng viên** (`gieo_bo_may_ban_cu`, bằng chứng
+  `upgrade-seed.json`), vì kịch bản cần kiểm là *người dùng đang có bản cũ
+  chạy được rồi nâng cấp*. Đồng thời vá lỗ **bằng chứng không nói được vì
+  sao**: nay ghi trọn stdout/stderr của mọi tiến trình con. Chi tiết:
+  `docs/TEST_LOG.md`, mục *I0-FDE(g)*. Vẫn chưa có lượt Windows nào.
 
 ---
 

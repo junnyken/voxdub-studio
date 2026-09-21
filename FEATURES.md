@@ -372,8 +372,9 @@ này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cu
   2. **"Bản trước" của I0-E là CÙNG phiên bản với ứng viên** — chứng minh cơ
      chế dùng lại, **không** chứng minh migration giữa hai phiên bản khác nhau.
      *(22/09: đã có bản vá — bản cũ dựng từ gói phát hành thật `v3.17.19` tải
-     trên GitHub Releases. CHƯA có lượt Windows nào xác nhận, nên giới hạn này
-     vẫn tính là còn treo: xem `docs/TEST_LOG.md` mục I0-FDE(f).)*
+     trên GitHub Releases, bộ máy gieo bằng trình cài của gói ứng viên. CHƯA
+     có lượt Windows nào xác nhận, nên giới hạn này vẫn tính là còn treo: xem
+     `docs/TEST_LOG.md` mục I0-FDE(f) và I0-FDE(g).)*
   3. **Không có coverage cho UX đúp chuột `.bat`** — CI chạy tệp `.bat` thật
      nhưng không tương tác, nên phần "người dùng bấm vào rồi thấy gì" vẫn chưa
      ai kiểm.

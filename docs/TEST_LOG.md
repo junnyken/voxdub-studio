@@ -18422,3 +18422,114 @@ gói phát hành có kèm `logs/voxdub.log` của máy build.
 Giới hạn (1), (3), (4) của mục I0-FDE(e) **giữ nguyên**. Giới hạn (2) chỉ
 được coi là đóng khi có một lượt chạy `windows-latest` xanh với
 `previous-artifact.json` ghi `che_do_ban_cu="gói phát hành riêng"`.
+
+## I0-FDE(g) — run 35633769008: cơ chế chạy đúng, và nó tìm ra một lỗi THẬT của v3.17.19 (22/09/2026)
+
+Lượt `workflow_dispatch` đầu tiên của bản vá liên phiên bản (commit `d453981`).
+**Cơ chế mới chạy đúng; cổng đỏ vì bản phát hành cũ, không vì cổng.**
+
+| Bước | Kết quả |
+|---|---|
+| I0-D cài mới + I0-F (trình cài của bản ỨNG VIÊN) | **xanh** |
+| Tải gói phát hành cũ `v3.17.19` | **xanh, 4s** |
+| I0-E nâng cấp (dựng bản cũ bằng trình cài của CHÍNH nó) | **ĐỎ** |
+
+`nang-cap/previous-artifact.json` đúng và đủ: `che_do_ban_cu="gói phát hành
+riêng"`, sha256 tự băm `19d770b0ae62ec7645b085eebec04228b33f5269a6812e2d5e4532fcb8987aba`
+khớp `byte_api_khai=78028080`, `tag=v3.17.19`, `phat_hanh_luc=2026-09-15T07:59:52Z`,
+`goi_ung_vien.commit=d4539812`.
+
+### Lỗi tìm được (của BẢN PHÁT HÀNH CŨ, không phải của ứng viên)
+
+`nang-cap/tom-tat.json`: *"Cài vieneu [BẢN CŨ dựng từ VoxDub-Studio-v3.17.19-win64.zip]
+xong nhưng KHÔNG có models/vieneu/installed_ok.json … returned non-zero exit
+status 1."*
+
+Nguyên nhân gốc: `setup_vieneu.py` của `v3.17.19` chỉ có
+`HF_HUB_DISABLE_SYMLINKS_WARNING` (cờ **tắt cảnh báo**, không đổi hành vi);
+bản trên `main` có `HF_HUB_DISABLE_SYMLINKS="1"` **và** `go_symlink_trong_cache()`.
+Cache HuggingFace còn symlink → onnxruntime từ chối nạp model → smoke test
+của trình cài chết → dấu `installed_ok.json` không bao giờ được ghi.
+
+Chứng cứ đủ mạnh vì có **A/B trong cùng một lượt CI**: cùng runner, cùng mạng,
+trình cài MỚI cài xanh ở bước cài mới, trình cài CŨ đỏ ở bước nâng cấp. Tức
+**người cài mới `v3.17.19` hôm nay không cài nổi giọng VieNeu** — và bản kế
+tiếp (`v3.17.20`) chính là bản sửa nó.
+
+### Lỗ hổng của CỔNG lộ ra cùng lúc — đã vá
+
+Bằng chứng chỉ giữ **1500 ký tự CUỐI** của trình cài, mà 1500 ký tự cuối là
+traceback của chính nó (`CalledProcessError: Command '[…]' returned non-zero
+exit status 1`) — tức **TÊN LỆNH, không phải LÝ DO**. Lý do thật nằm phía
+trên nên bị cắt mất; điều phối viên phải đi vòng qua `git show v3.17.19:…` +
+suy luận A/B mới chẩn được. Một cổng khi đỏ mà không nói được **vì sao** thì
+mới làm xong một nửa việc.
+
+Nay `ghi_nhat_ky_tien_trinh()` ghi **trọn** stdout/stderr của mọi lượt gọi
+tiến trình con ra tệp bằng chứng — cả khi đạt lẫn khi hỏng — và câu lỗi chỉ
+thẳng tên tệp:
+
+| Tệp | Của ai |
+|---|---|
+| `sach/cai-{whisper,vieneu}-ung-vien.{stdout,stderr}.log` | trình cài của gói ứng viên (đường `.bat` thật) |
+| `nang-cap/cai-{whisper,vieneu}-ban-cu.{stdout,stderr}.log` | trình cài gieo bộ máy cho bản cũ |
+| `nang-cap/smoke-ban-moi.{stdout,stderr}.log` | lượt khởi động bản mới cạnh bản cũ |
+
+Nhật ký được che bí mật theo dòng (`che_dong`) trước khi ghi. Ghi nhận thêm
+một chỗ mù đã biết: tệp `.bat` gọi ba lượt python đầu kèm `2>nul`, tức **tự
+nuốt stderr** — nên nhật ký đường `.bat` có thể thiếu phần đầu; đã nói rõ
+trong docstring của `cai_bo_may`.
+
+### Phương án A — bộ máy của bản cũ nay được GIEO bằng trình cài của ứng viên
+
+Kịch bản cần kiểm là *"người dùng **đang có** `v3.17.19` chạy được, giờ nâng
+cấp"* — ai cài được `v3.17.19` thì đã cài từ lúc nó còn chạy. Không phải *"cài
+mới `v3.17.19` hôm nay rồi nâng cấp"*, vì đường đó nay hỏng ngay từ bước đầu.
+
+`gieo_bo_may_ban_cu()`: lấy `setup_whisper.py`, `setup_vieneu.py`,
+`_python_ho_tro.py` **từ gói ỨNG VIÊN** ra thư mục tạm `gieo-bo-may/` ở cấp 1
+trong bản cũ (cố ý: `setup_*.py` suy thư mục cài bằng `dirname(dirname(__file__))`,
+nên đặt ở đó là chúng cài vào **đúng bản cũ** mà không phải sửa một dòng nào
+của chúng), chạy chúng, rồi **xoá thư mục tạm** để bản cũ mang đúng hình dạng
+một bản cài thật.
+
+Vì sao gieo bằng trình cài chứ không chép thư mục đã cài: `.venv-vieneu` có
+**20.388 tệp** (đo thật), chép qua đĩa Windows CI vừa lâu vừa cho ra một venv
+chưa ai chứng minh còn chạy được sau khi đổi chỗ.
+
+**Phần ĐƯỢC KIỂM không đổi**: bản MỚI có dùng lại được bộ máy của bản cũ
+không, và bản cũ có còn nguyên vẹn không.
+**So với lượt xanh 35625471619 thì được thêm**: tệp của bản cũ nay là **gói
+phát hành thật** `v3.17.19`.
+**Không được thêm (nói thẳng)**: bộ máy vẫn do trình cài của bản ứng viên tạo
+— trước đây cũng vậy, vì bản cũ chính là gói ứng viên.
+**Mất đi**: lượt này không còn kiểm trình cài của bản phát hành cũ. Nó chưa
+bao giờ là việc của I0-E, và trình cài của bản **ứng viên** vẫn bị kiểm nguyên
+vẹn ở chế độ `sach` qua đúng đường đúp chuột `.bat`.
+
+Tất cả những câu trên nằm trong `nang-cap/upgrade-seed.json` (`vi_sao`,
+`kich_ban_duoc_kiem`, `ly_do_khong_dung_trinh_cai_ban_cu`,
+`khong_con_duoc_kiem_o_luot_nay`, sha256 từng tệp trình cài đã dùng, sha256
+gói lấy trình cài) — không để lời giải thích chỉ nằm trong đầu người viết.
+Bảng tóm tắt CI cũng thêm chữ *"bộ máy **gieo bằng trình cài ứng viên**"* vào
+ô **Bản cũ (I0-E)**.
+
+### Test
+
+`tests/test_kiem_goi_phat_hanh.py` **85 đạt** (+14 so với bản trước), toàn bộ
+`pytest tests/` xanh. **8 phép đột biến mới, gỡ chốt nào cũng đỏ đúng chốt
+đó**: quay về trình cài của chính bản cũ · bỏ ghi nhật ký · nhật ký không che
+bí mật · câu lỗi không chỉ tên tệp nhật ký · không dọn thư mục gieo · gieo mà
+không khai vào bằng chứng · bảng tóm tắt giấu chuyện gieo · thiếu trình cài
+trong gói ứng viên vẫn đi tiếp.
+
+Diễn thử trên Linux với **gói `v3.17.19` thật** (`cai_bo_may` thay bằng bản
+giả, không tải 300 MB): lấy đúng 3 tệp trình cài từ bố cục zip thật, thư mục
+cha suy ra đúng bằng bản cũ, `upgrade-seed.json` ghi sha256 thật, thư mục gieo
+được dọn, `VoxDub.exe` của bản cũ còn nguyên. Lượt diễn thử này **tìm ra một
+lỗi thật**: `upgrade-seed.json` ghi vào thư mục bằng chứng chưa ai tạo khi
+không có trình cài nào chạy (ca "bộ máy đã có sẵn") — đã sửa + có test riêng.
+
+**Vẫn CHƯA có lượt Windows nào cho bản vá này.** Giới hạn (2) chỉ đóng khi có
+một lượt `windows-latest` xanh với `previous-artifact.json` ghi `che_do_ban_cu
+="gói phát hành riêng"` **và** `upgrade-seed.json` có mặt.

@@ -837,8 +837,9 @@ def test_che_do_nang_cap_noi_dung_goi_vao_dung_ben(tmp_path, monkeypatch):
     cu, moi = _hai_goi_khac_nhau(tmp_path)
     goi_vao = {}
 
-    def _dung_ban_cu_gia(nguon_zip, thu_muc, args):
+    def _dung_ban_cu_gia(nguon_zip, thu_muc, args, bang_chung):
         goi_vao["ban_cu"] = Path(nguon_zip)
+        goi_vao["bang_chung"] = Path(bang_chung)
         thu_muc.mkdir(parents=True, exist_ok=True)
         return thu_muc
 
@@ -869,8 +870,9 @@ def test_ca_am_cung_dung_goi_phat_hanh_cu(tmp_path, monkeypatch):
     cu, moi = _hai_goi_khac_nhau(tmp_path)
     goi_vao = {}
 
-    def _dung_ban_cu_gia(nguon_zip, thu_muc, args):
+    def _dung_ban_cu_gia(nguon_zip, thu_muc, args, bang_chung):
         goi_vao["ban_cu"] = Path(nguon_zip)
+        goi_vao["bang_chung"] = Path(bang_chung)
         thu_muc.mkdir(parents=True, exist_ok=True)
         return thu_muc
 
@@ -894,3 +896,312 @@ def test_cau_loi_cua_trinh_cai_noi_ro_dang_cai_cho_BAN_NAO(tmp_path):
     with pytest.raises(bo_lai.Hong, match="BẢN CŨ dựng từ"):
         bo_lai.cai_bo_may(cai, "bat", 5,
                           nhan="BẢN CŨ dựng từ VoxDub-Studio-v3.17.19-win64.zip")
+
+
+# ------------------- NHẬT KÝ TIẾN TRÌNH CON (lỗ hổng run 35633769008) --------
+#
+# Cổng đỏ đúng chỗ nhưng bằng chứng chỉ còn 1500 ký tự CUỐI của trình cài — mà
+# 1500 ký tự cuối là traceback của chính nó (`CalledProcessError: Command
+# '[…]' returned non-zero exit status 1`), tức TÊN LỆNH chứ không phải LÝ DO.
+# Nguyên nhân thật (onnxruntime từ chối model có symlink) nằm phía TRÊN nên bị
+# cắt mất, và người đọc bằng chứng phải đi vòng qua `git show` mới chẩn được.
+
+_MANH_MOI = "LY-DO-THAT-NAM-O-DAU-DONG-NHAT-KY"
+
+
+def _trinh_cai_gia(thu_muc: Path, ten: str, than: str) -> Path:
+    thu_muc.mkdir(parents=True, exist_ok=True)
+    (thu_muc / ten).write_text(than, encoding="utf-8")
+    return thu_muc
+
+
+def test_nhat_ky_trinh_cai_duoc_giu_TRON_VEN(tmp_path):
+    """Lý do thật nằm ở ĐẦU dòng chảy — cắt đuôi 1500 ký tự là mất nó."""
+    goc_script = _trinh_cai_gia(
+        tmp_path / "gieo", "setup_whisper.py",
+        f"import sys\n"
+        f"print({_MANH_MOI!r})\n"
+        f"print('x' * 4000)\n"
+        f"sys.stderr.write('traceback giả: returned non-zero exit status 1')\n"
+        f"sys.exit(1)\n")
+    cai = tmp_path / "VoxDub-previous"
+    cai.mkdir()
+    bc = tmp_path / "bc"
+    with pytest.raises(bo_lai.Hong) as e:
+        bo_lai.cai_bo_may(cai, "script", 120, nhan="BẢN CŨ",
+                          thu_muc_script=goc_script, bang_chung=bc,
+                          ma_ghi="ban-cu")
+
+    nhat_ky = (bc / "cai-whisper-ban-cu.stdout.log").read_text("utf-8")
+    assert _MANH_MOI in nhat_ky, "nhật ký phải giữ TRỌN, không cắt đầu"
+    assert "returned non-zero" in (
+        bc / "cai-whisper-ban-cu.stderr.log").read_text("utf-8")
+    # Và câu lỗi phải CHỈ ĐƯỜNG tới tệp đó, chứ không bắt người đọc tự đoán.
+    assert "cai-whisper-ban-cu.stdout.log" in str(e.value)
+    assert _MANH_MOI not in str(e.value), (
+        "đây chính là lý do phải có tệp: đuôi 1500 ký tự KHÔNG chứa manh mối")
+
+
+def test_nhat_ky_trinh_cai_che_bi_mat(tmp_path):
+    goc_script = _trinh_cai_gia(
+        tmp_path / "gieo", "setup_whisper.py",
+        "import sys\n"
+        "print('HF_TOKEN=hf_bi_mat_khong_duoc_lo')\n"
+        "sys.exit(1)\n")
+    cai = tmp_path / "VoxDub-previous"
+    cai.mkdir()
+    bc = tmp_path / "bc"
+    with pytest.raises(bo_lai.Hong):
+        bo_lai.cai_bo_may(cai, "script", 120, thu_muc_script=goc_script,
+                          bang_chung=bc, ma_ghi="ban-cu")
+    chu = (bc / "cai-whisper-ban-cu.stdout.log").read_text("utf-8")
+    assert "hf_bi_mat_khong_duoc_lo" not in chu
+    assert "HF_TOKEN" in chu, "che GIÁ TRỊ, không xoá luôn tên khoá"
+
+
+def test_khong_co_thu_muc_bang_chung_thi_noi_that(tmp_path):
+    """Không ghi được nhật ký thì phải NÓI, đừng im lặng như đã ghi."""
+    goc_script = _trinh_cai_gia(tmp_path / "gieo", "setup_whisper.py",
+                                "import sys; sys.exit(1)\n")
+    cai = tmp_path / "VoxDub-previous"
+    cai.mkdir()
+    with pytest.raises(bo_lai.Hong, match="KHÔNG ghi được"):
+        bo_lai.cai_bo_may(cai, "script", 120, thu_muc_script=goc_script)
+
+
+def test_nhat_ky_ghi_ca_khi_DAT(tmp_path):
+    """Lượt xanh cũng phải để lại nhật ký — để còn so khi lượt sau đỏ."""
+    than = ("import os\n"
+            "for t in ('models/whisper', 'models/vieneu', '.venv-whisper',"
+            " '.venv-vieneu'):\n"
+            "    os.makedirs(t, exist_ok=True)\n"
+            "for t in ('whisper', 'vieneu'):\n"
+            "    open(f'models/{t}/installed_ok.json', 'w').write('{}')\n"
+            "print('cai xong')\n")
+    goc_script = _trinh_cai_gia(tmp_path / "gieo", "setup_whisper.py", than)
+    (goc_script / "setup_vieneu.py").write_text(than, encoding="utf-8")
+    cai = tmp_path / "VoxDub-previous"
+    cai.mkdir()
+    bc = tmp_path / "bc"
+    dong = bo_lai.cai_bo_may(cai, "script", 120, thu_muc_script=goc_script,
+                             bang_chung=bc, ma_ghi="ban-cu")
+    assert (bc / "cai-whisper-ban-cu.stdout.log").is_file()
+    assert any("nhật ký" in d for d in dong)
+
+
+def test_ghi_nhat_ky_tra_ho_so_du_doc(tmp_path):
+    class _Kq:
+        returncode = 7
+        stdout = "ra"
+        stderr = "loi"
+    ho_so = bo_lai.ghi_nhat_ky_tien_trinh(tmp_path, "thu", ["a", "--token",
+                                                            "bi-mat"], _Kq(), 3.2)
+    assert ho_so["ma_thoat"] == 7 and ho_so["giay"] == 3.2
+    assert ho_so["nhat_ky"] == ["thu.stdout.log", "thu.stderr.log"]
+    assert "bi-mat" not in json.dumps(ho_so, ensure_ascii=False)
+
+
+# ------------- GIEO BỘ MÁY CHO BẢN CŨ bằng trình cài của GÓI ỨNG VIÊN --------
+#
+# Phương án A (chủ dự án chốt sau run 35633769008): kịch bản cần kiểm là
+# "người dùng ĐANG CÓ v3.17.19 chạy được, giờ nâng cấp" — chứ không phải "cài
+# mới v3.17.19 hôm nay", vì trình cài VieNeu của bản đó nay hỏng trên máy
+# trắng. Bộ máy của bản cũ vì thế được gieo bằng trình cài của gói ỨNG VIÊN.
+# Phần ĐƯỢC KIỂM không đổi: bản mới có dùng lại được bộ máy của bản cũ không,
+# và bản cũ có nguyên vẹn không.
+
+_THAN_TRINH_CAI = """import json, os, sys
+goc = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+bo = os.path.basename(__file__).replace("setup_", "").replace(".py", "")
+os.makedirs(os.path.join(goc, "models", bo), exist_ok=True)
+os.makedirs(os.path.join(goc, ".venv-" + bo), exist_ok=True)
+json.dump({{"nguon_trinh_cai": {nguon!r}}},
+          open(os.path.join(goc, "models", bo, "installed_ok.json"), "w"))
+print("cai xong", bo, "bang trinh cai", {nguon!r})
+"""
+
+
+def _goi_co_trinh_cai(duong: Path, nguon: str, tien_to: str = "",
+                      bo_bot: tuple = ()) -> Path:
+    with zipfile.ZipFile(duong, "w") as zf:
+        zf.writestr(f"{tien_to}VoxDub.exe", f"MZ {nguon}")
+        for ten in bo_lai.TRINH_CAI_GIEO:
+            if ten in bo_bot:
+                continue
+            than = ("# module dùng chung\n" if ten.startswith("_")
+                    else _THAN_TRINH_CAI.format(nguon=nguon))
+            zf.writestr(f"{tien_to}scripts/{ten}", than)
+    return duong
+
+
+def _ban_cu_da_giai_nen(tmp_path) -> Path:
+    """Bản cũ: có TRÌNH CÀI RIÊNG của nó, và trình cài đó HỎNG (đúng v3.17.19)."""
+    cu = tmp_path / "VoxDub-previous"
+    (cu / "scripts").mkdir(parents=True)
+    for ten in bo_lai.TRINH_CAI_GIEO:
+        (cu / "scripts" / ten).write_text(
+            "import sys\nsys.stderr.write('symlink loi nhu v3.17.19')\n"
+            "sys.exit(1)\n", encoding="utf-8")
+    return cu
+
+
+class _ArgsGieo:
+    def __init__(self, zip_ung_vien):
+        self.zip = str(zip_ung_vien)
+        self.zip_ban_cu = ""
+        self.nguon_ban_cu = ""
+        self.cai_dat = "bat"      # cố ý KHÁC "script": gieo không được nghe nó
+        self.timeout = 120
+        self.sha = ""
+
+
+@pytest.mark.parametrize("tien_to", ["", "VoxDub Studio/"])
+def test_gieo_dung_trinh_cai_cua_GOI_UNG_VIEN(tmp_path, tien_to):
+    """Đổi về trình cài của bản cũ là ĐỎ — đó chính là ca đã làm CI đỏ thật."""
+    goi = _goi_co_trinh_cai(tmp_path / "ung-vien.zip", "UNG-VIEN", tien_to)
+    cu = _ban_cu_da_giai_nen(tmp_path)
+    bc = tmp_path / "bc"
+
+    dong = bo_lai.gieo_bo_may_ban_cu(cu, goi, _ArgsGieo(goi), bc)
+
+    for bo in ("whisper", "vieneu"):
+        dau = cu / "models" / bo / "installed_ok.json"
+        assert dau.is_file(), f"{bo} chưa được gieo vào ĐÚNG thư mục bản cũ"
+        assert json.loads(dau.read_text())["nguon_trinh_cai"] == "UNG-VIEN", (
+            "bộ máy phải do trình cài của GÓI ỨNG VIÊN tạo — trình cài của "
+            "bản cũ đang hỏng (v3.17.19) nên dùng nó là đỏ ngay")
+        assert (cu / f".venv-{bo}").is_dir()
+    assert any("gieo bộ máy cho bản cũ" in d for d in dong)
+
+
+def test_gieo_ghi_DU_bang_chung_va_don_thu_muc_tam(tmp_path):
+    """Không được lặng lẽ gieo: bằng chứng phải nói gieo bằng gì và vì sao."""
+    goi = _goi_co_trinh_cai(tmp_path / "ung-vien.zip", "UNG-VIEN")
+    cu = _ban_cu_da_giai_nen(tmp_path)
+    bc = tmp_path / "bc"
+    bo_lai.gieo_bo_may_ban_cu(cu, goi, _ArgsGieo(goi), bc)
+
+    seed = json.loads((bc / "upgrade-seed.json").read_text("utf-8"))
+    assert "GÓI ỨNG VIÊN" in seed["vi_sao"]
+    assert "35633769008" in seed["ly_do_khong_dung_trinh_cai_ban_cu"]
+    assert "HF_HUB_DISABLE_SYMLINKS" in seed["ly_do_khong_dung_trinh_cai_ban_cu"]
+    assert seed["khong_con_duoc_kiem_o_luot_nay"], (
+        "phải khai thẳng thứ lượt này KHÔNG còn kiểm nữa")
+    ten_da_dung = {t["ten"] for t in seed["trinh_cai_da_dung"]}
+    assert ten_da_dung == set(bo_lai.TRINH_CAI_GIEO)
+    assert all(len(t["sha256"]) == 64 for t in seed["trinh_cai_da_dung"])
+    # Bản cũ phải mang đúng hình dạng một bản cài thật — không kèm thư mục lạ.
+    assert not (cu / bo_lai.THU_MUC_GIEO).exists()
+
+
+def test_goi_ung_vien_thieu_trinh_cai_la_HONG(tmp_path):
+    """Thiếu `_python_ho_tro.py` là chết ngay dòng import (bài học V80)."""
+    goi = _goi_co_trinh_cai(tmp_path / "ung-vien.zip", "UNG-VIEN",
+                            bo_bot=("_python_ho_tro.py",))
+    cu = _ban_cu_da_giai_nen(tmp_path)
+    with pytest.raises(bo_lai.Hong, match="_python_ho_tro.py"):
+        bo_lai.gieo_bo_may_ban_cu(cu, goi, _ArgsGieo(goi), tmp_path / "bc")
+
+
+def test_gieo_hong_thi_van_con_nhat_ky_cua_trinh_cai(tmp_path):
+    """Gieo đỏ cũng phải đọc được VÌ SAO, không lặp lại lỗ của run trước."""
+    goi = tmp_path / "ung-vien.zip"
+    with zipfile.ZipFile(goi, "w") as zf:
+        zf.writestr("VoxDub.exe", "MZ")
+        for ten in bo_lai.TRINH_CAI_GIEO:
+            zf.writestr(f"scripts/{ten}",
+                        "import sys\nprint('ly do that o day')\nsys.exit(1)\n")
+    cu = _ban_cu_da_giai_nen(tmp_path)
+    bc = tmp_path / "bc"
+    with pytest.raises(bo_lai.Hong, match="cai-whisper-ban-cu"):
+        bo_lai.gieo_bo_may_ban_cu(cu, goi, _ArgsGieo(goi), bc)
+    assert "ly do that o day" in (
+        bc / "cai-whisper-ban-cu.stdout.log").read_text("utf-8")
+
+
+def test_bang_tom_tat_noi_ro_bo_may_duoc_gieo():
+    """Người đọc bảng không được hiểu nhầm là trình cài bản cũ cũng đã chạy."""
+    ho_so = {"che_do_ban_cu": "gói phát hành riêng", "ten_tep": "goi.zip",
+             "sha256": "a" * 64, "nguon_khai_bao": {"tag": "v3.17.19"},
+             "khac_goi_ung_vien": {"so_tep_khac_noi_dung": 5}}
+    assert "gieo bằng trình cài ứng viên" in bo_lai._mo_ta_ban_cu(
+        ho_so, {"vi_sao": "…"})
+    assert "gieo" not in bo_lai._mo_ta_ban_cu(ho_so, {})
+
+
+def test_dung_ban_cu_gieo_bang_goi_UNG_VIEN_chu_khong_phai_goi_cu(tmp_path,
+                                                                  monkeypatch):
+    """Chốt nối dây: bản cũ lấy TỆP từ gói cũ, lấy TRÌNH CÀI từ gói ứng viên."""
+    goi_cu = _goi_co_trinh_cai(tmp_path / "cu.zip", "BAN-CU")
+    goi_moi = _goi_co_trinh_cai(tmp_path / "moi.zip", "UNG-VIEN")
+    ghi = {}
+
+    def _gieo_gia(cu, zip_ung_vien, args, bang_chung):
+        ghi["zip_gieo"] = Path(zip_ung_vien)
+        ghi["thu_muc"] = Path(cu)
+        return []
+
+    monkeypatch.setattr(bo_lai, "gieo_bo_may_ban_cu", _gieo_gia)
+    args = _ArgsGieo(goi_moi)
+    cu = bo_lai._dung_ban_cu(goi_cu, tmp_path / "cha" / "VoxDub-previous",
+                             args, tmp_path / "bc")
+    assert (cu / "VoxDub.exe").read_text() == "MZ BAN-CU", (
+        "tệp của bản cũ phải là của GÓI CŨ")
+    assert ghi["zip_gieo"] == Path(goi_moi), (
+        "trình cài phải lấy từ GÓI ỨNG VIÊN — trình cài của v3.17.19 hỏng "
+        "trên máy trắng (run 35633769008)")
+    assert ghi["thu_muc"] == cu
+    assert (cu / ".env").is_file(), "vẫn phải có .env giả của hộp thử"
+
+
+def test_gieo_khi_bo_may_DA_CO_san_van_ghi_bang_chung(tmp_path):
+    """Lượt chạy lại: không trình cài nào chạy → vẫn phải còn bằng chứng.
+
+    Đo được khi diễn thử với gói `v3.17.19` thật: `upgrade-seed.json` rơi vào
+    một thư mục chưa ai tạo, vì trước đó thư mục bằng chứng chỉ vô tình có
+    nhờ nhật ký của trình cài.
+    """
+    goi = _goi_co_trinh_cai(tmp_path / "ung-vien.zip", "UNG-VIEN")
+    cu = _ban_cu_da_giai_nen(tmp_path)
+    for bo in ("whisper", "vieneu"):
+        (cu / "models" / bo).mkdir(parents=True)
+        (cu / "models" / bo / "installed_ok.json").write_text("{}")
+        (cu / f".venv-{bo}").mkdir()
+    bc = tmp_path / "bc-chua-ton-tai"
+    dong = bo_lai.gieo_bo_may_ban_cu(cu, goi, _ArgsGieo(goi), bc)
+    assert (bc / "upgrade-seed.json").is_file()
+    assert any("đã có sẵn" in d for d in dong)
+
+
+def test_cong_cai_moi_cung_giu_nhat_ky_trinh_cai(tmp_path, monkeypatch):
+    """Cài mới là đường .bat THẬT — và `.bat` nuốt stderr ba lượt đầu (2>nul).
+
+    Nên chính ở đây nhật ký càng phải được giữ: đỏ mà chỉ còn mã thoát thì
+    lặp lại đúng lỗ hổng của run 35633769008.
+    """
+    ghi = {}
+
+    def _cai_gia(thu_muc_cai, cach, timeout_s, nhan="", thu_muc_script=None,
+                 bang_chung=None, ma_ghi=""):
+        ghi["bang_chung"] = bang_chung
+        ghi["ma_ghi"] = ma_ghi
+        raise _Dung()
+
+    monkeypatch.setattr(bo_lai, "cai_bo_may", _cai_gia)
+    monkeypatch.setattr(bo_lai, "giai_nen",
+                        lambda z, d: (d.mkdir(parents=True, exist_ok=True), d)[1])
+    monkeypatch.setattr(bo_lai, "kiem_hop_cat_sach", lambda cai: ["(giả) sạch"])
+    monkeypatch.setattr(bo_lai, "chay_exe", lambda *a, **k: (
+        type("_K", (), {"returncode": 5})(),
+        {"giai_doan_hong": "bo_may_thieu", "bo_may_thieu": ["whisper"],
+         "bo_may": {}}))
+
+    args = _ArgsGieo(tmp_path / "goi.zip")
+    args.goc_thu = str(tmp_path / "hop")
+    args.video = str(tmp_path / "clip.mp4")
+    bc = tmp_path / "bc"
+    bc.mkdir()
+    with pytest.raises(_Dung):
+        bo_lai.che_do_sach(args, bc)
+    assert ghi["bang_chung"] == bc, "cổng cài mới phải truyền thư mục bằng chứng"
+    assert ghi["ma_ghi"] == "ung-vien"
