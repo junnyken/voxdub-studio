@@ -485,7 +485,7 @@ def test_DAU_CUOI_hai_commit_chi_khac_TAI_LIEU_thi_thu_muc_build_KHONG_doi(tmp_p
         truoc = truoc.stdout.strip()
         doi = subprocess.run(
             ["git", "diff", "--quiet", truoc, sau, "--",
-             "control_server/", "website/", "autodub/"],
+             "control_server/", "website/", "autodub/", "scripts/"],
             cwd=REPO, capture_output=True)
         if doi.returncode == 0:          # không đụng nguồn của thư mục build
             cap = (truoc, sau)
