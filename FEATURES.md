@@ -10,8 +10,13 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-15 · phiên bản ứng dụng `3.17.19` · **đo thật cùng ngày**:
-> 2.851 test Python + 714 test Node + 74 test React, 0 hỏng (xem §10).
+> Cập nhật: 2026-09-21 · phiên bản ứng dụng đã phát hành `3.17.19` — **nhưng
+> `main` đã đi xa hơn** (D1/D3/D5 + bản vá build worker, xem §6, §9) và
+> **chưa dựng bản `.exe` mới**, đừng coi mã trên `main` là thứ người dùng
+> Windows đang cầm. `voxdub-dub-worker`/`voxdub-app` trên máy chủ THÌ đã
+> khớp `main` (job `kiem-prod-theo-main` xanh, 21/09). **đo thật cùng ngày**:
+> 2.977 test Python + 733 test Node (1 bỏ qua) + 74 test React, **0 hỏng**,
+> 4 bỏ qua (xem §10).
 
 ---
 
@@ -459,6 +464,22 @@ các vùng này phải tính tới chúng.
    liệu đã cảnh báo. Nay việc sinh nhánh nằm trong chính lệnh deploy, kèm bộ
    dò lệch và một job CI.
 
+   **Sập lần ba, 14/09 (D5), theo một cơ chế khác hẳn hai lần trước:** một
+   lượt deploy hỏng vì sự cố hạ tầng (cổng Vibe Host 404); commit kế tiếp chỉ
+   sửa tài liệu, bước "có cần deploy không" so bản dựng mới với bản dựng
+   **lần trước** (không phải với `main`), thấy giống nhau, kết luận không cần
+   deploy, **job báo thành công**. Prod chạy mã cũ **21 giờ** với CI xanh toàn
+   bộ — không chốt nào trong ba chốt đang có (`--sha-nhanh`, `--sha-nguon`,
+   `deploy-branch-drift`) so được PROD với MAIN, vì cả ba chỉ chạy **khi có
+   deploy**. Sửa (15/09): thêm job `kiem-prod-theo-main`, chạy **sau** mỗi lượt
+   deploy và chạy **cả khi** deploy hỏng/bị bỏ qua, so nội dung nguồn thật.
+   Bản vá đầu còn tự kêu nhầm (prod ĐI TRƯỚC bị báo thành "tụt lại"), sửa tiếp
+   bằng cách soi CHIỀU lệch (`git merge-base --is-ancestor`), không chỉ hỏi
+   "có khác không". **Đã tự chứng minh giá trị thật, không chỉ trên giấy:**
+   21/09, một lượt deploy worker hỏng thật (lỗi build Docker không liên quan)
+   bị chốt này bắt **ngay trong lượt đầu tiên** — đỏ tức thì thay vì im lặng
+   nhiều giờ như 14/09.
+
 5. **Câu chữ nói về TIỀN đi lệch khỏi mã.** Nút "Gợi ý từ nội dung video"
    ghi *"chạy ngay trên máy, không tốn Vox"* — đúng ở V88 (đo bằng luật), SAI
    từ V89 khi đường hỏi máy chủ (**2 Vox/lượt**) được thêm vào. Truy ngược thì
@@ -600,12 +621,47 @@ thành video hoàn chỉnh (nối vào pipeline ảnh sản phẩm C3 đã có).
   cả kịch bản**, và nút "Dùng kịch bản này" chỉ sáng khi sạch — không có nút
   bỏ qua cảnh báo. Đoạn bị chặn hiện đúng cụm gây chặn để biết sửa ở đâu.
   Viết lại một đoạn thì kiểm lại TOÀN BỘ, không tạo trạng thái nửa vá.
+
+  **Phát hiện lớn nhất của cả pilot Phase H, ĐÃ ĐÓNG (H6, 14/09):** lượt
+  chạy thật đầu tiên ra kịch bản đọc hết **170 giây cho video tham khảo 34
+  giây** (5,0×) — vì lời nhắc gửi cho mô hình không hề nói video gốc dài bao
+  nhiêu giây, cũng không cho ngân sách từ mỗi đoạn. Sửa: gửi thời lượng từng
+  đoạn nguồn xuống mô hình, ép ngân sách từ là **ràng buộc cứng** (tốc độ đọc
+  đo thật bằng VieNeu), dời cảnh báo nhịp từ tận H4 (sau khi đã tốn 12 Vox)
+  lên ngay H3. Đo lại trên đúng video đối chứng: kịch bản mới đọc hết
+  **26–37 giây**, tức ≈1,0×.
+
+  **Định giá (D2) — vẫn CHƯA chốt, có chủ đích.** 12 Vox hiện tính phẳng
+  theo lượt trong khi kịch bản 40 đoạn tốn hơn hẳn 5 đoạn; máy chủ đã ghi đủ
+  token vào/ra để tính giá đúng nhưng **chưa đọc ra được quan hệ token ↔ số
+  đoạn** — khoảng hở đó đã bịt (15/09), còn việc định giá vẫn cần **10–20
+  lượt H3 thật** mới đủ dữ liệu. Đừng đề xuất công thức giá mới trước khi có
+  đủ lượt thật — chủ dự án đã dặn thẳng điều này.
 - **H4 — Dựng video từ kịch bản: ĐÃ XONG phần không tốn Vox.** Trang **Dựng
   video** (mở từ nút «Dùng kịch bản này» ở trang Viết kịch bản): gán ảnh cho
   từng đoạn, mỗi đoạn giữ hình **đúng bằng thời gian đọc lời của nó** (tốc độ
   đọc đo thật bằng chính engine VieNeu), rồi dựng thành **dự án mở được trong
   Trình chỉnh sửa** — từ đó nghe thử, sửa lời, đọc lại, xuất video đều dùng
   máy móc có sẵn. Ghép và dựng **không tốn Vox**.
+
+  **D1, ĐÃ ĐÓNG 21/09 — hình nay khớp GIỌNG ĐỌC THẬT, không chỉ bản chữ.**
+  Giọng TTS thật luôn lệch vài % so với ước lượng ban đầu (đo pilot: 19,30s
+  ước lượng vs 20,31s giọng thật); vì các đoạn nối liền nhau không có khoảng
+  lặng để dồn trễ, phần lệch CỘNG DỒN — càng về cuối hình càng chạy trước
+  lời. Sửa: sau khi có giọng thật, **dựng lại slideshow theo đúng mốc thật**
+  của từng câu thay vì ép giọng đọc nhanh cho vừa hình cũ (hướng ngược lại dự
+  tính ban đầu — ảnh tĩnh không có nhịp riêng nên dựng lại hình mới đúng, ép
+  giọng mới là hy sinh đúng thứ người xem nghe được).
+
+  **Bug thật lộ ra khi verify bằng lượt chạy thật (không phải test)**: 12
+  test D1 cũ đều xanh vì dùng dữ liệu giả có hình dạng đặc biệt (câu nối liền
+  không hở) khiến lỗi không thể lộ ra — chạy pilot thật phát hiện **~4 giây
+  cuối video bị đứng hình** (ảnh CTA tắt ngay khi vừa đọc xong lời), vì cảnh
+  cuối lấy mốc "lúc tiếng nói tắt" thay vì "lúc tệp âm thanh thật kết thúc".
+  Đã sửa (cảnh cuối co giãn theo đúng độ dài audio thật, chỉ kéo dài không
+  bao giờ rút ngắn); xác nhận bằng đo riêng từng luồng audio/video trong file
+  mp4 xuất ra thật, không tin theo tổng thời lượng container (đuôi mất hình
+  giảm từ 3,98s xuống 0,01s, dưới một khung hình).
 - **H4d — Nhờ vẽ ảnh minh hoạ cho đoạn còn thiếu (30 Vox/ảnh).** Đoạn nào chưa
   có ảnh thì hiện luôn **gợi ý hình** của kịch bản và cho bấm «Vẽ». Công cụ
   **không bao giờ tự vẽ**: luôn hỏi trước, kèm tổng tiền và đúng những gợi ý
@@ -616,7 +672,17 @@ thành video hoàn chỉnh (nối vào pipeline ảnh sản phẩm C3 đã có).
   vật, và nói điều đó ra trước khi bạn trả tiền. Cửa này mặc định **tắt** ở
   máy chủ; bật nó là một quyết định về tuân thủ, không phải một cờ cấu hình.
 
-**Đã giải quyết, đừng đề xuất lại:** tách `.venv-*`/`models/` ra khỏi thư mục
+  **Còn treo, việc của con người không phải việc lập trình:** mở khoá thật
+  cần thêm "vân tay máy" vào danh sách hiệu chỉnh trên trang quản trị
+  (`image.scene.calibration.devices`), rồi chạy 20–30 ảnh thật và soi tay
+  từng phán quyết theo đúng chốt ba nấc (`off` → `calibration` →
+  `production`) trước khi mở cho người dùng thường. Chốt tuân thủ trong mã
+  đã đóng xong (RS-16: phán quyết + băm đi theo tấm ảnh tới tận bước Xuất,
+  kiểm LẠI chứ không tin cờ đã lưu) — phần còn lại thuần là thao tác quản
+  trị + review thật, không phải gap kỹ thuật.
+- **H5 — Dải điều hướng H2 → H3 → H4: ĐÃ XONG.** Thanh bên gom ba trang
+  thành một luồng liền mạch (phân tích → viết kịch bản → dựng video), không
+  phải ba tính năng rời phải tự nhớ thứ tự. tách `.venv-*`/`models/` ra khỏi thư mục
 ứng dụng — không cần nữa, vì app đã tự dò bản cũ nằm cùng thư mục cha (§3.1).
 Xem trước chi phí và gộp câu trước khi tính tiền cũng đã làm (V97);
 ba đường dịch đã làm (D1). Nối `character_name` vào giao diện cũng đã làm —
