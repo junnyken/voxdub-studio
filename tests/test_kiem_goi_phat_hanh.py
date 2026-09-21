@@ -656,3 +656,241 @@ def test_bo_may_da_chon_van_bi_soi_sau_ban_va(tmp_path):
         "thu_muc_model": "", "san_sang": True}}}
     with pytest.raises(bo_lai.Hong, match="NGOÀI hộp cát"):
         bo_lai.kiem_duong_chay(bc, ket, [str(hop)], "")
+
+
+# ------------------------------------------ NÂNG CẤP LIÊN PHIÊN BẢN (I0-E) --
+#
+# Giới hạn (2) của mục TEST_LOG I0-FDE(e): "bản cũ" được dựng từ CHÍNH gói ứng
+# viên. Lượt đó chứng minh được CƠ CHẾ dùng lại bộ máy, nhưng người dùng thật
+# không bao giờ nâng cấp từ chính bản họ đang cài — họ nâng từ bản phát hành
+# trước đó. Những phép kiểm dưới đây khoá đúng các cách mà bản vá này có thể
+# tụt về tình trạng cũ mà vẫn xanh:
+#
+#   * trỏ nhầm cả hai bên vào cùng một gói (xanh, không kiểm gì);
+#   * bước tải hỏng mà cổng lặng lẽ rơi về gói ứng viên (xanh giả);
+#   * chép sha256 của GitHub API vào bằng chứng thay vì tự băm lại;
+#   * tải thiếu byte mà vẫn dựng "bản cũ" từ tệp cụt.
+
+
+class _ArgsGia:
+    """Bộ tham số tối thiểu cho các hàm của bộ lái (thay cho argparse)."""
+
+    def __init__(self, zip_moi, zip_cu="", nguon="", sha="abc123"):
+        self.zip = str(zip_moi)
+        self.zip_ban_cu = str(zip_cu)
+        self.nguon_ban_cu = str(nguon)
+        self.sha = sha
+        self.cai_dat = "script"
+        self.timeout = 5
+        self.goc_thu = ""
+
+
+def _hai_goi_khac_nhau(tmp_path) -> tuple:
+    """Hai gói phát hành KHÁC nội dung — hình dạng thật của ca liên phiên bản."""
+    cu = tmp_path / "VoxDub-Studio-v3.17.19-win64.zip"
+    moi = tmp_path / "VoxDub-Studio-main-win64.zip"
+    with zipfile.ZipFile(cu, "w") as zf:
+        zf.writestr("VoxDub.exe", "MZ bản cũ")
+        zf.writestr("scripts/setup_vieneu.py", "# bản cũ")
+        zf.writestr("chi-co-o-ban-cu.txt", "x")
+    with zipfile.ZipFile(moi, "w") as zf:
+        zf.writestr("VoxDub.exe", "MZ bản MỚI khác hẳn")
+        zf.writestr("scripts/setup_vieneu.py", "# bản cũ")
+        zf.writestr("chi-co-o-ban-moi.txt", "y")
+    return cu, moi
+
+
+def test_khong_co_co_thi_ban_cu_van_la_goi_ung_vien(tmp_path):
+    """Đường đang XANH không được đụng tới: không có cờ = y như trước."""
+    _cu, moi = _hai_goi_khac_nhau(tmp_path)
+    assert bo_lai._zip_ban_cu(_ArgsGia(moi)) == Path(moi)
+
+
+def test_co_co_thi_ban_cu_la_goi_phat_hanh_that(tmp_path):
+    cu, moi = _hai_goi_khac_nhau(tmp_path)
+    assert bo_lai._zip_ban_cu(_ArgsGia(moi, cu)) == Path(cu)
+
+
+def test_mat_goi_ban_cu_la_BI_CHAN_chu_khong_roi_ve_goi_ung_vien(tmp_path):
+    """Bước tải hỏng thì phải DỪNG — rơi về gói ứng viên là xanh mà rỗng."""
+    _cu, moi = _hai_goi_khac_nhau(tmp_path)
+    args = _ArgsGia(moi, tmp_path / "khong-co-that.zip")
+    with pytest.raises(bo_lai.BiChan, match="xanh mà KHÔNG kiểm"):
+        bo_lai._zip_ban_cu(args)
+
+
+def test_bang_chung_nguon_goc_du_truong_va_sha256_la_TU_BAM(tmp_path):
+    """Sáu tháng sau vẫn phải trả lời được: bản 'cũ' này từ đâu ra."""
+    import hashlib
+
+    cu, moi = _hai_goi_khac_nhau(tmp_path)
+    nguon = tmp_path / "nguon.json"
+    nguon.write_text(json.dumps({
+        "tag": "v3.17.19", "ten_asset": cu.name,
+        "url_release": "https://github.com/junnyken/voxdub-studio/releases/"
+                       "tag/v3.17.19",
+        "url_asset": "https://api.github.com/repos/junnyken/voxdub-studio/"
+                     "releases/assets/565214095",
+        "byte": cu.stat().st_size, "tai_luc": "2026-09-22T00:00:00+00:00",
+    }, ensure_ascii=False), encoding="utf-8")
+    bc = tmp_path / "bc"
+
+    dong = bo_lai.ghi_nguon_ban_cu(_ArgsGia(moi, cu, nguon), bc, cu)
+
+    ho_so = json.loads((bc / "previous-artifact.json").read_text("utf-8"))
+    assert ho_so["che_do_ban_cu"] == "gói phát hành riêng"
+    assert ho_so["ten_tep"] == cu.name
+    assert ho_so["byte"] == cu.stat().st_size
+    # sha256 phải là số TỰ BĂM từ tệp trên đĩa — tính lại độc lập ở đây.
+    assert ho_so["sha256"] == hashlib.sha256(cu.read_bytes()).hexdigest()
+    assert ho_so["tu_bam_luc"] and ho_so["nguon_khai_bao"]["tag"] == "v3.17.19"
+    assert "releases/tag/v3.17.19" in ho_so["nguon_khai_bao"]["url_release"]
+    # và phải chứng minh được HAI GÓI KHÁC NHAU THẬT, không chỉ khác tên tệp.
+    khac = ho_so["khac_goi_ung_vien"]
+    assert khac["so_tep_khac_noi_dung"] == 1        # VoxDub.exe
+    assert khac["so_tep_chi_co_o_ban_cu"] == 1
+    assert khac["so_tep_chi_co_o_ban_moi"] == 1
+    assert any("GÓI PHÁT HÀNH THẬT" in d for d in dong)
+
+
+def test_hai_ben_cung_mot_goi_la_HONG(tmp_path):
+    """Trỏ nhầm cả hai bên vào một gói: xanh mà không kiểm gì — phải ĐỎ."""
+    _cu, moi = _hai_goi_khac_nhau(tmp_path)
+    ban_sao = tmp_path / "ban-sao.zip"
+    ban_sao.write_bytes(moi.read_bytes())
+    with pytest.raises(bo_lai.Hong, match="TRÙNG KHÍT"):
+        bo_lai.ghi_nguon_ban_cu(_ArgsGia(moi, ban_sao), tmp_path / "bc",
+                                ban_sao)
+
+
+def test_khac_ten_nhung_trung_noi_dung_tung_tep_la_HONG(tmp_path):
+    """Đổi tên một gói không làm nên phép kiểm nâng cấp."""
+    moi = tmp_path / "moi.zip"
+    cu = tmp_path / "VoxDub-Studio-v3.17.19-win64.zip"
+    for duong, ghi_chu in ((moi, "a"), (cu, "b")):
+        with zipfile.ZipFile(duong, "w") as zf:
+            zf.writestr("VoxDub.exe", "MZ")
+        # khác byte ở vỏ zip (chú thích), giống hệt từng tệp bên trong
+        with zipfile.ZipFile(duong, "a") as zf:
+            zf.comment = ghi_chu.encode()
+    with pytest.raises(bo_lai.Hong, match="trùng nội dung|KHÔNG tệp nào"):
+        bo_lai.ghi_nguon_ban_cu(_ArgsGia(moi, cu), tmp_path / "bc", cu)
+
+
+def test_tai_thieu_byte_la_HONG(tmp_path):
+    """Ca hỏng im lặng của curl: tệp cụt vẫn mang đúng tên."""
+    cu, moi = _hai_goi_khac_nhau(tmp_path)
+    nguon = tmp_path / "nguon.json"
+    nguon.write_text(json.dumps({"tag": "v3.17.19",
+                                 "byte": cu.stat().st_size + 4096}),
+                     encoding="utf-8")
+    with pytest.raises(bo_lai.Hong, match="tải thiếu|Tải thiếu"):
+        bo_lai.ghi_nguon_ban_cu(_ArgsGia(moi, cu, nguon), tmp_path / "bc", cu)
+
+
+def test_sha256_lech_so_nguon_khai_la_HONG(tmp_path):
+    """Tệp trên đĩa không phải tệp bước tải tưởng mình lấy."""
+    cu, moi = _hai_goi_khac_nhau(tmp_path)
+    nguon = tmp_path / "nguon.json"
+    nguon.write_text(json.dumps({"tag": "v3.17.19", "sha256": "0" * 64}),
+                     encoding="utf-8")
+    with pytest.raises(bo_lai.Hong, match="SHA-256 tự tính"):
+        bo_lai.ghi_nguon_ban_cu(_ArgsGia(moi, cu, nguon), tmp_path / "bc", cu)
+
+
+def test_bang_chung_van_duoc_ghi_tren_duong_HONG(tmp_path):
+    """Bằng chứng của lượt ĐỎ là thứ đáng giá nhất — đừng để nó rỗng."""
+    _cu, moi = _hai_goi_khac_nhau(tmp_path)
+    ban_sao = tmp_path / "ban-sao.zip"
+    ban_sao.write_bytes(moi.read_bytes())
+    bc = tmp_path / "bc"
+    with pytest.raises(bo_lai.Hong):
+        bo_lai.ghi_nguon_ban_cu(_ArgsGia(moi, ban_sao), bc, ban_sao)
+    ho_so = json.loads((bc / "previous-artifact.json").read_text("utf-8"))
+    assert ho_so["ket_luan"] == "hai gói trùng khít"
+    assert ho_so["sha256"]
+
+
+def test_cung_goi_thi_bang_chung_phai_TU_KHAI_gioi_han(tmp_path):
+    """Không có cờ thì vẫn chạy — nhưng không được im lặng như đã kiểm đủ."""
+    _cu, moi = _hai_goi_khac_nhau(tmp_path)
+    bc = tmp_path / "bc"
+    dong = bo_lai.ghi_nguon_ban_cu(_ArgsGia(moi), bc, Path(moi))
+    ho_so = json.loads((bc / "previous-artifact.json").read_text("utf-8"))
+    assert ho_so["che_do_ban_cu"] == "cùng gói ứng viên"
+    assert "KHÔNG chứng minh nâng cấp liên phiên bản" in ho_so["ket_luan"]
+    assert any("chỉ chứng minh cơ chế" in d for d in dong)
+    assert "cùng gói ứng viên" in bo_lai._mo_ta_ban_cu(ho_so)
+
+
+class _Dung(Exception):
+    """Chốt dừng: đã đi qua đúng chỗ cần đo thì không chạy tiếp nữa."""
+
+
+def test_che_do_nang_cap_noi_dung_goi_vao_dung_ben(tmp_path, monkeypatch):
+    """Bản CŨ từ gói phát hành cũ, bản MỚI từ gói ứng viên — không hoán đổi.
+
+    Đây là phép kiểm giữ cho bản vá không tự lặng lẽ quay về: đổi một trong
+    hai lượt gọi về `zip_goc` là test này đỏ ngay, trong khi mọi phép kiểm
+    khác vẫn xanh (đúng cách mà giới hạn (2) đã sống sót qua bốn lượt CI).
+    """
+    cu, moi = _hai_goi_khac_nhau(tmp_path)
+    goi_vao = {}
+
+    def _dung_ban_cu_gia(nguon_zip, thu_muc, args):
+        goi_vao["ban_cu"] = Path(nguon_zip)
+        thu_muc.mkdir(parents=True, exist_ok=True)
+        return thu_muc
+
+    def _giai_nen_gia(tep_zip, dich):
+        goi_vao["ban_moi"] = Path(tep_zip)
+        dich.mkdir(parents=True, exist_ok=True)
+        return dich
+
+    monkeypatch.setattr(bo_lai, "_dung_ban_cu", _dung_ban_cu_gia)
+    monkeypatch.setattr(bo_lai, "giai_nen", _giai_nen_gia)
+    monkeypatch.setattr(bo_lai, "manifest_thu_muc",
+                        lambda *a, **k: (_ for _ in ()).throw(_Dung()))
+
+    args = _ArgsGia(moi, cu)
+    args.goc_thu = str(tmp_path / "hop")
+    with pytest.raises(_Dung):
+        bo_lai.che_do_nang_cap(args, tmp_path / "bc")
+
+    assert goi_vao["ban_cu"] == Path(cu), "bản cũ phải dựng từ gói phát hành cũ"
+    assert goi_vao["ban_moi"] == Path(moi), "bản mới phải là gói ứng viên"
+    assert (tmp_path / "bc" / "previous-artifact.json").is_file(), (
+        "nguồn gốc phải ghi TRƯỚC khi dựng — dựng mất vài phút, hỏng giữa "
+        "chừng mà chưa ghi thì không ai biết đã tải phải tệp nào")
+
+
+def test_ca_am_cung_dung_goi_phat_hanh_cu(tmp_path, monkeypatch):
+    """Ba ca âm không cần biến thể riêng: chúng thừa hưởng chính bản cũ đó."""
+    cu, moi = _hai_goi_khac_nhau(tmp_path)
+    goi_vao = {}
+
+    def _dung_ban_cu_gia(nguon_zip, thu_muc, args):
+        goi_vao["ban_cu"] = Path(nguon_zip)
+        thu_muc.mkdir(parents=True, exist_ok=True)
+        return thu_muc
+
+    monkeypatch.setattr(bo_lai, "_dung_ban_cu", _dung_ban_cu_gia)
+    monkeypatch.setattr(bo_lai, "giai_nen",
+                        lambda z, d: (d.mkdir(parents=True, exist_ok=True), d)[1])
+    monkeypatch.setattr(bo_lai, "chay_exe",
+                        lambda *a, **k: (_ for _ in ()).throw(_Dung()))
+
+    args = _ArgsGia(moi, cu)
+    args.goc_thu = str(tmp_path / "hop")
+    with pytest.raises(_Dung):
+        bo_lai.che_do_am_tinh(args, tmp_path / "bc")
+    assert goi_vao["ban_cu"] == Path(cu)
+
+
+def test_cau_loi_cua_trinh_cai_noi_ro_dang_cai_cho_BAN_NAO(tmp_path):
+    """Từ nay một lượt chạy cài trình cài của HAI bản — đỏ phải chỉ đúng bản."""
+    cai = tmp_path / "VoxDub-previous"
+    cai.mkdir()
+    with pytest.raises(bo_lai.Hong, match="BẢN CŨ dựng từ"):
+        bo_lai.cai_bo_may(cai, "bat", 5,
+                          nhan="BẢN CŨ dựng từ VoxDub-Studio-v3.17.19-win64.zip")

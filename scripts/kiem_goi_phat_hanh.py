@@ -26,6 +26,7 @@ Mã thoát: 0 đạt · 1 HỎNG · 2 BỊ CHẶN (thiếu điều kiện để 
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -165,15 +166,24 @@ BO_MAY_CAN = (
 )
 
 
-def cai_bo_may(thu_muc_cai: Path, cach: str, timeout_s: int) -> list[str]:
+def cai_bo_may(thu_muc_cai: Path, cach: str, timeout_s: int,
+               nhan: str = "") -> list[str]:
     """Cài Whisper + VieNeu vào ĐÚNG thư mục cài, theo đường người dùng đi.
 
     ``cach="bat"`` chạy chính tệp `.bat` được đóng gói (đường thật của người
     dùng: đúp chuột). Lưu ý đã đo: tệp `.bat` kết thúc bằng `pause` và KHÔNG
     trả mã lỗi ra ngoài — nên ở đây bắt buộc phải tự kiểm dấu `installed_ok`
     sau khi chạy, không được tin mã thoát.
+
+    ``nhan`` đi vào MỌI câu lỗi của hàm này. Từ lúc "bản cũ" được dựng từ một
+    gói phát hành KHÁC (``--zip-ban-cu``), hàm này chạy trình cài của HAI bản
+    khác nhau trong cùng một lượt: trình cài của gói ứng viên (chế độ sạch) và
+    trình cài của bản phát hành cũ (chế độ nâng cấp). Hai ca hỏng đó đòi hai
+    hành động khác hẳn nhau — không ghi rõ là bản nào thì người đọc log lại
+    ngồi chẩn nhầm sản phẩm.
     """
     bao_cao = []
+    ten_ban = f" [{nhan}]" if nhan else ""
     for ten, bat, script, venv, dau in BO_MAY_CAN:
         dich_dau = thu_muc_cai / dau
         if dich_dau.is_file():
@@ -183,13 +193,13 @@ def cai_bo_may(thu_muc_cai: Path, cach: str, timeout_s: int) -> list[str]:
         if cach == "bat":
             tep_bat = thu_muc_cai / bat
             if not tep_bat.is_file():
-                raise Hong(f"Gói phát hành THIẾU '{bat}' — người dùng không "
-                           f"có cách nào cài {ten} bằng đúp chuột.")
+                raise Hong(f"Gói phát hành{ten_ban} THIẾU '{bat}' — người "
+                           f"dùng không có cách nào cài {ten} bằng đúp chuột.")
             lenh = ["cmd", "/c", str(tep_bat)]
         else:
             tep_py = thu_muc_cai / "scripts" / script
             if not tep_py.is_file():
-                raise Hong(f"Gói phát hành THIẾU scripts/{script}.")
+                raise Hong(f"Gói phát hành{ten_ban} THIẾU scripts/{script}.")
             lenh = [sys.executable, str(tep_py)]
         log(f"cài {ten} bằng {'tệp .bat' if cach == 'bat' else script} …")
         with open(os.devnull) as nul:   # `pause` trong .bat: stdin rỗng = qua
@@ -201,9 +211,10 @@ def cai_bo_may(thu_muc_cai: Path, cach: str, timeout_s: int) -> list[str]:
         if not dich_dau.is_file():
             duoi = ((kq.stdout or "") + (kq.stderr or ""))[-1500:]
             raise Hong(
-                f"Cài {ten} xong nhưng KHÔNG có {dau} trong {thu_muc_cai} — "
-                f"trên máy người dùng mới đây chính là ca 'cài mãi không "
-                f"xong'. Mã thoát {kq.returncode}, 1500 ký tự cuối:\n{duoi}")
+                f"Cài {ten}{ten_ban} xong nhưng KHÔNG có {dau} trong "
+                f"{thu_muc_cai} — trên máy người dùng mới đây chính là ca "
+                f"'cài mãi không xong'. Mã thoát {kq.returncode}, 1500 ký tự "
+                f"cuối:\n{duoi}")
         if not (thu_muc_cai / venv).is_dir():
             raise Hong(f"Có dấu {dau} nhưng KHÔNG có {venv} — bộ máy được ghi "
                        "nhận là cài xong trong khi môi trường chạy không tồn "
@@ -611,10 +622,178 @@ def _goc_cho_phep(args, hop: Path) -> list[str]:
     return [str(hop), str(Path(args.goc_thu) / "mau")]
 
 
+# ------------------------------------------- nguồn gốc của BẢN CŨ (I0-E) --
+#
+# Giới hạn (2) của mục I0-FDE(e): "bản trước" được dựng từ CHÍNH gói ứng viên,
+# nên lượt xanh chỉ chứng minh **cơ chế** dùng lại — không chứng minh được gì
+# về việc nâng cấp từ một bản phát hành KHÁC, mà đó mới là việc người dùng
+# thật làm. Cờ `--zip-ban-cu` đóng đúng khoảng đó: bản cũ dựng từ gói phát
+# hành thật tải trên GitHub Releases.
+#
+# Không có cờ thì hành vi giữ NGUYÊN như trước (cùng gói) — đường đang xanh
+# không bị động tới; nhưng bằng chứng phải NÓI RA là lượt đó cùng gói, chứ
+# không được để người đọc tự hiểu nhầm là đã kiểm liên phiên bản.
+
+
+def _zip_ban_cu(args) -> Path:
+    """Gói dùng để dựng "bản cũ" — mặc định vẫn là chính gói ứng viên."""
+    rieng = getattr(args, "zip_ban_cu", "") or ""
+    if not rieng:
+        return Path(args.zip)
+    tep = Path(rieng)
+    if not tep.is_file():
+        # BỊ CHẶN chứ không phải HỎNG: sản phẩm chưa bị kết luận gì cả, chỉ là
+        # thiếu vật liệu để kết luận. Và tuyệt đối không được lặng lẽ rơi về
+        # "dùng luôn gói ứng viên" — lượt đó sẽ xanh mà không kiểm cái gì.
+        raise BiChan(
+            f"Có --zip-ban-cu nhưng không thấy tệp {tep} — bước tải gói phát "
+            "hành cũ đã hỏng. Không tự rơi về gói ứng viên: lượt như thế sẽ "
+            "xanh mà KHÔNG kiểm nâng cấp liên phiên bản.")
+    return tep
+
+
+def _muc_trong_zip(tep: Path) -> dict:
+    """``{tên tệp: (kích thước, CRC32)}`` — đọc từ mục lục, không giải nén."""
+    with zipfile.ZipFile(tep) as zf:
+        return {m.filename: (m.file_size, m.CRC)
+                for m in zf.infolist() if not m.is_dir()}
+
+
+def so_sanh_noi_dung_zip(cu: Path, moi: Path) -> dict:
+    """Hai gói khác nhau ở những tệp nào (theo CRC trong mục lục zip).
+
+    Dùng CRC32 có sẵn trong mục lục nên phép so này gần như không tốn gì —
+    không giải nén, không băm lại 78 MB. Nó trả lời đúng một câu: hai gói này
+    có thật sự là hai bản dựng khác nhau không. Tên tệp zip khác nhau thì
+    KHÔNG trả lời được câu đó (ai cũng đổi tên được).
+    """
+    a, b = _muc_trong_zip(cu), _muc_trong_zip(moi)
+    khac = sorted(k for k in a if k in b and a[k] != b[k])
+    chi_cu = sorted(k for k in a if k not in b)
+    chi_moi = sorted(k for k in b if k not in a)
+    return {"so_tep_ban_cu": len(a), "so_tep_ban_moi": len(b),
+            "so_tep_khac_noi_dung": len(khac), "vi_du_khac_noi_dung": khac[:5],
+            "so_tep_chi_co_o_ban_cu": len(chi_cu), "chi_co_o_ban_cu": chi_cu[:10],
+            "so_tep_chi_co_o_ban_moi": len(chi_moi),
+            "chi_co_o_ban_moi": chi_moi[:10]}
+
+
+def ghi_nguon_ban_cu(args, bang_chung: Path, zip_cu: Path) -> list[str]:
+    """Bằng chứng NGUỒN GỐC của bản cũ + chốt "hai gói phải khác nhau thật".
+
+    Ghi ``previous-artifact.json``. Câu hỏi nó phải trả lời được cho người đọc
+    bằng chứng sáu tháng sau: *bản "cũ" trong lượt này từ đâu ra?*
+
+    * ``sha256`` và ``byte`` **tự tính lại từ tệp trên đĩa**, không chép số
+      của GitHub API. Chép lại số của người khác thì bằng chứng chỉ chứng
+      minh "API nói thế", không chứng minh được tệp đã tải là tệp nào.
+    * Số của API (nếu bước tải có ghi kèm) vẫn được giữ và **đối chiếu**:
+      lệch byte = tải thiếu, và đó là ca hỏng im lặng kinh điển của curl.
+    * Nội dung hai gói phải khác nhau thật (so CRC từng tệp). Trùng khít =
+      lượt kiểm không nói gì về liên phiên bản, nên phải ĐỎ chứ không xanh.
+    """
+    zip_moi = Path(args.zip)
+    rieng = (os.path.normcase(os.path.abspath(str(zip_cu)))
+             != os.path.normcase(os.path.abspath(str(zip_moi))))
+    nguon = {}
+    duong_nguon = getattr(args, "nguon_ban_cu", "") or ""
+    if duong_nguon:
+        nguon = _doc(Path(duong_nguon))
+        if not nguon:
+            raise Hong(f"Không đọc được tệp nguồn gốc bản cũ {duong_nguon} — "
+                       "bước tải có ghi nó ra, nên đọc không được nghĩa là "
+                       "bằng chứng nguồn gốc đã hỏng.")
+
+    byte = zip_cu.stat().st_size
+    sha = bam_tep(str(zip_cu))
+    ho_so = {
+        "che_do_ban_cu": "gói phát hành riêng" if rieng else "cùng gói ứng viên",
+        "duong_dan": str(zip_cu),
+        "ten_tep": zip_cu.name,
+        "byte": byte,
+        "sha256": sha,
+        "tu_bam_luc": datetime.datetime.now(
+            datetime.timezone.utc).isoformat(timespec="seconds"),
+        "nguon_khai_bao": che_bi_mat(nguon),
+        "goi_ung_vien": {"ten_tep": zip_moi.name,
+                         "byte": zip_moi.stat().st_size,
+                         "sha256": bam_tep(str(zip_moi)),
+                         "commit": getattr(args, "sha", "")},
+    }
+
+    # Đối chiếu với số bước tải khai — chỉ khi bước tải có khai.
+    if nguon.get("byte") and int(nguon["byte"]) != byte:
+        ho_so["ket_luan"] = "byte lệch"
+        _ghi_nguon(bang_chung, ho_so)
+        raise Hong(
+            f"Gói bản cũ tải về {byte} byte nhưng nguồn khai "
+            f"{nguon['byte']} byte — tải thiếu (ca hỏng im lặng của curl). "
+            "Không dựng bản cũ từ một tệp cụt.")
+    if nguon.get("sha256") and nguon["sha256"].lower() != sha.lower():
+        ho_so["ket_luan"] = "sha256 lệch"
+        _ghi_nguon(bang_chung, ho_so)
+        raise Hong(f"SHA-256 tự tính ({sha[:16]}…) khác số nguồn khai "
+                   f"({nguon['sha256'][:16]}…) — tệp đã tải không phải tệp "
+                   "mà bước tải tưởng là mình lấy.")
+
+    bao_cao = []
+    if rieng:
+        khac = so_sanh_noi_dung_zip(zip_cu, zip_moi)
+        ho_so["khac_goi_ung_vien"] = khac
+        if sha == ho_so["goi_ung_vien"]["sha256"]:
+            ho_so["ket_luan"] = "hai gói trùng khít"
+            _ghi_nguon(bang_chung, ho_so)
+            raise Hong(
+                "Gói bản cũ và gói ứng viên TRÙNG KHÍT từng byte — lượt này "
+                "không chứng minh được gì về nâng cấp liên phiên bản. Trỏ "
+                "--zip-ban-cu vào một bản phát hành CŨ HƠN.")
+        tong_khac = (khac["so_tep_khac_noi_dung"]
+                     + khac["so_tep_chi_co_o_ban_cu"]
+                     + khac["so_tep_chi_co_o_ban_moi"])
+        if tong_khac == 0:
+            ho_so["ket_luan"] = "hai gói khác tên nhưng trùng nội dung"
+            _ghi_nguon(bang_chung, ho_so)
+            raise Hong(
+                "Hai gói khác tên tệp nhưng KHÔNG tệp nào bên trong khác "
+                "nhau — đổi tên một gói không làm nên một phép kiểm nâng cấp.")
+        ho_so["ket_luan"] = "hai bản dựng khác nhau"
+        tag = (nguon.get("tag") or "").strip()
+        bao_cao.append(
+            f"bản cũ dựng từ GÓI PHÁT HÀNH THẬT {zip_cu.name}"
+            + (f" (tag {tag})" if tag else "")
+            + f" · {byte} byte · sha256 {sha[:16]}… (tự băm lại)")
+        bao_cao.append(
+            f"khác gói ứng viên: {khac['so_tep_khac_noi_dung']} tệp đổi nội "
+            f"dung, {khac['so_tep_chi_co_o_ban_cu']} tệp chỉ có ở bản cũ, "
+            f"{khac['so_tep_chi_co_o_ban_moi']} tệp chỉ có ở bản mới")
+    else:
+        # Nói thẳng giới hạn ngay trong bằng chứng, đừng để nó chỉ nằm trong
+        # đầu người viết: mục I0-FDE(e) đã mất một vòng vì chỗ này.
+        ho_so["ket_luan"] = ("cùng gói ứng viên — chỉ chứng minh CƠ CHẾ dùng "
+                             "lại, KHÔNG chứng minh nâng cấp liên phiên bản")
+        bao_cao.append(
+            "bản cũ dựng từ CHÍNH gói ứng viên (không có --zip-ban-cu) — "
+            "lượt này chỉ chứng minh cơ chế dùng lại")
+    _ghi_nguon(bang_chung, ho_so)
+    return bao_cao
+
+
+def _ghi_nguon(bang_chung: Path, ho_so: dict) -> None:
+    """Ghi `previous-artifact.json` — kể cả (nhất là) trên đường HỎNG.
+
+    Bằng chứng của một lượt đỏ là thứ đáng giá nhất: không có nó thì lần sau
+    lại phải dựng lại cả lượt CI chỉ để biết mình đã tải phải tệp nào.
+    """
+    bang_chung.mkdir(parents=True, exist_ok=True)
+    (bang_chung / "previous-artifact.json").write_text(
+        json.dumps(ho_so, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _dung_ban_cu(nguon_zip: Path, thu_muc: Path, args) -> Path:
     """Dựng 'bản cũ' cạnh bên: cùng gói, nhưng ĐÃ cài bộ máy + có .env giả."""
     cu = giai_nen(nguon_zip, thu_muc)
-    cai_bo_may(cu, args.cai_dat, args.timeout)
+    cai_bo_may(cu, args.cai_dat, args.timeout,
+               nhan=f"BẢN CŨ dựng từ {Path(nguon_zip).name}")
     (cu / "bin").mkdir(exist_ok=True)
     for ten in ("ffmpeg", "ffprobe"):
         that = shutil.which(ten)
@@ -649,10 +828,14 @@ def che_do_nang_cap(args, bang_chung: Path) -> list[str]:
         shutil.rmtree(hop, ignore_errors=True)
     cha = hop / "cha"
     zip_goc = Path(args.zip)
-    cu = _dung_ban_cu(zip_goc, cha / "VoxDub-previous", args)
+    zip_cu = _zip_ban_cu(args)
+    # Nguồn gốc bản cũ ghi TRƯỚC khi dựng: dựng mất vài phút (cài cả hai bộ
+    # máy), hỏng giữa chừng mà chưa ghi thì không ai biết đã tải phải tệp nào.
+    bao_cao = ghi_nguon_ban_cu(args, bang_chung, zip_cu)
+    cu = _dung_ban_cu(zip_cu, cha / "VoxDub-previous", args)
     moi = giai_nen(zip_goc, cha / "VoxDub-candidate")
-    bao_cao = [f"bản cũ: {cu} (đã cài bộ máy + .env giả)",
-               f"bản mới: {moi} (chưa cài gì)"]
+    bao_cao += [f"bản cũ: {cu} (đã cài bộ máy + .env giả)",
+                f"bản mới: {moi} (chưa cài gì)"]
 
     truoc = manifest_thu_muc(str(cu))
     (bang_chung / "upgrade-previous-before.json").write_text(
@@ -741,7 +924,8 @@ def che_do_am_tinh(args, bang_chung: Path) -> list[str]:
     if hop.exists():
         shutil.rmtree(hop, ignore_errors=True)
     zip_goc = Path(args.zip)
-    bao_cao = []
+    zip_cu = _zip_ban_cu(args)
+    bao_cao = ghi_nguon_ban_cu(args, bang_chung, zip_cu)
 
     # --- Ca 1: bản cũ nằm ở THƯ MỤC CHA KHÁC → không được nhận vơ ---------
     #
@@ -750,8 +934,16 @@ def che_do_am_tinh(args, bang_chung: Path) -> list[str]:
     # vô nghĩa ở bản đầu: cấy lỗi "dò lùi thêm một cấp" vào bản giả mà cổng
     # vẫn xanh. Nên bản mới phải nằm ở thư mục cha NGAY CẠNH thư mục cha của
     # bản cũ — đúng hình dạng mà một phép dò lỏng tay sẽ nhận vơ.
-    cu = _ban_cu_co_san(args) or _dung_ban_cu(
-        zip_goc, hop / "cha-A" / "VoxDub-previous", args)
+    #
+    # Bản cũ thì DÙNG LẠI bản mà chế độ nâng cấp vừa dựng (nên từ nay nó cũng
+    # là gói phát hành thật). Không thêm một biến thể "liên phiên bản" riêng
+    # cho ba ca âm: phép dò (`autodub/venv_discovery.py`) không đọc số phiên
+    # bản, nó chỉ tìm thư mục cạnh bên có `venv + installed_ok.json` — dựng
+    # thêm một bản cũ nữa tốn vài phút CI mà không trả lời thêm câu hỏi nào.
+    co_san = _ban_cu_co_san(args)
+    cu = co_san or _dung_ban_cu(zip_cu, hop / "cha-A" / "VoxDub-previous", args)
+    bao_cao.append("bản cũ: " + ("dùng lại bản chế độ nâng cấp đã dựng"
+                                 if co_san else f"dựng mới từ {zip_cu.name}"))
     moi = giai_nen(zip_goc, cu.parent.parent / "cha-khac" / "VoxDub-candidate")
     if cu.parent == moi.parent or cu.parent.parent != moi.parent.parent:
         raise Hong(f"Hộp thử ca âm dựng sai hình: bản cũ {cu} và bản mới "
@@ -855,7 +1047,8 @@ def chuan_hoa_duong_dan(args) -> None:
     một cửa duy nhất, thay vì nhớ gọi `abspath` ở tám chỗ gọi (nhớ tay kiểu đó
     thì sót một chỗ là đủ mất bằng chứng — đã sót thật ở run 35614850573).
     """
-    for ten in ("bang_chung", "goc_thu", "video", "zip"):
+    for ten in ("bang_chung", "goc_thu", "video", "zip", "zip_ban_cu",
+                "nguon_ban_cu"):
         gia_tri = getattr(args, ten, "") or ""
         if gia_tri:
             setattr(args, ten, str(Path(gia_tri).resolve()))
@@ -876,12 +1069,12 @@ def bang_tom_tat(goc_bang_chung: Path, trang_thai_nguon: str = "") -> str:
     không được im lặng biến mất khỏi bảng (một cổng biến mất khỏi bảng trông
     y như một cổng đã xanh).
     """
-    dong = ["| Cổng | Kết quả | Commit ứng viên | SHA-256 gói | Mượn mã nguồn? "
-            "| Soi tệp ra | Bằng chứng |",
-            "|---|---|---|---|---|---|---|"]
+    dong = ["| Cổng | Kết quả | Commit ứng viên | SHA-256 gói | Bản cũ "
+            "(I0-E) | Mượn mã nguồn? | Soi tệp ra | Bằng chứng |",
+            "|---|---|---|---|---|---|---|---|"]
     dong.append(f"| Dub THẬT từ mã nguồn (cổng cũ C45/C55) | "
                 f"{trang_thai_nguon or 'xem log bước trước'} | — | n/a | n/a "
-                f"| trong log bước đó | log của job |")
+                f"| n/a | trong log bước đó | log của job |")
     for ten in ("sach", "nang-cap", "am-tinh"):
         thu_muc = goc_bang_chung / ten
         tom = _doc(thu_muc / "tom-tat.json")
@@ -889,20 +1082,39 @@ def bang_tom_tat(goc_bang_chung: Path, trang_thai_nguon: str = "") -> str:
         probe = _doc(thu_muc / "output-probe.json")
         if not tom:
             dong.append(f"| {TEN_CONG[ten]} | **không chạy** (bước trước đã "
-                        f"dừng) | — | — | — | — | — |")
+                        f"dừng) | — | — | — | — | — | — |")
             continue
         duong = _doc(thu_muc / "duong-da-dung.json")
         muon = duong.get("tu_cay_ma_nguon") or duong.get("ngoai_vung")
+        ban_cu = _mo_ta_ban_cu(_doc(thu_muc / "previous-artifact.json"))
         soi = (f"{probe['mean_volume_db']} dB · {probe['giay_ra']:.1f}s "
                f"(nguồn {probe['giay_nguon']:.1f}s)") if probe else "—"
         ket = {"dat": "đạt", "hong": "**HỎNG**",
                "bi_chan": "**BỊ CHẶN**"}.get(tom.get("ket_qua"), "?")
         dong.append(
             f"| {TEN_CONG[ten]} | {ket} | `{(tom.get('commit_ung_vien') or '')[:12]}` "
-            f"| `{(goi.get('sha256') or '')[:16]}` | "
+            f"| `{(goi.get('sha256') or '')[:16]}` | {ban_cu} | "
             f"{'**CÓ**' if muon else 'không'} | {soi} | "
             f"`packaged-dub-evidence/{ten}/` |")
     return "\n".join(dong)
+
+
+def _mo_ta_ban_cu(ho_so: dict) -> str:
+    """Một ô bảng cho câu hỏi "bản cũ của lượt này từ đâu ra".
+
+    Chế độ không dùng bản cũ (cài mới) thì để trống — nhưng chế độ CÓ dùng mà
+    lại dựng từ chính gói ứng viên thì phải hiện ra đúng chữ đó, chứ không
+    được hiện một dấu tích trông y như đã kiểm liên phiên bản.
+    """
+    if not ho_so:
+        return "n/a"
+    if ho_so.get("che_do_ban_cu") != "gói phát hành riêng":
+        return "**cùng gói ứng viên**"
+    tag = (ho_so.get("nguon_khai_bao") or {}).get("tag") or ""
+    khac = ho_so.get("khac_goi_ung_vien") or {}
+    return (f"`{tag or ho_so.get('ten_tep', '')}` · "
+            f"`{(ho_so.get('sha256') or '')[:12]}` · "
+            f"{khac.get('so_tep_khac_noi_dung', '?')} tệp khác")
 
 
 def main() -> int:
@@ -911,6 +1123,14 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--che-do", choices=sorted(CHE_DO))
     ap.add_argument("--zip", default="", help="gói phát hành ứng viên")
+    ap.add_argument("--zip-ban-cu", dest="zip_ban_cu", default="",
+                    help="gói phát hành CŨ (đã lên GitHub Releases) để dựng "
+                         "bản cạnh bên của I0-E. Không có thì dùng chính gói "
+                         "ứng viên — và bằng chứng sẽ nói rõ là lượt đó chỉ "
+                         "chứng minh cơ chế dùng lại.")
+    ap.add_argument("--nguon-ban-cu", dest="nguon_ban_cu", default="",
+                    help="tệp JSON do bước tải ghi ra (tag, URL, tên asset, "
+                         "byte, thời điểm tải) — đi vào bằng chứng nguồn gốc")
     ap.add_argument("--goc-thu", default="", help="thư mục hộp cát")
     ap.add_argument("--bang-chung", required=True)
     ap.add_argument("--chi-in-bang", action="store_true",

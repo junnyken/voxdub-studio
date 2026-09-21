@@ -12,6 +12,13 @@
   Release` vẫn **skipped** đúng thiết kế dry-run — **MINI-SPEC này không tạo
   tag và không publish**; quyết định cắt tag là của chủ dự án.
   Số đo và bốn giới hạn còn treo: xem `docs/TEST_LOG.md`, mục *I0-FDE(e)*.
+- **Bản vá 2026-09-22 (giới hạn (2), CHƯA chạy Windows):** bản "cũ" của I0-E
+  nay dựng từ **gói phát hành thật** tải trên GitHub Releases (`--zip-ban-cu`,
+  mặc định CI là tag `v3.17.19`) thay vì từ chính gói ứng viên, kèm bằng chứng
+  nguồn gốc `previous-artifact.json` (tag/URL/asset/byte/sha256 **tự băm lại**).
+  Không có cờ thì hành vi giữ nguyên. Giới hạn (2) chỉ đóng khi có một lượt
+  `windows-latest` xanh — xem `docs/TEST_LOG.md`, mục *I0-FDE(f)*. Bản vá này
+  vẫn **không tạo tag và không publish**.
 
 ---
 

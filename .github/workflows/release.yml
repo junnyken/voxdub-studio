@@ -109,10 +109,31 @@ jobs:
           --bang-chung packaged-dub-evidence
           --sha "${{ github.sha }}" --timeout 2700
 
+      # Giới hạn (2) của mục TEST_LOG I0-FDE(e): "bản cũ" của cổng nâng cấp
+      # trước đây dựng từ CHÍNH gói ứng viên, nên lượt xanh chỉ chứng minh cơ
+      # chế dùng lại — không chứng minh gì về việc nâng cấp giữa hai bản phát
+      # hành. Người dùng thật nâng cấp từ bản đang có trên trang Releases, nên
+      # lấy đúng tệp đó xuống làm bản cạnh bên.
+      #
+      # Bước tải ĐỨNG RIÊNG để mạng/API hỏng thì đỏ ngay tại đây — chứ không
+      # đỏ ở giữa cổng nâng cấp rồi ngồi chẩn nhầm sang sản phẩm. Tag ghi
+      # thẳng ra (không dùng `latest`): "bản cũ" phải là một mốc CỐ ĐỊNH thì
+      # hai lượt CI mới so được với nhau. Cắt bản mới thì bump tag ở đây.
+      - name: Tải gói phát hành cũ làm bản cạnh bên của I0-E
+        id: ban-cu
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          python scripts/tai_goi_phat_hanh_cu.py --tag v3.17.19
+          --ra "${{ runner.temp }}/ban-cu"
+          --nguon "${{ runner.temp }}/ban-cu/nguon-ban-cu.json"
+
       - name: I0-E + I0-F — nâng cấp cạnh bản cũ rồi dub bằng chính VoxDub.exe
         run: >
           python scripts/kiem_goi_phat_hanh.py --che-do nang-cap
           --zip "VoxDub-Studio-${{ github.ref_name }}-win64.zip"
+          --zip-ban-cu "${{ steps.ban-cu.outputs.duong_dan }}"
+          --nguon-ban-cu "${{ runner.temp }}/ban-cu/nguon-ban-cu.json"
           --goc-thu "${{ runner.temp }}/hop-goi"
           --bang-chung packaged-dub-evidence
           --sha "${{ github.sha }}" --timeout 2700
@@ -121,6 +142,8 @@ jobs:
         run: >
           python scripts/kiem_goi_phat_hanh.py --che-do am-tinh
           --zip "VoxDub-Studio-${{ github.ref_name }}-win64.zip"
+          --zip-ban-cu "${{ steps.ban-cu.outputs.duong_dan }}"
+          --nguon-ban-cu "${{ runner.temp }}/ban-cu/nguon-ban-cu.json"
           --goc-thu "${{ runner.temp }}/hop-goi"
           --bang-chung packaged-dub-evidence
           --sha "${{ github.sha }}" --timeout 2700

@@ -18307,3 +18307,118 @@ Ngoài ra: phạm vi đã chứng minh là **một** đường chạy — fixtur
 53,5s, Whisper `tiny`, `bg_mode=none`, `subtitle_mode=none`. Không có gì ở đây
 nói về **chất lượng** bản dịch/giọng đọc, về video tiếng Trung/Nhật, về Demucs,
 phụ đề, lipsync hay đường GPU.
+
+## I0-FDE(f) — đóng giới hạn (2): bản cũ nay là GÓI PHÁT HÀNH THẬT (22/09/2026)
+
+**Trạng thái: mã + CI đã sửa, CHƯA có lượt chạy Windows nào.** Mọi số dưới
+đây đo được trên Linux (test đơn vị, đột biến, tải thật, so hai gói thật).
+Kết luận về I0-E liên phiên bản chỉ có sau lượt `workflow_dispatch` kế tiếp —
+đừng đọc mục này thành "đã đạt".
+
+### Vì sao sửa
+
+Giới hạn (2) của mục I0-FDE(e): `che_do_nang_cap` dựng "bản cũ" bằng **chính
+gói ứng viên** (`_dung_ban_cu(zip_goc, …)` rồi `giai_nen(zip_goc, …)` — cùng
+một zip cho cả hai bên). Lượt xanh 35625471619 vì thế chỉ chứng minh **cơ chế**
+dùng lại bộ máy cạnh bên. Người dùng thật không bao giờ nâng cấp từ chính bản
+họ đang chạy: họ tải bản mới về đặt cạnh **v3.17.19 đã cài sẵn trên máy**.
+
+### Đã sửa gì
+
+| Tệp | Sửa |
+|---|---|
+| `scripts/tai_goi_phat_hanh_cu.py` | **mới** — tải asset của một tag trên GitHub Releases, tự băm, ghi hồ sơ nguồn gốc |
+| `scripts/kiem_goi_phat_hanh.py` | cờ `--zip-ban-cu` / `--nguon-ban-cu`; `ghi_nguon_ban_cu()`; `so_sanh_noi_dung_zip()`; nhãn "đang cài cho bản nào" trong câu lỗi của `cai_bo_may`; cột *Bản cũ* trong bảng tóm tắt CI |
+| `.github/workflows/release.yml` | bước tải **đứng riêng** (`id: ban-cu`) trước hai bước I0-E; hai bước đó nhận `--zip-ban-cu`/`--nguon-ban-cu` |
+
+Không có cờ thì hành vi **y hệt trước** — đường đang xanh không bị đụng. Chế
+độ `sach` (I0-D) cố ý **không** nhận cờ này: bản cài mới phải là máy trắng.
+
+### Bằng chứng nguồn gốc bản cũ (`<chế độ>/previous-artifact.json`)
+
+`che_do_ban_cu` · `ten_tep` · `byte` · `sha256` **tự băm lại từ tệp trên đĩa**
+· `tu_bam_luc` · `nguon_khai_bao` (tag, URL release, URL asset, id asset,
+`published_at`, byte API khai, thời điểm tải) · `goi_ung_vien` (tên, byte,
+sha256, commit) · `khac_goi_ung_vien` · `ket_luan`.
+
+Ba chốt, cả ba **đã chứng minh ĐỎ khi gỡ**:
+
+1. sha256/byte tự tính lệch số bước tải khai → **HỎNG** (tệp cụt, tệp khác);
+2. hai gói trùng khít từng byte, hoặc khác tên mà **không tệp nào bên trong
+   khác nhau** → **HỎNG** (lượt đó không kiểm gì về liên phiên bản);
+3. `--zip-ban-cu` trỏ vào tệp không có → **BỊ CHẶN** (mã 2), **không** lặng lẽ
+   rơi về gói ứng viên.
+
+### Đo thật trên hai gói phát hành thật (Linux, 22/09)
+
+Tải bằng chính `scripts/tai_goi_phat_hanh_cu.py`:
+
+| Tag | Byte | SHA-256 (tự băm) |
+|---|---|---|
+| `v3.17.19` (2026-09-15) | 78.028.080 | `19d770b0ae62ec7645b085eebec04228b33f5269a6812e2d5e4532fcb8987aba` |
+| `v3.17.18` (2026-09-14) | 78.026.340 | `8305e0e24b064e64cfbdddbb6bb94bdd80bf11a7ad10cb3031ff77a66d68fd89` |
+
+`so_sanh_noi_dung_zip` trên đúng hai tệp đó: **1300 tệp mỗi gói, 5 tệp khác
+nội dung** (`VoxDub.exe`, `_internal/base_library.zip`, hai `RECORD` của
+`numpy`/`yt_dlp`, `logs/voxdub.log`), 0 tệp chỉ có ở một bên. Cả hai phép băm
+78 MB + so CRC hết **0,6s** — nên chốt này không tốn thời gian CI đáng kể.
+
+Bố cục `v3.17.19` **dùng được nguyên** với bộ lái hiện tại (đã mở mục lục zip
+để kiểm, không đoán): `VoxDub.exe` ở gốc zip (1319 mục), có đủ `Cai dat Whisper
+ASR.bat`, `Cai dat giong VieNeu.bat`, `scripts/setup_whisper.py`,
+`scripts/setup_vieneu.py`; dấu cài xong vẫn là `models/<bộ máy>/installed_ok.json`
+— **cùng hợp đồng** với `main`, nên `giai_nen` và `cai_bo_may` không phải sửa.
+
+### Test
+
+`pytest tests/test_kiem_goi_phat_hanh.py` **71 đạt** (+14 mới),
+`tests/test_cong_goi_trong_release_yml.py` **11 đạt** (+5 mới),
+`tests/test_tai_goi_phat_hanh_cu.py` **10 đạt** (tệp mới). Lượt quét các bộ
+liên quan: **180 đạt**.
+
+**13 phép đột biến — gỡ chốt nào cũng ĐỎ đúng chốt đó**: trả bản cũ về gói ứng
+viên (cả `nang-cap` lẫn `am-tinh`), bỏ chốt trùng khít, bỏ chốt "khác tên mà
+trùng nội dung", chép sha256 của API thay vì tự băm, bỏ đối chiếu byte, rơi về
+gói ứng viên khi thiếu tệp, bỏ nhãn "bản nào" trong câu lỗi trình cài, bỏ kiểm
+tệp cụt ở bước tải, chuyển hướng còn mang token, bỏ `--zip-ban-cu` khỏi bước
+CI, ghim `latest` thay cho tag cố định, cho bước tải `continue-on-error`.
+
+`test_buoc_phat_hanh_van_chi_chay_voi_tag` **vẫn xanh**: điều kiện
+`if: startsWith(github.ref, 'refs/tags/v')` ở bước *Publish GitHub Release*
+**không bị đụng tới**. Bản vá này không tạo tag, không publish.
+
+### Ba ca âm: KHÔNG thêm biến thể liên phiên bản
+
+`che_do_am_tinh` ca "khác thư mục cha" dùng lại chính bản cũ mà chế độ nâng
+cấp vừa dựng (`_ban_cu_co_san`) — nên từ nay nó **tự động** là bản v3.17.19,
+không cần thêm ca nào. Dựng thêm một bản cũ thứ hai chỉ tốn vài phút CI mà
+không trả lời thêm câu hỏi nào: phép dò (`autodub/venv_discovery.py`) không
+đọc số phiên bản, nó chỉ tìm thư mục cạnh bên có `venv + installed_ok.json`.
+
+### Hai điều phải biết trước khi đọc lượt CI tới
+
+1. **`APP_VERSION` trên `main` vẫn là `"3.17.19"`** (`autodub_gui/app.py:36`).
+   Nên bản ứng viên của lượt dry-run tới mang **cùng chuỗi phiên bản** với gói
+   cũ. Thứ được chứng minh là *nâng cấp từ gói phát hành THẬT đã đăng ngày
+   15/09* (khác bản dựng, khác nội dung), **không** phải "hai số phiên bản
+   khác nhau". Bump `APP_VERSION` trước khi cắt tag (luật V47) thì câu đó mới
+   đúng theo nghĩa đen.
+2. **Bản cũ được cài bằng trình cài CỦA CHÍNH NÓ.** `scripts/setup_whisper.py`
+   của `v3.17.19` giống hệt bản `main`, nhưng `setup_vieneu.py` thì **không**:
+   bản cũ thiếu `HF_HUB_DISABLE_SYMLINKS=1` và `go_symlink_trong_cache()` (hai
+   thứ `main` thêm sau). Bản pin thư viện thì **giống hệt** ở cả hai bản
+   (`vieneu>=3.2,<4.0`, `faster-whisper<2.0`), nên rủi ro "venv cũ không chạy
+   nổi worker mới" hẹp lại đúng ở đường symlink đó. Nếu lượt CI tới đỏ ở khâu
+   dựng bản cũ, câu lỗi sẽ
+   mang nhãn `[BẢN CŨ dựng từ VoxDub-Studio-v3.17.19-win64.zip]` — đó là phát
+   hiện về **trình cài của bản phát hành cũ trên máy trắng**, không phải về
+   bản ứng viên. Đừng chẩn nhầm sang sản phẩm.
+
+Ghi lại luôn một thứ nhìn thấy khi soi gói (ngoài phạm vi, không sửa ở đây):
+gói phát hành có kèm `logs/voxdub.log` của máy build.
+
+### Giới hạn còn treo sau bản vá này
+
+Giới hạn (1), (3), (4) của mục I0-FDE(e) **giữ nguyên**. Giới hạn (2) chỉ
+được coi là đóng khi có một lượt chạy `windows-latest` xanh với
+`previous-artifact.json` ghi `che_do_ban_cu="gói phát hành riêng"`.

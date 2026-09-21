@@ -93,3 +93,61 @@ def test_bang_tom_tat_doc_tu_tep_bang_chung():
     assert len(tom) == 1
     assert "GITHUB_STEP_SUMMARY" in _chay(tom[0])
     assert str(tom[0].get("if", "")).strip() == "always()"
+
+
+# ----------------------------------- NÂNG CẤP LIÊN PHIÊN BẢN (giới hạn (2)) --
+#
+# Bản cũ của cổng I0-E nay dựng từ một GÓI PHÁT HÀNH THẬT tải trên GitHub
+# Releases. Ba thứ dưới đây nếu tuột ra thì cổng vẫn xanh mà không còn kiểm
+# nâng cấp liên phiên bản nữa — đúng kiểu hỏng không lộ ra ở lượt chạy nào.
+
+#: Bước tải gói phát hành cũ.
+BO_TAI = "scripts/tai_goi_phat_hanh_cu.py"
+
+
+def test_co_buoc_tai_goi_phat_hanh_cu_va_chay_TRUOC_cong_nang_cap():
+    tai = _chi_so(lambda b: BO_TAI in _chay(b))
+    nang = _chi_so(lambda b: "--che-do nang-cap" in _chay(b))
+    assert len(tai) == 1, (
+        "bước tải phải ĐỨNG RIÊNG: gộp vào cổng nâng cấp thì mạng hỏng cũng "
+        "trông y như sản phẩm hỏng")
+    assert tai[0] < min(nang), "tải xong mới có gì để dựng bản cũ"
+
+
+def test_buoc_tai_khong_duoc_bo_qua_loi():
+    """Tải hỏng mà vẫn đi tiếp = cổng nâng cấp chạy với bản cũ sai/thiếu."""
+    for b in _cac_buoc():
+        if BO_TAI not in _chay(b):
+            continue
+        assert "if" not in b
+        assert not b.get("continue-on-error")
+
+
+def test_ca_hai_cong_I0E_deu_nhan_goi_ban_cu():
+    for che_do in ("nang-cap", "am-tinh"):
+        buoc = [b for b in _cac_buoc() if f"--che-do {che_do}" in _chay(b)]
+        assert len(buoc) == 1, che_do
+        assert "--zip-ban-cu" in _chay(buoc[0]), (
+            f"cổng {che_do} không nhận gói bản cũ thì nó lại dựng bản cũ từ "
+            "chính gói ứng viên — đúng giới hạn (2) vừa đóng")
+        assert "--nguon-ban-cu" in _chay(buoc[0]), (
+            f"cổng {che_do} thiếu bằng chứng nguồn gốc bản cũ")
+
+
+def test_cong_cai_moi_KHONG_duoc_nhan_goi_ban_cu():
+    """I0-D phải là máy trắng: có bản cũ cạnh bên là hỏng cả định nghĩa."""
+    for b in _cac_buoc():
+        if "--che-do sach" in _chay(b):
+            assert "--zip-ban-cu" not in _chay(b)
+
+
+def test_ban_cu_ghim_TAG_CO_DINH_khong_phai_latest():
+    """`latest` sẽ tự trỏ vào chính bản vừa phát hành — kiểm bản với chính nó."""
+    tai = [b for b in _cac_buoc() if BO_TAI in _chay(b)]
+    assert tai
+    lenh = _chay(tai[0])
+    import re
+    m = re.search(r"--tag\s+(\S+)", lenh)
+    assert m, "bước tải phải ghi rõ --tag"
+    assert re.fullmatch(r"v\d+(\.\d+)+", m.group(1)), (
+        f"tag bản cũ phải là một mốc cố định, đang là {m.group(1)!r}")
