@@ -684,14 +684,31 @@ cả nó. Chi tiết: `docs/MINI-SPEC_D5_Prod_Theo_Main.md`.
 **Còn hở, ghi rõ**: chốt chỉ chạy khi có người push. Nhiều ngày không ai push
 thì prod tụt lại vẫn im — cần một lượt chạy theo giờ, cố ý để làm sau.
 
-### D3. Chốt deploy bị webhook đi vòng qua
+### ✅ D3. Chốt deploy bị webhook đi vòng qua — ĐÃ ĐÓNG 14/09 (`128bcd9`)
 
-`sinh-nhanh-deploy` force-push nhánh deploy ở giây thứ 12, webhook Vibe Host
-dựng ngay; `trien-khai-prod` (nhánh có ba chốt "chỉ deploy sau khi test
-xanh") mãi phút thứ 4 mới chạy. Prod nhận mã **trước khi** test xong.
+**Tiền đề của mục này SAI, và đã bị bác bỏ bằng đo đạc ngày 14/09.** Không có
+webhook Vibe Host nào dựng theo force-push: commit `d5d6495` force-push **cả
+hai** nhánh deploy lúc 03:24Z mà prod đứng nguyên ở v89/v51 suốt hơn 7 phút sau
+đó; mọi lượt deploy quan sát được đều khớp `trien-khai-prod`, và số phiên bản
+chỉ +1 mỗi dịch vụ. Chi tiết:
+`docs/MINI-SPEC_D3_Deploy_Integrity_AUDIT.md` mục 2.
 
-Ngày 10/09 vô hại vì test đều xanh, nhưng thiết kế đang không bảo vệ được
-điều nó tuyên bố. **Đáng một mini-spec riêng, không nên vá vội.**
+**Lỗ hổng thật khác cơ chế nhưng cùng hậu quả, và không cần webhook nào**:
+`sinh-nhanh-deploy` không có `needs:` nên force-push nhánh deploy bất kể test.
+Nhánh deploy là **nguồn sự thật của prod**, nên khi test đỏ thì mã đỏ **nằm lại
+đó** tới lần push xanh kế tiếp — bất cứ ai bấm redeploy trên giao diện Vibe
+Host, chạy `mb-deploy`, hay gọi `redeploy_project` qua MCP trong quãng đó đều
+đưa mã đỏ lên prod, không tín hiệu nào. Đo thật: run `34584418242` (11/09)
+python-tests đỏ 09:33:04 trong khi nhánh deploy đã push từ 09:29:14; `main` có
+58 lượt đỏ trong lịch sử.
+
+Đã đóng bằng `needs:` ở `.github/workflows/test.yml` dòng **160**
+(`sinh-nhanh-deploy`) và dòng **252** (`trien-khai-prod`): test đỏ ⇒ nhánh
+deploy đứng nguyên ở bản xanh gần nhất. Kèm ghim SHA chống đua và dịch vụ tự
+khai SHA ở `/health`. Thi công + kiểm chứng live:
+`docs/MINI-SPEC_D3_Deploy_Integrity.md`.
+
+Giá phải trả, ghi rõ: nhánh deploy chậm hơn `main` khoảng 4 phút.
 
 ### D4. Bảo mật vận hành — ⏸ CHỦ DỰ ÁN HOÃN LẠI (11/09)
 
