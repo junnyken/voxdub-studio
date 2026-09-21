@@ -68,6 +68,17 @@ COPY scripts/setup_whisper.py scripts/setup_vieneu.py \
 # Cài 3 engine nặng vào venv riêng NGAY lúc build (không phải lúc container
 # khởi động) — image tự chứa, container chạy được không cần mạng lúc
 # runtime. Mỗi script resume-safe + tự smoke-test (raise nếu cài sai).
+#
+# HF_HUB_DISABLE_SYMLINKS=1 (21/09, sự cố deploy voxdub-dub-worker): bản mới
+# của `huggingface_hub` chia thư mục blob cache theo 2 ký tự đầu, nên hai tệp
+# của CÙNG một model (vd .onnx + .data ngoài) có thể rơi vào hai thư mục thật
+# khác nhau qua symlink — onnxruntime coi đó là "dữ liệu ngoài thư mục model"
+# và từ chối nạp, sập cả build. setup_vieneu.py đã tự vá (scripts/setup_vieneu.py),
+# nhưng cả ba script cài model ở đây đều tải qua cùng cơ chế HF Hub — đặt biến
+# này Ở ĐÂY, trước cả ba RUN, để bịt tận gốc cho MỌI model tải xuống bước cài
+# đặt, không riêng VieNeu, và không phụ thuộc từng script tự nhớ vá.
+ENV HF_HUB_DISABLE_SYMLINKS=1
+
 RUN python3 scripts/setup_whisper.py
 RUN python3 scripts/setup_translate_local.py
 RUN python3 scripts/setup_vieneu.py
