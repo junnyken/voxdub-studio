@@ -295,3 +295,58 @@ def test_vo_goi_khong_dung_duong_ong_thu_hai():
         assert cam not in nguon, (
             f"{cam!r} trong lệnh chẩn đoán nghĩa là đang dựng đường dub thứ "
             "hai — nó sẽ xanh trong khi sản phẩm hỏng")
+
+
+# ------------------------------- MỌI đường thoát phải để lại bằng chứng ----
+#
+# Run CI 35614850573: lệnh này chạy đúng, báo thiếu bộ máy đúng, trả đúng mã 5
+# — nhưng bộ lái đọc phải một thư mục RỖNG nên kết luận ngược hẳn. Gốc nằm ở
+# bộ lái (đưa đường dẫn tương đối qua ranh giới hai thư mục làm việc), nhưng
+# bài học thì thuộc về cả hai phía: một trạng thái kết thúc không có bằng
+# chứng là một trạng thái không ai đọc lại được.
+
+def test_moi_duong_thoat_deu_de_lai_result_json(tmp_path, monkeypatch):
+    """Lưới an toàn: nhánh bên trong quên ghi thì vỏ ngoài vẫn ghi."""
+    monkeypatch.setattr(tk, "_chay_mot_luot", lambda argv: 7)
+    bc = tmp_path / "bc"
+    assert tk.chay(["--tu-kiem-goi", "--bang-chung", str(bc)]) == 7
+    ket = json.loads((bc / "result.json").read_text(encoding="utf-8"))
+    assert ket["giai_doan_hong"] == "unexpected"
+    assert ket["ma_thoat"] == 7
+    assert ket["bang_chung"] == str(bc)
+
+
+def test_ket_qua_noi_ro_no_hieu_bang_chung_nam_o_dau(tmp_path, capsys):
+    """Đường dẫn lệch thì phải có chỗ mà nhìn, thay vì một thư mục rỗng."""
+    bc = tmp_path / "bc"
+    assert tk.chay(["--tu-kiem-goi", "--chi-do-dac",
+                    "--bang-chung", str(bc)]) == tk.MA_DAT
+    ket = json.loads((bc / "result.json").read_text(encoding="utf-8"))
+    assert ket["ung_dung"]["bang_chung"] == str(bc)
+    assert ket["ung_dung"]["cwd_ban_dau"] == os.getcwd()
+    assert str(bc) in capsys.readouterr().out
+
+
+def test_duong_dan_tuong_doi_hieu_theo_cwd_cua_CHINH_no(tmp_path, monkeypatch):
+    """Ghi lại đúng ngữ nghĩa đã gây ra sự cố, để lần sau không ai đoán lại."""
+    monkeypatch.chdir(tmp_path)
+    assert tk.chay(["--tu-kiem-goi", "--chi-do-dac",
+                    "--bang-chung", "bc-tuong-doi"]) == tk.MA_DAT
+    assert (tmp_path / "bc-tuong-doi" / "result.json").is_file(), (
+        "đường dẫn tương đối được hiểu theo thư mục làm việc của TIẾN TRÌNH "
+        "NÀY — nên người gọi ở thư mục khác phải đưa đường tuyệt đối")
+
+
+def test_luong_ra_khoa_utf8_khong_vo_chu(tmp_path):
+    """`app.stderr.log` của run thật bị vỡ chữ vì cp1252 — khoá lại ở đây."""
+    kq = subprocess.run(
+        [sys.executable, "-c",
+         "import autodub_gui.tu_kiem_goi as tk, sys;"
+         "tk._bang_ma_utf8();"
+         "print('giọng đọc tiếng Việt');"
+         "print(sys.stdout.encoding)"],
+        cwd=REPO, capture_output=True, timeout=60,
+        env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+    ra = kq.stdout.decode("utf-8", errors="replace")
+    assert "giọng đọc tiếng Việt" in ra, ra
+    assert "utf-8" in ra.lower()

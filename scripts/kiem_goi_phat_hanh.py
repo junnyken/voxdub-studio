@@ -65,6 +65,11 @@ for _luong in (sys.stdout, sys.stderr):
 TOKEN_GIA = "vox_token_gia_I0E_KHONG_DUOC_LO_9f3c1d"
 
 
+#: Cờ dòng lệnh của `--tu-kiem-goi` mà giá trị là ĐƯỜNG DẪN. Đưa cho exe
+#: dạng tương đối là mất bằng chứng (xem chốt trong :func:`chay_exe`).
+CO_MANG_DUONG_DAN = ("--bang-chung", "--video", "--thu-muc-ra", "--resume-dir")
+
+
 class Hong(Exception):
     """Một mục kiểm không đạt."""
 
@@ -229,8 +234,34 @@ def chay_exe(exe: Path, tham_so: list[str], bang_chung: Path,
     if not exe.is_file():
         raise Hong(f"Không có {exe} — gói phát hành thiếu tệp chạy.")
 
+    # CHỐT ĐƯỜNG DẪN TUYỆT ĐỐI. Bộ lái chạy ở gốc repo, còn `.exe` được chạy
+    # với `cwd` = thư mục cài trong hộp cát — hai thư mục làm việc KHÁC nhau.
+    # Đưa đường dẫn tương đối qua ranh giới đó thì exe vẫn chạy đúng, vẫn trả
+    # đúng mã thoát, nhưng ghi bằng chứng vào TRONG HỘP CÁT rồi biến mất cùng
+    # runner — và bộ lái đọc phải thư mục rỗng nên kết luận sai hẳn về sản
+    # phẩm. Đã xảy ra thật: run 35614850573, bước I0-D đỏ với câu "bản đóng
+    # gói KHÔNG báo thiếu" trong khi nó báo thiếu hoàn toàn đúng.
+    if not bang_chung.is_absolute():
+        raise Hong(f"Thư mục bằng chứng phải là đường dẫn tuyệt đối, nhận "
+                   f"được {bang_chung!s}.")
+    for i, t in enumerate(tham_so):
+        if t in CO_MANG_DUONG_DAN:
+            gia_tri = tham_so[i + 1] if i + 1 < len(tham_so) else ""
+            if not os.path.isabs(gia_tri):
+                raise Hong(
+                    f"Tham số {t} đưa cho VoxDub.exe là đường dẫn TƯƠNG ĐỐI "
+                    f"({gia_tri!r}). exe chạy ở {exe.parent} chứ không phải "
+                    f"{os.getcwd()}, nên nó sẽ hiểu ra một chỗ khác — và bằng "
+                    "chứng sẽ biến mất không một tiếng động.")
+
     bang_chung.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
+    # Tiến trình con ghi nhật ký tiếng Việt ra ỐNG (không phải console) nên
+    # Python rơi về bảng mã của máy (cp1252 trên Windows) rồi bộ lái giải mã
+    # bằng UTF-8 → chữ vỡ. Cùng gốc với D1f; đặt trước khi exe khởi động mới
+    # có tác dụng.
+    env.setdefault("PYTHONUTF8", "1")
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     env.update(moi_truong or {})
     bat_dau = time.time()
     try:
@@ -456,11 +487,7 @@ def che_do_sach(args, bang_chung: Path) -> list[str]:
                         "--doi-bo-may", "whisper,vieneu",
                         "--bang-chung", str(bang_chung / "truoc-khi-cai")],
                        bang_chung / "truoc-khi-cai", 600)
-    if kq.returncode != 5 or ket.get("giai_doan_hong") != "bo_may_thieu":
-        raise Hong("Thư mục cài mới chưa có bộ máy nào, nhưng bản đóng gói "
-                   f"KHÔNG báo thiếu (mã {kq.returncode}, giai đoạn "
-                   f"{ket.get('giai_doan_hong')!r}) — đúng lớp lỗi 'báo không "
-                   "có nội dung' thay vì 'chưa cài, cài thế này'.")
+    kiem_bao_thieu_bo_may(kq, ket, bang_chung / "truoc-khi-cai")
     if ket.get("bo_may", {}).get("env_ban_cu_tim_thay"):
         raise Hong("Bản cài mới tuyên bố tìm thấy .env của bản cũ trong khi "
                    "không có bản cũ nào cạnh bên.")
@@ -471,6 +498,32 @@ def che_do_sach(args, bang_chung: Path) -> list[str]:
     do = mot_luot_dub_bang_goi(cai / "VoxDub.exe", Path(args.video), hop,
                                bang_chung, args.timeout, _goc_cho_phep(args, hop))
     return bao_cao + do["bao_cao"]
+
+
+def kiem_bao_thieu_bo_may(kq, ket: dict, bang_chung: Path) -> None:
+    """Thư mục cài mới chưa cài gì thì bản đóng gói phải NÓI ĐÚNG là thiếu gì.
+
+    Hai ca hỏng ở đây khác hẳn nhau và trước kia bị gộp làm một — lượt CI
+    35614850573 trả về đúng mã 5 (sản phẩm từ chối chạy, hoàn toàn đúng) mà bộ
+    lái lại kết luận "bản đóng gói KHÔNG báo thiếu", vì nó đọc phải thư mục
+    bằng chứng rỗng. Một câu lỗi chỉ đúng một nửa còn tệ hơn không có: nó chỉ
+    người đọc đi chẩn sai chỗ. Nên tách:
+
+    * KHÔNG có `result.json` → hỏng ở đường **ghi bằng chứng**;
+    * có `result.json` nhưng nội dung sai → hỏng ở **sản phẩm**.
+    """
+    if not ket:
+        raise Hong(
+            f"VoxDub.exe trả mã {kq.returncode} nhưng KHÔNG ghi result.json "
+            f"vào {bang_chung} — không có bằng chứng thì không kết luận được "
+            "gì về sản phẩm. Xem app.stdout.log (exe có in ra thư mục bằng "
+            "chứng nó hiểu) và kiểm xem đường dẫn đưa cho exe có tuyệt đối "
+            "không.")
+    if kq.returncode != 5 or ket.get("giai_doan_hong") != "bo_may_thieu":
+        raise Hong("Thư mục cài mới chưa có bộ máy nào, nhưng bản đóng gói "
+                   f"KHÔNG báo thiếu (mã {kq.returncode}, giai đoạn "
+                   f"{ket.get('giai_doan_hong')!r}) — đúng lớp lỗi 'báo không "
+                   "có nội dung' thay vì 'chưa cài, cài thế này'.")
 
 
 def _goc_cho_phep(args, hop: Path) -> list[str]:
@@ -709,6 +762,22 @@ TEN_CONG = {"sach": "I0-D cài mới + I0-F dub bằng gói",
             "am-tinh": "I0-E ba ca âm"}
 
 
+def chuan_hoa_duong_dan(args) -> None:
+    """Đổi mọi đường dẫn nhận từ dòng lệnh sang TUYỆT ĐỐI, ngay tại cửa vào.
+
+    CI gọi bộ lái với `--bang-chung packaged-dub-evidence` (tương đối, đúng và
+    tiện cho việc gom artifact). Bộ lái tự ghi tệp thì không sao — nó đứng ở
+    gốc repo. Nhưng nó còn CHUYỂN đường dẫn đó cho `VoxDub.exe`, mà exe chạy ở
+    thư mục cài trong hộp cát: cùng một chuỗi, hai chỗ khác nhau. Chuẩn hoá ở
+    một cửa duy nhất, thay vì nhớ gọi `abspath` ở tám chỗ gọi (nhớ tay kiểu đó
+    thì sót một chỗ là đủ mất bằng chứng — đã sót thật ở run 35614850573).
+    """
+    for ten in ("bang_chung", "goc_thu", "video", "zip"):
+        gia_tri = getattr(args, ten, "") or ""
+        if gia_tri:
+            setattr(args, ten, str(Path(gia_tri).resolve()))
+
+
 def _doc(duong: Path) -> dict:
     try:
         return json.loads(duong.read_text(encoding="utf-8"))
@@ -779,6 +848,7 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
+    chuan_hoa_duong_dan(args)
     bang_chung = Path(args.bang_chung) / args.che_do
     bang_chung.mkdir(parents=True, exist_ok=True)
     tep_zip = Path(args.zip)

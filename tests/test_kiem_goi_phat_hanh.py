@@ -307,3 +307,121 @@ def test_thu_muc_nang_chi_dem_tep_va_byte(tmp_path):
     khac = so_sanh_manifest(m, manifest_thu_muc(str(cu)))
     assert khac["thu_muc_nang_doi"] == [".venv-vieneu"]
     assert khac["nguyen_ven"] is False
+
+
+# ------------------------------------------------- ĐƯỜNG DẪN QUA RANH GIỚI --
+#
+# Lỗi thật, run CI 35614850573 (lượt chạy Windows ĐẦU TIÊN của cổng này):
+# workflow gọi `--bang-chung packaged-dub-evidence` (tương đối). Bộ lái đứng ở
+# gốc repo nên tự ghi đúng chỗ, nhưng nó CHUYỂN nguyên chuỗi đó cho
+# `VoxDub.exe`, mà exe được chạy với `cwd` = thư mục cài trong hộp cát. Exe
+# chạy đúng, báo thiếu bộ máy đúng, trả đúng mã 5 — và ghi `result.json` vào
+# trong hộp cát rồi biến mất cùng runner. Bộ lái đọc phải thư mục rỗng và kết
+# luận NGƯỢC HẲN: "bản đóng gói KHÔNG báo thiếu".
+#
+# Không bộ test nào trước đó chạm tới được: test đơn vị gọi `chay()` trong
+# CÙNG tiến trình với đường dẫn tuyệt đối của `tmp_path`, còn lượt chạy thử
+# với exe GIẢ trên Linux cũng được gọi bằng `--bang-chung` tuyệt đối. Seam
+# hỏng nằm đúng ở chỗ hai tiến trình có hai thư mục làm việc khác nhau.
+
+def _exe_gia(thu_muc: Path) -> Path:
+    """`VoxDub.exe` giả: ghi result.json vào abspath(--bang-chung) của CHÍNH nó."""
+    thu_muc.mkdir(parents=True, exist_ok=True)
+    exe = thu_muc / "VoxDub.exe"
+    exe.write_text(
+        "#!/usr/bin/env bash\n"
+        'BC=""\n'
+        'while [ $# -gt 0 ]; do case "$1" in --bang-chung) BC="$2"; shift 2;;'
+        ' *) shift;; esac; done\n'
+        '[ -n "$BC" ] || exit 9\n'
+        'mkdir -p "$BC"\n'
+        'printf \'{"ket_qua":"hong","giai_doan_hong":"bo_may_thieu",'
+        '"bo_may_thieu":["vieneu"],"cwd":"%s"}\\n\' "$PWD" > "$BC/result.json"\n'
+        "exit 5\n", encoding="utf-8")
+    exe.chmod(0o755)
+    return exe
+
+
+@pytest.mark.skipif(os.name == "nt", reason="exe giả viết bằng bash")
+def test_duong_dan_tuyet_doi_thi_doc_lai_duoc_ket_qua(tmp_path):
+    """Bằng chứng chỉ đọc lại được khi bộ lái đưa đường dẫn TUYỆT ĐỐI."""
+    exe = _exe_gia(tmp_path / "VoxDub Studio")
+    bc = tmp_path / "bang-chung"
+    kq, ket = bo_lai.chay_exe(exe, ["--tu-kiem-goi", "--chi-do-dac",
+                                    "--bang-chung", str(bc)], bc, 60)
+    assert kq.returncode == 5
+    assert ket["giai_doan_hong"] == "bo_may_thieu"
+    # exe chạy ở thư mục cài, KHÔNG phải thư mục của bộ lái — chính chỗ này
+    # là thứ làm đường dẫn tương đối rơi vào hố.
+    assert Path(ket["cwd"]).resolve() == exe.parent.resolve()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="exe giả viết bằng bash")
+def test_duong_dan_tuong_doi_bi_chan_truoc_khi_chay(tmp_path, monkeypatch):
+    """Ca đã làm CI đỏ: đưa đường tương đối qua ranh giới hai thư mục làm việc."""
+    exe = _exe_gia(tmp_path / "VoxDub Studio")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(bo_lai.Hong, match="TƯƠNG ĐỐI"):
+        bo_lai.chay_exe(exe, ["--tu-kiem-goi", "--chi-do-dac",
+                              "--bang-chung", "bang-chung/sach"],
+                        tmp_path / "bang-chung" / "sach", 60)
+
+
+def test_thu_muc_bang_chung_phai_tuyet_doi(tmp_path, monkeypatch):
+    exe = tmp_path / "VoxDub.exe"
+    exe.write_text("")
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(bo_lai.Hong, match="tuyệt đối"):
+        bo_lai.chay_exe(exe, [], Path("bc-tuong-doi"), 5)
+
+
+def test_chuan_hoa_duong_dan_ngay_tai_cua_vao(tmp_path, monkeypatch):
+    """Chuẩn hoá một cửa, thay vì nhớ gọi abspath ở tám chỗ gọi."""
+    monkeypatch.chdir(tmp_path)
+
+    class _Args:
+        bang_chung = "packaged-dub-evidence"
+        goc_thu = "hop"
+        video = "clip.mp4"
+        zip = "goi.zip"
+
+    a = _Args()
+    bo_lai.chuan_hoa_duong_dan(a)
+    for ten in ("bang_chung", "goc_thu", "video", "zip"):
+        gia_tri = getattr(a, ten)
+        assert os.path.isabs(gia_tri), ten
+        assert gia_tri.startswith(str(tmp_path.resolve()))
+
+
+# ---------------------------------------- hai ca hỏng phải nói KHÁC nhau ---
+
+class _KqGia:
+    def __init__(self, ma):
+        self.returncode = ma
+
+
+def test_mat_bang_chung_va_san_pham_sai_la_hai_cau_khac_nhau(tmp_path):
+    """Câu lỗi đúng một nửa chỉ người đọc đi chẩn sai chỗ — đúng chuyện đã xảy ra."""
+    with pytest.raises(bo_lai.Hong, match="KHÔNG ghi result.json"):
+        bo_lai.kiem_bao_thieu_bo_may(_KqGia(5), {}, tmp_path)
+
+    with pytest.raises(bo_lai.Hong, match="KHÔNG báo thiếu"):
+        bo_lai.kiem_bao_thieu_bo_may(_KqGia(0), {"giai_doan_hong": None},
+                                     tmp_path)
+
+    bo_lai.kiem_bao_thieu_bo_may(_KqGia(5),
+                                 {"giai_doan_hong": "bo_may_thieu"}, tmp_path)
+
+
+def test_main_that_su_goi_chuan_hoa(tmp_path, monkeypatch, capsys):
+    """Có hàm chuẩn hoá mà quên GỌI thì y như không có."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", [
+        "kiem_goi_phat_hanh.py", "--che-do", "sach",
+        "--zip", "khong-co-that.zip", "--goc-thu", "hop",
+        "--bang-chung", "bang-chung"])
+    assert bo_lai.main() == 2
+    loi = capsys.readouterr().err
+    assert str(tmp_path.resolve()) in loi, (
+        "câu lỗi phải in đường dẫn TUYỆT ĐỐI — nó là bằng chứng rằng bộ lái "
+        f"đã chuẩn hoá trước khi dùng: {loi!r}")

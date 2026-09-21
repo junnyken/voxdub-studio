@@ -17914,3 +17914,107 @@ Bằng chứng một lượt để lại (đúng bố cục mini-spec đòi): `r
   Anh, phụ đề cháy song ngữ) **không tra được từ repo** — nó vào repo ở commit
   `190cd2a` không kèm ghi chú nguồn. Cổng mới dùng lại đúng tệp cổng cũ đang
   dùng nên không thêm rủi ro mới, nhưng đây là một câu hỏi còn mở của §B.
+
+## I0-FDE(b) — lượt chạy Windows đầu tiên: cổng đỏ vì CHÍNH nó, không phải vì sản phẩm (21/09/2026)
+
+Run **35614850573** (`workflow_dispatch`, commit `b115936`) — lượt chạy thật
+đầu tiên của cổng kiểm bản đóng gói. Kết quả: bước 1–10 xanh hết (kể cả cổng
+dub từ mã nguồn, 18s), **bước 11 "I0-D + I0-F" ĐỎ sau 3 giây**, bước 12–13 bỏ
+qua, bước 14 giữ bằng chứng vẫn chạy (`if: always()` đúng), `Publish` skipped
+đúng thiết kế.
+
+Câu báo lỗi của bộ lái:
+
+```
+[HỎNG] Thư mục cài mới chưa có bộ máy nào, nhưng bản đóng gói KHÔNG báo thiếu
+       (mã 5, giai đoạn None) — đúng lớp lỗi 'báo không có nội dung'...
+[goi]  exe → mã 5 sau 0s (không có giai đoạn hỏng)
+```
+
+### Chẩn đoán: câu lỗi đó SAI, và sai theo hướng nguy hiểm nhất
+
+Đọc lại mã thay vì tin câu lỗi:
+
+1. `.exe` **đã làm đúng mọi thứ**: phát hiện thư mục cài mới chưa có bộ máy,
+   trả **đúng mã 5**, và nhánh `thieu` trong `tu_kiem_goi.chay()` có gọi
+   `_ghi_ket_qua(...)` **trước** khi return. Hành vi sản phẩm không có lỗi nào.
+2. Thứ hỏng nằm ở **chỗ giao tiếp giữa hai tiến trình**: workflow gọi bộ lái
+   với `--bang-chung packaged-dub-evidence` (tương đối — đúng và tiện cho việc
+   gom artifact). Bộ lái tự ghi thì đúng chỗ vì nó đứng ở gốc repo. Nhưng nó
+   **chuyển nguyên chuỗi đó** cho `VoxDub.exe`, mà exe được chạy với
+   `cwd = <hộp cát>/VoxDub Studio`. Exe làm `os.path.abspath("packaged-dub-
+   evidence/sach/truoc-khi-cai")` → ra một chỗ **bên trong hộp cát**, ghi
+   `result.json` vào đó, rồi hộp cát biến mất cùng runner.
+3. Bộ lái đọc phải thư mục rỗng → `ket = {}` → `giai_doan_hong = None` → kết
+   luận **ngược hẳn** về sản phẩm.
+
+Khớp với artifact tải về: `truoc-khi-cai/` chỉ có `app.stdout.log` (rỗng) và
+`app.stderr.log` (một dòng log INFO), **không có `result.json`**; mã thoát ghi
+trong log đúng là 5.
+
+> Một câu lỗi đúng một nửa còn tệ hơn không có câu nào: nó chỉ người đọc đi
+> chẩn sai chỗ. Nếu tin nó, việc tiếp theo sẽ là đi "sửa" một sản phẩm đang
+> chạy đúng.
+
+### Vì sao 55 test + lượt chạy thử với exe GIẢ đều KHÔNG bắt được
+
+Cả hai cửa đều đi **đường dẫn tuyệt đối**, còn CI đi đường **tương đối**:
+
+| Cửa | Gọi thế nào | Có chạm seam không |
+|---|---|---|
+| test đơn vị | `tk.chay([... "--bang-chung", str(tmp_path/"bc")])` **trong cùng tiến trình** | không — một tiến trình, một `cwd` |
+| chạy thử với exe giả | `--bang-chung $S/bang-chung` (tuyệt đối) | không |
+| **CI** | `--bang-chung packaged-dub-evidence` (tương đối), rồi exe chạy ở `cwd` khác | **có** |
+
+Đúng bài học cũ của dự án: *bộ test phải đi cùng cửa với người dùng*. Ở đây
+"người dùng" của bộ lái là workflow, và nó gõ đường dẫn tương đối.
+
+### Đã sửa
+
+- **Bộ lái**: `chuan_hoa_duong_dan(args)` đổi `--bang-chung/--goc-thu/--video/
+  --zip` sang tuyệt đối **ngay tại cửa vào** (một cửa, thay vì nhớ gọi
+  `abspath` ở tám chỗ gọi).
+- **Bộ lái**: `chay_exe` **từ chối chạy** nếu thư mục bằng chứng hoặc bất kỳ
+  cờ mang đường dẫn nào (`--bang-chung/--video/--thu-muc-ra/--resume-dir`) là
+  tương đối, kèm câu giải thích vì sao (hai `cwd` khác nhau).
+- **Bộ lái**: tách hai ca hỏng vốn bị gộp — *mất bằng chứng* (không có
+  `result.json`) khác hẳn *sản phẩm sai* (có tệp nhưng nội dung sai).
+  **Không** nới chốt: thiếu `result.json` vẫn là ĐỎ.
+- **Lệnh trong exe**: lưới an toàn `_bao_dam_co_bang_chung()` — mọi đường
+  thoát, kể cả nhánh mới thêm sau này, đều để lại `result.json`; và nó **in ra
+  `cwd` + thư mục bằng chứng nó hiểu** (stdout) cùng ghi vào `result.json`, để
+  lần sau đường dẫn có lệch thì còn chỗ mà nhìn.
+- **Lệnh trong exe**: khoá `sys.stdout/stderr` về UTF-8 (`_bang_ma_utf8`).
+  `app.stderr.log` của run thật bị **vỡ chữ**: tiến trình con ghi tiếng Việt ra
+  ỐNG nên Python rơi về cp1252, bộ lái giải mã UTF-8. Cùng gốc với D1f. Bộ lái
+  cũng đặt sẵn `PYTHONUTF8`/`PYTHONIOENCODING` cho tiến trình con.
+
+### Test
+
+`python3 -m pytest` (4 lô): **3042 đạt · 4 bỏ qua · 0 hỏng** (trước: 3032/4 —
+đúng bằng **10 test mới**).
+
+Chạy lại bộ lái với exe GIẢ **bằng đúng hình dạng lệnh của CI** (đường dẫn
+tương đối): đạt; gỡ `chuan_hoa_duong_dan` ra thì **đỏ ngay** với câu
+"Thư mục bằng chứng phải là đường dẫn tuyệt đối".
+
+Sáu chốt mới, đã chứng minh ĐỎ khi gỡ:
+
+| Gỡ cái gì | Test đỏ theo |
+|---|---|
+| chốt "đường dẫn đưa cho exe phải tuyệt đối" | `test_duong_dan_tuong_doi_bi_chan_truoc_khi_chay` |
+| lời gọi `chuan_hoa_duong_dan` trong `main()` | `test_main_that_su_goi_chuan_hoa` |
+| tách hai ca *mất bằng chứng* / *sản phẩm sai* | `test_mat_bang_chung_va_san_pham_sai_la_hai_cau_khac_nhau` |
+| lưới an toàn ghi `result.json` | `test_moi_duong_thoat_deu_de_lai_result_json` |
+| khoá bảng mã UTF-8 | `test_luong_ra_khoa_utf8_khong_vo_chu` |
+| in thư mục bằng chứng ra luồng ra | `test_ket_qua_noi_ro_no_hieu_bang_chung_nam_o_dau` |
+
+Thêm một cặp test chạy **hai tiến trình thật** (exe giả bằng bash): đường tuyệt
+đối → đọc lại được `result.json` và `cwd` của exe đúng là thư mục cài; đường
+tương đối → bị chặn trước khi chạy.
+
+### Còn lại của lượt này
+
+Bước 11 mới đi tới phép kiểm **trước khi cài**. Ba thứ sau nó **vẫn chưa từng
+chạy**: cài bộ máy bằng tệp `.bat` trong hộp cát, hai chặng dub bằng `.exe`
+thật, và toàn bộ I0-E. I0-D/I0-E/I0-F vẫn là `blocked`.

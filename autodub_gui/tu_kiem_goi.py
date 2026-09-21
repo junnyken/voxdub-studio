@@ -237,29 +237,109 @@ def _ghi_ket_qua(duong: str, du_lieu: dict) -> None:
     save_json_atomic(che_bi_mat(du_lieu), duong)
 
 
+def _bang_ma_utf8() -> None:
+    """Ghi tiếng Việt ra ỐNG mà không vỡ chữ (cùng gốc với D1f).
+
+    Bộ lái hứng stdout/stderr bằng `subprocess.PIPE` rồi giải mã UTF-8, nhưng
+    Python trong tiến trình con rơi về bảng mã của máy (cp1252 trên Windows)
+    khi luồng ra không phải console. Kết quả đo được ở run 35614850573:
+    `app.stderr.log` chứa chữ vỡ. Đây là đường ĐỌC bằng chứng, nên nó phải
+    đọc được.
+    """
+    for luong in (sys.stdout, sys.stderr):
+        try:
+            luong.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):  # luồng là None (exe windowed)
+            pass                              # hoặc đã bị thay bằng thứ khác
+
+
+def thu_muc_bang_chung(argv) -> str:
+    """Thư mục bằng chứng (tuyệt đối) đọc thẳng từ dòng lệnh, hoặc ""."""
+    for i, x in enumerate(argv):
+        if x == "--bang-chung" and i + 1 < len(argv):
+            return os.path.abspath(argv[i + 1])
+    return ""
+
+
+def _bao_dam_co_bang_chung(argv, ma: int) -> None:
+    """Không đường thoát nào được rời đi mà không để lại `result.json`.
+
+    Guardrail 8 của mini-spec: *trạng thái kết thúc phải có bằng chứng*. Mỗi
+    nhánh bên trong đều tự ghi, nhưng "mỗi nhánh đều nhớ" là loại lời hứa hỏng
+    ngay lần thêm nhánh thứ chín. Lưới an toàn ở đây rẻ hơn nhiều so với một
+    lượt CI đỏ mà không ai biết vì sao — đúng cảnh run 35614850573.
+    """
+    thu_muc = thu_muc_bang_chung(argv)
+    if not thu_muc:
+        return
+    duong = os.path.join(thu_muc, "result.json")
+    if os.path.isfile(duong):
+        return
+    try:
+        os.makedirs(thu_muc, exist_ok=True)
+        _ghi_ket_qua(duong, {
+            "phien_ban_cong": "I0-FDE/1", "ket_qua": "hong",
+            "giai_doan_hong": "unexpected", "ma_thoat": ma,
+            "cwd": os.getcwd(), "bang_chung": thu_muc, "argv": list(argv),
+            "loi": "Lượt chạy kết thúc mà không nhánh nào ghi được kết quả — "
+                   "tệp này do lưới an toàn ghi.",
+        })
+    except Exception:  # noqa: BLE001 — đây là lưới an toàn CUỐI CÙNG; ném
+        pass           # tiếp ở đây chỉ nuốt mất mã thoát thật của lượt chạy
+
+
 def chay(argv=None) -> int:
-    """Chạy chế độ tự kiểm; trả về mã thoát."""
+    """Chạy chế độ tự kiểm; trả về mã thoát.
+
+    Vỏ ngoài làm đúng hai việc thêm: khoá bảng mã UTF-8 cho luồng ra, và bảo
+    đảm mọi đường thoát đều để lại bằng chứng.
+    """
+    _bang_ma_utf8()
     argv = list(argv if argv is not None else sys.argv[1:])
+    ma = _chay_mot_luot(argv)
+    _bao_dam_co_bang_chung(argv, ma)
+    return ma
+
+
+def _chay_mot_luot(argv) -> int:
     try:
         args = phan_tich(argv)
     except LoiThamSo as e:
         # Chưa chắc có thư mục bằng chứng hợp lệ — cố ghi nếu người gọi đã
         # chỉ ra chỗ, còn không thì chỉ còn mã thoát để nói.
-        for i, x in enumerate(argv):
-            if x == "--bang-chung" and i + 1 < len(argv):
-                try:
-                    os.makedirs(argv[i + 1], exist_ok=True)
-                    _ghi_ket_qua(os.path.join(argv[i + 1], "result.json"),
-                                 {"ket_qua": "hong",
-                                  "giai_doan_hong": "startup",
-                                  "loi": f"tham số: {e}"})
-                except OSError:
-                    pass
+        thu_muc = thu_muc_bang_chung(argv)
+        if thu_muc:
+            try:
+                os.makedirs(thu_muc, exist_ok=True)
+                print(f"[tu-kiem-goi] bằng chứng: {thu_muc}", flush=True)
+                _ghi_ket_qua(os.path.join(thu_muc, "result.json"),
+                             {"ket_qua": "hong",
+                              "giai_doan_hong": "startup",
+                              "cwd": os.getcwd(),
+                              "bang_chung": thu_muc,
+                              "loi": f"tham số: {e}"})
+            except OSError:  # không ghi nổi thì chỉ còn mã thoát để nói
+                pass
         return MA_THAM_SO
 
+    # `abspath` ở đây phân giải theo thư mục làm việc LÚC NÀY — tức thư mục
+    # mà người gọi đặt cho tiến trình, không phải thư mục của người gọi. Nói
+    # thẳng ra nó là gì (stdout + result.json) để lần sau đường dẫn có lệch
+    # thì còn có chỗ mà nhìn, thay vì chỉ thấy một thư mục rỗng.
+    cwd_ban_dau = os.getcwd()
     bang_chung = os.path.abspath(args.bang_chung)
-    os.makedirs(bang_chung, exist_ok=True)
+    try:
+        os.makedirs(bang_chung, exist_ok=True)
+    except OSError as e:
+        # Không tạo nổi thư mục bằng chứng thì lượt này vô nghĩa — nói ra ở
+        # luồng ra (bộ lái có hứng) rồi thoát bằng mã khác 0, đừng để ngoại
+        # lệ trần đội lốt "lỗi sản phẩm".
+        print(f"[tu-kiem-goi] KHÔNG tạo được thư mục bằng chứng "
+              f"{bang_chung}: {e}", flush=True)
+        return MA_NGOAI_DU_TINH
     ket_qua_json = os.path.join(bang_chung, "result.json")
+    print(f"[tu-kiem-goi] cwd: {cwd_ban_dau}", flush=True)
+    print(f"[tu-kiem-goi] bằng chứng: {bang_chung}", flush=True)
     moi_truong = khoa_ngoai_tuyen()
 
     ket: dict = {
@@ -273,6 +353,8 @@ def chay(argv=None) -> int:
             "dong_bang": bool(getattr(sys, "frozen", False)),
             "meipass": getattr(sys, "_MEIPASS", ""),
             "argv": argv,
+            "cwd_ban_dau": cwd_ban_dau,
+            "bang_chung": bang_chung,
         },
         "moi_truong_khoa": moi_truong,
     }
