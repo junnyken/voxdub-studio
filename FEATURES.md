@@ -10,13 +10,14 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-21 · phiên bản ứng dụng đã phát hành `3.17.19` — **nhưng
-> `main` đã đi xa hơn** (D1/D3/D5 + bản vá build worker, xem §6, §9) và
-> **chưa dựng bản `.exe` mới**, đừng coi mã trên `main` là thứ người dùng
-> Windows đang cầm. `voxdub-dub-worker`/`voxdub-app` trên máy chủ THÌ đã
-> khớp `main` (job `kiem-prod-theo-main` xanh, 21/09). **đo thật cùng ngày**:
-> 2.977 test Python + 733 test Node (1 bỏ qua) + 74 test React, **0 hỏng**,
-> 4 bỏ qua (xem §10).
+> Cập nhật: 2026-09-22 · phiên bản trong mã `3.17.20` — **chưa cắt tag, chưa
+> dựng `.exe`**; bản người dùng Windows đang cầm vẫn là `3.17.19`, đừng coi mã
+> trên `main` là thứ họ đang chạy (ghi chú phát hành:
+> `docs/PHAT-HANH_v3.17.20.md`). `voxdub-dub-worker`/`voxdub-app` trên máy chủ
+> THÌ đã khớp `main` (job `kiem-prod-theo-main` xanh, 21/09). **đo thật
+> 22/09**: 3.109 test Python, **0 hỏng**, 4 bỏ qua; test Node/React giữ số của
+> lượt đo 21/09 (733 Node — 1 bỏ qua — và 74 React), không chạy lại hôm nay
+> (xem §10).
 
 ---
 
