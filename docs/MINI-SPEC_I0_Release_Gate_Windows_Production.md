@@ -3,7 +3,13 @@
 - **Parent phase:** Phase I — Kịch bản thành chỉ đạo hình ảnh
 - **Author:** Perplexity
 - **Date:** 2026-09-21
-- **Status:** Ready for audit; no product/visual-direction feature work may begin before this gate closes.
+- **Status (cập nhật 2026-09-21):** §B (test D3) đóng ở commit `7c3d7ac`;
+  §C (danh sách đóng gói suy ra tự động) và §G (D5 prod-theo-main) đã đóng
+  trước đó. §D/§E/§F — **cài mới, nâng cấp, dub bằng bản đóng gói — ĐẠT** qua
+  MINI-SPEC con I0-FDE, run CI `35625471619` (commit `9b5b8ea`).
+  **Chưa đóng:** §A/§H phần bằng chứng phát hành (checksum artifact công bố,
+  release notes) và toàn bộ mục "After tag/deploy" — vì **chưa cắt tag**, và
+  việc đó là quyết định của chủ dự án, không phải của lượt làm việc này.
 
 ---
 

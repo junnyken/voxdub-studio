@@ -5,7 +5,13 @@
 - **Scope IDs:** I0-D (clean install), I0-E (upgrade), I0-F (packaged end-to-end dub)
 - **Author:** Perplexity
 - **Date:** 2026-09-21
-- **Status:** Ready for audit and implementation on a dry-run branch; no GitHub Release publish in this MINI-SPEC.
+- **Status (cập nhật 2026-09-21):** **I0-D, I0-E, I0-F — ĐẠT.** Bằng chứng:
+  run CI `35625471619` (`workflow_dispatch`, commit `9b5b8ea`, `windows-latest`,
+  job 10 phút), artifact `packaged-dub-evidence-35625471619`. Cả ba cổng chạy
+  bằng chính gói zip giải nén ra hộp cát ngoài cây mã nguồn; `Publish GitHub
+  Release` vẫn **skipped** đúng thiết kế dry-run — **MINI-SPEC này không tạo
+  tag và không publish**; quyết định cắt tag là của chủ dự án.
+  Số đo và bốn giới hạn còn treo: xem `docs/TEST_LOG.md`, mục *I0-FDE(e)*.
 
 ---
 

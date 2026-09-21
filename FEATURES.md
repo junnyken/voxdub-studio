@@ -339,18 +339,44 @@ này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cu
   phát hành. Bằng chứng lượt v3.16.3: *23 câu · tiếng aac · −15,9 dB · 54,6s
   (nguồn 53,5s)*.
 
-  Còn lại chưa tự động: lượt chạy đó dùng **mã nguồn**, không phải bản `.exe`
-  đã đóng gói (bản `.exe` chỉ có smoke test khởi động + kiểm tệp worker có
-  trong gói). Và không có gì kiểm được **chất lượng** — chỉ kiểm đường chạy.
+  Lượt chạy đó dùng **mã nguồn** (`python -m autodub.cli`), và tới 21/09/2026
+  nó vẫn là thứ duy nhất chạy thật — bản `.exe` chỉ có smoke test khởi động.
 
-  **21/09 (I0-FDE) — cổng kiểm bản ĐÓNG GÓI đã có mã, nhưng CHƯA chạy lần nào.**
-  `scripts/kiem_goi_phat_hanh.py` + lệnh `VoxDub.exe --tu-kiem-goi` dựng ba cổng:
-  cài mới sạch (I0-D), nâng cấp cạnh bản cũ (I0-E), và dub thật bằng chính gói
-  đã giải nén từ zip phát hành (I0-F), rồi soi tệp ra bằng đúng bộ đo của C55.
-  Đã cắm vào `release.yml` TRƯỚC bước phát hành. **Chưa có lượt chạy Windows
-  nào** — nên tới lúc này vẫn phải đọc là: *bản `.exe` vẫn chỉ được smoke test
-  khởi động*. Chỉ được sửa câu này sau khi có run CI xanh kèm artifact bằng
-  chứng (`packaged-dub-evidence/`).
+  **21/09/2026 (I0-FDE) — bản `.exe` ĐÃ được chạy thử thật, lần đầu tiên.**
+  Run CI `35625471619` (commit `9b5b8ea`, `windows-latest`, job 10 phút) chạy
+  ba cổng mới **trước** bước phát hành, bằng chính gói zip giải nén ra hộp cát
+  nằm ngoài cây mã nguồn:
+
+  - **I0-D cài mới sạch + I0-F** (124s): thư mục cài trắng, cài Whisper +
+    VieNeu bằng chính tệp `.bat` trong gói, rồi dub trọn vẹn qua `VoxDub.exe`.
+  - **I0-E nâng cấp cạnh bản cũ + I0-F** (138s): bản mới giải nén cạnh bản cũ,
+    dùng lại `.venv-*`/`models/`/`bin/`/`.env` của bản cũ, dub trọn vẹn, và
+    bản cũ **không mất hay đổi tệp nào**.
+  - **Ba ca âm của I0-E** (6s): khác thư mục cha · bản cũ thiếu thành phần ·
+    `.env` hỏng — cả ba đều **không nhận vơ** là đã dùng lại, và không rò
+    token của hộp thử.
+
+  Số đo giống nhau ở cả hai đường: `trang_thai_pipeline="completed"`, **42
+  tiến trình con**, tiếng `aac`, **`mean_volume` −18,5 dB** (không câm),
+  **54,418s** so với nguồn **53,499s**; cả bốn tệp `duong-da-dung.json` đều
+  `ngoai_vung=[]` và `tu_cay_ma_nguon=[]` (không mượn gì của cây mã nguồn).
+
+  **Phạm vi đã chứng minh — đúng chừng này, không hơn:** một lượt dub qua
+  chính `VoxDub.exe`, từ **cài mới sạch** và từ **nâng cấp cạnh bản cũ**, trên
+  `windows-latest`, với fixture **tiếng Anh 53,5 giây** và **Whisper `tiny`**.
+  Vẫn **không có gì kiểm được chất lượng** — chỉ kiểm đường chạy. Bốn giới hạn
+  còn treo:
+
+  1. **Bản quyền `tap01_clip.mp4` chưa xác định** — tệp vào repo ở commit
+     `190cd2a` không kèm ghi chú nguồn.
+  2. **"Bản trước" của I0-E là CÙNG phiên bản với ứng viên** — chứng minh cơ
+     chế dùng lại, **không** chứng minh migration giữa hai phiên bản khác nhau.
+  3. **Không có coverage cho UX đúp chuột `.bat`** — CI chạy tệp `.bat` thật
+     nhưng không tương tác, nên phần "người dùng bấm vào rồi thấy gì" vẫn chưa
+     ai kiểm.
+  4. **Phép so bản cài cũ không băm thư mục nặng** (`models/`, `.venv-*`) —
+     chỉ so tên + kích thước, nên ca *ghi đè mà giữ nguyên kích thước* không
+     bắt được.
 
 ### 5.2 Đã biết, chưa sửa
 

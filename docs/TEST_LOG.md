@@ -18217,3 +18217,93 @@ dùng chung của bản cũ):
 Bước 13 (**ba ca âm**: khác thư mục cha · thiếu thành phần · cấu hình hỏng)
 **vẫn chưa chạy lần nào** — bị bỏ qua ở cả ba lượt. Lượt tới là lần đầu nó
 được chạm tới.
+
+## I0-FDE(e) — BA CỔNG XANH: bản `.exe` lần đầu được chạy thử thật (21/09/2026)
+
+Run **35625471619** (`workflow_dispatch`, commit **`9b5b8ea`**, `windows-latest`).
+Job **success, 10 phút** — thay luôn con số ước lượng "20–25 phút" tôi ghi ở
+mục I0-FDE đầu tiên: ước sai, số thật rẻ hơn nhiều.
+
+| Bước | Thời gian | Kết quả |
+|---|---|---|
+| 11 — I0-D cài mới + I0-F | **124s** | `sach`: `ket_qua="dat"`, `giay=123,6` |
+| 12 — I0-E nâng cấp + I0-F | **138s** | `nang-cap`: `ket_qua="dat"`, `giay=136,9` |
+| 13 — I0-E ba ca âm | **6s** | `am-tinh`: `ket_qua="dat"`, `giay=5,2` |
+| Publish GitHub Release | — | **skipped** (đúng thiết kế dry-run) |
+| Dry-run — không publish | — | success |
+
+### I0-F, đo ở CẢ HAI đường (cài mới và nâng cấp)
+
+`chang2/result.json`: `trang_thai_pipeline="completed"`, **42 tiến trình con**.
+`output-probe.json`: `codec_tieng="aac"` · **`mean_volume_db=-18,5`** (không
+câm) · `giay_ra=54,418005` so với `giay_nguon=53,498776` (lệch **1,7%**, trần
+35%).
+
+**Cả bốn** tệp `duong-da-dung.json` (`sach/chang1`, `sach/chang2`,
+`nang-cap/chang1`, `nang-cap/chang2`): `ngoai_vung=[]` **và**
+`tu_cay_ma_nguon=[]`. Tức lượt xanh này không mượn một tệp nào của cây mã
+nguồn — thứ mà ba lượt trước chưa lần nào chứng minh được sạch.
+
+### I0-E — bản cũ còn nguyên, và THÊM CÁI GÌ nay nhìn được
+
+`nang-cap/upgrade-diff.json`: `nguyen_ven=true`, `sua_doi=[]`, `bi_xoa=[]`,
+`nang_bi_mat=[]`, `nang_doi_kich_thuoc=[]`, `thu_muc_nang_khong_so_duoc=[]`.
+
+`them_moi_trong_thu_muc_nang` có **12 tệp và đọc được tên**:
+
+```
+models/whisper/blobs/95/95d7065…
+models/whisper/models--Systran--faster-whisper-tiny/blobs/3baa18e2…
+```
+
+Đúng là **model Whisper tiny được tải vào kho dùng chung của bản cũ** — khớp
+chính xác lý do chốt chính sách A ở mục I0-FDE(d). Nếu chốt cũ còn nguyên thì
+lượt này vẫn đỏ, và đỏ oan.
+
+### Ba ca âm — lần đầu được chạm tới
+
+`khac-cha`, `thieu-thanh-phan`, `env-hong` đều `ket_qua="dat"`. Khối `bo_may`
+của cả ba trỏ vào **chính nó**, `san_sang=false` — ví dụ
+`D:\a\_temp\hop-goi\nang-cap\cha-khac\VoxDub-candidate\.venv-vieneu\Scripts\python.exe`.
+Tức bản mới **không nhận vơ** là đã dùng lại bản cũ.
+
+Che bí mật: `am-tinh/quet-bi-mat.json` có `tep_lo_token=[]`. Điều phối viên
+**không chỉ tin tệp đó** — tự `grep -ril "hf_|glpat|ghp_|VOX-"` toàn bộ thư
+mục bằng chứng: rỗng. Đúng cách: một bộ canh tự nói "tôi sạch" thì phải có
+người soi lại bằng đường khác.
+
+### Trạng thái các cổng
+
+| Cổng | Trước | Nay |
+|---|---|---|
+| I0-D cài mới sạch | blocked | **đạt** (run 35625471619) |
+| I0-E nâng cấp cạnh bên + 3 ca âm | blocked | **đạt** (run 35625471619) |
+| I0-F dub bằng bản đóng gói | blocked | **đạt** (run 35625471619) |
+
+Chặng đường tới đây mất **bốn lượt CI**, mỗi lượt một lớp lỗi khác nhau, và
+**ba trong bốn lỗi nằm ở chính bộ canh chứ không ở sản phẩm**:
+`35604804515` (dựng cổng) → `35614850573` (đường dẫn tương đối qua hai `cwd`
+làm mất bằng chứng) → `35618355094` (bộ dò kêu nhầm cờ ffmpeg là "tệp trong
+cây mã nguồn") → `35621763885` (chốt "mọi thay đổi là vi phạm" bắt oan việc
+tải model vào kho dùng chung) → `35625471619` **xanh**.
+
+### Bốn giới hạn còn treo (nhắc lại đủ, đừng đọc thành đã xong)
+
+1. **Bản quyền `tap01_clip.mp4` chưa xác định** — 4,2 MB · 53,4s · h264+aac ·
+   thoại tiếng Anh · phụ đề cháy song ngữ; vào repo ở commit `190cd2a` không
+   kèm ghi chú nguồn. Cổng mới dùng lại đúng tệp cổng cũ đang dùng nên không
+   thêm rủi ro, nhưng câu hỏi của §B vẫn mở.
+2. **"Bản trước" của I0-E là CÙNG phiên bản với ứng viên** — chứng minh cơ chế
+   dùng lại, **không** chứng minh migration giữa hai phiên bản khác nhau.
+   Muốn chặt hơn thì lấy zip v3.17.19 thật làm bản cũ.
+3. **Không có coverage cho UX đúp chuột `.bat`** — CI chạy tệp `.bat` thật
+   nhưng không tương tác (stdin từ `NUL`), nên phần "người dùng bấm vào rồi
+   thấy gì" vẫn chưa ai kiểm.
+4. **Phép so bản cài cũ không băm thư mục nặng** (`models/`, `.venv-*`) — chỉ
+   so tên + kích thước, nên ca *ghi đè mà giữ nguyên kích thước* không bắt
+   được. Giá của việc không băm ~25.000 tệp hai lần mỗi lượt CI.
+
+Ngoài ra: phạm vi đã chứng minh là **một** đường chạy — fixture tiếng Anh
+53,5s, Whisper `tiny`, `bg_mode=none`, `subtitle_mode=none`. Không có gì ở đây
+nói về **chất lượng** bản dịch/giọng đọc, về video tiếng Trung/Nhật, về Demucs,
+phụ đề, lipsync hay đường GPU.
