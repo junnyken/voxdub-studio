@@ -73,6 +73,8 @@ hiddenimports = [
     "autodub.speech.align",            # ass_karaoke: khớp mốc chữ
     "autodub.media.timing",            # pipeline/editor: timeline mềm
     "autodub.securestore",             # mã hóa file trung gian (hold Vox)
+    "autodub.bang_chung",              # I0-FDE: hàm dựng bằng chứng cho lệnh
+                                       # --tu-kiem-goi (nhập trong thân hàm)
     "autodub.product_scene",           # trang Ảnh sản phẩm: dựng bối cảnh (C1)
     "autodub.product_video",           # trang Ảnh sản phẩm: ghép video ngắn (C6)
     "autodub.media.cat_tep",           # trang Chép lời: cắt tệp dài (C25)

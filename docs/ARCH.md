@@ -90,6 +90,22 @@ PySide6, dark theme (`theme.py` QSS + `tokens.py` là nguồn màu duy nhất). 
 Có prewarm trang, preflight machine check, crash handler + file log, smoke-test mode
 (`AUTODUB_SMOKE=1`), setup wizard lần đầu, update checker (GitHub releases).
 
+**Ranh giới điều khiển của bản đóng gói (mini-spec I0-FDE, Route B).** Bản `.exe`
+trước nay không có dòng lệnh nào: `__main__.py` gọi thẳng `app.main()`, mà `main()`
+không đọc `sys.argv`; `autodub/cli.py` không được nhập ở đâu trong `autodub_gui/`
+nên PyInstaller không gói nó. Nay có **đúng một** cửa điều khiển, dành cho CI:
+
+```
+VoxDub.exe --tu-kiem-goi [--chi-do-dac] --video … --thu-muc-ra … --bang-chung …
+```
+
+- Rẽ trong `autodub_gui/__main__.py` **trước** khi nhập `app` — không kéo Qt vào.
+- Là **lớp vỏ mỏng** quanh `DubPipeline.run()` — đúng lớp mà `workers.DubWorker`
+  (nút bấm trong GUI) và `autodub/cli.py` cùng gọi. Không có đường dub thứ hai.
+- Tự khoá ngoại tuyến (`AUTODUB_SMOKE=1` + `TRANSLATE_MODE=manual`) nên lượt kiểm
+  không chạm máy chủ và không tiêu Vox.
+- Không có cờ thì mọi thứ chạy y như trước; người dùng đúp chuột không vào được đây.
+
 ### 2.3 `control_server/` — SaaS backend (tuỳ chọn)
 
 Node 20 + Fastify 5 + MongoDB/Mongoose 8. Giữ toàn bộ API key nhà cung cấp AI (desktop

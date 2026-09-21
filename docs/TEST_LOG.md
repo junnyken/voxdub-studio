@@ -17787,3 +17787,130 @@ chỗ nghi ngờ; bước `[10/12]` thì đã dựng lại nguyên vẹn. Cảnh
 Nhánh deploy do `scripts/gen_vays_dub_worker_branch.sh` sinh (CI chạy sau khi
 push `main`) có chép `scripts/setup_vieneu.py`, nên bản vá đi theo đúng đường
 đó, không phải sửa tay nhánh deploy.
+
+## I0-FDE — cổng kiểm BẢN ĐÓNG GÓI: cài mới · nâng cấp · dub bằng chính .exe (21/09/2026)
+
+**Trạng thái: mã đã xong, CHƯA có lượt chạy Windows nào.** Mọi con số dưới đây
+là của bộ test Linux; phần chạy thật (I0-D/E/F) còn `blocked` chờ một lượt CI
+`workflow_dispatch` — workspace này là Linux, không chạy được `.exe`.
+
+### Soi trước khi viết (Audit Before Build)
+
+Câu hỏi quyết định của mini-spec là *"bản `.exe` đã có cửa điều khiển nào chưa"*
+— tức chọn **Route A** (dùng cửa sẵn có) hay **Route B** (thêm một lệnh chẩn
+đoán hẹp). Đo được bốn điều, và cả bốn đều nói KHÔNG có cửa nào:
+
+| Câu hỏi | Bằng chứng đọc trong mã |
+|---|---|
+| `.exe` có dòng lệnh không? | `autodub_gui/__main__.py` gọi thẳng `app.main()`; trong `app.py` `sys.argv` chỉ xuất hiện một lần, ở `QApplication(sys.argv)` — không có `argparse` |
+| `voxdub dub` có trong gói không? | không chỗ nào trong `autodub_gui/` nhập `autodub.cli`, mà điểm vào của `autodub.spec` là `autodub_gui/__main__.py` → PyInstaller không gói `cli.py` |
+| có máy chủ nội bộ/IPC không? | quét `http.server`/`socketserver`/`QLocalServer`/`QTcpServer`/`uvicorn` trong `autodub/`+`autodub_gui/`: **0 kết quả** |
+| cửa test sẵn có làm được gì? | `AUTODUB_SMOKE=1` → `app.py::_smoke_report` dựng GUI rồi ghi `smoke_test_result.json`; quyết pass/fail chỉ bằng `checks["ok"]` + `api_url_nhung`. Chứng minh **khởi động**, không chạm nghe/đọc giọng/ghép video |
+
+Đo thêm trên lượt dry-run có thật (run `35604804515`, `workflow_dispatch` trên
+`main`, 21/09): build 92s · zip 6s · cài VieNeu 87s · **cổng dub mã nguồn
+`--den-cuoi` chỉ 35s** (21 câu · en-US 99% · tiếng aac · **−16,3 dB** · 54,4s so
+với nguồn 53,5s) · `Publish GitHub Release` = **skipped**. Gói ra: `dist/VoxDub`
+162 MB, zip 72 MB. Hai zip khác gốc nhau — `VoxDub-Studio-<ref>-win64.zip`
+(release.yml, tệp nằm ngay gốc, **đây là bản người dùng tải**) và
+`dist/VoxDub-Studio-v<ver>.zip` (bọc trong `VoxDub Studio/`); bộ lái nhận cả hai
+rồi tự tìm `VoxDub.exe`, vì đoán sai gốc là kiểm một thư mục rỗng mà vẫn xanh.
+
+Và smoke test của chính lượt đó in ra `vieneu_installed = False`,
+`faster_whisper_importable = False` — tức **bản `.exe` không thể tự nghe/đọc
+giọng nếu thư mục cài chưa có `.venv-whisper` / `.venv-vieneu`**. Đây là lý do
+cổng mới phải cài bộ máy theo đúng đường người dùng (`Cai dat … .bat`) chứ không
+được mượn venv của cây mã nguồn.
+
+### Đã làm
+
+- `autodub_gui/tu_kiem_goi.py` — **Route B**, một cửa duy nhất:
+  `VoxDub.exe --tu-kiem-goi`. Rẽ ở `__main__.py` **trước** khi nhập `app`
+  (không kéo Qt), rồi dựng `DubRequest` + gọi `DubPipeline.run()` — đúng lớp mà
+  `workers.DubWorker` (nút bấm) và `autodub/cli.py` cùng gọi. Không có bước dub
+  nào được viết lại.
+- Lệnh **tự khoá ngoại tuyến** (`AUTODUB_SMOKE=1` + `TRANSLATE_MODE=manual`).
+  Bắt buộc, vì trong bản đóng gói `saas_client.resolve_api_url()` **bỏ qua biến
+  môi trường** và dùng địa chỉ nhúng trong exe: không khoá thì mỗi lượt kiểm
+  đăng ký một thiết bị thật và tiêu một suất Vox — đã xảy ra 22/8/2026.
+- `autodub/bang_chung.py` — hàm thuần dùng chung: che bí mật, so đường dẫn theo
+  **thành phần** (để `VoxDub-cu` không bị tính là nằm trong `VoxDub`), chụp và
+  so manifest bản cài cũ.
+- `scripts/kiem_goi_phat_hanh.py` — bộ lái CI, ba chế độ `sach` / `nang-cap` /
+  `am-tinh`. **Dùng lại nguyên** `_ffprobe`, `_muc_am_trung_binh`, `_thoi_luong`,
+  `_viet_ban_dich_tay` của `kiem_chay_that.py` — hai định nghĩa "câm" khác nhau
+  thì sớm muộn chúng nói ngược nhau (có test khoá đúng điều này).
+- `release.yml` — ba bước mới nằm **sau** cổng dub mã nguồn và **trước**
+  `Publish GitHub Release`; artifact bằng chứng `if: always()`; bảng tóm tắt
+  sinh từ tệp bằng chứng chứ không gõ tay.
+
+### Test
+
+`python3 -m pytest` (Linux, chạy làm 4 lô vì chạy một lượt bị OOM kill):
+**3032 đạt · 4 bỏ qua · 0 hỏng** (trước đó 2977/4 — đúng bằng 55 test mới).
+
+Một test CŨ bắt được lỗi thật của đợt này:
+`test_nuot_loi_co_dau_vet.py` đỏ vì chỗ `except Exception: pass` cuối cùng
+trong `tu_kiem_goi.chay()` chưa khai lý do — đã viết lý do tại chỗ, không nới
+luật.
+
+**Chứng minh ĐỎ khi gỡ bản vá** (mỗi dòng: gỡ chốt → chạy đúng test đó → đỏ →
+khôi phục):
+
+| Gỡ cái gì | Test đỏ theo |
+|---|---|
+| chốt "chặng 2 phải `completed`" | `test_chang_hai_khong_duoc_nhan_translate_pending` |
+| khoá ngoại tuyến (`AUTODUB_SMOKE`) | `test_khoa_ngoai_tuyen_chan_duoc_dia_chi_nhung_trong_exe` |
+| che token trong danh sách tham số | `test_ghi_lai_moi_tien_trinh_con` |
+| chốt "chỉ được chạy `VoxDub.exe`" | `test_khong_cho_chay_thu_gi_khac_ngoai_exe` |
+| chốt phát hiện mượn tệp cây mã nguồn | `test_duong_tu_cay_ma_nguon_la_hong` |
+| phép đo CÂM (`mean_volume`) | `test_tieng_cam_la_hong` |
+| chốt hộp cát sạch (không có bản cũ cạnh bên) | `test_hop_cat_con_ban_cu_canh_ben_la_hong` |
+| gắn `if:` cho một bước cổng gói trong YAML | `test_cong_goi_khong_duoc_gan_dieu_kien_hay_bo_qua_loi` |
+| bỏ điều kiện tag của bước phát hành | `test_buoc_phat_hanh_van_chi_chay_voi_tag` |
+
+### Chạy thử BỘ LÁI trên Linux với một `VoxDub.exe` GIẢ
+
+Không thay được lượt chạy Windows, nhưng trả lời được câu "bộ lái có chạy
+thông không, và nó có ĐỎ đúng chỗ không" — rẻ hơn nhiều so với đợi mỗi lượt CI
+do người bấm. Gói giả: một `VoxDub.exe` viết bằng bash (dò bản cũ cạnh bên,
+ghi `result.json`, xuất video bằng ffmpeg thật) + hai script cài giả. Chỉ chỉnh
+một thứ cho Linux: `zipfile.extractall` không giữ bit thực thi nên phải chmod
+lại sau khi giải nén.
+
+| Lượt | Kết quả |
+|---|---|
+| `--che-do sach` (gói lành) | **đạt** — giải nén → báo thiếu bộ máy (mã 5) → cài → chặng 1 dừng ở dịch tay → chặng 2 xuất video → `tiếng=aac · −21,1 dB · 6,0s (nguồn 6,0s)` |
+| `--che-do nang-cap` (gói lành) | **đạt** — smoke thấy VieNeu của bản cũ, `.env` được mang sang, whisper/vieneu/bin đều trỏ vào bản cũ, dub xong, **bản cũ nguyên vẹn** (0 tệp sửa/xoá) |
+| `--che-do am-tinh` (gói lành) | **đạt** — ba ca âm + quét bí mật sạch |
+| Cấy lỗi "video ra CÂM" (`anullsrc`) | **HỎNG đúng chỗ**: `Luồng tiếng CÂM (mean_volume -91.0 dB)`, mã thoát 1 |
+| Cấy lỗi "nhận vơ bản cũ ở thư mục cha khác" | **HỎNG đúng chỗ**, có nêu đường dẫn bị mượn |
+
+Lượt cấy lỗi thứ hai bắt được **một lỗi thật trong chính bộ lái**: bản đầu đặt
+bản mới ở một nhánh xa tít, nên ca "khác thư mục cha" chỉ chứng minh *app không
+quét cả ổ đĩa* — cấy lỗi "dò lùi thêm một cấp" vào mà cổng vẫn xanh. Đã sửa:
+bản mới nay nằm ở thư mục cha **ngay cạnh** thư mục cha của bản cũ, và bộ lái
+tự kiểm hình dạng hộp thử trước khi kết luận. Bài học cũ lặp lại: *phép quét
+cũng phải tự kiểm*.
+
+Bằng chứng một lượt để lại (đúng bố cục mini-spec đòi): `result.json`,
+`environment.json`, `candidate-artifact.json`, `executable-path.txt`,
+`input-fixture.json`, `output-probe.json`, `output-video.mp4` + `.sha256`,
+`tom-tat.json`, và mỗi chặng một thư mục con có `app.stdout/stderr.log`,
+`worker-launches.jsonl`, `duong-da-dung.json`.
+
+### CHƯA chứng minh (đừng đọc thành đã xong)
+
+- I0-D / I0-E / I0-F **chưa chạy lần nào**: cần một lượt `workflow_dispatch` của
+  `Build & release VoxDub Studio (Windows)`. Phiên làm việc này không tự bấm
+  được (token trong remote chỉ có `contents:write`; gọi API dispatch trả 403).
+- Gói zip THẬT chưa bao giờ được giải nén và chạy thử trên Windows bởi bộ lái
+  này. Lượt chạy thử ở trên dùng `VoxDub.exe` GIẢ: nó chứng minh bộ lái đúng,
+  **không** chứng minh gì về bản đóng gói thật (cài VieNeu/Whisper thật, dò bản
+  cũ thật, PyInstaller `_MEIPASS`, tiến trình con thật).
+- Thời lượng và dung lượng đĩa của lượt CI mới (ước: +2 lần cài bộ máy ≈ 6 phút,
+  ~3 GB hộp cát) là **ước lượng**, chưa đo.
+- Nguồn gốc/bản quyền của `tap01_clip.mp4` (4,2 MB · 53,4s · h264+aac · tiếng
+  Anh, phụ đề cháy song ngữ) **không tra được từ repo** — nó vào repo ở commit
+  `190cd2a` không kèm ghi chú nguồn. Cổng mới dùng lại đúng tệp cổng cũ đang
+  dùng nên không thêm rủi ro mới, nhưng đây là một câu hỏi còn mở của §B.

@@ -343,6 +343,15 @@ này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cu
   đã đóng gói (bản `.exe` chỉ có smoke test khởi động + kiểm tệp worker có
   trong gói). Và không có gì kiểm được **chất lượng** — chỉ kiểm đường chạy.
 
+  **21/09 (I0-FDE) — cổng kiểm bản ĐÓNG GÓI đã có mã, nhưng CHƯA chạy lần nào.**
+  `scripts/kiem_goi_phat_hanh.py` + lệnh `VoxDub.exe --tu-kiem-goi` dựng ba cổng:
+  cài mới sạch (I0-D), nâng cấp cạnh bản cũ (I0-E), và dub thật bằng chính gói
+  đã giải nén từ zip phát hành (I0-F), rồi soi tệp ra bằng đúng bộ đo của C55.
+  Đã cắm vào `release.yml` TRƯỚC bước phát hành. **Chưa có lượt chạy Windows
+  nào** — nên tới lúc này vẫn phải đọc là: *bản `.exe` vẫn chỉ được smoke test
+  khởi động*. Chỉ được sửa câu này sau khi có run CI xanh kèm artifact bằng
+  chứng (`packaged-dub-evidence/`).
+
 ### 5.2 Đã biết, chưa sửa
 
 - ~~Dịch cục bộ (NLLB) có thể lẫn/bịa nội dung khi câu 2 trong 1 segment bị
