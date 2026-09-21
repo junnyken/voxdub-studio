@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -295,9 +296,67 @@ def _doi_ma(kq, ket: dict, viec: str) -> dict:
 
 # ----------------------------------------------------- soi đường chạy thật --
 
-def _cac_duong_da_dung(bang_chung: Path, ket: dict) -> list[str]:
-    """Mọi đường dẫn lượt chạy đã chạm: tiến trình con + bộ máy đã chọn."""
-    duong = []
+#: Ổ đĩa Windows ở đầu chuỗi (`D:\\…` hoặc `D:/…`). Bộ lái chạy trên Windows
+#: nhưng bằng chứng hay được đọc lại trên Linux, nên phải nhận cả hai kiểu.
+_O_DIA = re.compile(r"^[A-Za-z]:[\\/]")
+
+
+def la_duong_dan(chuoi: str) -> bool:
+    r"""Chuỗi này có phải ĐƯỜNG DẪN không — hay chỉ là cờ/bộ lọc của ffmpeg?
+
+    Bản đầu hỏi *"có dấu phân cách hoặc dấu hai chấm không"*, và dấu hai chấm
+    là chỗ chết: `-b:v`, `-c:v`, `color=black:s=256x256:d=0.1` đều bị coi là
+    tệp (đo được ở run 35618355094). Kêu nhầm ở một bộ canh còn tệ hơn bỏ
+    sót — bỏ sót thì mất một lần phát hiện, kêu nhầm thì **mất cả cái chốt**,
+    vì lần sau người đọc sẽ bỏ qua nó (bài học D5, commit 1a21d34).
+
+    Nên chỉ nhận ba hình dạng, và **không** nhận dấu hai chấm làm dấu hiệu:
+
+    * tuyệt đối kiểu Windows (`D:\…`) hoặc kiểu POSIX/UNC (`/…`, `\\…`);
+    * có dấu phân cách thư mục ở đâu đó (kể cả tương đối: `..\..\autodub\x.py`
+      — đường leo ra cây mã nguồn vẫn phải bị bắt);
+    * cờ (`-…`) thì KHÔNG bao giờ là đường dẫn.
+
+    Chuỗi lọt lưới (vd `scale=trunc(iw/2)*2`) không gây kêu nhầm: nó tương
+    đối, nên được giải theo `cwd` của chính lượt gọi — mà `cwd` đó luôn nằm
+    trong hộp cát.
+    """
+    s = (chuoi or "").strip()
+    if not s or s.startswith("-"):
+        return False
+    if _O_DIA.match(s) or s.startswith(("/", "\\")):
+        return True
+    return "/" in s or "\\" in s
+
+
+def _giai_tuyet_doi(chuoi: str, cwd: str) -> str:
+    """Đường dẫn tuyệt đối của ``chuoi``, giải theo ``cwd`` của LƯỢT GỌI đó.
+
+    Không bao giờ được dùng `os.path.abspath()` trần ở đây: nó giải theo thư
+    mục của **tiến trình đang soi** (bộ lái đứng ở gốc repo), nên mọi chuỗi
+    tương đối — kể cả `-b:v` — đều "biến thành" tệp nằm trong cây mã nguồn.
+    Đó đúng là cơ chế đã làm run 35618355094 đỏ oan.
+    """
+    s = (chuoi or "").strip()
+    if not s:
+        return ""
+    if _O_DIA.match(s) or s.startswith(("/", "\\")):
+        return os.path.normpath(s)
+    if not cwd:
+        return ""      # không biết giải theo đâu thì KHÔNG đoán bừa
+    ngan = "\\" if ("\\" in cwd and "/" not in cwd) else "/"
+    return os.path.normpath(cwd.rstrip("/\\") + ngan + s)
+
+
+def _cac_duong_da_dung(bang_chung: Path, ket: dict) -> tuple[list[str], list[str]]:
+    """``(đường dẫn đã giải tuyệt đối, chuỗi bị bỏ vì không phải đường dẫn)``.
+
+    Trả về luôn phần BỊ BỎ để người đọc bằng chứng soi được bộ lọc này có
+    đang giấu đi thứ đáng nhìn không — một bộ lọc không ai kiểm được thì
+    chính nó là chỗ giấu lỗi.
+    """
+    duong: list[str] = []
+    bo_qua: list[str] = []
     jsonl = bang_chung / "worker-launches.jsonl"
     if jsonl.is_file():
         for dong in jsonl.read_text(encoding="utf-8").splitlines():
@@ -305,15 +364,24 @@ def _cac_duong_da_dung(bang_chung: Path, ket: dict) -> list[str]:
                 muc = json.loads(dong)
             except json.JSONDecodeError:
                 continue
-            duong.append(muc.get("chuong_trinh", ""))
-            duong.extend(t for t in muc.get("tham_so", [])
-                         if isinstance(t, str) and (os.sep in t or ":" in t))
+            cwd = str(muc.get("cwd") or "")
+            for t in [muc.get("chuong_trinh", ""), *muc.get("tham_so", [])]:
+                if not isinstance(t, str) or not t.strip():
+                    continue
+                if not la_duong_dan(t):
+                    bo_qua.append(t)
+                    continue
+                giai = _giai_tuyet_doi(t, cwd)
+                (duong if giai else bo_qua).append(giai or t)
     bo_may = ket.get("bo_may", {})
     for ten in ("vieneu", "whisper", "paraformer"):
         muc = bo_may.get(ten) or {}
         if muc.get("san_sang"):
-            duong += [muc.get("python", ""), muc.get("thu_muc_model", "")]
-    return [d for d in duong if d and (os.sep in d or ":" in d)]
+            for t in (muc.get("python", ""), muc.get("thu_muc_model", "")):
+                giai = _giai_tuyet_doi(t, "")
+                if giai:
+                    duong.append(giai)
+    return duong, bo_qua
 
 
 def kiem_duong_chay(bang_chung: Path, ket: dict, goc_cho_phep: list[str],
@@ -323,18 +391,25 @@ def kiem_duong_chay(bang_chung: Path, ket: dict, goc_cho_phep: list[str],
     Đây là chốt chặn ca xanh-giả nguy hiểm nhất: bản đóng gói thiếu tệp nhưng
     lượt chạy vẫn xong vì mượn được của cây mã nguồn nằm cạnh trên máy CI.
     """
-    duong = _cac_duong_da_dung(bang_chung, ket)
+    duong, bo_qua = _cac_duong_da_dung(bang_chung, ket)
     # Ngoại lệ khai TƯỜNG MINH: ffmpeg/ffprobe của máy (thiết kế gói cho phép
     # — HUONG_DAN_CAI_DAT.md Bước 1 bảo người dùng cài bằng winget) và thư
     # mục hệ điều hành.
     ngoai_le = [str(Path(ffmpeg_he_thong).parent) if ffmpeg_he_thong else "",
                 os.environ.get("SystemRoot", r"C:\Windows")]
     la = duong_ngoai_vung(duong, goc_cho_phep, ngoai_le)
+    # HAI KHÁI NIỆM KHÁC NHAU, đừng gộp: "ngoài vùng cho phép" là mọi thứ
+    # không nằm trong hộp cát (có thể chỉ là một thư mục hệ điều hành lạ);
+    # "mượn cây mã nguồn" là nằm DƯỚI GỐC REPO — thứ mà bản người dùng tải
+    # về không bao giờ có. Bản đầu tính cái sau bằng cái trước, nên gán nhãn
+    # "mượn mã nguồn" cho cả cờ của ffmpeg (run 35618355094).
     tu_ma_nguon = [d for d in duong if trong_vung(d, str(GOC_REPO))]
     (bang_chung / "duong-da-dung.json").write_text(
         json.dumps(che_bi_mat({"tat_ca": sorted(set(duong)),
                                "ngoai_vung": sorted(set(la)),
                                "tu_cay_ma_nguon": sorted(set(tu_ma_nguon)),
+                               "khong_phai_duong_dan": sorted(set(bo_qua)),
+                               "goc_repo": str(GOC_REPO),
                                "goc_cho_phep": goc_cho_phep,
                                "ngoai_le": ngoai_le}),
                    ensure_ascii=False, indent=2), encoding="utf-8")

@@ -425,3 +425,123 @@ def test_main_that_su_goi_chuan_hoa(tmp_path, monkeypatch, capsys):
     assert str(tmp_path.resolve()) in loi, (
         "câu lỗi phải in đường dẫn TUYỆT ĐỐI — nó là bằng chứng rằng bộ lái "
         f"đã chuẩn hoá trước khi dùng: {loi!r}")
+
+
+# ---------------------------------------- BỘ DÒ KÊU NHẦM (run 35618355094) --
+#
+# Lượt chạy Windows THỨ HAI: bản đóng gói dub xong thật (aac, −18,5 dB, 54,4s
+# so với nguồn 53,5s, 42 tiến trình con, không một đường nào dưới gốc repo) —
+# nhưng cổng vẫn đỏ vì bộ dò kêu nhầm HAI lớp:
+#
+#   1. coi mọi chuỗi có dấu ":" là đường dẫn → `-b:v`, `-c:v`,
+#      `color=black:s=256x256:d=0.1` bị kể là tệp;
+#   2. tính "mượn cây mã nguồn" = "ngoài vùng cho phép", nên ba chuỗi đó bị
+#      gán nhãn nặng nhất mà bộ canh có.
+#
+# Với một bộ canh, kêu nhầm tệ hơn bỏ sót: bỏ sót thì mất một lần phát hiện,
+# kêu nhầm thì mất CẢ CÁI CHỐT (FEATURES.md §6, bài học D5 ở 1a21d34). Nên
+# phải khoá CẢ HAI CHIỀU.
+
+#: Nguyên văn từ `duong-da-dung.json` của run 35618355094.
+CO_FFMPEG_THAT = ["-b:v", "-c:v", "color=black:s=256x256:d=0.1", "-hide_banner",
+                  "volumedetect", "format=yuv420p", "-f", "null"]
+
+
+def _ghi_lan_chay(thu_muc: Path, chuong_trinh: str, tham_so: list,
+                  cwd: str) -> Path:
+    thu_muc.mkdir(parents=True, exist_ok=True)
+    with open(thu_muc / "worker-launches.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"chuong_trinh": chuong_trinh,
+                            "tham_so": tham_so, "cwd": cwd}) + "\n")
+    return thu_muc
+
+
+def test_co_va_bo_loc_ffmpeg_KHONG_bi_ke_la_duong_dan(tmp_path, monkeypatch):
+    """Chiều 1: thứ không phải đường dẫn thì không được kêu."""
+    hop = tmp_path / "hop"
+    # Đứng ở gốc repo lúc soi — đúng cảnh của bộ lái trên CI, và đúng cơ chế
+    # đã biến `-b:v` thành "tệp trong cây mã nguồn".
+    monkeypatch.chdir(bo_lai.GOC_REPO)
+    bc = _ghi_lan_chay(tmp_path / "bc", str(hop / "ffmpeg.exe"),
+                       CO_FFMPEG_THAT, str(hop))
+    dong = bo_lai.kiem_duong_chay(bc, {}, [str(hop)], "")
+    assert dong and "trong hộp cát" in dong[0]
+    soi = json.loads((bc / "duong-da-dung.json").read_text(encoding="utf-8"))
+    assert soi["ngoai_vung"] == [] and soi["tu_cay_ma_nguon"] == []
+    for co in CO_FFMPEG_THAT:
+        assert co not in soi["tat_ca"], f"{co!r} không phải đường dẫn"
+        assert co in soi["khong_phai_duong_dan"], (
+            "thứ bị bộ lọc bỏ qua phải liệt kê ra được — bộ lọc không ai "
+            "kiểm được thì chính nó là chỗ giấu lỗi")
+
+
+@pytest.mark.parametrize("chuoi", CO_FFMPEG_THAT)
+def test_tung_co_ffmpeg_khong_phai_duong_dan(chuoi):
+    assert bo_lai.la_duong_dan(chuoi) is False
+
+
+@pytest.mark.parametrize("chuoi", [
+    r"D:\a\_temp\hop\VoxDub Studio\.venv-whisper\Scripts\python.exe",
+    "/usr/bin/ffmpeg", r"..\..\autodub\speech\asr_whisper_worker.py",
+    "autodub/speech/vieneu_worker.py", "C:/Windows/system32/cmd.exe",
+])
+def test_duong_dan_that_van_duoc_nhan(chuoi):
+    assert bo_lai.la_duong_dan(chuoi) is True
+
+
+def test_duong_TUYET_DOI_trong_cay_ma_nguon_van_do(tmp_path):
+    """Chiều 2: ca thật vẫn phải đỏ — mượn tệp của repo."""
+    hop = tmp_path / "hop"
+    that = bo_lai.GOC_REPO / "autodub" / "speech" / "asr_whisper_worker.py"
+    bc = _ghi_lan_chay(tmp_path / "bc", str(hop / "python.exe"),
+                       [str(that)], str(hop))
+    with pytest.raises(bo_lai.Hong, match="cây mã nguồn"):
+        bo_lai.kiem_duong_chay(bc, {}, [str(hop)], "")
+
+
+def test_duong_TUONG_DOI_leo_ra_cay_ma_nguon_van_do(tmp_path):
+    """Ca khó: đường tương đối, giải theo cwd của lượt gọi thì rơi vào repo."""
+    cwd = str(bo_lai.GOC_REPO / "dist" / "VoxDub")
+    bc = _ghi_lan_chay(tmp_path / "bc", "python.exe",
+                       [r"..\..\autodub\speech\asr_whisper_worker.py"
+                        if os.sep == "\\"
+                        else "../../autodub/speech/asr_whisper_worker.py"],
+                       cwd)
+    with pytest.raises(bo_lai.Hong, match="cây mã nguồn"):
+        bo_lai.kiem_duong_chay(bc, {}, [str(tmp_path / "hop")], "")
+
+
+def test_ngoai_hop_cat_KHAC_muon_ma_nguon(tmp_path):
+    """Hai khái niệm phải tách: ngoài vùng ≠ mượn cây mã nguồn."""
+    hop = tmp_path / "hop"
+    la = tmp_path / "noi-khac" / "python.exe"
+    bc = _ghi_lan_chay(tmp_path / "bc", str(la), [], str(hop))
+    with pytest.raises(bo_lai.Hong, match="NGOÀI hộp cát"):
+        bo_lai.kiem_duong_chay(bc, {}, [str(hop)], "")
+    soi = json.loads((bc / "duong-da-dung.json").read_text(encoding="utf-8"))
+    assert soi["ngoai_vung"] == [str(la)]
+    assert soi["tu_cay_ma_nguon"] == [], (
+        "gán nhãn 'mượn mã nguồn' cho một đường chỉ vì nó ngoài vùng là làm "
+        "hỏng chính cái nhãn đó")
+    assert soi["goc_repo"] == str(bo_lai.GOC_REPO)
+
+
+def test_duong_tuong_doi_trong_hop_cat_khong_bi_keu(tmp_path, monkeypatch):
+    """Chuỗi lọt lưới lọc được giải theo cwd của lượt gọi → vẫn trong hộp cát."""
+    monkeypatch.chdir(bo_lai.GOC_REPO)
+    hop = tmp_path / "hop"
+    bc = _ghi_lan_chay(tmp_path / "bc", str(hop / "ffmpeg.exe"),
+                       ["scale=trunc(iw/2)*2", "data/seg_00001.wav"], str(hop))
+    dong = bo_lai.kiem_duong_chay(bc, {}, [str(hop)], "")
+    assert dong and "trong hộp cát" in dong[0]
+
+
+def test_bo_may_da_chon_van_bi_soi_sau_ban_va(tmp_path):
+    """Bản vá không được làm mất độ nhạy với bộ máy app đã chọn."""
+    hop = tmp_path / "hop"
+    bc = _ghi_lan_chay(tmp_path / "bc", str(hop / "ffmpeg.exe"), [], str(hop))
+    ket = {"bo_may": {"vieneu": {
+        "python": str(tmp_path / "ban-cu-la" / "python.exe"),
+        "thu_muc_model": "", "san_sang": True}}}
+    with pytest.raises(bo_lai.Hong, match="NGOÀI hộp cát"):
+        bo_lai.kiem_duong_chay(bc, ket, [str(hop)], "")

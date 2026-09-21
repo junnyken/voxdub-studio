@@ -18018,3 +18018,97 @@ tương đối → bị chặn trước khi chạy.
 Bước 11 mới đi tới phép kiểm **trước khi cài**. Ba thứ sau nó **vẫn chưa từng
 chạy**: cài bộ máy bằng tệp `.bat` trong hộp cát, hai chặng dub bằng `.exe`
 thật, và toàn bộ I0-E. I0-D/I0-E/I0-F vẫn là `blocked`.
+
+## I0-FDE(c) — bản đóng gói ĐÃ DUB ĐƯỢC THẬT; cổng đỏ vì chính bộ dò kêu nhầm (21/09/2026)
+
+Run **35618355094** (`workflow_dispatch`, commit `d6873e6`). Bản vá đường dẫn
+của lượt trước ăn: bước 11 chạy **121 giây** (lượt trước chết ở giây thứ 3),
+artifact **4,2 MB** (lượt trước 2,2 KB).
+
+### Thứ lần đầu tiên chứng minh được: `.exe` dub thật, và không mượn của ai
+
+Đọc từ artifact, không suy đoán:
+
+| Mục | Số đo |
+|---|---|
+| `sach/chang2/result.json` | `trang_thai_pipeline="completed"`, `giai_doan_hong=None`, **42 tiến trình con** |
+| `sach/output-probe.json` | `codec_tieng="aac"`, **`mean_volume_db=-18,5`** (không câm), `giay_ra=54,418` vs `giay_nguon=53,499` (**lệch 1,7%**, trần 35%) |
+| `sach/output-video.mp4` | có thật, 4.254.346 byte, `sha256 3781e19b…5a090` |
+| `duong-da-dung.json` | có `…\VoxDub Studio\_internal\autodub\speech\asr_whisper_worker.py`, `…\.venv-whisper\Scripts\python.exe`, `…\.venv-vieneu\Scripts\python.exe` — **tất cả trong hộp cát**, không một đường nào dưới `D:\a\voxdub-studio\voxdub-studio` |
+
+Tức V80 (tệp worker thiếu khỏi gói) nếu tái phát thì đã lộ ở đây, và đường
+chạy trong bản `.exe` — nghe bằng venv riêng, đọc giọng bằng venv riêng, ghép
+video — **lần đầu tiên chạy trọn vẹn trên một thư mục cài mới hoàn toàn**.
+
+### Nhưng cổng vẫn ĐỎ — vì bộ dò, không phải vì sản phẩm
+
+Câu báo lỗi ra ngoài:
+
+```
+Lượt chạy của bản ĐÓNG GÓI đã dùng tệp trong cây mã nguồn:
+['color=black:s=256x256:d=0.1', '-c:v', '-b:v', ...]
+```
+
+**Hai lỗi riêng biệt, chồng lên nhau:**
+
+1. **Coi mọi phần tử argv có dấu `:` là đường dẫn.** Bộ lọc cũ hỏi *"có
+   `os.sep` hoặc `:` không"* — mà `-b:v`, `-c:v`,
+   `color=black:s=256x256:d=0.1` đều có dấu hai chấm. Chúng là **cờ và bộ lọc
+   lavfi của ffmpeg**, không phải tệp.
+2. **Tính "mượn cây mã nguồn" bằng "ngoài vùng cho phép".** Ba chuỗi trên nằm
+   trong CẢ `ngoai_vung` LẪN `tu_cay_ma_nguon`. Cơ chế: `trong_vung()` gọi
+   `os.path.abspath()`, mà `abspath` giải theo thư mục của **tiến trình đang
+   soi** — bộ lái đứng ở gốc repo. Nên `-b:v` "biến thành"
+   `D:\a\voxdub-studio\voxdub-studio\-b:v` và được gán đúng cái nhãn nặng nhất
+   mà bộ canh có.
+
+> Với một bộ canh, **kêu nhầm tệ hơn bỏ sót**: bỏ sót thì mất một lần phát
+> hiện, kêu nhầm thì mất **cả cái chốt** — lần sau người đọc sẽ bỏ qua nó
+> (FEATURES.md §6; bài học D5 ở commit `1a21d34`). Ở đây nó còn tệ hơn một
+> bậc: nhãn sai chỉ thẳng người đọc đi nghi ngờ bản đóng gói, trong khi bản
+> đóng gói vừa làm đúng mọi thứ.
+
+### Đã sửa (chỉ bộ dò + test của nó, không đụng gì khác)
+
+- `la_duong_dan()` — chỉ nhận ba hình dạng: tuyệt đối kiểu Windows (`D:\…`),
+  tuyệt đối kiểu POSIX/UNC, hoặc **có dấu phân cách thư mục** (kể cả tương
+  đối, để `..\..\autodub\x.py` vẫn bị bắt). Chuỗi bắt đầu bằng `-` **không bao
+  giờ** là đường dẫn. **Dấu hai chấm không còn là dấu hiệu.**
+- `_giai_tuyet_doi(chuoi, cwd)` — đường tương đối được giải theo `cwd` của
+  **chính lượt gọi đó** (đã ghi sẵn trong `worker-launches.jsonl`), tuyệt đối
+  không dùng `abspath` trần. Nhờ vậy chuỗi lạ lọt lưới lọc (vd
+  `scale=trunc(iw/2)*2`) rơi vào hộp cát chứ không rơi vào repo → không thể
+  gây kêu nhầm; còn đường thật leo ra repo thì vẫn bị bắt.
+- `tu_cay_ma_nguon` tính bằng **"nằm dưới gốc repo"**, `ngoai_vung` tính bằng
+  "ngoài vùng cho phép" — hai khái niệm, hai danh sách, hai câu lỗi.
+- `duong-da-dung.json` thêm `khong_phai_duong_dan` (thứ bộ lọc đã bỏ qua) và
+  `goc_repo`. Một bộ lọc không ai kiểm được thì chính nó là chỗ giấu lỗi.
+
+### Test
+
+`python3 -m pytest` (4 lô): **3061 đạt · 4 bỏ qua · 0 hỏng** (trước: 3042/4 —
+đúng **19 test mới**). Test dùng **nguyên văn** các chuỗi lấy từ
+`duong-da-dung.json` của run 35618355094.
+
+Năm phép cấy lỗi, đỏ đúng test, **khoá cả hai chiều**:
+
+| Gỡ / cấy | Test đỏ theo | Chiều |
+|---|---|---|
+| trả lại bộ lọc cũ (coi `:` là đường dẫn) | `test_co_va_bo_loc_ffmpeg_KHONG_bi_ke_la_duong_dan` | chống kêu nhầm |
+| gộp `tu_cay_ma_nguon = ngoai_vung` | `test_ngoai_hop_cat_KHAC_muon_ma_nguon` | chống kêu nhầm |
+| giải đường bằng `abspath` trần | `test_duong_tuong_doi_trong_hop_cat_khong_bi_keu` | chống kêu nhầm |
+| bỏ hẳn phép bắt mượn cây mã nguồn | `test_duong_TUYET_DOI_trong_cay_ma_nguon_van_do` | **giữ độ nhạy** |
+| bỏ phép giải đường tương đối | `test_duong_TUONG_DOI_leo_ra_cay_ma_nguon_van_do` | **giữ độ nhạy** |
+
+Chạy lại bộ lái với exe GIẢ, nay có thêm một lượt gọi ffmpeg mang đúng cờ đã
+làm CI đỏ: **đạt**, `ngoai_vung=[]`, `tu_cay_ma_nguon=[]`, và các cờ nằm gọn
+trong `khong_phai_duong_dan`.
+
+### Trạng thái các cổng sau lượt này
+
+- **I0-F: đạt về THỰC CHẤT** (số đo ở bảng trên, do chính `.exe` sinh ra) —
+  nhưng cổng chưa xanh, nên chưa được ghi là đã qua.
+- **I0-D**: đi hết được đường cài mới + dub, còn vướng đúng phép soi đường
+  chạy ở cuối.
+- **I0-E** (bước 12) và **ba ca âm** (bước 13): **chưa chạy lần nào** — bị bỏ
+  qua vì bước 11 đỏ.
