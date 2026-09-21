@@ -17622,3 +17622,81 @@ Hai lỗi D5 tự bắt trong ngày đầu (worker thiếu `SOURCE_SHA` trong �
 này), **cả hai đều của tôi**. Một chốt mà lượt đầu đã lôi ra hai lỗi thật là
 chốt đáng giữ — nhưng nó cũng nói rõ: viết chốt xong mà chưa chạy thật thì chưa
 biết nó đúng hay sai.
+
+### D1 vá đuôi 21/09 — cảnh cuối tắt ở chữ cuối, 4 giây cuối không có hình
+
+Bản vá D1 15/09 (`5af86a3`) dựng lại slideshow theo giọng thật. Chạy lại pilot
+`scripts/pilot_h4_cuc_bo.py --giu` để xem tận mắt thì **video dựng lại còn
+16,33 s trong khi tiếng dài 20,31 s** — ngắn hơn cả bản ước lượng ban đầu
+(19,30 s) mà nó vừa thay thế.
+
+Tự kiểm của D1 **không kêu**, và nó kêu sao được: nó so video mới với chính
+`sum(giay)` của mình (16,35 s), nên bước dựng lại nhất quán với đúng mục tiêu
+của nó. Mục tiêu mới là thứ sai.
+
+```
+_moc_that: giay = [start[i+1] − start[i] …] + [end[-1] − start[-1]]
+```
+
+Mọi cảnh dài tới `start` của câu KẾ (ôm trọn khoảng lặng trong cảnh); cảnh cuối
+không có câu kế nên lấy `end` của câu cuối — mà `apply_soft_timing` đã kéo `end`
+về đúng chỗ **tiếng nói tắt**. Cảnh cuối vì thế chỉ còn 2,472 s (đúng độ dài
+clip giọng) thay vì 5,43 s. **Cuối câu cuối không phải cuối dòng thời gian.**
+
+Đo trên chính tệp xuất ra (`ffprobe` từng luồng, không đọc mỗi `format=duration`
+— hai số đó khác nhau và chỗ khác nhau chính là lỗi):
+
+| Đo | Trước | Sau |
+|---|---|---|
+| `storyboard_video.mp4` dựng lại | 16,333 s | 20,300 s |
+| `data/audio_vi_full.wav` | 20,310 s | 20,310 s |
+| Luồng **video** trong `dubbed_video.mp4` | 16,333 s | 20,300 s |
+| Luồng **tiếng** trong `dubbed_video.mp4` | 20,310 s | 20,310 s |
+| Rút khung hình ở giây 16,5 / 18 / 20,2 | **không có khung nào** | có hình (ảnh CTA) |
+
+`merge_video` không có `-shortest`, nên tệp xuất ra dài bằng TIẾNG — hình ngắn
+hơn không cắt tiếng, nó để lại **3,98 giây đứng hình/đen**.
+
+**Kiểm tiền đề trước khi gọi là lỗi**: so màu khung hình với `silencedetect`,
+ba cảnh đầu đổi tại 0 / 6,44 / 13,88 khớp tiếng nói ở 0–3,03 / 6,56–9,81 /
+14,0–16,21. Hình KHÔNG lệch nhịp — lỗi nằm đúng ở đuôi. Nếu không đo bước này
+thì rất dễ báo thành "D1 hỏng cả gói" và đi sửa nhầm chỗ.
+
+**Vì sao 12 test D1 cũ đều xanh**: chúng dựng câu NỐI LIỀN NHAU
+(`_segments([(0.0, 2.5), (2.5, 5.5), (5.5, 7.5)])`) — hình dạng mà `end` của câu
+cuối tình cờ CŨNG là cuối dòng thời gian. Dữ liệu thật sau bước đặt lại thời
+điểm không có hình dạng đó: giữa hai câu là khoảng lặng, và sau câu cuối tiếng
+vẫn chạy tiếp. Test đúng hình dạng đồ giả của chính nó.
+
+**Sửa**: `_moc_that(segments, dai_tieng)` kéo cảnh cuối tới
+`max(end[-1], dai_tieng)`; `rebuild_output` **đo tệp tiếng vừa trộn xong** rồi
+đưa sang — không dùng lại `total_duration` (ý định lúc gọi trộn ≠ tệp sắp ghép).
+
+**Kiểm**: 5 test mới dùng **số đo thật của pilot** (giọng 3,216/3,528/2,472 s,
+tiếng ghép 20,31 s), không phải số bịa cho vừa test.
+
+| Gỡ gì | Kết quả |
+|---|---|
+| `max(cuoi, dai_tieng)` trong `_moc_that` | **2 đỏ** — đúng hai test về độ dài cảnh cuối |
+| `dai_tieng=…` ở `editor.rebuild_output` | **1 đỏ** — đúng test nối dây |
+
+Test nối dây chạy **`rebuild_output` thật** (chỉ giả bước trộn/ghép/SRT) nên nó
+đi qua `apply_soft_timing` thật và tự đo được `end` câu cuối = 16,352 s. Không
+có nó thì hai đầu không gặp nhau: `_moc_that` sửa đúng mà đường xuất vẫn gọi
+không kèm số đo, bản vá chết lặng.
+
+Chạy: 19 test D1, 26 test lọc `-k "d1 or theo_giong or moc_that"`, và 247 test
+của 18 tệp đụng tới `editor.py` / `du_an_tu_kich_ban.py` / `media/timing.py` —
+xanh hết. Rồi chạy lại pilot thật để chốt bằng tệp mp4 chứ không bằng test.
+
+**Bịt luôn lỗ ĐO đã để lọt**: pilot in `thời lượng video cuối: 20.31s` và báo
+ĐẠT — vì `format=duration` lấy theo luồng DÀI NHẤT, tức là tiếng. Hình ngắn hơn
+cho ĐÚNG con số ấy, nên một cái đuôi mất hình trông y hệt tệp lành lặn. Nay
+pilot đo **từng luồng** và có chốt riêng. Thử lại trên hai tệp mp4 thật đang
+còn: bản trước vá ⇒ `HỎNG — thiếu 3,98s hình ở cuối`; bản sau vá ⇒ `ĐẠT`. Cả
+hai đều cho `cả tệp = 20,31s` — đúng con số đã che mất lỗi.
+
+**Còn lại, cố ý không đụng**: ~4 giây im lặng cuối tệp tiếng là do
+`rebuild_output:812` tính `total_duration = max(end) + 1.0` TRƯỚC bước đặt lại
+thời điểm, nên nó vẫn theo ước lượng. Cắt nó là đổi hành vi đường xuất của MỌI
+dự án (dự án lồng tiếng cần tiếng phủ hết video nguồn) — ngoài phạm vi D1.

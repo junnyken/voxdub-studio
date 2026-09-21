@@ -84,6 +84,27 @@ def _thoi_luong(duong: str) -> float | None:
         return None
 
 
+def _thoi_luong_luong(duong: str, loai: str) -> float | None:
+    """Thời lượng của MỘT luồng (`v` hình / `a` tiếng), không phải của cả tệp.
+
+    Vì sao phải tách ra: `format=duration` của tệp xuất ra lấy theo luồng DÀI
+    NHẤT — tức là tiếng. Hình ngắn hơn tiếng vẫn cho đúng con số ấy, nên đo cả
+    tệp thì một cái đuôi không có khung hình nào trông y hệt một tệp lành lặn.
+
+    Đúng chỗ pilot này trượt hồi 15/09: D1 dựng lại slideshow còn 16,33s trong
+    khi tiếng dài 20,31s, mà dòng "thời lượng video cuối" vẫn in 20,31s và
+    pilot báo ĐẠT. 3,98 giây cuối không có hình nào và không ai thấy.
+    """
+    ra = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", loai, "-show_entries",
+         "stream=duration", "-of", "csv=p=0", duong],
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    try:
+        return float((ra.stdout or "").strip().splitlines()[0].rstrip(","))
+    except (ValueError, IndexError):
+        return None
+
+
 def _co_tieng(duong: str) -> tuple[bool, float]:
     """Video này có luồng tiếng không, và nó có THẬT SỰ kêu không.
 
@@ -170,6 +191,23 @@ def chay(thu_muc_goc: str) -> bool:
     dat_het &= _dat("video xuất ra CÓ TIẾNG", co, f"mức âm trung bình {muc:.1f} dB")
     dai_ra = _thoi_luong(ra)
     print(f"  thời lượng video cuối    : {dai_ra:.2f}s")
+
+    # D1 — hình phải PHỦ HẾT tiếng. `merge_video` không có `-shortest`, nên
+    # tệp ra luôn dài bằng tiếng: hình ngắn hơn không bị cắt tiếng, nó để lại
+    # một cái đuôi đứng hình/đen. Đo TỪNG LUỒNG, vì con số ở trên lấy theo
+    # luồng dài nhất và che mất đúng chuyện này (xem `_thoi_luong_luong`).
+    dai_hinh = _thoi_luong_luong(ra, "v")
+    dai_tieng = _thoi_luong_luong(ra, "a")
+    if dai_hinh is None or dai_tieng is None:
+        dat_het &= _dat("D1 — hình phủ hết tiếng", False, "không đọc được luồng")
+    else:
+        thieu = dai_tieng - dai_hinh
+        print(f"  luồng hình / luồng tiếng : {dai_hinh:.2f}s / {dai_tieng:.2f}s")
+        dat_het &= _dat(
+            "D1 — hình phủ hết tiếng (không có đuôi mất hình)",
+            thieu <= 2 / 30,
+            f"thiếu {thieu:.2f}s hình ở cuối" if thieu > 2 / 30
+            else f"lệch {abs(thieu):.3f}s, dưới một khung")
 
     _cau("KẾT LUẬN")
     print("  ĐẠT — chuỗi H4 chạy trọn vẹn, video cuối có tiếng."

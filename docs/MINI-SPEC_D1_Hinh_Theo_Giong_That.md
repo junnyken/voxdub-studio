@@ -50,7 +50,8 @@ sẵn trong `ghep_anh_nguoi_dung` + cổng đo lại của H4c-1. Dùng lại y 
    gì để dựng lại.
 2. **`dung_lai_video_theo_giong(work_dir, segments)`** — mốc lấy từ `start` của
    từng câu (đã là mốc thật sau bước đặt lại thời điểm):
-   `giây[i] = start[i+1] − start[i]`, đoạn cuối lấy hết phần còn lại.
+   `giây[i] = start[i+1] − start[i]`, đoạn cuối lấy hết phần còn lại
+   **của TỆP TIẾNG, không phải của câu cuối** — xem mục 7.
 3. **Nối vào `editor.rebuild_output`**, sau bước đặt lại thời điểm và trước
    `merge_video`.
 
@@ -84,3 +85,52 @@ hỏng to tiếng, không âm thầm ghi đè.
 - **Không tự đọc lại** bất cứ câu nào — D1 là 0 Vox.
 - **Không đổi hợp đồng H4c-1.** Video vẫn phải khớp dòng thời gian, chỉ là dòng
   thời gian nay lấy từ giọng thật thay vì ước lượng.
+
+---
+
+## 7. Vá 21/09 — "phần còn lại" là của TỆP TIẾNG, không phải của câu cuối
+
+Bản vá 15/09 (`5af86a3`) lấy `end` của câu cuối làm cuối dòng thời gian
+(`cuối = end[-1]`, tổng cả video = `end[-1] − start[0]`). **Cuối câu cuối
+không phải cuối dòng thời gian.**
+
+Mọi cảnh khác dài tới `start` của câu KẾ, nên chúng ôm trọn khoảng lặng nằm
+trong cảnh. Cảnh cuối không có câu kế để dựa vào, và `apply_soft_timing` thì
+kéo `end` về đúng chỗ **tiếng nói tắt** — nên cảnh cuối chỉ còn đúng độ dài
+clip giọng, còn bao nhiêu tiếng chạy sau đó thì mất hình.
+
+Đo được (pilot `scripts/pilot_h4_cuc_bo.py`, 21/09):
+
+| Thứ | Trước vá 21/09 | Sau |
+|---|---|---|
+| `storyboard_video.mp4` dựng lại | 16,33 s | 20,30 s |
+| `data/audio_vi_full.wav` | 20,31 s | 20,31 s |
+| Luồng video trong `dubbed_video.mp4` | 16,33 s | 20,30 s |
+| Đuôi video **không có khung hình nào** | **3,98 s** | 0,01 s (dưới một khung) |
+
+`merge_video` **không có `-shortest`**, nên tệp xuất ra luôn dài bằng TIẾNG:
+hình ngắn hơn không bị cắt tiếng, nó để lại một cái đuôi đứng hình/đen. Ở
+pilot, ảnh CTA tắt ngay khi đọc xong thay vì giữ tới hết — đúng thứ D1 sinh ra
+để dọn, chỉ là ở cuối video thay vì giữa.
+
+**Ba cảnh đầu vốn đã ĐÚNG** (đo bằng màu khung hình so với `silencedetect`:
+cảnh đổi tại 0 / 6,44 / 13,88 khớp tiếng nói ở 0–3,03 / 6,56–9,81 /
+14,0–16,21). Đây là lỗi ở ĐUÔI, không phải lệch nhịp — đừng đọc nhầm thành D1
+hỏng cả gói.
+
+**Sửa**: `_moc_that(segments, dai_tieng)` — cảnh cuối kéo tới
+`max(end[-1], dai_tieng)`. `rebuild_output` **đo tệp tiếng vừa trộn xong**
+(`wav_duration_s(merged_audio_path)`) rồi đưa sang, cố ý KHÔNG dùng lại biến
+`total_duration`: con số đó là *ý định* lúc gọi trộn, thứ sắp ghép vào video là
+*tệp*. `dai_tieng` chỉ được **kéo dài**, không bao giờ rút — một số đo hụt mà
+rút hình lại thì cắt mất chữ cuối, hỏng nặng hơn hẳn cái đang sửa.
+
+### Vì sao KHÔNG sửa ở đầu kia (cắt bớt tiếng)
+
+`editor.rebuild_output:812` tính `total_duration = max(end) + 1.0` **trước**
+bước đặt lại thời điểm, nên tệp tiếng dài theo ƯỚC LƯỢNG (19,31 + 1,0) trong
+khi các câu đã lùi `end` về giọng thật — đó là nguồn của ~4 giây im lặng ở
+cuối. Cắt nó đi là đổi hành vi **đường xuất của MỌI dự án**: với dự án lồng
+tiếng video quay thật, tiếng BẮT BUỘC phủ hết video nguồn, rút ngắn là đổi
+video thành đoạn cụt tiếng. Ngoài phạm vi D1 — ghi lại ở đây để ai đụng tới
+`total_duration` sau này biết nó đang gánh hai vai.

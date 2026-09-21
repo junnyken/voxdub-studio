@@ -156,11 +156,23 @@ def _anh_nguon_tu_ai(duong_dan: str, mo_ta: dict):
 NGUONG_DANG_DUNG_LAI_S = 0.25
 
 
-def _moc_that(segments: list[dict]) -> list[float] | None:
+def _moc_that(segments: list[dict],
+              dai_tieng: float | None = None) -> list[float] | None:
     """Thời lượng từng cảnh, suy từ mốc THẬT của các câu — D1.
 
     ``segments`` ở đây đã đi qua bước đặt lại thời điểm, nên ``start``/``end``
     là vị trí người nghe sẽ nghe thật, không còn là ước lượng.
+
+    ``dai_tieng`` là thời lượng ĐO ĐƯỢC của tệp tiếng sắp ghép cùng. Cảnh cuối
+    phải kéo tới hết tệp ấy, vì **cuối câu cuối KHÔNG phải cuối dòng thời
+    gian**: mọi cảnh khác dài tới ``start`` của câu kế (tức là ôm trọn khoảng
+    lặng nằm trong cảnh), còn cảnh cuối thì không có câu kế để dựa vào. Lấy
+    ``end`` của câu cuối làm mốc kết nghĩa là cắt hình ngay khi tiếng nói tắt,
+    trong khi tệp tiếng vẫn còn chạy.
+
+    Đo được 21/09 (pilot H4): câu cuối tắt tiếng ở 16,352s còn
+    ``audio_vi_full.wav`` dài 20,31s — `merge_video` không có ``-shortest`` nên
+    tệp xuất ra dài bằng TIẾNG, và **3,96 giây cuối không có khung hình nào**.
 
     Trả ``None`` khi không lát kín được dòng thời gian (câu chồng nhau, hoặc
     mốc không tăng dần) — lúc đó giữ nguyên video cũ chứ không đoán.
@@ -169,6 +181,10 @@ def _moc_that(segments: list[dict]) -> list[float] | None:
         return None
     moc = [float(s.get("start") or 0.0) for s in segments]
     cuoi = float(segments[-1].get("end") or 0.0)
+    if dai_tieng is not None:
+        # CHỈ kéo dài, không bao giờ rút: một số đo hụt mà rút hình lại thì
+        # cắt mất chữ cuối của người ta — hỏng nặng hơn hẳn cái đang sửa.
+        cuoi = max(cuoi, float(dai_tieng))
     giay = [moc[i + 1] - moc[i] for i in range(len(moc) - 1)] + [cuoi - moc[-1]]
     if any(g <= 0 for g in giay):
         return None
@@ -177,6 +193,7 @@ def _moc_that(segments: list[dict]) -> list[float] | None:
 
 def dung_lai_video_theo_giong(
     work_dir: str, segments: list[dict], *,
+    dai_tieng: float | None = None,
     ghep_video=None, do_thoi_luong=None,
 ) -> str | None:
     """Dựng lại slideshow theo GIỌNG ĐỌC THẬT — D1. 0 Vox.
@@ -193,6 +210,11 @@ def dung_lai_video_theo_giong(
     mới đúng: ảnh tĩnh KHÔNG có nhịp riêng, giữ 2,0 hay 2,3 giây đều không ai
     nhận ra — ép giọng đọc nhanh lên để vừa một tấm ảnh tĩnh là hy sinh đúng
     thứ người xem nghe được.
+
+    ``dai_tieng`` — thời lượng ĐO ĐƯỢC của tệp tiếng sắp ghép cùng (bên gọi đo
+    tệp trên đĩa, không đưa con số dự định). Hình phải phủ hết chừng ấy giây:
+    ``merge_video`` không có ``-shortest`` nên tệp xuất ra luôn dài bằng tiếng,
+    hình ngắn hơn là đuôi video không có khung nào. Xem `_moc_that`.
 
     **Mọi nhánh trả ``None`` đều là cố ý.** Hàm này được gọi từ đường xuất
     CHUNG của mọi dự án, nên nghi ngờ gì thì giữ nguyên hành vi cũ.
@@ -228,7 +250,7 @@ def dung_lai_video_theo_giong(
             len(thieu), thieu[0])
         return None
 
-    giay = _moc_that(segments)
+    giay = _moc_that(segments, dai_tieng)
     if giay is None:
         logger.warning("D1: mốc các câu không lát kín được dòng thời gian "
                        "(câu chồng nhau?) — giữ nguyên video cũ")

@@ -243,6 +243,176 @@ def test_dung_du_an_GHI_LAI_danh_sach_anh_va_giay_chuyen(tmp_path):
     assert nguon["giay_chuyen"] == pytest.approx(0.4)
 
 
+# ================================================================
+# CẢNH CUỐI phải phủ hết TIẾNG, không tắt ở chữ cuối cùng
+# ================================================================
+#
+# Số đo THẬT, lấy từ một lượt `scripts/pilot_h4_cuc_bo.py --giu` chạy 21/09
+# (không phải số bịa cho vừa test):
+#
+#   ước lượng  : câu bắt đầu 0 / 6,44 / 13,88 — kịch bản dài 19,31s
+#   giọng thật : 3,216 / 3,528 / 2,472s  (VieNeu đọc NHANH hơn ước lượng)
+#   sau `apply_soft_timing`: start GIỮ NGUYÊN (nó chỉ dồn trễ, không kéo câu
+#       lên sớm), `end` bị kéo về đúng chỗ tiếng tắt → 3,216 / 9,968 / 16,352
+#   tiếng đã ghép: `data/audio_vi_full.wav` = **20,31s** — vì
+#       `editor.rebuild_output` tính `total_duration = max(end) + 1.0` TRƯỚC
+#       bước đặt lại thời điểm, nên nó vẫn theo ước lượng (19,31 + 1,0).
+#
+# Mọi test D1 cũ đều dùng câu NỐI LIỀN NHAU (`end[i] == start[i+1]`) — hình
+# dạng mà `end` của câu cuối tình cờ CŨNG là cuối dòng thời gian. Dữ liệu thật
+# sau bước đặt lại thời điểm không có hình dạng đó: giữa hai câu là khoảng
+# lặng, và sau câu cuối vẫn còn tiếng (im lặng) chạy tiếp tới 20,31s.
+MOC_PILOT = [(0.0, 3.216), (6.44, 9.968), (13.88, 16.352)]
+DAI_TIENG_PILOT = 20.31
+
+
+def test_canh_cuoi_phu_HET_tieng_chu_khong_tat_o_chu_cuoi(tmp_path):
+    """Đo được 21/09: cảnh cuối chỉ dài 2,472s (đúng bằng clip giọng) trong
+    khi tiếng còn chạy tới 20,31s → video 16,35s ghép với tiếng 20,31s.
+
+    `merge_video` không có `-shortest`, nên tệp xuất ra dài bằng TIẾNG: gần 4
+    giây cuối **không có hình nào** (đo trên dubbed_video.mp4 của pilot: luồng
+    video dừng ở 16,333s còn luồng tiếng chạy tới 20,310s; ffmpeg không rút
+    nổi một khung nào ở giây 16,5 / 18 / 20,2).
+
+    Ba cảnh đầu thì đúng — cảnh đổi tại `start` của câu kế nên vẫn khớp lời.
+    Sai đúng một chỗ: cảnh CUỐI lấy `end` của câu cuối làm cuối dòng thời
+    gian, trong khi mọi cảnh khác lấy `start` của câu kế (tức là tính cả
+    khoảng lặng nằm trong cảnh).
+    """
+    wd = str(tmp_path / "duan"); os.makedirs(wd)
+    _ghi_nguon(wd, _anh(tmp_path, 3))
+    ghep = _Ghep()
+
+    ra = dk.dung_lai_video_theo_giong(
+        wd, _segments(MOC_PILOT), dai_tieng=DAI_TIENG_PILOT,
+        ghep_video=ghep, do_thoi_luong=lambda _p: DAI_TIENG_PILOT)
+
+    assert ra is not None
+    # 6,44 + 7,44 + (20,31 − 13,88)
+    assert ghep.goi[-1]["giay"] == pytest.approx([6.44, 7.44, 6.43])
+
+
+def test_video_dung_lai_KHONG_duoc_ngan_hon_tieng_no_se_ghep_cung(tmp_path):
+    """Chốt của test trên, phát biểu theo đúng thứ người xem gặp: tệp xuất ra
+    dài bằng TIẾNG, nên hình phải phủ hết chừng ấy giây."""
+    wd = str(tmp_path / "duan"); os.makedirs(wd)
+    _ghi_nguon(wd, _anh(tmp_path, 3))
+    ghep = _Ghep()
+
+    dk.dung_lai_video_theo_giong(
+        wd, _segments(MOC_PILOT), dai_tieng=DAI_TIENG_PILOT,
+        ghep_video=ghep, do_thoi_luong=lambda _p: DAI_TIENG_PILOT)
+
+    dai_hinh = sum(ghep.goi[-1]["giay"])
+    assert dai_hinh >= DAI_TIENG_PILOT - dk.LECH_THOI_LUONG_TOI_DA_S, (
+        f"hình chỉ dài {dai_hinh:.2f}s mà tiếng dài {DAI_TIENG_PILOT:.2f}s — "
+        f"{DAI_TIENG_PILOT - dai_hinh:.2f} giây cuối không có hình")
+
+
+def test_tieng_NGAN_hon_cau_cuoi_thi_khong_cat_bot_hinh(tmp_path):
+    """Chiều ngược lại: `dai_tieng` chỉ được KÉO DÀI cảnh cuối, không rút.
+
+    Cắt hình ngắn lại theo một con số đo hụt là cắt mất chữ cuối của người ta
+    — hỏng nặng hơn hẳn cái đang sửa."""
+    wd = str(tmp_path / "duan"); os.makedirs(wd)
+    _ghi_nguon(wd, _anh(tmp_path, 2))
+    ghep = _Ghep()
+
+    dk.dung_lai_video_theo_giong(
+        wd, _segments([(0.0, 3.0), (3.0, 6.0)]), dai_tieng=4.0,
+        ghep_video=ghep, do_thoi_luong=lambda _p: 6.0)
+
+    assert ghep.goi[-1]["giay"] == pytest.approx([3.0, 3.0])
+
+
+def test_KHONG_do_duoc_tieng_thi_giu_nguyen_cach_cu(tmp_path):
+    """Không đo được tệp tiếng (`wav_duration_s` trả None) thì vẫn dựng lại
+    theo mốc câu — hình lệch dần là lỗi NẶNG hơn một cái đuôi đứng hình, nên
+    thà dựng theo cách cũ còn hơn bỏ luôn việc dựng lại."""
+    wd = str(tmp_path / "duan"); os.makedirs(wd)
+    _ghi_nguon(wd, _anh(tmp_path, 2))
+    ghep = _Ghep()
+
+    dk.dung_lai_video_theo_giong(
+        wd, _segments([(0.0, 3.0), (3.0, 6.0)]), dai_tieng=None,
+        ghep_video=ghep, do_thoi_luong=lambda _p: 6.0)
+
+    assert ghep.goi[-1]["giay"] == pytest.approx([3.0, 3.0])
+
+
+def test_duong_xuat_DUA_dung_do_dai_tiep_DA_GHEP_cho_D1(tmp_path, monkeypatch):
+    """Nối dây: `rebuild_output` phải đưa độ dài tệp tiếng THẬT sang D1.
+
+    Không có phép kiểm này thì hai đầu không gặp nhau: `_moc_that` sửa đúng
+    nhưng đường xuất vẫn gọi không kèm số đo, và bản vá chết lặng.
+
+    Đo tệp trên đĩa chứ KHÔNG dùng lại biến `total_duration`: `total_duration`
+    là Ý ĐỊNH lúc gọi trộn, thứ sắp được ghép vào video là TỆP.
+    """
+    import wave
+
+    from autodub import du_an_tu_kich_ban as dk_mod
+    from autodub import editor
+    from autodub.config import Settings
+    from autodub.pipeline import DubPipeline
+
+    def _wav(duong, giay, rate=16000):
+        with wave.open(str(duong), "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+            w.writeframes(b"\x00\x00" * int(giay * rate))
+        return str(duong)
+
+    wd = tmp_path / "20260921000000_vi"
+    (wd / "data" / "segments").mkdir(parents=True)
+    (wd / dk.TEN_VIDEO_NGUON).write_bytes(b"video gia")
+    # Dòng thời gian ƯỚC LƯỢNG, đúng như `dung_du_an` ghi ra.
+    segs = [{"id": i + 1, "text": f"c{i}", "text_vi": f"câu {i}",
+             "start": a, "end": b, "duration": round(b - a, 3)}
+            for i, (a, b) in enumerate([(0.0, 6.44), (6.44, 13.88),
+                                        (13.88, 19.31)])]
+    (wd / "data" / "transcript_vi.json").write_text(
+        json.dumps(segs, ensure_ascii=False), encoding="utf-8")
+    # Giọng THẬT: ngắn hơn ước lượng (số đo pilot).
+    for i, giay in enumerate([3.216, 3.528, 2.472], start=1):
+        _wav(wd / "data" / "segments" / f"seg_{i:05d}.wav", giay)
+    (wd / "data" / "segments" / ".render_mode").write_text(
+        DubPipeline.RENDER_MODE, encoding="utf-8")
+    _ghi_nguon(str(wd), _anh(tmp_path, 3), giay_chuyen=0.3)
+
+    import autodub.media.audio as audio_mod
+    import autodub.media.video as video_mod
+    import autodub.text.srt as srt_mod
+
+    def _tron_gia(segments, seg_dir, ra, total_duration, **k):
+        # `merge_segments` thật cam kết tệp ra dài ĐÚNG `total_duration`
+        # (nền được `apad`/`atrim` về đúng số đó) — dựng lại đúng cam kết ấy.
+        return _wav(ra, total_duration)
+
+    monkeypatch.setattr(audio_mod, "merge_segments", _tron_gia)
+    monkeypatch.setattr(video_mod, "merge_video", lambda *a, **k: a[2])
+    monkeypatch.setattr(srt_mod, "generate_srt", lambda *a, **k: None)
+
+    nhan = {}
+
+    def _d1_gia(work_dir, segments, **kw):
+        # Trả None = "không dựng lại" — test này chỉ soi tham số nhận được.
+        nhan.update(kw)
+        nhan["cuoi_cau_cuoi"] = segments[-1]["end"]
+
+    monkeypatch.setattr(dk_mod, "dung_lai_video_theo_giong", _d1_gia)
+
+    editor.rebuild_output(str(wd), Settings(voice_postprocess=False),
+                          bg_mode="none")
+
+    # Câu cuối tắt tiếng ở 16,352s…
+    assert nhan["cuoi_cau_cuoi"] == pytest.approx(16.352, abs=0.05)
+    # …nhưng tệp tiếng dài tới 20,31s, và D1 phải biết điều đó.
+    assert nhan.get("dai_tieng") == pytest.approx(20.31, abs=0.05), (
+        "đường xuất không đưa độ dài tệp tiếng sang D1 — cảnh cuối sẽ tắt ở "
+        "chữ cuối cùng và đuôi video không có hình")
+
+
 def test_duong_xuat_CHI_dung_lai_khi_video_dung_la_slideshow():
     """`rebuild_output` là đường xuất CHUNG. Đọc mã nguồn để chắc điều kiện
     còn nguyên — mất nó thì một dự án lồng tiếng thường sẽ bị thay video."""

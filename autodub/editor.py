@@ -867,7 +867,15 @@ def rebuild_output(
     if video_path and os.path.basename(video_path) == TEN_VIDEO_NGUON:
         from autodub.du_an_tu_kich_ban import dung_lai_video_theo_giong
         try:
-            moi_ = dung_lai_video_theo_giong(work_dir, segments)
+            # Đưa luôn độ dài tệp tiếng VỪA TRỘN XONG: cuối câu cuối không
+            # phải cuối dòng thời gian. `total_duration` ở trên tính TRƯỚC
+            # bước đặt lại thời điểm nên nó vẫn theo ước lượng, còn các câu
+            # thì đã lùi `end` về chỗ tiếng tắt thật — hai con số lệch nhau
+            # đúng phần đuôi. Đo TỆP chứ không dùng lại `total_duration`: con
+            # số kia là ý định lúc gọi trộn, thứ sắp ghép vào video là tệp.
+            moi_ = dung_lai_video_theo_giong(
+                work_dir, segments,
+                dai_tieng=wav_duration_s(merged_audio_path))
             if moi_:
                 video_path = moi_
         except Exception as e:  # noqa: BLE001
