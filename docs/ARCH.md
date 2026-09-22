@@ -299,6 +299,36 @@ chủ**; app hỏi qua `app_config()` trước khi mở khâu ghép video. Hỏi
 thì **đóng** — mặc định phải nghiêng về phía an toàn. Chuyển nấc là thao tác
 của người quản trị, và máy chủ tự chặn nếu chưa đủ số lượt soi tay.
 
+## 4b. Từ điển chỉ đạo hình ảnh — một nguồn, hai người đọc (mini-spec I2)
+
+Vốn từ chỉ đạo hình ảnh nằm ở **đúng một tệp**:
+`control_server/src/data/visual-direction-catalog.v1.json`.
+
+Vì sao đặt trong `control_server/` chứ không ở `autodub/`: nhánh deploy chỉ
+mang `control_server/` + `website/` (xem `scripts/gen_vays_control_server_branch.sh`),
+nên tệp phải nằm trong đó thì máy chủ mới phát được. Phía Python **không chép
+lại** — `tests/test_i2_catalog_khop_renderer.py` đọc thẳng tệp JSON ấy rồi đối
+chiếu với chính `autodub/product_video.py`. Đây là bài học của `dub-langs`
+(V49) và ngân sách từ của H6: hai bản chép tay thì sớm muộn cũng trôi lệch, và
+lệch ở đường nối là chỗ không bộ test nào của từng phía nhìn thấy.
+
+Ranh giới:
+
+* **Soi dữ liệu** — `src/services/visual-catalog.service.js`, chạy lúc dựng
+  máy chủ. Dữ liệu sai (mục `supported` không có hàm dựng thật, mang tham số
+  thời gian, chạm khả năng bị cấm…) thì máy chủ **không khởi động** — không có
+  đường nào để một lời hứa sai đi tới người dùng.
+* **Phát ra** — `GET /v1/config/visual-direction-catalog`, chỉ đọc, không
+  token (cùng loại với `/config/app`: vốn từ sản phẩm, không khoá, không lời
+  nhắc, không dữ liệu thiết bị). Không có cửa ghi.
+* **Cổng kiểm cho bước sau** — `kiemChon()` trong cùng service: I3/I4 phải đi
+  qua đây; mã lạ, phiên bản lạ, hoặc một mục `advisory_only` bị mang đi dựng
+  hình đều bị chặn tại chỗ đó.
+
+Luật không được phá: **catalog không bao giờ quyết định thời lượng.** Thời
+lượng từng cảnh chỉ có một nguồn là `du_an_tu_kich_ban._moc_that` (D1, suy từ
+giọng đọc thật), và cảnh cuối phải phủ hết tệp tiếng.
+
 ## 5. Điểm cần lưu ý khi maintain/nâng cấp
 
 - Đóng gói GUI (`autodub_gui`, PyInstaller onedir) **vẫn chỉ Windows**. `control_server`

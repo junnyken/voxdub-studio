@@ -16,6 +16,7 @@
  */
 const config = require('../services/config.service')
 const { SOURCE_LANGS, TARGET_LANGS } = require('../utils/dub-langs')
+const visualCatalog = require('../services/visual-catalog.service')
 const PHIEN_BAN = require('../version')
 
 module.exports = async function configRoutes(fastify) {
@@ -72,4 +73,21 @@ module.exports = async function configRoutes(fastify) {
       serverVersion: PHIEN_BAN.version,
     }
   })
+
+  // ---------------------------------------------- mini-spec I2 (2026-09-22) --
+  //
+  // Từ điển chỉ đạo hình ảnh — CHỈ ĐỌC, và cố ý nằm ở đây thay vì `/v1/ai`.
+  //
+  // Vì sao không cần token: cửa này giống `GET /app` phía trên — vốn từ sản
+  // phẩm, không có khoá, không có lời nhắc mô hình, không có dữ liệu của bất
+  // kỳ thiết bị nào. Bịa ra một lớp xác thực cho một danh sách tĩnh không
+  // thêm được chút an toàn nào, mà lại khiến trang quản trị và bộ kiểm phải
+  // đúc token chỉ để đọc một tệp hằng số.
+  //
+  // Vì sao KHÔNG có cửa ghi: I2 chỉ dựng vốn từ. Lưu lựa chọn theo từng cảnh
+  // là việc của I3/I4 — mở cửa ghi bây giờ là mời dữ liệu vào trước khi có
+  // ai đọc nó.
+  fastify.get('/visual-direction-catalog', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async () => visualCatalog.docCatalog())
 }

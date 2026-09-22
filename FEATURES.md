@@ -220,7 +220,7 @@ nên **không tốn Vox**:
 **Chưa làm:** phân biệt người nói (diarization) trong công cụ chép lời độc
 lập — chủ dự án chủ động bỏ qua ("chỉ cần ra được text là đủ").
 
-### 3.5 Cổng trợ lý AI (12 tác vụ)
+### 3.5 Cổng trợ lý AI (13 tác vụ)
 
 Một cửa duy nhất cho mọi việc cần mô hình ngôn ngữ. **App gửi tên tác vụ,
 không gửi câu lệnh** — toàn bộ câu chữ hướng dẫn mô hình nằm trên máy chủ,
@@ -289,6 +289,27 @@ Video ra luôn mang nhãn "AI-generated" ở cảnh đầu, không có tuỳ ch�
 `voxdub dub` · `batch` · `cloud` · `translate` · `watch` (theo dõi một thư
 mục, có video mới thì tự xử lý).
 
+### 3.9 Từ điển chỉ đạo hình ảnh v1 — HẠ TẦNG, chưa nối vào luồng nào
+
+**Đây không phải tính năng dựng video mới.** Nó là một danh sách từ vựng
+đóng, có số phiên bản (`control_server/src/data/visual-direction-catalog.v1.json`,
+đọc qua `GET /v1/config/visual-direction-catalog`) để bước sau — I3
+`scene_director`, CHƯA làm — có thứ hữu hạn mà chọn, thay vì để mô hình tự
+nghĩ ra thuật ngữ điện ảnh mà khâu ghép hình không dựng được.
+
+Sáu nhóm, 22 mục, và mỗi mục nói thật về mình:
+
+* **4 mục `supported`** — H4 làm được hôm nay: giữ hình tĩnh, cắt thẳng, mờ
+  chồng, tan dần. Đã đo trên video 5 cảnh có giọng đọc thật: cả ba kiểu
+  chuyển cảnh giữ đúng thời lượng D1/H4c-1 và không để lại đuôi mất hình.
+* **18 mục `advisory_only`** — cỡ khung, bố cục, nhịp dựng, màu sắc: **gợi ý
+  lúc chọn hoặc chụp ảnh**, không phải lệnh cho máy. Khâu ghép hình không
+  cắt ảnh, không zoom, không pan, không chỉnh màu — nên hứa ngược lại là nói
+  sai.
+
+Chưa có giao diện nào, chưa lưu lựa chọn theo cảnh, chưa sinh ảnh. Cố ý:
+thêm ô chọn bây giờ là hứa một việc I3/I4 mới làm được.
+
 ---
 
 ## 4. Đã dựng xong nhưng CHƯA TỪNG CHẠY THẬT
@@ -308,6 +329,15 @@ hình thật.**
 quản trị. Nó là thao tác của con người, không phải việc lập trình. Mọi đề
 xuất "hãy nối nhà cung cấp thật" là đề xuất viết mã cho một lỗ hổng không tồn
 tại.
+
+**Cập nhật 22/09/2026 (mini-spec I1, audit):** cổng trợ lý nay là **13 tác
+vụ**, không phải 7, và đường rơi sang vai `translate` đang đỡ cho **cả bốn
+cửa** gọi mô hình trợ lý — `/v1/ai/assist`, `/v1/flow-blueprints` (H2),
+`/v1/brand-scripts` (H3, hai cửa). Nghĩa là **bỏ đường rơi trước khi cắm khoá
+`assist` sẽ tắt cả Phase H đang chạy**, kể cả `explain_error` miễn phí. Thứ
+tự bắt buộc: cắm khoá → chạy thật → rồi mới chốt cấm rơi. Phí đắt gấp ~25 lần
+là **phí mô hình phía máy chủ** (biên lợi nhuận); ví người dùng vẫn bị trừ
+đúng giá tác vụ trợ lý.
 
 Tính năng ảnh sản phẩm còn có **chốt ba nấc** (`image.scene.stage`), mặc định
 **TẮT**: phải chuyển sang `calibration` (chỉ vài máy được phép), chạy 20–30

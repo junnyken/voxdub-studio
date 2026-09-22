@@ -18685,3 +18685,141 @@ mẫu nói tiếng Việt · bộ nghe chỉ ra 1 câu · manifest ghi ý địn
 thật · sha256 lệch · bỏ cơ sở pháp lý · nói liên tục không khoảng lặng · hai
 cổng quay về mẫu cũ · CI quay về mẫu cũ · mốc bản cũ trỏ vào bản chưa phát
 hành.
+
+## I2 — Từ điển chỉ đạo hình ảnh v1; I1 dừng lại ở cửa cấu hình (22/09/2026)
+
+Mini-spec: `docs/MINI-SPEC_I1_I2_Assist_Activation_Visual_Catalog.md`. Lượt
+này làm **I2 trọn vẹn** và **không làm I1**, vì hai lý do khác nhau — một cái
+là thiếu vật liệu, một cái là rủi ro sản xuất. Cả hai nói rõ bên dưới.
+
+### I1 — CHẶN, và chặn ở hai chỗ
+
+**Chỗ thứ nhất (thiếu vật liệu):** §B1 đòi tạo bản ghi nhà cung cấp cho vai
+`assist` **kèm khoá API thật**, §B2/§B3 đòi **≥10 lượt gọi mô hình thật**.
+Chủ dự án chưa cắm khoá. Không ai trong lượt làm này có khoá đó, và đi tìm
+khoá trong repo/biến môi trường là việc **không được phép làm**. Nên phần
+này ghi `blocked` — **không có lượt gọi nào đã chạy, không có bằng chứng giá
+/ví/hold/đệm nào được tạo ra.**
+
+**Chỗ thứ hai (rủi ro sản xuất) — phát hiện trong lúc audit, cần chủ dự án
+quyết:** guardrail #3 của mini-spec ("không rơi im lặng sang `translate`")
+đúng về nguyên tắc, nhưng áp NGAY BÂY GIỜ thì không phải là sửa lỗi, mà là
+tắt tính năng đang chạy.
+
+Đo được, bằng mã:
+
+* `control_server/src/services/ai-gateway.service.js:966-967`
+  `const assistProviders = await providersFor('assist')` /
+  `const role = assistProviders.length ? 'assist' : 'translate'` — đường rơi
+  có thật, đúng như mini-spec nói.
+* Nếu bỏ dòng đó mà chưa có nhà cung cấp `assist`, `callWithFallback()` ném
+  `NO_PROVIDER` 503 (`ai-gateway.service.js:330`) cho **mọi** tác vụ trợ lý,
+  tức **13 tác vụ** trong `src/prompts/assist.js` và **4 cửa** đang gọi:
+  `routes/ai.js:912` (`/v1/ai/assist`), `routes/flow-blueprints.js:199`
+  (H2 — Flow Blueprint), `routes/brand-scripts.js:293` và `:455` (H3 — viết
+  và viết lại kịch bản).
+* Trong số đó có `explain_error` — tác vụ **miễn phí, cố ý chạy cả khi hết
+  Vox** (`FEATURES.md` §3.5, `docs/API.md` §POST /assist). Nó đang sống nhờ
+  đúng đường rơi này. Cấm rơi mà chưa cắm khoá = người dùng hết tiền mất
+  luôn cửa duy nhất giải thích lỗi cho họ.
+* `FEATURES.md` §4 đã ghi từ trước: chưa ai tạo bản ghi cho vai `assist`, hệ
+  thống đang dùng chung vai `translate`. Nghĩa là trên máy chủ thật, đường
+  rơi này **không phải nhánh hiếm — nó là nhánh duy nhất đang chạy**.
+
+Nên bản vá này **không đụng vào `ai-gateway.service.js`**. Thứ tự đúng là:
+cắm khoá `assist` → chạy 10 lượt thật → rồi mới chốt cấm rơi (lúc đó chốt
+chặn một ca không còn ai đi vào). Đảo thứ tự là tự gây sự cố.
+
+Một điểm nhỏ nhưng đáng nói cho phần tiền: khi rơi sang `translate`, **người
+dùng vẫn bị tính đúng giá của tác vụ trợ lý** (`routes/ai.js` lấy giá theo
+`spec.costKey`, không theo vai) — thứ đắt lên ~25 lần là **phí mô hình phía
+máy chủ**, tức biên lợi nhuận, không phải ví người dùng. Đường rơi cũng
+không im lặng hoàn toàn: `assistRole` được ghi vào sổ dùng ở cả bốn cửa và
+trang thống kê trợ lý đếm theo trường đó (`services/assist-stats.service.js`).
+
+### I2 — đã làm trọn vẹn
+
+**Audit trước khi dựng** (chỉ liệt kê thứ đổi kết luận):
+
+* Khâu ghép hình (`autodub/product_video.py::_lenh_ghep`) chỉ có
+  `scale + pad(color=white) + setsar + fps` và `xfade`/`concat`. **Không có
+  `zoompan`** ở bất kỳ đâu trong `autodub/` ⇒ zoom chậm, pan, Ken Burns
+  **không dựng được** ⇒ không vào catalog. **Không có bộ lọc chỉnh màu** nào
+  (`eq=`/`curves=`/`colorchannelmixer`) ⇒ cả nhóm màu sắc là gợi ý.
+* Ảnh được **đệm trắng** cho vừa khung 9:16, **không cắt** ⇒ cỡ khung
+  (toàn/trung/cận/cực cận) là thuộc tính của TẤM ẢNH, không phải việc máy làm
+  ⇒ `advisory_only`.
+* `KIEU_CHUYEN` có 6 kiểu thật; v1 chỉ lấy 3 kiểu mini-spec cho phép (cắt
+  thẳng, mờ chồng, tan dần). Ba kiểu còn lại (trượt trái, trượt lên, mở vòng)
+  có thật trong mã nhưng **cố ý không ship** ở v1.
+* Luồng H4 (`du_an_tu_kich_ban.dung_du_an` và D1) **chưa bao giờ truyền
+  `kieu_chuyen`** — nó luôn dùng mặc định «mờ chồng». Chỗ duy nhất người dùng
+  chọn được kiểu là trang Ảnh sản phẩm (C-series). Catalog nói thẳng điều này
+  trong mô tả nhóm; nối lựa chọn vào luồng H4 là việc của I5.
+* Thời lượng cảnh do `du_an_tu_kich_ban._moc_that` (D1) suy từ giọng đọc
+  thật ⇒ catalog **bị cấm mang tham số thời gian**, ở mọi nhóm.
+
+**Đã dựng:** `control_server/src/data/visual-direction-catalog.v1.json`
+(6 nhóm, **22 mục**: 4 `supported` — `motion.tinh`, `transition.cat_thang`,
+`transition.fade_nhe`, `transition.crossfade_ngan`; 18 `advisory_only`),
+`src/services/visual-catalog.service.js` (soi dữ liệu lúc dựng máy chủ + cổng
+kiểm cho I3), và cửa đọc `GET /v1/config/visual-direction-catalog`.
+
+### Đo THẬT — `scripts/kiem_catalog_h4.py` (22/09/2026, Linux)
+
+Dựng dự án **5 cảnh**, giọng đọc THẬT, chạy trọn đường xuất chung, rồi đổi
+kiểu chuyển cảnh theo đúng từng mục `supported` và đo lại bằng chính bộ đo
+của pilot H4 (`scripts/pilot_h4_cuc_bo.py` — không dựng bộ đo thứ hai).
+
+Mốc D1 suy từ giọng thật: `6,44 · 7,44 · 5,94 · 6,94 · 6,43` giây
+(tổng **33,19s**), chuyển cảnh 0,30s, tiếng đo được -19,5 dB.
+
+| mục | `kieu_chuyen` | slideshow | luồng hình | luồng tiếng | lệch H4c-1 | đuôi mất hình |
+|---|---|---:|---:|---:|---:|---:|
+| `cat_thang` | `khong` | 33,23s | 33,23s | 33,19s | 0,043s | không |
+| `fade_nhe` | `mo_chong` | 33,20s | 33,20s | 33,19s | 0,010s | không |
+| `crossfade_ngan` | `tan` | 33,20s | 33,20s | 33,19s | 0,010s | không |
+
+Cả ba dưới ngưỡng H4c-1 (2 khung @30fps = 0,067s) và không mục nào để lại
+đuôi mất hình — tức **không mục nào dựng lại được lỗi "mấy giây cuối đứng
+hình"** của 21/09. Mục `motion.tinh` được chứng minh bởi chính ba lượt trên:
+toàn bộ slideshow là ảnh tĩnh, không lượt nào có bộ lọc chuyển động.
+
+Script còn canh một chuyện dễ đánh lừa: sau khi ghép, **D1 không được dựng
+lại đè** lên bản đang đo (ngưỡng 0,25s). Nếu nó đè thì mọi con số phía sau là
+của bản mờ chồng mặc định chứ không phải của mục đang kiểm. Cả ba lượt đều
+giữ nguyên (so `sha256`).
+
+### Test
+
+* `control_server/tests/visual-catalog.test.js` — **21 đạt** (khuôn dữ liệu,
+  supported ⇄ mapping, advisory không có đường thực thi, cấm tham số thời
+  gian, nhóm `pacing`, khả năng bị cấm, cổng kiểm cho I3, cửa đọc chỉ-đọc,
+  không lộ khoá/lời nhắc).
+* `tests/test_i2_catalog_khop_renderer.py` — **14 đạt** (đọc thẳng tệp JSON
+  của máy chủ rồi đối chiếu với chính mã Python: hàm có thật, chữ ký nhận
+  đúng tham số, `KIEU_CHUYEN` còn kiểu đó, lệnh ffmpeg sinh ra đúng thứ đã
+  hứa, cảnh cuối không bị chuyển cảnh ăn mất).
+* Cả bộ: `npm test` **754 đạt / 1 bỏ qua / 0 đỏ** (755 test);
+  `pytest` **3137 đạt / 4 bỏ qua / 0 đỏ**.
+
+**Bảy phép đột biến — gỡ chốt nào cũng ĐỎ đúng chốt đó:**
+
+| Đột biến | Kết quả |
+|---|---|
+| Gỡ chốt nhóm `pacing` khỏi bộ soi | đỏ 1: «nhóm pacing không bao giờ được trở thành lệnh dựng» |
+| Gỡ chốt tham số thời gian | đỏ 1: «KHÔNG mapping nào được mang tham số thời gian» |
+| Gỡ chốt khả năng bị cấm | đỏ 2: «khả năng bị cấm không lọt được…» + «chữ quảng cáo cũng bị soi» |
+| Gỡ chốt advisory→dựng hình trong cổng kiểm | đỏ 1: «mục gợi ý KHÔNG đi xuống được khâu dựng hình» |
+| Catalog khai «cắt thẳng» nhưng map sang `mo_chong` | đỏ 1 (Python): `test_cat_thang_KHONG_sinh_xfade` |
+| Gỡ kiểu `tan` khỏi `product_video.KIEU_CHUYEN` | đỏ 3 (Python): kiểu không còn + bộ lọc sai + cảnh cuối |
+| Thêm `drone_shot` (supported, tham số `giay`) vào tệp JSON | **máy chủ không khởi động được**, kèm câu chỉ rõ hai vi phạm |
+
+### Còn treo sau lượt này
+
+* **I1 chưa chạy lượt nào.** Mọi câu trong tài liệu về vai `assist` vẫn là
+  "chưa cấu hình", không được viết thành "đã chạy".
+* **Catalog chưa nối vào bất kỳ luồng nào.** Không có giao diện, không có
+  lưu lựa chọn theo cảnh, không có `scene_director`. Cố ý: thêm ô chọn bây
+  giờ là hứa một việc I3/I4 mới làm được.
+* **Chưa có lượt Windows nào.** Bằng chứng đo thật ở trên chạy trên Linux.

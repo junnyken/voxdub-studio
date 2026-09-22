@@ -34,6 +34,48 @@ Response 200:
 lượt. `minAppVersion` là chuyện KHÁC (ngưỡng buộc nâng cấp, nằm trong config
 động), đừng lẫn hai con số này.
 
+### `GET /v1/config/visual-direction-catalog` (mini-spec I2, thêm 2026-09-22)
+Từ điển chỉ đạo hình ảnh — **chỉ đọc**, không cần token. Sinh ra để I3
+(`scene_director`, CHƯA làm) có một danh sách hữu hạn để chọn, thay vì để mô
+hình tự nghĩ ra thuật ngữ điện ảnh mà khâu ghép hình không dựng được.
+
+Không cần token vì cùng loại với `GET /config/app`: vốn từ sản phẩm, không có
+khoá, không có lời nhắc mô hình, không có dữ liệu thiết bị nào. **Không có
+cửa ghi** — I2 chưa lưu lựa chọn nào; đó là việc của I3/I4.
+
+Response 200 (rút gọn):
+```json
+{
+  "catalog_version": 1,
+  "groups": [
+    { "id": "transition", "label_vi": "Chuyển cảnh", "description_vi": "…",
+      "values": [
+        { "id": "fade_nhe", "label_vi": "Mờ chồng nhẹ", "description_vi": "…",
+          "recommended_for": ["proof"], "avoid_when": ["…"],
+          "prompt_hint_vi": "…", "render_mode": "supported",
+          "h4_mapping": { "implementation": "product_video.ghep_anh_nguoi_dung",
+                          "parameters": { "kieu_chuyen": "mo_chong" } } }
+      ] }
+  ]
+}
+```
+
+Sáu nhóm cố định: `shot` · `composition` · `motion` · `pacing` · `transition`
+· `lighting_color`. Mỗi mục có đúng một trong hai trạng thái:
+
+* `supported` — khâu ghép hình của H4 làm được THẬT, và `h4_mapping` trỏ vào
+  hàm + tham số có thật (v1 có 4 mục: giữ hình tĩnh, cắt thẳng, mờ chồng,
+  tan dần — đã đo trên video 5 cảnh có giọng đọc thật, xem `docs/TEST_LOG.md`);
+* `advisory_only` — **chỉ là gợi ý lúc chọn/chụp ảnh**, `h4_mapping` luôn
+  `null`. Không bao giờ được gửi xuống như lệnh dựng.
+
+Ràng buộc đã được ép ở tầng dữ liệu (`services/visual-catalog.service.js`,
+soi lúc dựng máy chủ — dữ liệu sai thì máy chủ **không khởi động**): không
+mục nào được mang tham số thời gian (thời lượng cảnh chỉ do giọng đọc thật
+quyết định — D1), nhóm `pacing` chỉ được `advisory_only`, và các khả năng bị
+cấm (drone, dolly zoom, rack focus, whip pan, sinh video bằng AI…) không lọt
+vào được.
+
 ## `/v1/device`
 
 ### `POST /register` (không cần token — đây là bước lấy token)
@@ -340,6 +382,11 @@ NGÀY mỗi máy (`assist.daily.limit`, riêng từng tác vụ qua
 `fromCache: true`, `creditCharged: 0`.
 Vai trò mô hình: `assist`; chưa cấu hình thì tự dùng chung vai `translate`
 (vẫn chạy nhưng đắt hơn nhiều lần — xem trang quản trị "Cổng trợ lý").
+**Trạng thái 22/09/2026:** vai `assist` vẫn CHƯA có nhà cung cấp nào, nên câu
+trên mô tả đúng thứ đang chạy thật. Mini-spec I1 muốn đổi đường rơi này thành
+`503`; việc đó **chưa làm** và không được làm trước khi có nhà cung cấp
+`assist` — bỏ đường rơi lúc này là tắt cả 13 tác vụ trợ lý, kể cả
+`explain_error` (xem `docs/TEST_LOG.md` mục I2/I1).
 Lỗi: `400` tên tác vụ sai, `402 INSUFFICIENT_CREDIT`, `429 DAILY_LIMIT`,
 `502 BAD_AI_RESPONSE`, `503 AI_UNAVAILABLE`. Mọi nơi gọi phía app đều có
 đường lui chạy trên máy — hỏng ở đây không chặn người dùng làm việc.

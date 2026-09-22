@@ -1,0 +1,306 @@
+{
+  "catalog_version": 1,
+  "ghi_chu_vi": "Từ điển chỉ đạo hình ảnh v1 (MINI-SPEC I2). Đây là VỐN TỪ đóng, không phải tính năng dựng video mới. Giá trị 'supported' là thứ khâu ghép hình của H4 làm được THẬT hôm nay; giá trị 'advisory_only' chỉ là gợi ý cho người chọn/chụp ảnh, không bao giờ được gửi xuống như lệnh dựng. Thời lượng từng cảnh LUÔN do D1 suy từ giọng đọc thật (autodub/du_an_tu_kich_ban.py::_moc_that) — không mục nào trong tệp này được phép đổi nó.",
+  "groups": [
+    {
+      "id": "shot",
+      "label_vi": "Khung hình",
+      "description_vi": "Chủ thể chiếm bao nhiêu phần khung. H4 KHÔNG cắt và KHÔNG phóng ảnh: ảnh được thu vừa khung dọc 1080×1920 rồi đệm trắng hai bên. Nên cỡ khung là chuyện của tấm ảnh bạn đưa vào, không phải chuyện máy làm được.",
+      "values": [
+        {
+          "id": "toan_canh",
+          "label_vi": "Toàn cảnh",
+          "description_vi": "Thấy trọn bối cảnh và toàn bộ sản phẩm trong không gian sử dụng.",
+          "recommended_for": ["hook", "problem_context", "demonstration"],
+          "avoid_when": ["cần đọc chữ nhỏ trên bao bì", "sản phẩm nhỏ mà nền rối"],
+          "prompt_hint_vi": "Lấy trọn khung cảnh, sản phẩm nằm rõ trong bối cảnh dùng thật.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Chỉ là gợi ý lúc chọn/chụp ảnh. H4 không tự đổi cỡ khung của một tấm ảnh đã có."
+        },
+        {
+          "id": "trung_canh",
+          "label_vi": "Trung cảnh",
+          "description_vi": "Thấy sản phẩm cùng bàn tay hoặc người dùng, đủ ngữ cảnh mà vẫn rõ chủ thể.",
+          "recommended_for": ["demonstration", "proof", "payoff"],
+          "avoid_when": ["cần nhìn rõ chi tiết nhỏ", "khung có quá nhiều đồ vật lạ"],
+          "prompt_hint_vi": "Chủ thể chiếm khoảng nửa khung, hậu cảnh gọn.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Chỉ là gợi ý lúc chọn/chụp ảnh. H4 không tự đổi cỡ khung của một tấm ảnh đã có."
+        },
+        {
+          "id": "can_canh",
+          "label_vi": "Cận cảnh",
+          "description_vi": "Tập trung vào sản phẩm, gương mặt hoặc đúng chi tiết đang nói tới.",
+          "recommended_for": ["hook", "proof", "objection"],
+          "avoid_when": ["cần thấy nhiều đối tượng cùng lúc", "cần đặt nhiều chữ lên hình"],
+          "prompt_hint_vi": "Cận chủ thể, hậu cảnh gọn, chừa chỗ trống để đặt chữ.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Chỉ là gợi ý lúc chọn/chụp ảnh. H4 không tự cắt cận một tấm ảnh chụp xa."
+        },
+        {
+          "id": "cuc_can",
+          "label_vi": "Cực cận",
+          "description_vi": "Chỉ một chi tiết: đường chỉ may, mặt nhãn, kết cấu bề mặt.",
+          "recommended_for": ["proof", "objection"],
+          "avoid_when": ["người xem chưa biết sản phẩm là gì", "ảnh gốc độ phân giải thấp"],
+          "prompt_hint_vi": "Một chi tiết duy nhất, nét, chiếm gần hết khung.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Chỉ là gợi ý lúc chọn/chụp ảnh. H4 không phóng to được một vùng của ảnh."
+        }
+      ]
+    },
+    {
+      "id": "composition",
+      "label_vi": "Bố cục",
+      "description_vi": "Xếp đặt trong khung. Lưu ý chung: khung ra là 9:16 (1080×1920) và ảnh ngang sẽ bị đệm TRẮNG hai bên; ngoài ra cảnh ĐẦU TIÊN luôn có nhãn «AI-generated» chạy ngang đỉnh khung (bắt buộc, không tắt được).",
+      "values": [
+        {
+          "id": "chu_the_trung_tam",
+          "label_vi": "Chủ thể ở giữa",
+          "description_vi": "Đặt sản phẩm vào giữa khung, mắt người xem không phải tìm.",
+          "recommended_for": ["hook", "cta", "payoff"],
+          "avoid_when": ["cần chừa chỗ cho khối chữ dài ngay giữa hình"],
+          "prompt_hint_vi": "Chủ thể chính giữa, hậu cảnh đơn giản.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Gợi ý khi chọn/chụp ảnh. H4 không tự dịch chuyển chủ thể trong ảnh."
+        },
+        {
+          "id": "chua_cho_chu_tren",
+          "label_vi": "Chừa vùng chữ phía trên",
+          "description_vi": "Để trống khoảng đỉnh khung cho tiêu đề hoặc chữ mở đầu.",
+          "recommended_for": ["hook", "problem_context"],
+          "avoid_when": ["đây là cảnh đầu tiên — đỉnh khung đã có nhãn AI-generated"],
+          "prompt_hint_vi": "Chủ thể dịch xuống, đỉnh khung thoáng.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Gợi ý khi chọn/chụp ảnh. Cảnh đầu luôn bị nhãn AI-generated chiếm đỉnh khung."
+        },
+        {
+          "id": "chua_cho_chu_duoi",
+          "label_vi": "Chừa vùng chữ phía dưới",
+          "description_vi": "Để trống khoảng đáy khung cho phụ đề hoặc câu kêu gọi.",
+          "recommended_for": ["cta", "payoff", "proof"],
+          "avoid_when": ["đã bật phụ đề in lên hình và chữ sẽ chồng nhau"],
+          "prompt_hint_vi": "Chủ thể dịch lên, đáy khung thoáng.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Gợi ý khi chọn/chụp ảnh. H4 không tự chừa vùng trống cho một ảnh đã có."
+        },
+        {
+          "id": "can_bang_don_gian",
+          "label_vi": "Bố cục gọn, cân",
+          "description_vi": "Ít đồ vật, đường ngang thẳng, không có thứ gì cắt ngang chủ thể.",
+          "recommended_for": ["demonstration", "proof", "transition"],
+          "avoid_when": ["cảnh cố ý cần sự bừa bộn để nói về vấn đề"],
+          "prompt_hint_vi": "Hậu cảnh sạch, chỉ giữ thứ liên quan tới lời đang đọc.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Gợi ý khi chọn/chụp ảnh. Không có bước xử lý hình nào thực thi mục này."
+        },
+        {
+          "id": "nhan_chi_tiet_san_pham",
+          "label_vi": "Nhấn chi tiết sản phẩm",
+          "description_vi": "Đưa đúng chi tiết đang được nói tới vào chỗ dễ thấy nhất của khung.",
+          "recommended_for": ["proof", "objection", "demonstration"],
+          "avoid_when": ["lời đọc đang nói chuyện tổng quát, chưa vào chi tiết"],
+          "prompt_hint_vi": "Chi tiết đang nói tới nằm ở vùng sáng rõ, không bị che.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Gợi ý khi chọn/chụp ảnh. H4 không tự tìm và làm nổi chi tiết trong ảnh."
+        }
+      ]
+    },
+    {
+      "id": "motion",
+      "label_vi": "Chuyển động",
+      "description_vi": "H4 ghép ẢNH TĨNH: mỗi cảnh là một tấm ảnh đứng yên đúng số giây của lời đọc. Không có zoom chậm, không có pan, không có Ken Burns — khâu ghép hình không có bộ lọc nào làm việc đó (đã soi autodub/product_video.py::_lenh_ghep). Nên nhóm này chỉ có một mục, và nó là sự thật chứ không phải lựa chọn.",
+      "values": [
+        {
+          "id": "tinh",
+          "label_vi": "Giữ hình tĩnh",
+          "description_vi": "Ảnh đứng yên trọn cảnh. Nhịp do lời đọc quyết định, không do máy quay.",
+          "recommended_for": ["hook", "problem_context", "proof", "demonstration", "payoff", "cta"],
+          "avoid_when": ["kịch bản cần cảm giác máy quay đang di chuyển — H4 chưa làm được"],
+          "prompt_hint_vi": "Chọn ảnh tự nó đã đủ hấp dẫn khi đứng yên vài giây.",
+          "render_mode": "supported",
+          "h4_mapping": {
+            "implementation": "product_video.ghep_anh_nguoi_dung",
+            "parameters": {},
+            "ghi_chu_vi": "Đây là hành vi mặc định và duy nhất của khâu ghép hình: -loop 1 trên ảnh tĩnh, scale vừa khung rồi đệm trắng, không bộ lọc chuyển động nào."
+          }
+        }
+      ]
+    },
+    {
+      "id": "pacing",
+      "label_vi": "Nhịp dựng",
+      "description_vi": "Gợi ý cho bước VIẾT KỊCH BẢN (H3/H6), không phải cho bước dựng hình. Thời lượng mỗi cảnh luôn bằng khoảng lời đọc thật của cảnh đó (D1), và cảnh cuối luôn kéo tới hết tệp tiếng. Không mục nào ở đây được phép rút ngắn hay kéo dài con số ấy.",
+      "values": [
+        {
+          "id": "giu_lau",
+          "label_vi": "Giữ lâu",
+          "description_vi": "Viết câu dài hơn cho đoạn cần người xem kịp hiểu; cảnh tự dài theo lời.",
+          "recommended_for": ["problem_context", "demonstration", "proof"],
+          "avoid_when": ["đoạn mở đầu cần bắt người xem trong 2-3 giây"],
+          "prompt_hint_vi": "Cho đoạn này nhiều từ hơn mức trung bình, trong giới hạn ngân sách từ của H6.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "nguon_thoi_luong": "d1_audio",
+          "advisory_note_vi": "Chỉ đổi cách VIẾT lời. Thời lượng cảnh vẫn do giọng đọc thật quyết định (D1)."
+        },
+        {
+          "id": "nhip_vua",
+          "label_vi": "Nhịp vừa",
+          "description_vi": "Độ dài câu trung bình, không dồn dập cũng không lê thê.",
+          "recommended_for": ["proof", "payoff", "transition"],
+          "avoid_when": ["đoạn cần cảm giác gấp gáp rõ rệt"],
+          "prompt_hint_vi": "Giữ số từ quanh mức ngân sách H6 tính cho đoạn.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "nguon_thoi_luong": "d1_audio",
+          "advisory_note_vi": "Chỉ đổi cách VIẾT lời. Thời lượng cảnh vẫn do giọng đọc thật quyết định (D1)."
+        },
+        {
+          "id": "nhan_tu_khoa",
+          "label_vi": "Nhấn từ khoá",
+          "description_vi": "Câu ngắn, đặt từ khoá ở cuối câu để người xem nhớ.",
+          "recommended_for": ["hook", "cta", "twist"],
+          "avoid_when": ["đoạn đang giải thích cơ chế cần nhiều chữ"],
+          "prompt_hint_vi": "Câu ngắn, mỗi câu một ý, từ khoá đứng cuối.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "nguon_thoi_luong": "d1_audio",
+          "advisory_note_vi": "Chỉ đổi cách VIẾT lời. Thời lượng cảnh vẫn do giọng đọc thật quyết định (D1)."
+        },
+        {
+          "id": "cat_gon",
+          "label_vi": "Cắt gọn",
+          "description_vi": "Bỏ chữ thừa, giữ đúng ý chính — đoạn sẽ ngắn lại vì lời ngắn lại.",
+          "recommended_for": ["transition", "hook", "objection"],
+          "avoid_when": ["bỏ chữ làm mất thông tin bắt buộc theo quy định bán hàng"],
+          "prompt_hint_vi": "Cắt còn một ý duy nhất, không thêm mệnh đề phụ.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "nguon_thoi_luong": "d1_audio",
+          "advisory_note_vi": "Chỉ đổi cách VIẾT lời. Thời lượng cảnh vẫn do giọng đọc thật quyết định (D1)."
+        }
+      ]
+    },
+    {
+      "id": "transition",
+      "label_vi": "Chuyển cảnh",
+      "description_vi": "Ba kiểu dưới đây khâu ghép hình làm được THẬT (autodub/product_video.py::KIEU_CHUYEN) và đã đo giữ nguyên thời lượng D1/H4c-1. Lưu ý trung thực: luồng H4 hôm nay LUÔN dùng «Mờ chồng» — chưa có chỗ nào cho người dùng chọn kiểu khác; việc nối lựa chọn vào luồng là phần việc của I5.",
+      "values": [
+        {
+          "id": "cat_thang",
+          "label_vi": "Cắt thẳng",
+          "description_vi": "Hết cảnh là sang cảnh mới, không có khoảng hoà trộn.",
+          "recommended_for": ["hook", "twist", "cta"],
+          "avoid_when": ["hai ảnh liền nhau quá khác màu, nhìn giật"],
+          "prompt_hint_vi": "Hợp với kịch bản nhịp nhanh, từng câu một ý.",
+          "render_mode": "supported",
+          "h4_mapping": {
+            "implementation": "product_video.ghep_anh_nguoi_dung",
+            "parameters": { "kieu_chuyen": "khong" },
+            "ghi_chu_vi": "Nối thẳng bằng concat, không xfade. Tổng thời lượng bằng đúng tổng thời lượng các cảnh."
+          }
+        },
+        {
+          "id": "fade_nhe",
+          "label_vi": "Mờ chồng nhẹ",
+          "description_vi": "Cảnh cũ mờ dần sang cảnh mới trong khoảng ngắn.",
+          "recommended_for": ["problem_context", "proof", "payoff", "transition"],
+          "avoid_when": ["đoạn cần cảm giác dứt khoát, ngắt hẳn"],
+          "prompt_hint_vi": "Hợp với kịch bản kể chuyện, chuyển ý mềm.",
+          "render_mode": "supported",
+          "h4_mapping": {
+            "implementation": "product_video.ghep_anh_nguoi_dung",
+            "parameters": { "kieu_chuyen": "mo_chong" },
+            "ghi_chu_vi": "xfade=fade. Đây là kiểu luồng H4 đang dùng mặc định hôm nay; phần chồng lấn đã được bù nên tổng thời lượng không đổi."
+          }
+        },
+        {
+          "id": "crossfade_ngan",
+          "label_vi": "Tan dần",
+          "description_vi": "Hai cảnh tan vào nhau theo hạt, mềm hơn mờ chồng một chút.",
+          "recommended_for": ["demonstration", "payoff", "transition"],
+          "avoid_when": ["cảnh có chữ lớn — chữ hai cảnh chồng lên nhau lúc tan"],
+          "prompt_hint_vi": "Hợp với chuỗi ảnh cùng tông màu.",
+          "render_mode": "supported",
+          "h4_mapping": {
+            "implementation": "product_video.ghep_anh_nguoi_dung",
+            "parameters": { "kieu_chuyen": "tan" },
+            "ghi_chu_vi": "xfade=dissolve. Cùng cơ chế bù thời lượng với mờ chồng."
+          }
+        }
+      ]
+    },
+    {
+      "id": "lighting_color",
+      "label_vi": "Màu sắc và ánh sáng",
+      "description_vi": "Siêu dữ liệu để CHỌN ảnh cho hợp tông, không phải lệnh chỉnh màu. H4 không có bước chỉnh màu nào: ảnh vào thế nào thì ra thế ấy, chỉ thêm phần đệm trắng nếu ảnh không đúng tỉ lệ dọc.",
+      "values": [
+        {
+          "id": "sang_sach",
+          "label_vi": "Sáng, sạch",
+          "description_vi": "Nền sáng, ít bóng đổ, màu trung thực — dễ nhìn trên điện thoại.",
+          "recommended_for": ["demonstration", "proof", "cta"],
+          "avoid_when": ["kịch bản đang nói về ban đêm hoặc không gian tối"],
+          "prompt_hint_vi": "Ánh sáng đều, nền sáng, không bóng gắt.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Dùng để chọn ảnh. H4 không chỉnh sáng/màu cho ảnh."
+        },
+        {
+          "id": "am_gan_gui",
+          "label_vi": "Ấm, gần gũi",
+          "description_vi": "Tông vàng ấm, cảm giác nhà cửa, đời thường.",
+          "recommended_for": ["problem_context", "payoff", "hook"],
+          "avoid_when": ["sản phẩm cần thể hiện màu thật chính xác"],
+          "prompt_hint_vi": "Ánh sáng vàng nhẹ, bối cảnh sinh hoạt thật.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Dùng để chọn ảnh. H4 không chỉnh sáng/màu cho ảnh."
+        },
+        {
+          "id": "trung_tinh",
+          "label_vi": "Trung tính",
+          "description_vi": "Không nghiêng ấm cũng không nghiêng lạnh; màu sản phẩm đúng như thật.",
+          "recommended_for": ["proof", "objection", "demonstration"],
+          "avoid_when": ["cần gợi cảm xúc mạnh bằng màu"],
+          "prompt_hint_vi": "Cân bằng trắng đúng, màu sản phẩm khớp hàng thật.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Dùng để chọn ảnh. H4 không chỉnh sáng/màu cho ảnh."
+        },
+        {
+          "id": "toi_gian_premium",
+          "label_vi": "Tối giản, cao cấp",
+          "description_vi": "Nền một màu, ít chi tiết, nhiều khoảng trống quanh sản phẩm.",
+          "recommended_for": ["hook", "cta", "payoff"],
+          "avoid_when": ["cần cho thấy sản phẩm dùng trong đời sống thật", "ảnh ngang — hai dải đệm TRẮNG sẽ phá tông nền tối"],
+          "prompt_hint_vi": "Nền phẳng một màu, sản phẩm là điểm nhấn duy nhất.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Dùng để chọn ảnh. H4 không chỉnh sáng/màu, và phần đệm ảnh thiếu tỉ lệ luôn màu trắng."
+        },
+        {
+          "id": "tuong_phan_ro",
+          "label_vi": "Tương phản rõ",
+          "description_vi": "Chủ thể tách hẳn khỏi nền — xem trên điện thoại ngoài nắng vẫn rõ.",
+          "recommended_for": ["hook", "twist", "objection"],
+          "avoid_when": ["ảnh gốc đã bết sáng, đẩy tương phản sẽ mất chi tiết"],
+          "prompt_hint_vi": "Chủ thể sáng trên nền tối hoặc ngược lại, ranh giới rõ.",
+          "render_mode": "advisory_only",
+          "h4_mapping": null,
+          "advisory_note_vi": "Dùng để chọn ảnh. H4 không chỉnh tương phản."
+        }
+      ]
+    }
+  ]
+}
