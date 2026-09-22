@@ -231,6 +231,12 @@ module.exports = async function flowBlueprintRoutes(fastify) {
         // `callWithFallback` ném `PROVIDER_UNAVAILABLE` với statusCode 503
         // khi hết nhà cung cấp (ai-gateway.service.js:349).
         if (err.statusCode === 503) {
+          // I1 bước 3 — một ngoại lệ của luật "503 thì kèm retryAfter": ca
+          // chưa cắm nhà cung cấp vai trợ lý KHÔNG được hẹn thử lại, vì thử
+          // lại chắc chắn hỏng cho tới khi có người vào trang quản trị.
+          if (gateway.laLoiChuaCoNoiGoiTroLy(err)) {
+            return reply.code(503).send({ code: err.code, message: err.message })
+          }
           return reply.code(503).send({
             code: err.code, message: err.message, retryAfter: 30,
           })

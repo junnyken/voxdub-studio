@@ -320,7 +320,7 @@ hình thật.**
 
 | Thứ | Vì sao chưa chạy |
 |---|---|
-| **Toàn bộ cổng trợ lý (7 tác vụ)** | Chưa ai tạo bản ghi nhà cung cấp cho vai `assist` trong trang quản trị. Hiện tự dùng chung vai `translate` — **chạy được nhưng đắt hơn khoảng 25 lần** |
+| ~~Toàn bộ cổng trợ lý~~ **ĐÃ CHẠY THẬT 22/09/2026** | Vai `assist` nay có nhà cung cấp (Perplexity `sonar`). **10 lượt gọi thật** qua `explain_error`, `character_name`, `tighten_line`, `scene_script` — xem `docs/TEST_LOG.md` mục I1. Đường rơi im lặng sang vai `translate` đã bị đóng cùng ngày |
 | **Sinh ảnh sản phẩm** | Chưa có nhà cung cấp cho vai `image`. Không có vai dự phòng (cố ý — rơi về `translate` chỉ sinh ra chữ). Bốn giao thức: Google Gemini · OpenRouter Images · OpenAI/Grok Images · **tự khai** (nền tảng bất kỳ) — **DeepSeek không sinh được ảnh** |
 | **Cổng kiểm tuân thủ** | Cùng lý do trên |
 | **Trang Ảnh sản phẩm trong app** | Đã có trong bản phát hành (mục «Ảnh sản phẩm» ở thanh bên, từ v3.6.0, commit C1 21/08), nhưng chốt `image.scene.stage` mặc định TẮT nên bấm vào chưa chạy được gì |
@@ -328,16 +328,22 @@ hình thật.**
 **Đây là MỘT việc, không phải bốn**: thêm hai dòng nhà cung cấp trong trang
 quản trị. Nó là thao tác của con người, không phải việc lập trình. Mọi đề
 xuất "hãy nối nhà cung cấp thật" là đề xuất viết mã cho một lỗ hổng không tồn
-tại.
+tại. **Một nửa việc đó đã xong 22/09/2026** — vai `assist` đã cắm; còn lại vai
+`image` cho đường sinh ảnh.
 
-**Cập nhật 22/09/2026 (mini-spec I1, audit):** cổng trợ lý nay là **13 tác
-vụ**, không phải 7, và đường rơi sang vai `translate` đang đỡ cho **cả bốn
-cửa** gọi mô hình trợ lý — `/v1/ai/assist`, `/v1/flow-blueprints` (H2),
-`/v1/brand-scripts` (H3, hai cửa). Nghĩa là **bỏ đường rơi trước khi cắm khoá
-`assist` sẽ tắt cả Phase H đang chạy**, kể cả `explain_error` miễn phí. Thứ
-tự bắt buộc: cắm khoá → chạy thật → rồi mới chốt cấm rơi. Phí đắt gấp ~25 lần
-là **phí mô hình phía máy chủ** (biên lợi nhuận); ví người dùng vẫn bị trừ
-đúng giá tác vụ trợ lý.
+**Cập nhật 22/09/2026 (mini-spec I1 — đã đóng):** cổng trợ lý nay là **13 tác
+vụ**, không phải 7, và cả **bốn cửa** gọi mô hình trợ lý
+(`/v1/ai/assist`, `/v1/flow-blueprints` H2, `/v1/brand-scripts` H3 ×2) từng
+sống nhờ đường rơi sang vai `translate`. Ba bước đã chạy đủ trong ngày: cắm
+khoá → 10 lượt thật → đóng đường rơi. Nay thiếu nhà cung cấp vai `assist` thì
+máy chủ trả **503 `CHUA_CO_NOI_GOI_TRO_LY`** kèm đúng việc phải làm, chứ
+không âm thầm tiêu mô hình của vai dịch (đắt gấp ~25 lần — đó là **phí phía
+máy chủ**, ví người dùng vẫn bị trừ đúng giá tác vụ trợ lý).
+
+**Phạm vi đã chứng minh, đọc đúng kẻo hiểu quá:** mười lượt ấy đi **đường API
+máy chủ** trên cơ sở dữ liệu dùng một lần, không phải đường bấm tay trong app
+Windows. Bốn tác vụ có ảnh cũng đã đo riêng: `sonar` đọc được ảnh nên chúng
+không bị chặn.
 
 Tính năng ảnh sản phẩm còn có **chốt ba nấc** (`image.scene.stage`), mặc định
 **TẮT**: phải chuyển sang `calibration` (chỉ vài máy được phép), chạy 20–30

@@ -8,7 +8,7 @@
  * cung cấp thật do chủ dự án cắm khoá — rồi ghi lại từng lượt kèm giá, số dư
  * Vox trước/sau, hold, nhớ đệm, mô hình, token, mã lỗi và độ trễ.
  *
- *     node scripts/thu-bang-chung-assist.js            # cần ASSIST_EVAL_*
+ *     npm run bang-chung:assist
  *     node scripts/thu-bang-chung-assist.js --ra duong/toi/tep.json
  *
  * Biến môi trường (CÙNG TÊN với `evals/run.js` — một bộ biến cho cả hai công
@@ -18,6 +18,18 @@
  *     ASSIST_EVAL_KEY        khoá API
  *     ASSIST_EVAL_MODEL      tên mô hình
  *     ASSIST_EVAL_TYPE       "google" cho Gemini, để trống cho loại OpenAI
+ *
+ * ⚠ **`npm run` KHÔNG tự đọc `.env`.** Chạy thẳng sẽ thoát mã 2 kèm câu đòi
+ * ba biến, dù `.env` đã có đủ (chủ dự án vấp đúng chỗ này 22/09/2026). Xuất
+ * ra môi trường trước — và **chỉ ba biến đó**:
+ *
+ *     export $(grep -E '^ASSIST_EVAL_' .env | xargs -d '\n')
+ *     npm run bang-chung:assist
+ *
+ * KHÔNG `export $(cat .env)`: tệp ấy còn `MONGODB_URI`, `JWT_SECRET`,
+ * `APP_ENCRYPTION_KEY` của máy chủ THẬT. Bộ thu tự dựng cơ sở dữ liệu riêng
+ * và tự sinh khoá riêng, nhưng nạp cả tệp là tự tay đặt bí mật sản xuất vào
+ * môi trường của một tiến trình không cần tới chúng.
  *
  * ## Ba điều tệp này CÓ chứng minh
  *
@@ -96,6 +108,8 @@ const MAU = {
       needSeconds: 6.0, roomSeconds: 4.2, trimPercent: 30 },
     { line: 'Bạn cứ thử dùng một tuần xem sao, không hợp thì mình hoàn tiền lại ngay cho bạn',
       needSeconds: 5.7, roomSeconds: 3.9, trimPercent: 32 },
+    { line: 'Hộp đựng khá nhỏ gọn nên cất lên kệ bếp chung cư vẫn còn thừa chỗ',
+      needSeconds: 5.5, roomSeconds: 3.7, trimPercent: 33 },
   ],
   scene_script: [
     { product: 'Nồi chiên không dầu 5 lít',
@@ -320,6 +334,15 @@ async function thuBangChung({
       moTa: 'lặp lại y hệt lượt tighten_line #1 nhưng mã việc mới',
     })
 
+    // Phép canh NGƯỢC của nhớ đệm: đổi nội dung thì phải gọi mới và trừ
+    // tiền như thường. Thiếu nó thì một cái đệm hỏng kiểu "cái gì cũng trả
+    // kết quả cũ" vẫn qua được bộ thu — người dùng hỏi câu khác mà nhận câu
+    // trước, miễn phí, trông y như đệm đang chạy tốt.
+    const demTruot = await motLuot('tighten_line (khác nội dung)', {
+      task: 'tighten_line', input: MAU.tighten_line[6],
+      moTa: 'nội dung khác lượt trước — phải KHÔNG đọc đệm',
+    })
+
     ghi('\n3. Hold hấp thụ lượt — tiền đã thu lúc tạo hold')
     const maHold = maViec('hold')
     await holds.createHold({
@@ -372,9 +395,13 @@ async function thuBangChung({
       moTa: 'nhà cung cấp trỏ vào cổng chết — mô phỏng lỗi/timeout',
     })
 
-    // Ca này KHÔNG phải phép kiểm đạt/hỏng của hôm nay: nó ĐO xem đường rơi
-    // im lặng sang vai `translate` còn sống không. Bước 3 của phương án A sẽ
-    // đóng đường đó lại; tới lúc ấy lượt này phải ra 503.
+    // Ca NẶNG NHẤT của cả bộ thu (I1 bước 3 đã chốt, 22/09/2026).
+    //
+    // Trước bước 3 đây chỉ là phép ĐO: có vai `translate` mà thiếu `assist`
+    // thì lượt trợ lý vẫn chạy bằng mô hình dịch — đo được HTTP 200, 2 Vox,
+    // `assistRole = translate`. Nay đường đó đã đóng, nên lượt này là phép
+    // KIỂM: phải 503 kèm mã riêng, và nhà cung cấp vai dịch không được nhận
+    // một lượt nào.
     await xoaNhaCungCap({})
     await taoNhaCungCap('translate')
     const roiSangDich = await motLuot('thiếu assist, có translate', {
@@ -385,7 +412,7 @@ async function thuBangChung({
     await xoaNhaCungCap({})
 
     // ==================================================== bất biến §B3 ===
-    const coPhi = [ten1, ten2, gon1, gon2, canh1, canh2]
+    const coPhi = [ten1, ten2, gon1, gon2, canh1, canh2, demTruot]
 
     bao('explain_error phải 0 Vox',
       mienPhi1.da_tru === 0 && mienPhi1.tru_theo_tra_loi === 0,
@@ -414,6 +441,9 @@ async function thuBangChung({
       demLai.ghi_so_moi === 0, `${demLai.ghi_so_moi} dòng`)
     bao('nhớ đệm KHÔNG tạo hold mới',
       demLai.hold_moi === 0, `${demLai.hold_moi} hold`)
+    bao('đổi nội dung thì KHÔNG được đọc đệm',
+      demTruot.dem === 'gọi mới' && demTruot.da_tru === demTruot.gia_preflight,
+      `${demTruot.dem}, trừ ${demTruot.da_tru}/${demTruot.gia_preflight}`)
 
     bao('lượt có hold: không trừ ví (hold đã thu trọn lúc tạo)',
       coHold.ma_http === 200 && coHold.da_tru === 0
@@ -436,6 +466,14 @@ async function thuBangChung({
       `HTTP ${moHinhHong.ma_http}`)
     bao('mô hình hỏng: không trừ Vox', moHinhHong.da_tru === 0,
       `trừ ${moHinhHong.da_tru}`)
+
+    bao('thiếu vai assist KHÔNG được rơi sang vai dịch (I1 bước 3)',
+      roiSangDich.ma_http === 503
+        && roiSangDich.ma_loi === 'CHUA_CO_NOI_GOI_TRO_LY',
+      `HTTP ${roiSangDich.ma_http} ${roiSangDich.ma_loi || ''} `
+      + `vai=${roiSangDich.vai_mo_hinh || '(không ghi)'}`)
+    bao('thiếu vai assist: không trừ Vox của người dùng',
+      roiSangDich.da_tru === 0, `trừ ${roiSangDich.da_tru}`)
 
     // --- che bí mật: quét NGƯỢC toàn bộ thứ sắp ghi ra --------------------
     const soSach = await UsageLog.find({ fingerprint: vanTay }).lean()
@@ -463,9 +501,10 @@ async function thuBangChung({
     }
 
     if (tomTat.duong_roi_con_song) {
-      ghi('\n⚠ ĐO ĐƯỢC: thiếu vai `assist` mà có `translate` thì lượt trợ lý '
-        + 'VẪN chạy bằng vai dịch (HTTP 200). Đây là thứ bước 3 phải đóng — '
-        + 'chưa đóng nên KHÔNG tính là vi phạm ở lượt này.')
+      ghi('\n⚠ ĐƯỜNG RƠI IM LẶNG SỐNG LẠI: thiếu vai `assist` mà có '
+        + '`translate` thì lượt trợ lý VẪN chạy bằng vai dịch (HTTP 200). '
+        + 'Bước 3 của I1 đã đóng đường này ngày 22/09/2026 — thấy lại nghĩa '
+        + 'là chốt đã bị gỡ ở đâu đó.')
     }
 
     // Hai lớp che, theo đúng thứ tự: che theo tên khoá/mẫu trước, rồi che

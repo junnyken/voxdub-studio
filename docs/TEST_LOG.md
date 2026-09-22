@@ -18950,3 +18950,134 @@ việc nhau: `evals/` chấm nội dung, bộ thu này canh tiền và hợp đ�
 * **Bước 3** (chốt cấm đường rơi) chỉ làm sau khi có bằng chứng 10 lượt. Lúc
   đó lượt «thiếu assist, có translate» phải đổi kỳ vọng từ 200 thành 503 —
   test đã ghi sẵn câu nhắc ngay tại dòng khẳng định đó.
+
+## I1 bước 3 — đóng đường rơi im lặng sang vai dịch (22/09/2026)
+
+Phương án A chạy đủ ba bước trong một ngày: chủ dự án cắm khoá (bước 1) →
+10 lượt gọi thật (bước 2) → chốt cấm đường rơi (bước 3, mục này).
+
+### Bước 2 — 10 lượt thật, mã thoát 0 (lượt 06:56)
+
+Nhà cung cấp vai `assist`: **Perplexity `sonar`**, giao thức `openai_compat`.
+
+| Nhóm | Đo được |
+|---|---|
+| `explain_error` ×2 | 0 Vox; một lượt chạy khi **ví = 0** |
+| `character_name` ×2 · `tighten_line` ×2 | 2 Vox mỗi lượt |
+| `scene_script` ×2 | 3 Vox mỗi lượt |
+| Nhớ đệm có chủ ý | 0 Vox, **13 ms** so với ~2.000 ms một lượt gọi mới — chênh ~150 lần |
+| Lượt kèm hold | 0 Vox (tiền đã thu lúc tạo hold) |
+| Thiếu nhà cung cấp | 503, 21 ms — chặn trước khi chạm mô hình |
+| Thiếu token máy | **401 NO_TOKEN**, 1 ms |
+| Mô hình không gọi được | 503, 2.026 ms, không trừ Vox |
+| **Thiếu `assist`, có `translate`** | **HTTP 200, 2 Vox, `assistRole = translate`** — đường rơi còn sống, đo được |
+
+Tổng trừ 16 Vox. Token ra 24–148. Độ trễ sonar 1,7–3,8 giây. Chủ dự án tự
+grep khoá 53 ký tự và các mẫu `pplx-`/`sk-`/`Bearer ` vào tệp bằng chứng:
+**0 lần**.
+
+### Bước 3 — sửa gì
+
+**`ai-gateway.service.js`** — dòng `const role = assistProviders.length ?
+'assist' : 'translate'` biến mất. Thiếu nhà cung cấp vai trợ lý nay ném
+`CHUA_CO_NOI_GOI_TRO_LY` (503) trước khi chạm tới bất kỳ mô hình nào.
+
+**Mã lỗi phải RIÊNG, không gộp vào `AI_UNAVAILABLE`.** Hai ca trông giống
+nhau nhưng cách chữa ngược nhau: nhà cung cấp lỗi tạm thời thì thử lại có
+ích; chưa cắm nhà cung cấp thì thử lại bao nhiêu lần cũng vậy cho tới khi có
+người vào trang quản trị. Nên ca cấu hình **không kèm `retryAfter`** — hẹn
+thử lại cho một lỗi cấu hình là dạy máy khách lặp lại việc chắc chắn hỏng.
+
+Câu 503 mới, nguyên văn:
+
+> Máy chủ chưa có nơi gọi mô hình nào cho vai «trợ lý» nên lượt này không chạy
+> được. Quản trị viên cần thêm một nơi gọi cho vai «assist» ở trang «Nơi gọi
+> mô hình». Thử lại ngay bây giờ vẫn ra đúng lỗi này.
+
+**Bốn cửa đều nói câu đó.** `flow-blueprints` (H2) đã chuyển nguyên `err.code`
+từ bản vá 11/09 nên chỉ cần thêm ngoại lệ bỏ `retryAfter`; `routes/ai.js` và
+hai cửa `brand-scripts` (H3) trước đây thay MỌI lỗi bằng một câu chung, nay
+hỏi `gateway.laLoiChuaCoNoiGoiTroLy(err)` — **một hàm, bốn nơi dùng**, thay vì
+bốn bản sao của cùng một điều kiện.
+
+**Phát hiện trong lúc sửa: câu đúng của máy chủ bị máy khách dịch SAI.**
+`autodub_gui/dub_constants.py::friendly_assist_error()` khớp chuỗi "chưa cấu
+hình" rồi trả về *"Tính năng này cần tài khoản VoxDub — mở Cài đặt để kết
+nối."* — tức đẩy người dùng đi sửa đúng thứ không hỏng, trong khi lỗi nằm ở
+máy chủ. Thêm một nhánh ĐỨNG TRƯỚC nhánh ấy, nói đúng việc: báo quản trị
+viên, thử lại cũng vậy, mọi việc khác vẫn bình thường. Đây là lớp lỗi #6 của
+dự án, lần này nằm ở lớp cuối cùng trước mắt người dùng.
+
+### Test hai chiều
+
+`control_server/tests/tro-ly-khong-roi-vai-dich.test.js` — **10 đạt**. Máy chủ
+mô hình giả **đếm số lượt bị gọi**, nên "không mượn vai dịch" là con số chứ
+không phải niềm tin.
+
+| Đột biến | Kết quả |
+|---|---|
+| Trả lại `role = assistProviders.length ? 'assist' : 'translate'` | **đỏ 2**: «thiếu vai assist… KHÔNG mượn mô hình của vai dịch» + «câu 503 chỉ đúng việc phải làm» |
+| Sửa quá tay: chặn thiếu nhà cung cấp **trước** lớp xác thực | **đỏ 2**: «thiếu token thiết bị vẫn là 401» + câu 503 |
+| Gỡ nhánh mới ở `friendly_assist_error` | **đỏ 1** (Python): `test_may_chu_chua_gan_mo_hinh_thi_KHONG_bao_di_mo_cai_dat` |
+
+Canh cả chiều ngược: `explain_error` vẫn chạy khi ví = 0 · nhà cung cấp lỗi
+tạm thời vẫn là `AI_UNAVAILABLE` kèm `retryAfter: 30` · token rác vẫn 401 ·
+`friendly_assist_error("read timeout")` vẫn khuyên thử lại, không nuốt mọi lỗi
+vào câu "báo quản trị viên".
+
+### Bước 3 — chạy lại bộ thu với khoá thật (lượt 07:12)
+
+`npm run bang-chung:assist` · **mã thoát 0** · 15 lượt · **10 lượt gọi mô hình
+thật** · 16 Vox · 0 vi phạm.
+
+| Lượt then chốt | Trước bước 3 | Sau bước 3 |
+|---|---|---|
+| `thiếu assist, có translate` | 200 · 2 Vox · `assistRole=translate` | **503 `CHUA_CO_NOI_GOI_TRO_LY` · 17 ms · 0 Vox** |
+| `thiếu nhà cung cấp` | 503 `AI_UNAVAILABLE` | 503 `CHUA_CO_NOI_GOI_TRO_LY` · 28 ms |
+| `thiếu token máy` | 401 `NO_TOKEN` · 1 ms | **401 `NO_TOKEN` · 2 ms** (không đổi — đúng ý) |
+| Nhớ đệm | 0 Vox · 13 ms | 0 Vox · **24 ms** so với 2.714 ms lượt gọi mới |
+| `explain_error` (ví 0) | 200 · 0 Vox | 200 · 0 Vox |
+
+Bộ thu cũng có thêm **một lượt canh ngược nhớ đệm** ("đổi nội dung thì KHÔNG
+được đọc đệm", 2 Vox, gọi mới): thiếu nó thì một cái đệm hỏng kiểu "cái gì
+cũng trả kết quả cũ" vẫn qua được bộ thu. Lượt này cũng giữ số lượt chạm mô
+hình thật ở mức 10 sau khi ca rơi-vai không còn gọi mô hình nữa.
+
+Quét lại tệp bằng chứng: khoá nguyên văn **0 lần**, mẫu `pplx-`/`sk-`/`Bearer`
+**0 lần**.
+
+### Bốn tác vụ có ẢNH có bị chặn oan không — đo, không đoán
+
+Vai `assist` nay trỏ vào `sonar`, mà `packaging_check`, `kiem_anh_minh_hoa`,
+`scene_continuity`, `doc_chu_khung_hinh` đều gửi ảnh và phải qua phép thử
+"mô hình có nhìn được ảnh không" (`vision-probe.service.js`). Mô hình mù thì
+bốn cửa đó sẽ ngừng chạy — nên phải đo chứ không suy luận.
+
+Đo thật 22/09/2026 trên CSDL dùng một lần: **`sonar` ĐỌC ĐƯỢC** con số bốn
+chữ số do máy chủ tự vẽ, qua phép thử và chạy tiếp `packaging_check`. Bốn cửa
+ảnh **không bị chặn**.
+
+### Bẫy khi chạy bộ thu — `npm run` KHÔNG tự đọc `.env`
+
+Chủ dự án vấp đúng chỗ này (thoát mã 2 dù `.env` đã đủ ba biến). Đã ghi thẳng
+vào đầu `scripts/thu-bang-chung-assist.js`:
+
+```bash
+cd control_server
+export $(grep -E '^ASSIST_EVAL_' .env | xargs -d '\n')
+npm run bang-chung:assist
+```
+
+**Chỉ ba biến đó.** Không `export $(cat .env)`: tệp ấy còn `MONGODB_URI`,
+`JWT_SECRET`, `APP_ENCRYPTION_KEY` của máy chủ THẬT — bộ thu tự dựng cơ sở dữ
+liệu riêng và tự sinh khoá riêng, nạp cả tệp là tự tay đặt bí mật sản xuất
+vào môi trường một tiến trình không cần tới chúng.
+
+### Còn treo
+
+* **Chưa có lượt bấm tay nào trên Windows.** Mười lượt trên đi đường API máy
+  chủ. Câu 503 mới đã có test canh ở cả hai phía (máy chủ và
+  `friendly_assist_error`), nhưng chưa ai nhìn thấy nó hiện ra trong app thật.
+* **Câu chữ giá trong giao diện vẫn gõ tay** (`autodub_gui/gia.py`,
+  `pages/brand_script_page.py`, `pages/editor_panels.py`) — hôm nay khớp giá
+  mặc định, đổi giá ở trang quản trị thì giao diện không đổi theo.

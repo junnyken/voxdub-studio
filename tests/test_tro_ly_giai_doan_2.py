@@ -37,6 +37,40 @@ def test_loi_tro_ly_noi_ro_con_dung_duoc_gi(loi, phai_co):
         assert cam not in ra.lower(), f"lọt từ kỹ thuật: {cam}"
 
 
+def test_may_chu_chua_gan_mo_hinh_thi_KHONG_bao_di_mo_cai_dat():
+    """Ca của MINI-SPEC I1 bước 3 — `CHUA_CO_NOI_GOI_TRO_LY`.
+
+    Máy chủ nay nói đúng việc phải làm: thêm nơi gọi mô hình cho vai «assist».
+    Nhưng lời ấy đi qua `friendly_assist_error()` trước khi tới mắt người
+    dùng, và nhánh "chưa cấu hình" cũ ở đó lại bảo họ **mở Cài đặt tài
+    khoản** — tức là đẩy người dùng đi sửa đúng thứ không hỏng, trong khi lỗi
+    nằm ở máy chủ. Câu đúng phải nói: báo quản trị viên, và thử lại cũng vậy.
+    """
+    from autodub_gui.dub_constants import friendly_assist_error
+
+    cau_may_chu = (
+        "Máy chủ chưa có nơi gọi mô hình nào cho vai «trợ lý» nên lượt này "
+        "không chạy được. Quản trị viên cần thêm một nơi gọi cho vai «assist» "
+        "ở trang «Nơi gọi mô hình». Thử lại ngay bây giờ vẫn ra đúng lỗi này.")
+    ra = friendly_assist_error(cau_may_chu)
+
+    assert "Cài đặt" not in ra, (
+        "đây KHÔNG phải lỗi tài khoản — bảo người dùng mở Cài đặt là chỉ sai "
+        "đường, đúng lớp lỗi #6 của dự án")
+    assert "quản trị" in ra.lower(), "phải nói ai mới chữa được"
+    assert "bình thường" in ra.lower(), "trợ lý là lớp bồi thêm, không phải sự cố"
+    for cam in ("exception", "traceback", "http", "500", "assist"):
+        assert cam not in ra.lower(), f"lọt từ kỹ thuật: {cam}"
+
+
+def test_loi_tam_thoi_van_giu_nguyen_loi_khuyen_thu_lai():
+    """Phép canh ngược: đừng nuốt MỌI lỗi vào câu "báo quản trị viên"."""
+    from autodub_gui.dub_constants import friendly_assist_error
+
+    assert "thử lại" in friendly_assist_error("read timeout").lower()
+    assert "quản trị" not in friendly_assist_error("read timeout").lower()
+
+
 # -- 2. Worker chung ---------------------------------------------------------
 
 def test_chua_co_tai_khoan_thi_khong_goi_ra_ngoai(qapp, monkeypatch):

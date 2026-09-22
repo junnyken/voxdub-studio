@@ -128,22 +128,43 @@ test('hệ thống lành: chạy trọn ma trận và mọi bất biến đạt'
   }
 })
 
-test('đo được đường rơi im lặng sang vai dịch — chưa tính là vi phạm', async (t) => {
+test('thiếu vai assist mà có vai dịch: bộ thu đòi 503, không đòi 200', async (t) => {
   const gia = await moNhaCungCapGia()
   t.after(() => gia.dong())
 
   const ket = await chay(gia)
   const roi = ket.luot.find((d) => d.ten === 'thiếu assist, có translate')
 
-  // Hôm nay: đường rơi còn sống, nên lượt này ra 200 và vai ghi lại là
-  // `translate`. Sau bước 3 của phương án A, nó phải thành 503 — lúc đó test
-  // này ĐỎ, và đỏ đúng chỗ cần sửa (cả bộ thu lẫn dòng dưới đây).
-  assert.strictEqual(roi.ma_http, 200,
-    'nếu dòng này đỏ: đường rơi đã bị đóng — cập nhật bộ thu thành kỳ vọng 503')
-  assert.strictEqual(roi.vai_mo_hinh, 'translate')
+  // I1 bước 3 đã đóng đường rơi (22/09/2026). Trước đó lượt này ra 200 kèm
+  // `assistRole = translate` và bộ thu chỉ GHI NHẬN; nay nó là phép KIỂM.
+  assert.strictEqual(roi.ma_http, 503)
+  assert.strictEqual(roi.ma_loi, 'CHUA_CO_NOI_GOI_TRO_LY')
+  assert.strictEqual(roi.da_tru, 0, 'lượt bị chặn không được trừ Vox')
+  assert.strictEqual(ket.tomTat.duong_roi_con_song, false)
+  assert.ok(!coViPham(ket, 'thiếu vai assist'), JSON.stringify(ket.viPham))
+})
+
+test('đường rơi sống lại ⇒ bộ thu ĐỎ', async (t) => {
+  const gia = await moNhaCungCapGia()
+  const gateway = require('../src/services/ai-gateway.service')
+  const that = gateway.assist
+  t.after(async () => { gateway.assist = that; await gia.dong() })
+
+  const ket = await chay(gia, {
+    tiemLoi: async () => {
+      // Dựng lại đúng hành vi CŨ: thiếu vai `assist` thì mượn vai dịch và
+      // trả lời như thường. Đây là thứ bộ thu phải kêu, không phải bỏ qua.
+      gateway.assist = async () => ({
+        results: [{ value: 'trả lời bằng vai dịch', reason: 'rơi vai im lặng' }],
+        usage: { promptTokens: 1, completionTokens: 1 },
+        provider: 'noi-goi-dich', model: 'mo-hinh-dich', role: 'translate',
+      })
+    },
+  })
+
+  assert.strictEqual(ket.ok, false)
+  assert.ok(coViPham(ket, 'KHÔNG được rơi sang vai dịch'), JSON.stringify(ket.viPham))
   assert.strictEqual(ket.tomTat.duong_roi_con_song, true)
-  assert.ok(!coViPham(ket, 'thiếu assist'),
-    'ca này là PHÉP ĐO, không phải phép kiểm đạt/hỏng của hôm nay')
 })
 
 // ------------------------------------------------- 2. bốn ca hỏng ⇒ ĐỎ ---

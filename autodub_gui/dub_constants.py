@@ -324,6 +324,15 @@ def friendly_assist_error(message: str) -> str:
     dựng lên như một sự cố nghiêm trọng.
     """
     thap = (message or "").lower()
+    # Máy chủ CHƯA GẮN mô hình cho cổng trợ lý (MINI-SPEC I1 bước 3, mã
+    # `CHUA_CO_NOI_GOI_TRO_LY`). Phải đứng TRƯỚC nhánh "tài khoản" ngay dưới:
+    # câu của máy chủ nói về nơi gọi mô hình ở phía máy chủ, còn nhánh dưới
+    # lại bảo người dùng đi mở Cài đặt tài khoản — họ sẽ loay hoay sửa đúng
+    # thứ không hỏng. Máy chủ biết chuyện gì xảy ra; chỗ này là nơi cuối cùng
+    # câu ấy còn có thể bị dịch sai.
+    if "nơi gọi mô hình" in thap or "vai «trợ lý»" in thap:
+        return ("Máy chủ chưa gắn mô hình cho cổng trợ lý — báo quản trị "
+                "viên. Thử lại ngay cũng vậy; mọi việc khác vẫn bình thường.")
     if "tài khoản" in thap or "chưa cấu hình" in thap:
         return "Tính năng này cần tài khoản VoxDub — mở Cài đặt để kết nối."
     if "insufficient" in thap or "không đủ vox" in thap:

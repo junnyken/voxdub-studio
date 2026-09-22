@@ -380,16 +380,29 @@ NGÀY mỗi máy (`assist.daily.limit`, riêng từng tác vụ qua
 `assist.daily.limit.<task>`) → giá theo tác vụ. Thêm nhớ đệm theo NỘI DUNG
 (băm tác vụ + phiên bản prompt + input): bấm lại cùng câu hỏi trả
 `fromCache: true`, `creditCharged: 0`.
-Vai trò mô hình: `assist`; chưa cấu hình thì tự dùng chung vai `translate`
-(vẫn chạy nhưng đắt hơn nhiều lần — xem trang quản trị "Cổng trợ lý").
-**Trạng thái 22/09/2026:** vai `assist` vẫn CHƯA có nhà cung cấp nào, nên câu
-trên mô tả đúng thứ đang chạy thật. Mini-spec I1 muốn đổi đường rơi này thành
-`503`; việc đó **chưa làm** và không được làm trước khi có nhà cung cấp
-`assist` — bỏ đường rơi lúc này là tắt cả 13 tác vụ trợ lý, kể cả
-`explain_error` (xem `docs/TEST_LOG.md` mục I2/I1).
-Lỗi: `400` tên tác vụ sai, `402 INSUFFICIENT_CREDIT`, `429 DAILY_LIMIT`,
-`502 BAD_AI_RESPONSE`, `503 AI_UNAVAILABLE`. Mọi nơi gọi phía app đều có
-đường lui chạy trên máy — hỏng ở đây không chặn người dùng làm việc.
+Vai trò mô hình: **`assist`, và CHỈ `assist`** (mini-spec I1 bước 3,
+22/09/2026). Trước đó, chưa cấu hình vai này thì lượt gọi âm thầm mượn mô
+hình của vai `translate` — vẫn trả lời, vẫn trừ đúng giá tác vụ trợ lý, nhưng
+phí mô hình phía máy chủ đắt hơn hàng chục lần và không có triệu chứng nào.
+Đường rơi đó **đã bị đóng**.
+
+Lỗi: `400` tên tác vụ sai · `401` thiếu/sai token thiết bị ·
+`402 INSUFFICIENT_CREDIT` · `429 DAILY_LIMIT` · `502 BAD_AI_RESPONSE` ·
+`503 AI_UNAVAILABLE` · `503 CHUA_CO_NOI_GOI_TRO_LY`.
+
+**Hai mã 503 là HAI ca khác nhau, đừng gộp khi xử lý:**
+
+| Mã | Nghĩa | `retryAfter` | Máy khách nên làm gì |
+|---|---|---|---|
+| `AI_UNAVAILABLE` | nhà cung cấp lỗi/timeout/hết hạn mức | `30` | rơi về đường lui trên máy, thử lại sau |
+| `CHUA_CO_NOI_GOI_TRO_LY` | **chưa ai cắm nhà cung cấp cho vai `assist`** | *(không có)* | KHÔNG thử lại — báo người dùng liên hệ quản trị viên. Thử lại chắc chắn ra đúng lỗi này cho tới khi có người thêm nơi gọi ở trang «Nơi gọi mô hình» |
+
+Ba cửa trợ lý còn lại (`POST /v1/flow-blueprints`, `POST /v1/brand-scripts`,
+`POST /v1/brand-scripts/:id/regenerate-beat`) trả **cùng mã và cùng câu** cho
+ca thiếu nhà cung cấp.
+
+Mọi nơi gọi phía app đều có đường lui chạy trên máy — hỏng ở đây không chặn
+người dùng làm việc.
 
 ### `POST /product-scene` (mini-spec C1, thêm 2026-08-21)
 Dựng lại ảnh sản phẩm trong một bối cảnh khác. Sinh ra để chống đúng án phạt

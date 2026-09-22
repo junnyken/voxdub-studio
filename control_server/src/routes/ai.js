@@ -921,6 +921,12 @@ module.exports = async function aiRoutes(fastify) {
         })
       }
       request.log.warn({ err, jobId, task }, 'assist failed')
+      // Ca "chưa cắm nhà cung cấp vai trợ lý" đi bằng câu RIÊNG của nó (I1
+      // bước 3): câu chung phía dưới bảo người dùng "vẫn dùng bình thường
+      // được" và ngụ ý thử lại sau — đúng lời khuyên SAI cho ca này, vì thử
+      // lại bao nhiêu lần cũng vậy cho tới khi có người vào trang quản trị.
+      // Vẫn ghi sổ như mọi lỗi khác để trang thống kê đếm được.
+      const chuaCoNoiGoi = gateway.laLoiChuaCoNoiGoiTroLy(err)
       UsageLog.create({
         fingerprint: device.fingerprint,
         jobId,
@@ -933,6 +939,11 @@ module.exports = async function aiRoutes(fastify) {
         ip: request.ip,
         appVersion: device.appVersion,
       }).catch(() => {})
+      if (chuaCoNoiGoi) {
+        // KHÔNG kèm `retryAfter`: nói "thử lại sau 30 giây" cho một lỗi cấu
+        // hình là dạy máy khách lặp lại một việc chắc chắn hỏng.
+        return reply.code(503).send({ code: err.code, message: err.message })
+      }
       // App LUÔN có đường lui cho các tác vụ này (tầng luật chạy trên máy),
       // nên hỏng ở đây không phải chuyện lớn — nhưng phải nói ra để phía app
       // biết mà rơi về đường lui, thay vì tưởng là không có gợi ý nào.

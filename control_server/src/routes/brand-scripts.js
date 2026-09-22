@@ -300,6 +300,11 @@ module.exports = async function brandScriptRoutes(fastify) {
         return reply.code(400).send({ code: err.code || 'BAD_REQUEST', message: err.message })
       }
       request.log.warn({ err, jobId }, 'brand_script_rewrite failed')
+      // I1 bước 3 — ca "chưa cắm nhà cung cấp vai trợ lý" nói câu riêng:
+      // "Thử lại sau" là lời khuyên sai cho một lỗi cấu hình.
+      if (gateway.laLoiChuaCoNoiGoiTroLy(err)) {
+        return reply.code(503).send({ code: err.code, message: err.message })
+      }
       return reply.code(503).send({
         code: 'AI_UNAVAILABLE',
         message: 'Chưa viết được kịch bản lúc này. Thử lại sau.',
@@ -463,6 +468,9 @@ module.exports = async function brandScriptRoutes(fastify) {
       })
     } catch (err) {
       request.log.warn({ err, jobId, beatIndex }, 'regenerate-beat failed')
+      if (gateway.laLoiChuaCoNoiGoiTroLy(err)) {
+        return reply.code(503).send({ code: err.code, message: err.message })
+      }
       return reply.code(503).send({
         code: 'AI_UNAVAILABLE',
         message: 'Chưa viết lại được đoạn này. Thử lại sau.',

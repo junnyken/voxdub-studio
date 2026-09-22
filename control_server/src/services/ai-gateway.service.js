@@ -38,6 +38,29 @@ class AiError extends Error {
   }
 }
 
+/**
+ * Mã lỗi riêng cho ca "chưa ai cắm nhà cung cấp cho vai trợ lý".
+ *
+ * Phải KHÁC `AI_UNAVAILABLE`: hai ca trông giống nhau (cùng 503, cùng "trợ lý
+ * không trả lời") nhưng cách chữa ngược nhau. Nhà cung cấp lỗi tạm thời thì
+ * thử lại có ích; chưa cắm nhà cung cấp thì thử lại bao nhiêu lần cũng ra
+ * đúng lỗi đó — phải có người vào trang quản trị. Gộp hai ca vào một câu là
+ * đúng lớp lỗi #6 của dự án: máy biết chuyện gì xảy ra nhưng nói ra câu người
+ * dùng không dùng được.
+ */
+const MA_CHUA_CO_NOI_GOI_TRO_LY = 'CHUA_CO_NOI_GOI_TRO_LY'
+
+/** Lỗi này có phải ca "chưa cắm nhà cung cấp vai trợ lý" không.
+ *
+ * Bốn cửa gọi trợ lý (`/v1/ai/assist`, flow-blueprints, brand-scripts ×2)
+ * đều hỏi qua hàm này thay vì tự so chuỗi mã — bốn bản sao của một điều kiện
+ * là bốn cơ hội để chúng trôi lệch nhau.
+ */
+function laLoiChuaCoNoiGoiTroLy(err) {
+  return Boolean(err && err.code === MA_CHUA_CO_NOI_GOI_TRO_LY
+    && err.statusCode === 503)
+}
+
 const PROVIDER_CACHE_TTL_MS = 60_000
 const providerCache = new Map()   // role -> { list, expiresAt }
 
@@ -963,8 +986,27 @@ async function assist({ task, input, images }) {
       + `${Math.round(TRAN_TONG_ANH / 1024)} KB. Thu nhỏ ảnh rồi gửi lại.`, 413)
   }
 
+  // Vai `assist` KHÔNG có đường lui sang vai khác — MINI-SPEC I1 bước 3.
+  //
+  // Bản trước: `const role = assistProviders.length ? 'assist' : 'translate'`.
+  // Thiếu nhà cung cấp cho vai trợ lý thì lượt gọi âm thầm mượn mô hình của
+  // vai DỊCH: vẫn trả lời, vẫn trừ đúng giá tác vụ trợ lý của người dùng,
+  // nhưng phí mô hình phía máy chủ đắt hơn hàng chục lần — và không ai nhìn
+  // thấy gì ngoài một lượt trợ lý bình thường. Một lỗi cấu hình mất hai phút
+  // để sửa, đội lốt một hệ thống đang chạy tốt.
+  //
+  // Nay: thiếu thì NÓI, kèm đúng việc phải làm. Trả lại lượt này mà không
+  // tiêu mô hình đắt tiền, và không để trang thống kê phải đoán vai nào vừa
+  // chạy.
   const assistProviders = await providersFor('assist')
-  const role = assistProviders.length ? 'assist' : 'translate'
+  if (!assistProviders.length) {
+    throw new AiError(MA_CHUA_CO_NOI_GOI_TRO_LY,
+      'Máy chủ chưa có nơi gọi mô hình nào cho vai «trợ lý» nên lượt này '
+      + 'không chạy được. Quản trị viên cần thêm một nơi gọi cho vai '
+      + '«assist» ở trang «Nơi gọi mô hình». Thử lại ngay bây giờ vẫn ra '
+      + 'đúng lỗi này.', 503)
+  }
+  const role = 'assist'
 
   // Có gửi ảnh thì mô hình PHẢI nhìn được ảnh. Sàng TRƯỚC khi gọi thật, và
   // giao đúng danh sách đã sàng cho lượt gọi: một phán quyết "đạt" từ mô hình
@@ -1029,6 +1071,8 @@ async function assist({ task, input, images }) {
 }
 
 module.exports = {
+  MA_CHUA_CO_NOI_GOI_TRO_LY,
+  laLoiChuaCoNoiGoiTroLy,
   danhSachChon,
   timTheoTen,
   thuNgay,
