@@ -16,7 +16,8 @@
     "payos:confirm-webhook": "node scripts/payos-confirm-webhook.js",
     "test": "node tests/chay.js",
     "eval:assist": "node evals/run.js",
-    "eval:assist:live": "node evals/run.js --live"
+    "eval:assist:live": "node evals/run.js --live",
+    "bang-chung:assist": "node scripts/thu-bang-chung-assist.js"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

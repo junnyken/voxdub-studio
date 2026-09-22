@@ -18823,3 +18823,130 @@ giữ nguyên (so `sha256`).
   lưu lựa chọn theo cảnh, không có `scene_director`. Cố ý: thêm ô chọn bây
   giờ là hứa một việc I3/I4 mới làm được.
 * **Chưa có lượt Windows nào.** Bằng chứng đo thật ở trên chạy trên Linux.
+
+## I1 bước 2 — bộ thu bằng chứng cho cổng trợ lý, dựng sẵn chờ khoá (22/09/2026)
+
+Chủ dự án chốt **phương án A**: cắm khoá → chạy 10 lượt thật → *rồi mới* chốt
+cấm đường rơi sang vai `translate`. Bước 1 là việc của chủ dự án. Đây là bước
+2: dựng sẵn bộ thu, để lúc khoá về thì **chỉ còn một lệnh**.
+
+**Chưa có lượt gọi thật nào chạy.** Mọi con số dưới đây là của nhà cung cấp
+GIẢ dựng trong tiến trình test. Không đi tìm khoá ở repo hay biến môi trường.
+
+### Quyết định: đi đường API máy chủ (a), không đi giao diện desktop (b)
+
+Chọn (a) vì (b) bất khả thi ở đây: giao diện là PySide6 đóng gói cho Windows,
+còn workspace này là Linux không màn hình — muốn (b) thì phải có người ngồi
+bấm trên máy Windows, tức là không còn là "một lệnh".
+
+**Thứ (a) KHÔNG chứng minh được, nói thẳng:**
+
+1. **Luồng bấm của người dùng.** Bốn tác vụ nằm ở bốn chỗ khác nhau
+   (`explain_error` trong hộp báo lỗi — `autodub_gui/workers.py`;
+   `character_name` trong hộp "Xem trước người nói" và `tighten_line` ở thanh
+   công cụ câu — `autodub_gui/pages/editor_page.py`; `scene_script` ở đường
+   dựng video — `autodub/product_video.py`). Bộ thu gọi thẳng HTTP.
+2. **Câu chữ người dùng đọc được.** `friendly_assist_error()` dịch 503 thành
+   câu gì, toast hiện ra sao — không lượt nào ở đây đi qua.
+3. **Giá hiện trên giao diện.** Đo được trong lúc audit: các câu "2 Vox",
+   "12 Vox" trong giao diện là **chuỗi gõ tay** (`autodub_gui/gia.py`,
+   `pages/brand_script_page.py`, `pages/editor_panels.py`), không đọc từ máy
+   chủ. Hôm nay chúng khớp giá mặc định, nhưng đổi `credit.cost.assist.*` ở
+   trang quản trị thì giao diện **không đổi theo** — bộ thu không bắt được
+   chuyện đó vì nó chỉ nhìn phía máy chủ. Ghi vào phần còn treo.
+4. **Ví tiền thật.** Số dư Vox trong lượt thu do chính bộ thu gieo vào một cơ
+   sở dữ liệu dùng một lần. Thứ được chứng minh là LOGIC tính tiền.
+5. **Bản đóng gói Windows.**
+
+**Thu hẹp được một phần khoảng cách đó:** `tests/test_thu_bang_chung_khop_may_khach.py`
+(**6 đạt**) đọc CẢ HAI phía — mẫu của bộ thu và bốn lời gọi thật trong mã máy
+khách — rồi so tên trường. Bộ thu gửi sai hình dạng thì đỏ ngay, chứ không
+phải đến lúc người dùng bấm mới biết. Đổi `needSeconds` thành `need_seconds`
+trong mẫu ⇒ **đỏ đúng `test_ten_truong_khop_may_khach[tighten_line]`**.
+
+### Bộ thu gồm gì
+
+`control_server/scripts/thu-bang-chung-assist.js` — chạy trên **cơ sở dữ liệu
+dùng một lần**, dựng máy chủ thật bằng `src/app.js`, gọi đúng
+`POST /v1/ai/assist`, rồi ghi lại từng lượt. Không đụng máy chủ đang chạy:
+khoá ký và khoá mã hoá **sinh ngẫu nhiên mỗi lượt** (bộ thu không đọc bí mật
+sản xuất), và nó **từ chối chạy** nếu `TEST_MONGO_URI` trỏ ra ngoài máy.
+
+14 kịch bản, trong đó **10 lượt chạm mô hình thật**:
+
+| Nhóm | Kịch bản |
+|---|---|
+| Ma trận §B2 | `explain_error` ×2 (một lượt **khi ví = 0**), `character_name` ×2, `tighten_line` ×2, `scene_script` ×2 |
+| Tiền | nhớ đệm CÓ CHỦ Ý (cùng nội dung, mã việc mới) · lượt đi kèm `holdId` đang hoạt động |
+| Hợp đồng lỗi | không nhà cung cấp nào · thiếu token máy · nhà cung cấp trỏ vào cổng chết |
+| Phép ĐO (không phải phép kiểm) | thiếu `assist` nhưng có `translate` — đo xem đường rơi còn sống không |
+
+Mỗi lượt ghi đủ trường §B3: tác vụ · máy (đã rút gọn) · giá preflight (đọc từ
+`credit.cost.assist.<task>`, đúng nguồn máy chủ dùng để trừ) · ví trước/sau ·
+hold (trạng thái + số mục usage) · số dòng ghi sổ sinh thêm · đệm hit/miss ·
+khoá đệm (rút gọn) · phiên bản lời nhắc · mã HTTP · mã lỗi · vai mô hình ·
+nhà cung cấp · mô hình · token vào/ra · độ trễ.
+
+**Bất biến kiểm TỰ ĐỘNG** (phá cái nào thì bộ thu trả mã thoát 1, không cần ai
+đọc tay): `explain_error` 0 Vox và chạy được khi ví cạn · lượt có phí trừ
+ĐÚNG giá cấu hình · đệm không trừ lần hai, không sinh dòng ghi sổ, không tạo
+hold mới · lượt có hold không trừ ví và hold ghi lại lượt dùng · thiếu nhà
+cung cấp ra **503 chứ không 401** · thiếu token vẫn **401** và không sinh dòng
+sổ nào (chưa chạm mô hình) · mô hình hỏng ra 503 và không trừ Vox · không bí
+mật nào lọt vào sổ sách hay tệp bằng chứng.
+
+**Che bí mật — hai lớp, cộng một lớp soi ngược.** `control_server/src/utils/che-bi-mat.js`
+là bản Node của `autodub/bang_chung.py` (che theo tên khoá + theo mẫu
+`KHOA=giá trị`), thêm `cheTheoGiaTri()` che theo ĐÚNG chuỗi khoá đang giữ —
+lớp này tồn tại vì hai lớp kia mù trước một khoá nằm lẫn trong câu trả lời của
+mô hình. Nhân đôi Python/Node là nợ, trả bằng
+`tests/test_che_bi_mat_khop_hai_phia.py` (**2 đạt**): cùng một bộ mẫu đẩy qua
+hai bản, so từng ký tự, và canh cả chiều ngược (che quá tay cũng đỏ).
+
+### Bộ thu tự chứng minh là nó ĐO chứ không GẬT
+
+`control_server/tests/thu-bang-chung-assist.test.js` (**6 đạt**) chạy bộ thu
+với một nhà cung cấp GIẢ trong tiến trình — không cần khoá, chạy được ngay
+hôm nay.
+
+| Lượt | Kết quả |
+|---|---|
+| Hệ thống lành | bộ thu XANH; số lượt nhà cung cấp giả NHẬN ĐƯỢC khớp số lượt bộ thu khai là "gọi mới" (một bộ thu gật sẽ lệch ở đúng đây) |
+| Đo đường rơi | ghi nhận `vai_mo_hinh = translate`, HTTP 200 — **không** tính là vi phạm, vì bước 3 chưa làm |
+| **Tiêm lỗi 1** — tác vụ miễn phí bị tính tiền | bộ thu **ĐỎ**: «explain_error phải 0 Vox» |
+| **Tiêm lỗi 2** — nhớ đệm chết (trả tiền hai lần) | bộ thu **ĐỎ**: «nhớ đệm phải ĐỌC ĐỆM» + «KHÔNG trừ tiền lần hai» |
+| **Tiêm lỗi 3** — thiếu nhà cung cấp mà vẫn trả lời | bộ thu **ĐỎ**: «thiếu nhà cung cấp phải 503» |
+| **Tiêm lỗi 4** — khoá API lọt vào câu trả lời | bộ thu **ĐỎ** + **tệp ghi ra vẫn sạch**; gỡ lớp che theo giá trị ⇒ đỏ đúng lượt này |
+
+Cả bộ: `npm test` **760 đạt / 1 bỏ qua / 0 đỏ** (761 test) ·
+`pytest` **3145 đạt / 4 bỏ qua / 0 đỏ**.
+
+### Khi khoá về — đúng một lệnh
+
+```bash
+cd control_server
+ASSIST_EVAL_BASE_URL=… ASSIST_EVAL_KEY=… ASSIST_EVAL_MODEL=… \
+  npm run bang-chung:assist
+# Gemini thì thêm ASSIST_EVAL_TYPE=google
+```
+
+Tên biến **cố ý trùng `evals/run.js`** — một bộ biến cho cả hai công cụ. Bằng
+chứng ghi ra `control_server/bang-chung-assist/<thời-điểm>.json` (đã bị
+`.gitignore`, vì đó là kết quả một lượt chạy cụ thể). Mã thoát 0 = mọi bất
+biến đạt; 1 = có bất biến bị phá, in rõ cái nào.
+
+Muốn chấm thêm CHẤT LƯỢNG câu trả lời thì chạy `npm run eval:assist:live`
+(cùng bộ biến) — hai công cụ trả lời hai câu hỏi khác nhau và cố ý không chồng
+việc nhau: `evals/` chấm nội dung, bộ thu này canh tiền và hợp đồng lỗi.
+
+### Còn phải làm tay / cần chủ dự án
+
+* **Cắm khoá** cho vai `assist` ở `/admin/mo-hinh` — chỉ chủ dự án làm được.
+* **Một lượt bấm thật trên Windows** cho bốn cửa giao diện: đây là phần (a)
+  không phủ được. Không bắt buộc để đóng §B2/§B3, nhưng nếu muốn nói "đường
+  người dùng đã chạy" thì phải có người bấm.
+* **Câu chữ giá trong giao diện đang gõ tay** — nếu giá cấu hình đổi khác mặc
+  định, phải sửa tay hoặc mở một việc riêng cho nó (ngoài phạm vi I1).
+* **Bước 3** (chốt cấm đường rơi) chỉ làm sau khi có bằng chứng 10 lượt. Lúc
+  đó lượt «thiếu assist, có translate» phải đổi kỳ vọng từ 200 thành 503 —
+  test đã ghi sẵn câu nhắc ngay tại dòng khẳng định đó.

@@ -78,3 +78,8 @@ website/dist/
 # khiến `/health` khai một commit khác hẳn thứ đang chạy — tệ hơn là không
 # khai gì, vì nó trông như bằng chứng.
 control_server/SOURCE_SHA
+
+# Bang chung mot luot chay cua bo thu cong tro ly (I1 §B2/§B3) — ket qua chay,
+# khong phai ma nguon. Tep da che bi mat nhung van la du lieu cua mot lan chay
+# cu the (so du Vox, do tre, ma viec), nen giu o may nguoi chay.
+/control_server/bang-chung-assist/
