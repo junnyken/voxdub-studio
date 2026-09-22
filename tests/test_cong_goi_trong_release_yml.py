@@ -151,3 +151,28 @@ def test_ban_cu_ghim_TAG_CO_DINH_khong_phai_latest():
     assert m, "bước tải phải ghi rõ --tag"
     assert re.fullmatch(r"v\d+(\.\d+)+", m.group(1)), (
         f"tag bản cũ phải là một mốc cố định, đang là {m.group(1)!r}")
+
+
+def test_moc_ban_cu_khong_moi_hon_phien_ban_dang_dung():
+    """Mốc "bản phát hành trước" không được trỏ vào một bản CHƯA tồn tại.
+
+    Ghim tay thì gõ nhầm là chuyện thường (vd bump nhầm thành bản sắp cắt).
+    Lúc đó bước tải sẽ 404 giữa lượt CI — đỏ đúng, nhưng muộn và tốn cả lượt
+    dựng. Phép so ở đây chặn ngay từ lúc sửa YAML.
+
+    Cố ý KHÔNG đòi "tag phải bằng bản liền trước": sau khi phát hành, `main`
+    còn mang chính số vừa phát hành cho tới lần bump sau — đòi khác nhau là
+    để repo ĐỎ suốt quãng giữa hai bản, mà một chốt đỏ thường trực thì người
+    ta học cách ngó lơ nó.
+    """
+    import re
+    tai = [b for b in _cac_buoc() if BO_TAI in _chay(b)]
+    assert tai
+    tag = re.search(r"--tag\s+v(\S+)", _chay(tai[0])).group(1)
+    app = re.search(r'APP_VERSION = "([\d.]+)"',
+                    open(os.path.join(REPO, "autodub_gui", "app.py"),
+                         encoding="utf-8").read()).group(1)
+    so = lambda s: tuple(int(x) for x in s.split("."))  # noqa: E731
+    assert so(tag) <= so(app), (
+        f"mốc bản cũ v{tag} mới hơn phiên bản đang dựng {app} — bản đó chưa "
+        "phát hành, bước tải sẽ 404 giữa lượt CI")

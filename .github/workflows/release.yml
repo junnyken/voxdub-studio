@@ -116,15 +116,26 @@ jobs:
       # lấy đúng tệp đó xuống làm bản cạnh bên.
       #
       # Bước tải ĐỨNG RIÊNG để mạng/API hỏng thì đỏ ngay tại đây — chứ không
-      # đỏ ở giữa cổng nâng cấp rồi ngồi chẩn nhầm sang sản phẩm. Tag ghi
-      # thẳng ra (không dùng `latest`): "bản cũ" phải là một mốc CỐ ĐỊNH thì
-      # hai lượt CI mới so được với nhau. Cắt bản mới thì bump tag ở đây.
+      # đỏ ở giữa cổng nâng cấp rồi ngồi chẩn nhầm sang sản phẩm.
+      #
+      # ⚠️ NÂNG TAY MỖI LẦN PHÁT HÀNH: đặt đúng bản phát hành LIỀN TRƯỚC bản
+      # sắp cắt (nay là v3.17.20, phát hành 22/09 ở run 35678475537).
+      #
+      # Vì sao không tự động hoá: `latest` thì trong lượt push tag, GitHub
+      # Release của CHÍNH bản đang dựng có thể đã tồn tại (lượt chạy lại, hoặc
+      # release tạo tay trước) — cổng sẽ đi so bản mới với chính nó và xanh mà
+      # không kiểm gì; đã có test chặn (`test_ban_cu_ghim_TAG_CO_DINH...`).
+      # "Bản mới nhì" tính tự động cũng không cứu được: nó đổi theo thời gian
+      # nên hai lượt CI cách nhau một tuần không còn so được với nhau, mà cổng
+      # này sống bằng việc so sánh giữa các lượt. Một mốc CỐ ĐỊNH, sửa tay,
+      # thấy ngay trong diff khi phát hành — đắt hơn một dòng, rẻ hơn một lượt
+      # xanh giả.
       - name: Tải gói phát hành cũ làm bản cạnh bên của I0-E
         id: ban-cu
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >
-          python scripts/tai_goi_phat_hanh_cu.py --tag v3.17.19
+          python scripts/tai_goi_phat_hanh_cu.py --tag v3.17.20
           --ra "${{ runner.temp }}/ban-cu"
           --nguon "${{ runner.temp }}/ban-cu/nguon-ban-cu.json"
 
