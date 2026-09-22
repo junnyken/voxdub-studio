@@ -176,3 +176,50 @@ def test_moc_ban_cu_khong_moi_hon_phien_ban_dang_dung():
     assert so(tag) <= so(app), (
         f"mốc bản cũ v{tag} mới hơn phiên bản đang dựng {app} — bản đó chưa "
         "phát hành, bước tải sẽ 404 giữa lượt CI")
+
+
+def test_trang_release_mang_ghi_chu_viet_tay_chu_khong_phai_danh_sach_commit():
+    """Người dùng đọc TRANG RELEASE, không đọc `docs/` trong repo.
+
+    Đo thật 22/09 trên chính bản `v3.17.20` vừa phát hành: thiếu `body_path`
+    nên `generate_release_notes` tự sinh từ commit, và trang release ra đúng
+    **89 ký tự** — một dòng link changelog. Trong khi
+    `docs/PHAT-HANH_v3.17.20.md` (7.625 ký tự) mở đầu bằng đúng câu người
+    đang kẹt cần đọc: bản này BẮT BUỘC nếu cài mới, vì trên `v3.17.19` không
+    cài nổi giọng VieNeu nữa.
+
+    Đây là §H của MINI-SPEC I0: ghi chú phát hành phải phân biệt được thay
+    đổi trong `.exe` / đã lên prod / có mã nhưng còn khoá / giới hạn. Tệp làm
+    được điều đó; trang release thì không, nếu không trỏ vào tệp.
+    """
+    phat_hanh = [b for b in _cac_buoc()
+                 if "action-gh-release" in str(b.get("uses", ""))]
+    assert len(phat_hanh) == 1
+    voi = phat_hanh[0].get("with") or {}
+    duong = str(voi.get("body_path", ""))
+    assert duong, (
+        "thiếu `body_path` ⇒ trang release chỉ còn danh sách commit; ghi chú "
+        "viết cho người dùng nằm lại trong repo, nơi họ không đọc")
+    assert "PHAT-HANH_" in duong and "github.ref_name" in duong, (
+        f"`body_path` phải trỏ vào ghi chú THEO TAG đang phát hành, gặp: {duong}")
+
+
+def test_co_ghi_chu_phat_hanh_cho_phien_ban_dang_dung():
+    """Quên viết ghi chú thì phải ĐỎ lúc chạy test, không phải lúc publish.
+
+    `body_path` trỏ vào tệp không có thì bước phát hành hỏng GIỮA lượt CI —
+    lúc đó gói đã dựng xong, cổng đã chạy xong, và cái hỏng là thứ đáng ra
+    biết trước từ lâu. Chốt này bắt ngay tại chỗ rẻ nhất.
+    """
+    import re
+    app = os.path.join(REPO, "autodub_gui", "app.py")
+    with open(app, encoding="utf-8") as f:
+        m = re.search(r'^APP_VERSION\s*=\s*"([^"]+)"', f.read(), re.M)
+    assert m, "không đọc được APP_VERSION"
+    phien_ban = m.group(1)
+    ghi_chu = os.path.join(REPO, "docs", f"PHAT-HANH_v{phien_ban}.md")
+    assert os.path.isfile(ghi_chu), (
+        f"APP_VERSION là {phien_ban} nhưng thiếu {os.path.relpath(ghi_chu, REPO)} "
+        "— cắt tag bây giờ thì bước phát hành hỏng giữa lượt CI")
+    assert os.path.getsize(ghi_chu) > 500, (
+        f"{os.path.relpath(ghi_chu, REPO)} quá ngắn để là ghi chú cho người dùng")

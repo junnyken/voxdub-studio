@@ -185,11 +185,22 @@ jobs:
       # sẽ vô tình tạo GitHub Release công khai, và app có update checker đọc
       # đúng nguồn đó nên người dùng thật có thể bị mời cập nhật một bản chưa
       # được duyệt.
+      # `body_path` (22/09): thiếu nó thì `generate_release_notes` tự sinh từ
+      # commit, và trang release v3.17.20 ra đúng MỘT dòng link changelog — 89
+      # ký tự. Người đang kẹt vì không cài nổi VieNeu trên v3.17.19 vào xem,
+      # không có cách nào biết bản này sửa đúng lỗi họ gặp; ghi chú viết công
+      # phu thì nằm trong repo, nơi người dùng không đọc.
+      #
+      # Tệp KHÔNG có thì bước này hỏng và KHÔNG phát hành — cố ý, đúng luật
+      # "không có đường lui âm thầm" của dự án. Nhưng để đừng phát hiện muộn
+      # như vậy, có chốt tĩnh bắt ngay lúc chạy test:
+      # `test_co_ghi_chu_phat_hanh_cho_phien_ban_dang_dung`.
       - name: Publish GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: VoxDub-Studio-*-win64.zip
+          body_path: docs/PHAT-HANH_${{ github.ref_name }}.md
           generate_release_notes: true
 
       - name: Dry-run (workflow_dispatch) — không publish
