@@ -19498,3 +19498,95 @@ Test: `chi-dao-hinh-anh.test.js` **20 đạt**; gỡ nhánh mới ⇒ **đỏ đ
 
 **Chi phí phép đo:** 10 lượt gọi mô hình thật (5 `sonar` + 5 Gemini) trên cơ
 sở dữ liệu dùng một lần. Không đụng cấu hình prod.
+
+## Đo trước khi đổi mô hình vai `assist` (22/09/2026)
+
+Chủ dự án chốt hướng 1: đổi mô hình vai `assist` sang loại giữ được đầu ra
+dài có cấu trúc. Thao tác đổi là của chủ dự án; phần này là **đo trước để đổi
+một lần là đúng**, thay vì đổi rồi mới phát hiện hỏng chỗ khác.
+
+Ứng viên: **`gemini-3.6-flash`** (giao thức `google`). Khoá dùng để ĐO là khoá
+verify sẵn có trong repo — **không** đề xuất dùng nó làm khoá sản xuất; cấp
+khoá prod là việc của chủ dự án.
+
+### 1. Bốn tác vụ GỬI ẢNH — đo thật, không suy đoán
+
+Ảnh do ffmpeg tự vẽ, mỗi ca có một đáp án đúng kiểm được bằng máy.
+
+| tác vụ | ảnh dùng | `gemini-3.6-flash` | `sonar` |
+|---|---|---|---|
+| `packaging_check` | hộp 5L xanh vs 7L đỏ, tên brand khác | **ĐẠT** — *"CONCEPT — Khác dung tích (5L và 7L), tên thương hiệu và màu sắc"* · 7,1s · 2.451/34 token | **HỎNG** — `MO_HINH_KHONG_NHIN_DUOC_ANH` |
+| `kiem_anh_minh_hoa` | ảnh có chữ "SIÊU GIẢM GIÁ" | **ĐẠT** — *"CO_SAN_PHAM — Có chữ SIÊU GIẢM GIÁ ở giữa khung hình"* · 3,6s | ĐẠT · 4,5s |
+| `scene_continuity` | 2 cảnh bếp gỗ + 1 cảnh xanh đen | **ĐẠT** — *"LECH — ảnh 3: sản phẩm chuyển sang màu xanh, nhỏ hơn và lệch góc trên trái"* · 4,1s | ĐẠT · 1,9s |
+| `doc_chu_khung_hinh` | 2 khung chữ Việt CÓ DẤU | **ĐẠT** — đọc đúng *"Sáng nào cũng vội"* và *"Chỉ ba phút là xong"*, đủ dấu · 3,2s | ĐẠT · 1,4s |
+
+Câu trả lời của Gemini **bám đúng nội dung ảnh** (đọc ra "5L và 7L", đọc ra
+chữ trên hình, chỉ đúng ảnh số 3 lệch tông) — tức nó nhìn thật, không đoán mò.
+
+**`sonar` rớt phép thử nhìn ngay trong lượt đo này**, đúng ở `packaging_check`
+— cổng tuân thủ TikTok Shop. Hôm qua chính nó qua phép thử ấy. Mẫu còn nhỏ
+(4 lượt đo hôm nay, 1 lượt hôm qua) nên không kết luận tỉ lệ, nhưng một lần
+mù ở cổng an toàn là một lần quá nhiều: hệ thống chặn đúng (không cho phán
+quyết từ mô hình mù), cái giá là người dùng không kiểm được ảnh.
+
+**Một lỗi của chính bộ đo, nói rõ:** lượt đầu `doc_chu_khung_hinh` báo HỎNG.
+Soi đầu ra thô thì **mô hình đọc đúng cả hai câu tiếng Việt có dấu** — hỏng là
+do bộ đo quên gửi `input.soAnh`, mà `parseDocChuResult` đòi trường đó
+(`assist.js:1188`). Suýt nữa báo oan cho ứng viên. Đã sửa bộ đo theo đúng hình
+dạng máy khách gửi (`autodub/media/doc_chu_may_chu.py:433`).
+
+### 2. Bộ thu bằng chứng chạy trên giao thức `google` — mã thoát 0
+
+`npm run bang-chung:assist` với `ASSIST_EVAL_TYPE=google`: **15 lượt, 10 lượt
+gọi mô hình thật, 16 Vox, 0 vi phạm, mã thoát 0.** Tám nhóm bất biến đều đạt.
+
+Hợp đồng lỗi **không đổi** khi đổi giao thức (đây là thứ phải kiểm chứ không
+được giả định — `callGemini` là nhánh mã khác `callOpenAiCompat`):
+
+| ca | `openai_compat`/`sonar` | `google`/`gemini-3.6-flash` |
+|---|---|---|
+| thiếu nhà cung cấp | 503 `CHUA_CO_NOI_GOI_TRO_LY` · 28 ms | 503 `CHUA_CO_NOI_GOI_TRO_LY` · 28 ms |
+| thiếu token máy | 401 `NO_TOKEN` · 2 ms | 401 `NO_TOKEN` · 1 ms |
+| mô hình không gọi được | 503 `AI_UNAVAILABLE` · 2.031 ms | 503 `AI_UNAVAILABLE` · 6.041 ms |
+| thiếu `assist`, có `translate` | 503 `CHUA_CO_NOI_GOI_TRO_LY` · 17 ms | 503 `CHUA_CO_NOI_GOI_TRO_LY` · 16 ms |
+| nhớ đệm | 0 Vox · 24 ms | 0 Vox · 10 ms |
+
+### 3. Đo lại giá `scene_director` — 5 Vox có còn hợp không
+
+| đoạn | | token vào | token ra | tổng | độ trễ | mã chọn |
+|---:|---|---:|---:|---:|---:|---:|
+| 5 | `sonar` | 1.396 | 476 | 1.872 | 4,0s | 25 |
+| 5 | **Gemini** | 1.448 | 991 | **2.439** | 16,3s | 25 |
+| 20 | `sonar` | 2.317 | 2.036 | 4.353 | 17,1s | 97 |
+| 20 | **Gemini** | 2.040 | 2.055 | **4.095** | 26,7s | 100 |
+| 40 | `sonar` | 1.834 | 3.955 | 5.789 | 29,6s | 200 |
+| 40 | **Gemini** | 1.946 | 3.437 | **5.383** | 36,1s | 161 |
+
+**Kết luận: giữ 5 Vox.** Ở cỡ đáng lo nhất (40 đoạn) Gemini dùng **ít token
+hơn** `sonar` (5.383 so với 5.789), nên lập luận định giá hôm trước không đổi.
+Chênh lệch TIỀN giữa hai nhà cung cấp nằm ở đơn giá mỗi token của họ — đọc ở
+trang thanh toán của chính họ, chỗ này không đoán hộ.
+
+Kèm theo: cả ba cỡ Gemini đều trả **đủ số đoạn** và **mọi đoạn đều có kiểu
+chuyển cảnh** — và ở lượt 40 đoạn này, kịch bản nguồn do **H3 viết thật bằng
+Gemini** (lần trước phải nhân đôi kịch bản 20 đoạn vì `sonar` không viết nổi).
+
+### 4. Còn gì phụ thuộc `sonar`
+
+Rà `control_server/src`, `control_server/evals`, `autodub/`, `autodub_gui/`:
+**không một tệp mã nào** nhắc tới `sonar` hay Perplexity. Lời nhắc không viết
+riêng cho hành vi của nó; `evals/cases.js` chấm theo TÍNH CHẤT (mã có thật
+trong từ điển, mỗi nhóm một mã, lý do ≤25 từ), không ghim kết quả của một mô
+hình. Chỉ tài liệu nhắc tên: `FEATURES.md` §4 và các mục I1 của tệp này —
+sửa sau khi đổi xong (xem hướng dẫn).
+
+### 5. Hướng dẫn đổi cho chủ dự án
+
+`docs/HUONG-DAN_DOI_MO_HINH_VAI_TRO_LY.md` — điền gì vào ô nào, ba cái bẫy đã
+gặp thật khi đo (tên mô hình không có tiền tố · `gemini-2.5-flash` đã bị khai
+tử cho khoá mới · vai `translate` của prod cũng đang dùng bản 2.5), bốn dấu
+hiệu đổi thành công, và các đánh đổi.
+
+**Chi phí phép đo:** 8 lượt ảnh (4 mỗi mô hình) + 10 lượt bộ thu + 6 lượt giá
+(3 H3 + 3 I3) + 1 lượt chẩn đoán = 25 lượt gọi mô hình thật, CSDL dùng một
+lần, không đụng cấu hình prod.
