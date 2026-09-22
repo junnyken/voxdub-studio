@@ -115,6 +115,11 @@ test('giá nội bộ không lẫn vào giá công khai', async () => {
     // bản cho video sản phẩm (mini-spec C7). Giá theo LƯỢT, không nhân theo
     // số cảnh.
     'credit.cost.assist.scene_continuity',
+    // credit.cost.assist.scene_director: chỉ đạo hình ảnh cho cả kịch bản
+    // (mini-spec I3) — thêm có chủ đích. MỘT lượt cho cả kịch bản, không
+    // nhân theo số đoạn: kịch bản 40 đoạn mà tính từng đoạn là nhân giá lên
+    // 40 lần cho cùng một việc.
+    'credit.cost.assist.scene_director',
     'credit.cost.assist.scene_script',
     // Cùng tác vụ, giá khác khi có gửi ảnh kèm (mini-spec C20).
     'credit.cost.assist.scene_script.co_anh',

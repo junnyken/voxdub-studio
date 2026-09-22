@@ -19137,3 +19137,136 @@ supported và có mapping thật").
 ngược**: mọi kiểu có trong `KIEU_CHUYEN` đều phải có mặt trong catalog. v1
 thiếu ba kiểu là CÓ CHỦ Ý và ghi trong spec; từ v2 hai bên phải bằng nhau,
 muốn giữ một kiểu ở ngoài thì phải sửa test, tức là phải nói ra lý do).
+
+## I3 — `scene_director` và Bản chỉ đạo hình ảnh (22/09/2026)
+
+Mini-spec: `docs/MINI-SPEC_I3_Scene_Director_Visual_Direction_Sheet.md`.
+Làm sau khi catalog v2 đóng, đúng thứ tự chủ dự án chốt.
+
+### Audit trước khi dựng — bốn chốt "thêm một tác vụ trợ lý"
+
+Dự án đã trả giá để biết bốn chốt này; lượt nào thêm tác vụ mà quên là đỏ ngay.
+(Ghi chú: mini-spec nói bốn chốt nằm ở `docs/BACKLOG_PHASE_H.md` — **sai chỗ**,
+chúng nằm ở chính `docs/TEST_LOG.md`, mục H3 và mục H4d.)
+
+| # | Chốt | Ở đâu | I3 đã làm |
+|---|---|---|---|
+| 1 | Dòng giá trong `FEATURES.md` phải khớp `config.service.js` | `tests/test_features_khop_ma.py::test_gia_moi_tac_vu_tro_ly_khop` | thêm dòng `scene_director` · 5 Vox |
+| 2 | Mọi tác vụ phải có mẫu đo | `control_server/tests/assist-evals.test.js` | thêm mẫu vào `evals/cases.js` (5 phép kiểm máy chấm được) |
+| 3 | Khoá giá công khai mới phải **cố ý** thêm vào danh sách cho phép | `control_server/tests/hold.test.js` | thêm `credit.cost.assist.scene_director` |
+| 4 | `JobResult.action` enum phải phủ mọi giá trị `remember()` dùng | `control_server/tests/job-result-actions.test.js` | thêm `visual_direction` |
+
+Chốt 4 là cái đắt nhất: thiếu nó thì `remember()` ném **sau khi đã trừ tiền** —
+người dùng mất Vox, sổ máy chủ ghi "thành công", app nhận 500. Đúng chuỗi đã
+xảy ra 22/8/2026 (90 Vox, ba lượt liên tiếp).
+
+Audit thêm: `UsageLog.action` **không** cần nới — H2/H3 đã dùng `action:
+'assist'` + `assistTask` để thống kê tách được từng tác vụ mà không phải nới
+enum mỗi lần. I3 đi theo đúng lối đó.
+
+### Thiết kế đã chọn
+
+* **Một lượt cho cả kịch bản.** Kịch bản tới 40 đoạn; gọi từng đoạn là nhân
+  giá lên 40 lần. Đo thử với 40 đoạn: lời nhắc dài **4.894 ký tự** (trần
+  6.000) và vẫn liệt kê đủ 40 dòng — ngân sách chữ tự hạ mức mô tả hình chứ
+  không bao giờ cắt mất một đoạn.
+* **Vốn từ do máy chủ đọc từ catalog** rồi đưa vào lời nhắc. Máy khách gửi
+  đúng `{jobId}` — không gửi danh sách mã, nên không "mở rộng" được vốn từ.
+* **Lưu gắn thẳng vào `BrandScript.visualDirection`** (1-1). Một collection
+  riêng là thêm một đường phải tự kiểm quyền — chỗ rò rỉ IDOR quen thuộc.
+* **`laGoiY` tính từ CATALOG lúc lưu**, không phải do mô hình khai. Giao diện
+  không bao giờ phải đoán mục nào là gợi ý.
+* **Soi xong mới `charge()`.** Lượt bị huỷ chưa hề trừ tiền, nên không cần
+  đường hoàn — ít hơn một đường tiền là ít hơn một chỗ sai.
+
+### Hai lỗi THẬT tìm được trong lượt này
+
+**1. Khoá nhớ đệm mù với mọi tầng lồng nhau — lỗi có sẵn, I3 làm nó lộ ra.**
+
+`cacheKey()` dùng `JSON.stringify(input, Object.keys(input).sort())`. Tham số
+thứ hai là **mảng**, mà JSON coi mảng là *danh sách khoá được phép giữ, áp cho
+MỌI tầng* — không phải "thứ tự khoá" như tên gọi gợi ý. Nên:
+
+```
+{catalogVersion:2, beats:[{beatType:'hook', loiDoc:'Câu một'}]}
+  →  '{"beats":[{}],"catalogVersion":2}'
+```
+
+Hai kịch bản khác hẳn nhau nhưng cùng số đoạn ra **cùng một khoá đệm** — người
+sau nhận kết quả của người trước, miễn phí và im lặng. Chưa ai dính vì mọi tác
+vụ đi qua `/v1/ai/assist` tới giờ đều có input phẳng; `scene_director` là tác
+vụ đầu tiên gửi mảng đối tượng. Đã thay bằng tuần tự hoá ổn định đệ quy
+(`chuanHoaDeBam`), giữ nguyên tính chất cũ "thứ tự khoá không làm đổi khoá" ở
+mọi tầng. Có test riêng trong `assist-prompts.test.js`.
+
+**2. Lời nhắc gọi tên nhóm mập mờ — lộ ra ở lượt chạy THẬT đầu tiên.**
+
+Bản đầu viết vốn từ là `- nhóm shot — Khung hình: …`, và mô hình trả về
+`nhom: "nhóm shot"` — nó chép nguyên cụm nó đọc thấy. Máy chủ **từ chối đúng
+luật** (502 `CHI_DAO_SAI_TU_DIEN`, huỷ cả lượt, không trừ Vox), nhưng lỗi nằm
+ở lời nhắc chứ không ở mô hình. Nay mã nhóm đứng riêng trong dấu nháy kèm câu
+"điền ĐÚNG mã nhóm trong dấu nháy". Đây chính là loại lỗi mà **chỉ lượt chạy
+thật mới tìm ra** — 16 test xanh không thấy gì.
+
+### Đo thật — hai lượt gọi mô hình thật, trên kịch bản thật
+
+CSDL dùng một lần, nhà cung cấp vai `assist` thật (Perplexity `sonar`).
+BrandScript `ready` do **chính H3 viết bằng mô hình thật** (12 Vox, 5,0s, 5
+đoạn), không phải dữ liệu gieo tay; chỉ Flow Blueprint (đầu vào) là gieo.
+
+| | Lượt 1 (trước khi sửa lời nhắc) | Lượt 2 (sau khi sửa) | Lượt 3 (sau khi thêm luật 5) |
+|---|---|---|---|
+| HTTP | **502 `CHI_DAO_SAI_TU_DIEN`** | 201 | 201 |
+| Vox trừ | **0** | 5 | 5 |
+| gợi ý / máy dựng được | — | 20 / **0** | 20 / **5** |
+| độ trễ | 5,6s | 4,0s | 5,7s |
+| token vào/ra | — | 1.396 / 476 | ~1.400 / ~500 |
+
+Lượt 2 lộ ra một chuyện không sai nhưng vô dụng: mô hình **không chọn kiểu
+chuyển cảnh nào** — tức bản chỉ đạo có 0 mục máy dựng được, ngay sau khi vừa
+mở thêm ba kiểu ở catalog v2. Thêm luật (5) trong lời nhắc ("`transition` là
+nhóm DUY NHẤT khâu ghép hình thực thi được; hai cảnh liền nhau luôn có một
+kiểu chuyển nào đó, đừng bỏ trống") rồi **đo lại**: 5/5 đoạn có kiểu chuyển,
+dùng bốn kiểu khác nhau trong đó có `truot_len` vừa thêm ở v2.
+
+**Soi tay chất lượng đầu ra** (yêu cầu của mini-spec — lý do có nghĩa hay chỉ
+là chữ đẹp):
+
+* đoạn `hook`: *"Cận cảnh và nhấn sản phẩm hợp mở cảnh bếp sáng sớm, giữ nhịp
+  vừa để gợi cảm giác vội nhưng thân quen"* — bám đúng lời đọc "Sáng nào cũng
+  chạy đua với bữa sáng";
+* đoạn `proof`: *"Cận lòng nồi và máy rửa chén phù hợp đoạn chứng minh tiện vệ
+  sinh"* — đúng nội dung đoạn, không phải câu khen chung;
+* đoạn `cta`: *"hợp câu chốt nhẹ nhàng không hô hào"* — **bắt đúng ràng buộc
+  giọng điệu của hồ sơ brand** ("không hô hào"), thứ không có trong lời đọc.
+
+Kết luận soi tay: lý do **có nghĩa**, gắn với từng đoạn, không phải chữ trang
+trí. Một điểm trừ trung thực: mô hình có khi tả chi tiết không có trong kịch
+bản ("nút bấm và đèn báo") — đó là gợi ý hình, đúng việc của nó, nhưng người
+dùng phải hiểu đây là đề xuất chứ không phải mô tả sản phẩm thật.
+
+### Test
+
+* `control_server/tests/chi-dao-hinh-anh.test.js` — **16 đạt**.
+* `tests/test_chi_dao_hinh_anh.py` — **15 đạt** (câu chữ + hộp thoại + máy khách).
+* Cả bộ: `npm test` **790 đạt / 1 bỏ qua / 0 đỏ** · `pytest` **3169 đạt / 4 bỏ
+  qua / 0 đỏ**.
+
+**Bốn phép đột biến theo đúng mini-spec — gỡ chốt nào cũng ĐỎ đúng chốt đó:**
+
+| Đột biến | Kết quả |
+|---|---|
+| Bỏ phép soi mã với từ điển | đỏ 1: «mã KHÔNG có trong từ điển ⇒ huỷ cả lượt…» |
+| Cho phép nhiều mã một nhóm | đỏ 1: «hai mã cùng một nhóm cho một đoạn ⇒ huỷ cả lượt» |
+| Gộp `advisory_only` với `supported` ở tầng hiển thị | đỏ 4 (Python), gồm cả phép kiểm hộp thoại |
+| Gọi mô hình theo TỪNG ĐOẠN thay vì một lượt | đỏ 2: «một lượt gọi sinh chỉ đạo cho CẢ kịch bản» + phép kiểm đệm |
+
+### Còn treo
+
+* **Chưa có lượt bấm tay nào trên Windows.** Hai lượt gọi thật ở trên đi
+  đường HTTP của máy chủ; hộp thoại có test dựng thật bằng Qt trên Linux
+  nhưng chưa ai nhìn thấy nó trong app đóng gói.
+* **Trang «Dựng video» chưa đọc bản chỉ đạo** — đúng phạm vi (việc của I5).
+  Câu chữ trong hộp thoại nói thẳng điều đó.
+* **Giá 5 Vox là giá khởi điểm.** Hai lượt thật tiêu 1.396/476 token vào/ra
+  cho 5 đoạn; cần thêm số liệu ở kịch bản dài (20–40 đoạn) mới chốt được.

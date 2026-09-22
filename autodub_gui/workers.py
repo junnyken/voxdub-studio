@@ -1172,7 +1172,8 @@ class BrandScriptWorker(QThread):
                  flow_blueprint_id: str = "", brand_profile_id: str = "",
                  beat_index: int = 0, parent=None):
         super().__init__(parent)
-        if action not in ("list", "delete", "create", "regenerate"):
+        if action not in ("list", "delete", "create", "regenerate",
+                          "chi_dao", "doc_chi_dao"):
             raise ValueError(f"Thao tác kịch bản không hợp lệ: {action!r}")
         self._action = action
         self._script_id = script_id
@@ -1194,6 +1195,13 @@ class BrandScriptWorker(QThread):
                 ket = client.create_brand_script(
                     self._flow_blueprint_id, self._brand_profile_id,
                     job_id=new_job_id())
+            elif self._action == "chi_dao":
+                # mini-spec I3 — MỘT lượt cho cả kịch bản. Máy chủ soi đầu ra
+                # với từ điển; mã lạ thì huỷ cả lượt và KHÔNG trừ Vox.
+                ket = client.tao_chi_dao_hinh_anh(
+                    self._script_id, job_id=new_job_id())
+            elif self._action == "doc_chi_dao":
+                ket = client.doc_chi_dao_hinh_anh(self._script_id)
             else:
                 ket = client.regenerate_brand_script_beat(
                     self._script_id, self._beat_index, job_id=new_job_id())

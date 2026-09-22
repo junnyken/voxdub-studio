@@ -60,6 +60,42 @@ const beatSchema = new mongoose.Schema({
   complianceRule: { type: String, default: '', maxlength: 500 },
 }, { _id: false })
 
+/** MỘT mã đã chọn cho một đoạn — mini-spec I3.
+ *
+ * `laGoiY` tính từ CATALOG lúc lưu, không phải do mô hình khai: giao diện
+ * không bao giờ phải đoán mục nào là gợi ý cho người, mục nào máy dựng được.
+ * Lưu cả `nhan` để bản chỉ đạo cũ vẫn đọc được sau khi catalog đổi nhãn. */
+const maChiDaoSchema = new mongoose.Schema({
+  nhom: { type: String, required: true, maxlength: 40 },
+  ma: { type: String, required: true, maxlength: 60 },
+  nhan: { type: String, default: '', maxlength: 120 },
+  laGoiY: { type: Boolean, default: true },
+}, { _id: false })
+
+const doanChiDaoSchema = new mongoose.Schema({
+  thuTu: { type: Number, required: true },
+  chon: { type: [maChiDaoSchema], default: [] },
+  lyDo: { type: String, default: '', maxlength: 300 },
+}, { _id: false })
+
+/** Bản chỉ đạo hình ảnh của kịch bản này (I3).
+ *
+ * Gắn THẲNG vào kịch bản thay vì một collection riêng: quan hệ là 1-1, và
+ * quyền sở hữu/xoá đã có sẵn ở đây — thêm một collection là thêm một đường
+ * phải tự kiểm quyền và tự dọn rác.
+ *
+ * `catalogVersion` + `scriptHash` để nói được bản này còn khớp hay đã cũ.
+ * KHÔNG tự xoá và KHÔNG tự chạy lại khi lệch: chạy lại là tiêu tiền của
+ * người dùng cho việc họ chưa yêu cầu. */
+const banChiDaoSchema = new mongoose.Schema({
+  catalogVersion: { type: Number, required: true },
+  scriptHash: { type: String, default: '', maxlength: 64 },
+  taoLuc: { type: Date, default: Date.now },
+  soGoiY: { type: Number, default: 0 },
+  soMayDungDuoc: { type: Number, default: 0 },
+  doan: { type: [doanChiDaoSchema], default: [] },
+}, { _id: false })
+
 const brandScriptSchema = new mongoose.Schema({
   ownerDeviceId: {
     type: mongoose.Schema.Types.ObjectId, ref: 'Device', required: true, index: true,
@@ -84,6 +120,8 @@ const brandScriptSchema = new mongoose.Schema({
   // gì thì hạ cấp là đoán); xem `trangThaiHienTai`.
   brandRulesFingerprint: { type: String, default: '' },
   beats: { type: [beatSchema], default: [] },
+  // mini-spec I3 — `null` nghĩa là chưa ai tạo bản chỉ đạo cho kịch bản này.
+  visualDirection: { type: banChiDaoSchema, default: null },
 }, { timestamps: true })
 
 module.exports = mongoose.models.BrandScript

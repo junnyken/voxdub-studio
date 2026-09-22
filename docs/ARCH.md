@@ -327,6 +327,13 @@ Ranh giới:
   qua đây; mã lạ, phiên bản lạ, hoặc một mục `advisory_only` bị mang đi dựng
   hình đều bị chặn tại chỗ đó.
 
+**Bên tiêu thụ đầu tiên (I3).** Tác vụ trợ lý `scene_director` sinh một *bản
+chỉ đạo hình ảnh* cho cả kịch bản trong MỘT lượt gọi; bản ấy gắn thẳng vào
+`BrandScript.visualDirection` (1-1, dùng lại quyền sở hữu sẵn có thay vì mở
+một collection phải tự kiểm quyền). Mọi mã mô hình trả về đi qua `kiemChon()`
+của chính service này — mã lạ thì huỷ cả lượt, và vì máy chủ chỉ `charge()`
+SAU khi soi xong nên lượt hỏng không tốn đồng nào, không cần đường hoàn.
+
 Luật không được phá: **catalog không bao giờ quyết định thời lượng.** Thời
 lượng từng cảnh chỉ có một nguồn là `du_an_tu_kich_ban._moc_that` (D1, suy từ
 giọng đọc thật), và cảnh cuối phải phủ hết tệp tiếng.

@@ -220,7 +220,7 @@ nên **không tốn Vox**:
 **Chưa làm:** phân biệt người nói (diarization) trong công cụ chép lời độc
 lập — chủ dự án chủ động bỏ qua ("chỉ cần ra được text là đủ").
 
-### 3.5 Cổng trợ lý AI (13 tác vụ)
+### 3.5 Cổng trợ lý AI (14 tác vụ)
 
 Một cửa duy nhất cho mọi việc cần mô hình ngôn ngữ. **App gửi tên tác vụ,
 không gửi câu lệnh** — toàn bộ câu chữ hướng dẫn mô hình nằm trên máy chủ,
@@ -241,6 +241,7 @@ nên sửa chúng hoặc đổi mô hình không cần phát hành lại bản `
 | `viral_flow_blueprint` | Phân tích cấu trúc video tham khảo (mini-spec H2) — chỉ gọi qua `/v1/flow-blueprints`, không qua `/v1/ai/assist` chung, vì cần lưu lại thành Flow Blueprint | 8 Vox (giá khởi điểm, chưa chốt bằng số liệu chi phí thật) |
 | `doc_chu_khung_hinh` | Đọc chữ hiện trên khung hình video, **giữ đúng dấu tiếng Việt** (mini-spec H2b) — bộ đọc chữ chạy trên máy không phát ra được dấu | 8 Vox mỗi lượt (tối đa 6 khung/lượt, app tự gộp trước khi gửi) |
 | `brand_script_rewrite` | Viết lại kịch bản cho thương hiệu từ nhịp kể chuyện của video tham khảo (mini-spec H3) — chỉ gọi qua `/v1/brand-scripts` vì kết quả phải qua hai lớp kiểm rồi mới lưu | 12 Vox (giá khởi điểm) |
+| `scene_director` | Chỉ đạo hình ảnh cho CẢ kịch bản trong MỘT lượt (mini-spec I3) — trả về mã của từ điển chỉ đạo hình ảnh, không phải câu gợi ý tự do; chỉ gọi qua `/v1/brand-scripts/:id/visual-direction` | 5 Vox (giá khởi điểm) |
 
 Có **bốn lớp chặn chi phí**: danh sách tác vụ đóng (tên lạ bị chặn ở tầng
 schema, trước cả xác thực) → trần ký tự → hạn mức ngày mỗi máy → nhớ đệm
@@ -312,6 +313,26 @@ Sáu nhóm, **25 mục** (v2, 22/09/2026), và mỗi mục nói thật về mìn
 Chưa có giao diện nào, chưa lưu lựa chọn theo cảnh, chưa sinh ảnh. Cố ý:
 thêm ô chọn bây giờ là hứa một việc I3/I4 mới làm được.
 
+### 3.10 Chỉ đạo hình ảnh cho kịch bản (mini-spec I3, 22/09/2026)
+
+Từ một kịch bản đã duyệt (`ready`), bấm «Chỉ đạo hình ảnh…» ở trang «Viết kịch
+bản» để lấy — bằng **một lượt gọi mô hình cho cả kịch bản**, khoảng 5 Vox —
+một bản chỉ đạo theo từng đoạn: mỗi đoạn tối đa một mã mỗi nhóm, kèm một câu
+lý do ngắn.
+
+**Thứ này KHÔNG làm**: không dựng video, không sinh ảnh, không đổi thời lượng,
+và trang «Dựng video» **chưa đọc** bản chỉ đạo (việc của I5). Hộp thoại nói
+thẳng tỉ lệ ngay dòng đầu, ví dụ *«20/25 mục dưới đây là GỢI Ý để bạn chuẩn bị
+ảnh — máy không tự làm được»*, và mỗi mã hiện kèm nhãn `[!] Gợi ý cho bạn` hay
+`[OK] Máy dựng được`. Không có nút «Áp dụng», «Render» hay «Sinh ảnh» — có
+test canh để chúng không mọc lại.
+
+Máy chủ **soi lại toàn bộ đầu ra** với từ điển trước khi lưu: mã lạ, hai mã
+cùng nhóm, hay mã mang tham số thời gian ⇒ **huỷ cả lượt và KHÔNG trừ Vox**,
+không có đường "sửa cho gần đúng". Bản chỉ đạo lưu kèm số phiên bản từ điển và
+dấu vân tay kịch bản; kịch bản đổi lời hoặc từ điển lên đời thì bản cũ **được
+đánh dấu là cũ** chứ không bị xoá và không tự chạy lại.
+
 ---
 
 ## 4. Đã dựng xong nhưng CHƯA TỪNG CHẠY THẬT
@@ -333,7 +354,7 @@ xuất "hãy nối nhà cung cấp thật" là đề xuất viết mã cho một
 tại. **Một nửa việc đó đã xong 22/09/2026** — vai `assist` đã cắm; còn lại vai
 `image` cho đường sinh ảnh.
 
-**Cập nhật 22/09/2026 (mini-spec I1 — đã đóng):** cổng trợ lý nay là **13 tác
+**Cập nhật 22/09/2026 (mini-spec I1 — đã đóng):** cổng trợ lý nay là **14 tác
 vụ**, không phải 7, và cả **bốn cửa** gọi mô hình trợ lý
 (`/v1/ai/assist`, `/v1/flow-blueprints` H2, `/v1/brand-scripts` H3 ×2) từng
 sống nhờ đường rơi sang vai `translate`. Ba bước đã chạy đủ trong ngày: cắm

@@ -326,6 +326,53 @@ const CASES = [
           .test(String(r.visual_brief || ''))],
     ],
   },
+  {
+    // mini-spec I3 — chỉ đạo hình ảnh. Phép kiểm ở đây cố ý KHÔNG chấm "hay
+    // hay dở" (đáp án mẫu thì chạy vài lần là bỏ), mà chấm những tính chất
+    // mà một kết quả sai chắc chắn vi phạm: mã phải có thật trong catalog,
+    // mỗi nhóm nhiều nhất một mã, và lý do phải ngắn + nói về đoạn này.
+    task: 'scene_director',
+    ten: 'chọn đúng mã có thật, mỗi nhóm một mã, lý do ngắn',
+    input: {
+      // Để TRỐNG: `buildUser` tự đọc bản catalog đang chạy. Ghim số ở đây
+      // thì mỗi lần catalog lên đời là mẫu đo tự vỡ mà không ai đụng tới nó.
+      brand: {
+        toneGiong: 'Gần gũi, như bạn bè mách nhau, không hô hào',
+        rangBuocKhongDuocNoi: ['tốt nhất', 'chữa bệnh'],
+      },
+      beats: [
+        { beatType: 'hook', loiDoc: 'Sáng nào cũng vội, bữa sáng thành ra qua loa cho xong.',
+          visualBrief: 'Gian bếp chung cư lúc bảy giờ sáng, ánh nắng xiên qua cửa sổ' },
+        { beatType: 'proof', loiDoc: 'Cắm điện, chờ ba phút, là có ngay đồ ăn nóng cho cả nhà.',
+          visualBrief: 'Cận cảnh mẻ gà vừa chín, khói bốc lên' },
+        { beatType: 'cta', loiDoc: 'Thử một tuần rồi tính tiếp, không hợp thì thôi.',
+          visualBrief: 'Hộp sản phẩm đặt trên mặt bàn gỗ' },
+      ],
+    },
+    kiem: [
+      ['mọi mã đều CÓ THẬT trong từ điển',
+        (r) => {
+          const cat = require('../src/services/visual-catalog.service')
+          const v = cat.docCatalog().catalog_version
+          return (r.chon || []).every((c) => cat.kiemChon(
+            { catalog_version: v, [c.nhom]: c.ma }, { mucDich: 'goi_y' }).ok)
+        }],
+      ['mỗi nhóm nhiều nhất một mã',
+        (r) => {
+          const nhom = (r.chon || []).map((c) => c.nhom)
+          return new Set(nhom).size === nhom.length
+        }],
+      ['có chọn ít nhất một mã', (r) => (r.chon || []).length >= 1],
+      ['lý do có chữ và không quá 25 từ',
+        (r) => {
+          const tu = String(r.ly_do || '').split(/\s+/).filter(Boolean)
+          return tu.length >= 3 && tu.length <= 25
+        }],
+      ['KHÔNG mang tham số thời gian',
+        (r) => (r.chon || []).every(
+          (c) => Object.keys(c).every((k) => k === 'nhom' || k === 'ma'))],
+    ],
+  },
 ]
 
 module.exports = { CASES }

@@ -25,6 +25,7 @@ const config = require('../services/config.service')
 const { replay, remember, ghiSoDung, precheck, charge, kiemHanMucNgay } = require('../services/assist-billing.service')
 const dauVanTay = require('../services/dau-van-tay.service')
 const kiem = require('../services/kiem-kich-ban.service')
+const chiDao = require('../services/visual-direction.service')
 
 /**
  * Trường hồ sơ brand BẮT BUỘC phải có nội dung trước khi sinh kịch bản.
@@ -529,6 +530,244 @@ module.exports = async function brandScriptRoutes(fastify) {
     ])
     return response
   })
+
+  // ------------------------------------ bản chỉ đạo hình ảnh (I3) --
+  //
+  // Vì sao nằm dưới `/v1/brand-scripts/:id/` chứ không phải một nhánh API
+  // mới: bản chỉ đạo là 1-1 với kịch bản, và quyền sở hữu + cách tìm theo
+  // thiết bị đã có sẵn ở đây. Một nhánh riêng là một đường nữa phải tự kiểm
+  // quyền — và đường tự kiểm quyền thứ hai là chỗ rò rỉ IDOR quen thuộc.
+
+  /** Bản chỉ đạo đã lưu, kèm trạng thái còn khớp hay đã cũ. */
+  fastify.get('/:id/visual-direction', async (request, reply) => {
+    const doc = await timCuaThietBi(BrandScript, request.params.id, request.device._id)
+    if (!doc) {
+      return reply.code(404).send({
+        code: 'KHONG_THAY_KICH_BAN', message: 'Không thấy kịch bản này.' })
+    }
+    if (!doc.visualDirection) {
+      return reply.code(404).send({
+        code: 'CHUA_CO_CHI_DAO',
+        message: 'Kịch bản này chưa có bản chỉ đạo hình ảnh.' })
+    }
+    return xemChiDao(doc)
+  })
+
+  /**
+   * Tạo bản chỉ đạo hình ảnh cho CẢ kịch bản bằng MỘT lượt gọi mô hình.
+   *
+   * Thứ tự ở đây là thứ tự của tiền, và nó cố ý:
+   *   1. đọc đệm theo `jobId` (gọi trùng do mạng thì không tính tiền lại);
+   *   2. chặn kịch bản chưa `ready` — TRƯỚC khi gọi mô hình;
+   *   3. hạn mức ngày, rồi precheck ví;
+   *   4. gọi mô hình;
+   *   5. **soi đầu ra với từ điển** — hỏng thì trả lỗi và KHÔNG gọi
+   *      `charge()`, nên không có đồng nào bị trừ và không cần đường hoàn;
+   *   6. lưu, rồi mới trừ tiền và ghi sổ.
+   */
+  fastify.post('/:id/visual-direction', {
+    config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
+    schema: {
+      body: {
+        type: 'object',
+        required: ['jobId'],
+        properties: {
+          jobId: { type: 'string', minLength: 8, maxLength: 100 },
+          holdId: { type: 'string', minLength: 8, maxLength: 100 },
+        },
+      },
+    },
+  }, async (request, reply) => {
+    const { device } = request
+    if (await config.get('maintenance.mode')) {
+      return reply.code(503).send({
+        code: 'MAINTENANCE', message: 'Máy chủ đang bảo trì, thử lại sau.' })
+    }
+
+    const { jobId, holdId } = request.body
+    const cached = await replay(jobId, device.fingerprint)
+    if (cached) return cached
+
+    const doc = await timCuaThietBi(BrandScript, request.params.id, device._id)
+    if (!doc) {
+      return reply.code(404).send({
+        code: 'KHONG_THAY_KICH_BAN', message: 'Không thấy kịch bản này.' })
+    }
+
+    // Chặn TRƯỚC khi gọi mô hình (cùng mẫu RS-3): chỉ đạo hình ảnh cho một
+    // kịch bản chưa duyệt là chỉ đạo cho thứ sắp bị viết lại — tiêu tiền cho
+    // một bản sắp bỏ đi.
+    // `trangThaiHienTai` nhận bản TÓM TẮT NGUỒN (`{thieuNguon, vanTayRangBuoc}`)
+    // do `gomNguon` dựng, KHÔNG nhận thẳng tài liệu brand — đưa nhầm tài liệu
+    // vào thì hai phép hạ cấp RS-1/RS-2 im lặng không chạy, và một kịch bản
+    // đáng lẽ `unconfirmed` sẽ qua cổng này như thể còn `ready`.
+    const nguonCua = await gomNguon([doc], device._id)
+    const brand = await timCuaThietBi(BrandProfile, doc.brandProfileId, device._id)
+    const trangThai = trangThaiHienTai(doc, nguonCua(doc))
+    if (trangThai !== 'ready') {
+      return reply.code(409).send({
+        code: 'KICH_BAN_CHUA_SAN_SANG',
+        message: 'Kịch bản chưa ở trạng thái «dùng được». Xử lý các cảnh báo '
+          + 'của kịch bản trước, rồi mới lấy chỉ đạo hình ảnh.',
+      })
+    }
+    if (!(doc.beats || []).length) {
+      return reply.code(409).send({
+        code: 'KICH_BAN_RONG', message: 'Kịch bản không có đoạn nào.' })
+    }
+    if (!brand) {
+      // Tới đây `trangThaiHienTai` đã chặn ca thiếu nguồn, nhưng giữ lớp này
+      // để `chiDao.dungInput(doc, brand)` không bao giờ nhận `null`.
+      return reply.code(409).send({
+        code: 'NGUON_DA_MAT',
+        message: 'Hồ sơ brand gốc đã bị xoá — không lấy chỉ đạo hình ảnh được.' })
+    }
+
+    const spec = assistPrompts.getTask('scene_director')
+    const cfg = await config.getMany(['credit.enabled', spec.costKey])
+    const cost = cfg['credit.enabled'] ? (cfg[spec.costKey] || 0) : 0
+
+    const hetHanMuc = await kiemHanMucNgay(config, device.fingerprint, 'scene_director')
+    if (hetHanMuc) {
+      return reply.code(429).send({ code: 'DAILY_LIMIT', message: hetHanMuc.message })
+    }
+
+    const lacking = await precheck(device.fingerprint, holdId, cost,
+      { action: 'visual_direction', jobId })
+    if (lacking) {
+      return reply.code(402).send({
+        code: 'INSUFFICIENT_CREDIT',
+        message: `Không đủ Vox. Cần ${lacking.required}, bạn có ${lacking.balance}.`,
+        balance: lacking.balance,
+        required: lacking.required,
+      })
+    }
+
+    const batDau = Date.now()
+    let result
+    try {
+      result = await gateway.assist({
+        task: 'scene_director',
+        input: chiDao.dungInput(doc, brand),
+        images: [],
+      })
+    } catch (err) {
+      request.log.warn({ err, jobId }, 'scene_director failed')
+      if (gateway.laLoiChuaCoNoiGoiTroLy(err)) {
+        return reply.code(503).send({ code: err.code, message: err.message })
+      }
+      if (err.statusCode === 400) {
+        return reply.code(400).send({ code: err.code || 'BAD_REQUEST', message: err.message })
+      }
+      return reply.code(503).send({
+        code: 'AI_UNAVAILABLE',
+        message: 'Chưa lấy được chỉ đạo hình ảnh lúc này. Thử lại sau.',
+        retryAfter: 30,
+      })
+    }
+
+    // Soi lại TOÀN BỘ đầu ra với từ điển. Mã lạ ⇒ huỷ CẢ lượt, không sửa cho
+    // gần đúng: sửa gần đúng là đoán hộ mô hình, mà đoán sai thì không ai
+    // biết. Chưa `charge()` nên người dùng không mất đồng nào.
+    const soi = chiDao.kiemBanChiDao(result, {
+      soDoan: doc.beats.length,
+      scriptHash: chiDao.bamKichBan(doc.beats),
+    })
+    if (!soi.ok) {
+      request.log.warn({ jobId, loi: soi.loi }, 'scene_director sai từ điển')
+      ghiSoDung({
+        fingerprint: device.fingerprint,
+        jobId,
+        action: 'assist',
+        assistTask: 'scene_director',
+        assistRole: result.role,
+        status: 'error',
+        errorCode: chiDao.MA_LOI_SAI_TU_DIEN,
+        errorMessage: soi.loi.join('; ').slice(0, 300),
+        aiProvider: result.provider,
+        aiModel: result.model,
+        promptTokens: result.usage?.promptTokens || 0,
+        completionTokens: result.usage?.completionTokens || 0,
+        durationMs: Date.now() - batDau,
+        creditCharged: 0,
+        ip: request.ip,
+        appVersion: device.appVersion,
+      }, request.log)
+      return reply.code(502).send({
+        code: chiDao.MA_LOI_SAI_TU_DIEN,
+        message: 'Kết quả không khớp từ điển chỉ đạo hình ảnh nên đã bị huỷ — '
+          + 'bạn KHÔNG bị trừ Vox. Thử lại một lượt nữa.',
+        chiTiet: soi.loi.slice(0, 5),
+      })
+    }
+
+    doc.visualDirection = soi.ban
+    await doc.save()
+
+    const paid = await charge(device, {
+      holdId, jobId, action: 'visual_direction', walletCost: cost, internalVox: 0,
+      description: 'Chỉ đạo hình ảnh cho kịch bản', ip: request.ip,
+    })
+
+    const response = {
+      ...xemChiDao(doc),
+      jobId,
+      creditCharged: paid.charged,
+      balanceAfter: paid.balanceAfter,
+    }
+    await Promise.all([
+      remember(jobId, device.fingerprint, 'visual_direction', response, paid.charged,
+        request.log),
+      ghiSoDung({
+        fingerprint: device.fingerprint,
+        jobId,
+        action: 'assist',
+        assistTask: 'scene_director',
+        assistRole: result.role,
+        assistPromptVersion: assistPrompts.PROMPT_VERSION,
+        inputSize: doc.beats.length,
+        creditCharged: paid.charged,
+        aiProvider: result.provider,
+        aiModel: result.model,
+        promptTokens: result.usage?.promptTokens || 0,
+        completionTokens: result.usage?.completionTokens || 0,
+        durationMs: Date.now() - batDau,
+        status: 'success',
+        ip: request.ip,
+        appVersion: device.appVersion,
+      }, request.log),
+    ])
+
+    return reply.code(201).send(response)
+  })
+}
+
+/**
+ * Bản chỉ đạo đem trả ra API.
+ *
+ * Hai thứ KHÔNG đọc từ dữ liệu đã lưu mà tính lại mỗi lần đọc:
+ *   - `laCu` — so với catalog đang chạy và với kịch bản hiện tại;
+ *   - `canhBao` — câu nói thẳng tỉ lệ gợi ý / máy dựng được.
+ * Lưu sẵn thì một bản lưu từ hôm qua sẽ tự khai mình còn mới.
+ */
+function xemChiDao(doc) {
+  const ban = doc.visualDirection
+  const tt = chiDao.trangThaiBan(ban, doc.beats)
+  return {
+    id: String(doc._id),
+    catalogVersion: ban.catalogVersion,
+    taoLuc: ban.taoLuc,
+    soGoiY: ban.soGoiY,
+    soMayDungDuoc: ban.soMayDungDuoc,
+    ...tt,
+    doan: (ban.doan || []).map((d) => ({
+      thuTu: d.thuTu,
+      lyDo: d.lyDo,
+      chon: (d.chon || []).map((c) => ({
+        nhom: c.nhom, ma: c.ma, nhan: c.nhan, laGoiY: c.laGoiY,
+      })),
+    })),
+  }
 }
 
 /** Vì sao đoạn này phải viết lại — nói cho mô hình biết để nó tránh đúng chỗ

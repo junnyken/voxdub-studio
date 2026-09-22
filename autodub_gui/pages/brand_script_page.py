@@ -197,6 +197,15 @@ class BrandScriptPage(BasePage):
         self.btn_xuat.setEnabled(False)
         self.btn_xuat.clicked.connect(self._xuat_kich_ban)
         hanh_dong.addWidget(self.btn_xuat)
+        # mini-spec I3 — lối vào bản chỉ đạo hình ảnh. Đặt Ở ĐÂY, cạnh «Xuất
+        # kịch bản», chứ không thêm một mục thanh bên: thanh bên đã kín ở màn
+        # 1080p (bài học H3), và bản chỉ đạo đọc theo TỪNG kịch bản nên nó
+        # thuộc về trang này. Chỉ sáng khi kịch bản `ready` — lấy chỉ đạo cho
+        # một kịch bản sắp phải viết lại là tiêu tiền cho bản sắp bỏ đi.
+        self.btn_chi_dao = SecondaryButton("Chỉ đạo hình ảnh…")
+        self.btn_chi_dao.setEnabled(False)
+        self.btn_chi_dao.clicked.connect(self._mo_chi_dao)
+        hanh_dong.addWidget(self.btn_chi_dao)
         hanh_dong.addStretch()
         # Cửa sang H4. CHỈ sáng khi máy chủ trả `ready` — xem `_render_script`.
         self.btn_use = PrimaryButton("Dùng kịch bản này")
@@ -357,12 +366,43 @@ class BrandScriptPage(BasePage):
             TOASTS.success("Đã xoá kịch bản.")
             self._list_scripts()
             return
+        # mini-spec I3 — bản chỉ đạo KHÔNG phải kịch bản. Phải chặn trước
+        # dòng dưới: gán nó vào `self._hien_tai` là thay kịch bản đang mở
+        # bằng một đối tượng không có `beats`, và cả bảng biến mất.
+        if action in ("doc_chi_dao", "chi_dao"):
+            self.btn_chi_dao.setEnabled(bool(self._hien_tai))
+            if action == "doc_chi_dao" and not ket:
+                # Chưa có bản nào — giờ mới hỏi mô hình (lượt TỐN TIỀN).
+                self._xin_chi_dao_moi()
+                return
+            if action == "chi_dao":
+                TOASTS.success("Đã có chỉ đạo hình ảnh cho kịch bản này.")
+                self.status.setText(
+                    "Đã lấy chỉ đạo hình ảnh. Mở lại bằng nút «Chỉ đạo hình "
+                    "ảnh…» không tốn thêm Vox.")
+            self._hien_chi_dao(ket or {})
+            return
         self._hien_tai = ket or {}
         self._render_script()
         self._list_scripts()
 
     def _on_action_failed(self, action: str, message: str) -> None:
         self._mo_lai_nut(action)
+        if action in ("doc_chi_dao", "chi_dao"):
+            # Nút phải mở lại, nếu không người dùng kẹt ở một màn hình không
+            # bấm được gì sau một lỗi mạng.
+            self.btn_chi_dao.setEnabled(bool(self._hien_tai))
+            if "CHI_DAO_SAI_TU_DIEN" in message:
+                # Máy chủ đã huỷ CẢ lượt và không trừ Vox — nói thẳng, không
+                # để người dùng tưởng mình vừa mất tiền cho một lỗi.
+                self.status.setText(
+                    f"{message} Bấm lại một lượt nữa là được.")
+            elif "KICH_BAN_CHUA_SAN_SANG" in message:
+                self.status.setText(f"{message}")
+            else:
+                self.status.setText(f"Chưa lấy được chỉ đạo hình ảnh: {message}")
+            TOASTS.error("Chưa lấy được chỉ đạo hình ảnh.")
+            return
 
         # RS-5 — nguồn đã bị xoá: máy chủ VỪA hạ trạng thái bản ghi này xuống,
         # nên bản sao đang giữ trong bộ nhớ đã sai kể từ giây đó. Giữ nó lại
@@ -424,6 +464,7 @@ class BrandScriptPage(BasePage):
         # diện — máy chủ đã chặn, nhưng nút sáng lên khi chưa sạch vẫn là dạy
         # người dùng rằng cảnh báo có thể bỏ qua.
         self.btn_use.setEnabled(trang_thai == "ready")
+        self.btn_chi_dao.setEnabled(trang_thai == "ready")
         # Xuất được kể cả khi BỊ CHẶN: kịch bản chặn vẫn là thứ người dùng vừa
         # trả 12 Vox để có, và họ cần đọc/sửa nó ở ngoài. Chỉ cổng sang H4 mới
         # đòi sạch.
@@ -457,6 +498,44 @@ class BrandScriptPage(BasePage):
         self._worker.finished_ok.connect(self._on_action_ok)
         self._worker.failed.connect(self._on_action_failed)
         self._worker.start()
+
+    # -- Chỉ đạo hình ảnh (mini-spec I3) ----------------------------------
+
+    def _mo_chi_dao(self) -> None:
+        """Đọc bản đã lưu TRƯỚC; chưa có thì mới hỏi mô hình.
+
+        Thứ tự này là chuyện tiền: mở lại bản cũ phải miễn phí. Gọi thẳng
+        lượt tạo mỗi lần bấm là tính tiền cho người chỉ muốn xem lại.
+        """
+        if not self._hien_tai:
+            return
+        self.btn_chi_dao.setEnabled(False)
+        self.status.setText("Đang mở bản chỉ đạo hình ảnh…")
+        self._worker = BrandScriptWorker(
+            "doc_chi_dao", script_id=str(self._hien_tai.get("id") or ""),
+            parent=self)
+        self._worker.finished_ok.connect(self._on_action_ok)
+        self._worker.failed.connect(self._on_action_failed)
+        self._worker.start()
+
+    def _xin_chi_dao_moi(self) -> None:
+        """Lượt CÓ TÍNH TIỀN — chỉ chạy khi kịch bản chưa có bản nào."""
+        if not self._hien_tai:
+            return
+        self._dang_ton_tien = "chi_dao"
+        self.status.setText(
+            "Đang lấy chỉ đạo hình ảnh cho cả kịch bản (một lượt, khoảng "
+            "5 Vox)…")
+        self._worker = BrandScriptWorker(
+            "chi_dao", script_id=str(self._hien_tai.get("id") or ""),
+            parent=self)
+        self._worker.finished_ok.connect(self._on_action_ok)
+        self._worker.failed.connect(self._on_action_failed)
+        self._worker.start()
+
+    def _hien_chi_dao(self, ban: dict) -> None:
+        from autodub_gui.ui.chi_dao_dialog import ChiDaoHinhAnhDialog
+        ChiDaoHinhAnhDialog(ban, self).exec()
 
     def _ten_brand(self, kb: dict) -> str:
         for h in self._brands:

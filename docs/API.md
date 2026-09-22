@@ -267,6 +267,42 @@ Lỗi: `400 DOAN_KHONG_TON_TAI`; `409 NGUON_DA_MAT` (Flow Blueprint hoặc hồ 
 brand gốc đã bị xoá — kịch bản bị hạ về `unconfirmed`, KHÔNG được giữ `ready`
 vì không còn gì để kiểm lại).
 
+### `POST /:id/visual-direction` — bản chỉ đạo hình ảnh (mini-spec I3, thêm 2026-09-22)
+Sinh chỉ đạo hình ảnh cho **CẢ kịch bản bằng MỘT lượt gọi mô hình** (kịch bản
+tới 40 đoạn; gọi từng đoạn là nhân giá lên 40 lần cho cùng một việc).
+
+Body: `{ jobId, holdId? }` — không nhận gì khác. Vốn từ (danh sách mã hợp lệ)
+do **máy chủ** đọc từ từ điển chỉ đạo hình ảnh rồi đưa vào lời nhắc; máy khách
+không gửi và không được mở rộng nó.
+
+Response 201: `{ id, catalogVersion, taoLuc, soGoiY, soMayDungDuoc, laCu,
+kichBanDaDoi, catalogDaDoi, catalogVersionHienTai, doan: [{ thuTu, lyDo,
+chon: [{ nhom, ma, nhan, laGoiY }] }], jobId, creditCharged, balanceAfter }`.
+
+`laGoiY` **do máy chủ tính từ từ điển**, không phải do mô hình khai: `true` =
+gợi ý cho người khi chọn/chụp ảnh (máy không tự làm được), `false` = khâu ghép
+hình dựng được. Máy khách chỉ hiển thị, không được tự suy.
+
+Billing: `credit.cost.assist.scene_director` (mặc định **5 Vox**, giá khởi
+điểm). Cùng bốn lớp chặn chi phí của cổng trợ lý.
+
+Lỗi:
+| Mã | HTTP | Nghĩa |
+|---|---:|---|
+| `KHONG_THAY_KICH_BAN` | 404 | không có, hoặc thuộc thiết bị khác |
+| `KICH_BAN_CHUA_SAN_SANG` | 409 | kịch bản chưa `ready` — chặn **trước** khi gọi mô hình, **không trừ Vox** |
+| `NGUON_DA_MAT` | 409 | hồ sơ brand gốc đã bị xoá |
+| `CHI_DAO_SAI_TU_DIEN` | 502 | mô hình trả mã không có trong từ điển / hai mã cùng nhóm / mang tham số thời gian ⇒ **huỷ cả lượt, KHÔNG trừ Vox**, kèm `chiTiet` (tối đa 5 dòng). Máy chủ cố ý **không** "sửa cho gần đúng" |
+| `CHUA_CO_NOI_GOI_TRO_LY` | 503 | chưa cắm nhà cung cấp vai `assist` (xem `POST /assist`) |
+
+### `GET /:id/visual-direction`
+Bản đã lưu. `404 CHUA_CO_CHI_DAO` nếu kịch bản chưa có bản nào — đây là trạng
+thái bình thường, không phải lỗi.
+
+`laCu: true` khi kịch bản đã đổi lời (`kichBanDaDoi`) hoặc từ điển đã lên đời
+(`catalogDaDoi`) kể từ lúc tạo. Máy chủ **không tự xoá và không tự chạy lại** —
+chạy lại là tiêu tiền của người dùng cho việc họ chưa yêu cầu.
+
 ## `/v1/ai` (mọi route cần token, chặn khi `maintenance.mode`)
 
 Nguyên tắc chung 4 route dưới: idempotent theo `jobId` (retry an toàn, không

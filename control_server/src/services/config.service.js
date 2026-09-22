@@ -68,6 +68,12 @@ const DEFAULTS = {
   // cảnh thì người dùng bị phạt vì làm video dài hơn, trong khi câu trả lời
   // vẫn chỉ là một câu (mini-spec C7).
   'credit.cost.assist.scene_continuity': 4,
+  // mini-spec I3 — chỉ đạo hình ảnh cho CẢ kịch bản trong MỘT lượt gọi. Đầu
+  // vào ngang `brand_script_rewrite` (đọc cả kịch bản + hồ sơ brand) nhưng
+  // đầu ra nhẹ hơn hẳn: vài mã enum và một câu lý do ngắn mỗi đoạn, không
+  // phải viết trọn lời đọc. Giá KHỞI ĐIỂM do chủ dự án chốt 22/09/2026, đổi
+  // được lúc chạy như mọi khoá `credit.cost.*`.
+  'credit.cost.assist.scene_director': 5,
   'credit.cost.assist.scene_script': 3,
   // Cùng tác vụ nhưng có gửi ảnh: token gấp nhiều lần nên giá cao hơn.
   'credit.cost.assist.scene_script.co_anh': 8,

@@ -211,3 +211,22 @@ test('lời nhắc viết kịch bản KHÔNG bao giờ mất đoạn hay mất 
       + 'không đổi gì')
   }
 })
+
+test('khoá đệm nhìn thấy CẢ TẦNG LỒNG, không chỉ khoá cấp 1', () => {
+  // Bug thật, tìm ra khi thêm `scene_director` (I3): bản cũ dùng
+  // `JSON.stringify(input, Object.keys(input).sort())`. Tham số thứ hai là
+  // MẢNG nên JSON coi nó là danh sách khoá ĐƯỢC PHÉP GIỮ, áp cho mọi tầng —
+  // mọi đối tượng lồng bên trong bị rút sạch thành `{}`.
+  //
+  // Hậu quả nếu lọt: hai kịch bản khác hẳn nhau nhưng cùng số đoạn ra CÙNG
+  // một khoá ⇒ người sau nhận kết quả của người trước, miễn phí và im lặng.
+  const mot = { beats: [{ beatType: 'hook', loiDoc: 'Câu một' }] }
+  const hai = { beats: [{ beatType: 'hook', loiDoc: 'Câu HAI' }] }
+  assert.notStrictEqual(assist.cacheKey('scene_director', mot, []),
+    assist.cacheKey('scene_director', hai, []))
+
+  // Và vẫn giữ tính chất cũ: thứ tự khoá không làm đổi khoá, ở MỌI tầng.
+  assert.strictEqual(
+    assist.cacheKey('scene_director', { a: 1, long: { x: 1, y: 2 } }, []),
+    assist.cacheKey('scene_director', { long: { y: 2, x: 1 }, a: 1 }, []))
+})

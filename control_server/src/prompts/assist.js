@@ -737,6 +737,102 @@ const TASKS = {
         dongBeat, vietLai].filter(Boolean).join('\n')
     },
   },
+
+  /**
+   * Chỉ đạo hình ảnh cho một kịch bản brand — mini-spec I3.
+   *
+   * KHÁC `scene_script` và không được gộp vào nó: `scene_script` phục vụ
+   * luồng ảnh sản phẩm dòng C (`autodub/product_video.py:319`, lời nhắc mở
+   * đầu bằng "video ngắn ghép từ vài ảnh sản phẩm"), còn tác vụ này phục vụ
+   * dây chuyền H3→H4 và trả về MÃ ENUM của từ điển chỉ đạo hình ảnh, không
+   * phải câu gợi ý tự do.
+   *
+   * Ba quyết định đáng ghi lại:
+   *
+   * 1. **Một lượt cho CẢ kịch bản**, không phải mỗi đoạn một lượt. Kịch bản
+   *    H3 có thể tới 40 đoạn; gọi từng đoạn là nhân giá lên 40 lần cho cùng
+   *    một việc.
+   * 2. **Vốn từ do MÁY CHỦ đọc từ catalog rồi đưa vào lời nhắc**, không nhận
+   *    từ máy khách. Máy khách gửi tên tác vụ, không gửi danh sách mã — nếu
+   *    không thì nó có thể "mở rộng" vốn từ bằng cách gửi thêm mã.
+   * 3. **`catalogVersion` nằm trong input** nên khoá nhớ đệm tự đổi khi
+   *    catalog lên đời: cùng kịch bản nhưng catalog khác là hai câu hỏi khác
+   *    nhau, không được trả lại kết quả cũ.
+   *
+   * Mô hình chỉ CHỌN trong danh sách. Nó vẫn có thể bịa mã — nên máy chủ soi
+   * lại toàn bộ đầu ra trước khi lưu (`services/visual-direction.service.js`),
+   * và mã lạ thì huỷ CẢ lượt chứ không "sửa cho gần đúng".
+   */
+  scene_director: {
+    costKey: 'credit.cost.assist.scene_director',
+    maxInput: 6000,
+    outputSchema: () => sceneDirectorOutputSchema(),
+    parseResult: (raw, input) => parseSceneDirectorResult(raw, input),
+    system: [
+      'Bạn là người chỉ đạo hình ảnh cho video ngắn dọc (9:16) bán hàng.',
+      'Bạn được cho một kịch bản đã viết xong, gồm nhiều đoạn, mỗi đoạn có vai',
+      'trò kể chuyện, lời đọc và mô tả hình đã có.',
+      'Việc của bạn: với TỪNG đoạn, chọn các mã chỉ đạo hình ảnh phù hợp nhất',
+      'TRONG DANH SÁCH được cho bên dưới.',
+      'LUẬT CỨNG:',
+      '(1) Chỉ được dùng mã có trong danh sách. Không bịa mã mới, không dịch',
+      'mã sang tên khác, không ghép hai mã.',
+      '(1b) Trường "nhom" phải là MÃ NHÓM viết y nguyên như trong danh sách',
+      '(ví dụ: shot, transition, lighting_color). Không viết "nhóm shot",',
+      'không viết "Khung hình". Trường "ma" cũng vậy: y nguyên mã, không phải',
+      'nhãn tiếng Việt của nó.',
+      '(2) Mỗi nhóm nhiều nhất MỘT mã cho một đoạn. Không chọn hai mã cùng',
+      'nhóm.',
+      '(3) Được phép bỏ trống một nhóm nếu đoạn đó không cần — bỏ trống tốt',
+      'hơn là chọn bừa cho đủ.',
+      '(4) Mỗi đoạn kèm MỘT câu lý do bằng tiếng Việt, tối đa 25 từ, nói vì',
+      'sao chọn như vậy CHO ĐOẠN NÀY. Không viết lời khen chung chung.',
+      '(5) Nhóm "transition" là nhóm DUY NHẤT mà khâu ghép hình thực thi',
+      'được. Hai cảnh liền nhau luôn có một kiểu chuyển nào đó, nên hãy chọn',
+      'kiểu hợp với đoạn thay vì bỏ trống — bỏ trống không làm video mượt hơn,',
+      'nó chỉ khiến người dựng phải tự đoán.',
+      'Danh sách có hai loại mã, và bạn phải hiểu đúng khác biệt:',
+      '- "máy dựng được": khâu ghép hình sẽ thực hiện được;',
+      '- "gợi ý cho người": chỉ là lời khuyên khi người dùng đi chọn hoặc',
+      'chụp ảnh — máy KHÔNG tự làm được.',
+      'Cả hai loại đều được chọn, nhưng đừng chọn một mã "gợi ý cho người"',
+      'rồi viết lý do như thể máy sẽ tự làm.',
+      'Trả đúng số đoạn được yêu cầu, đúng thứ tự, mỗi đoạn một mục.',
+    ].join(' '),
+    buildUser: (input) => {
+      const beats = Array.isArray(input?.beats) ? input.beats : []
+      const brand = input?.brand || {}
+      const cam = Array.isArray(brand.rangBuocKhongDuocNoi)
+        ? brand.rangBuocKhongDuocNoi.filter(Boolean) : []
+
+      const dauTrang = [
+        brand.toneGiong ? `Giọng điệu của thương hiệu: ${cat(brand.toneGiong, 200)}` : '',
+        cam.length
+          ? `Tránh mọi liên tưởng tới: ${cam.slice(0, 10)
+            .map((c) => cat(String(c), 60)).join(' · ')}`
+          : '',
+        vonTuChoLoiNhac(input?.catalogVersion),
+      ].filter(Boolean).join('\n')
+
+      // Cùng cách chia ngân sách với `brand_script_rewrite`: thà mất phần mô
+      // tả hình của vài đoạn còn hơn mất hẳn một đoạn — `parseSceneDirectorResult`
+      // đòi ĐÚNG số đoạn, thiếu một đoạn là hỏng cả lượt (và vẫn tốn tiền).
+      const conLai = TRAN_LOI_NHAC - dauTrang.length - 120
+      let dongBeat = ''
+      for (const [loi, hinh] of NGAN_SACH_DOAN_CHI_DAO) {
+        dongBeat = beats.map((b, i) => [
+          `${i + 1}. [${b?.beatType || 'unknown'}]`,
+          b?.loiDoc ? `lời: ${cat(b.loiDoc, loi)}` : '',
+          hinh && b?.visualBrief ? `hình đã tả: ${cat(b.visualBrief, hinh)}` : '',
+        ].filter(Boolean).join(' | ')).join('\n')
+        if (dongBeat.length <= conLai) break
+      }
+
+      return [dauTrang,
+        `Kịch bản gồm ${beats.length} đoạn, theo thứ tự:`,
+        dongBeat].filter(Boolean).join('\n')
+    },
+  },
 }
 
 /**
@@ -843,6 +939,125 @@ function tranDoDaiBeat() {
     ra[ten] = max
   }
   return ra
+}
+
+/** Ngân sách chữ cho MỘT đoạn khi dựng lời nhắc chỉ đạo hình ảnh:
+ * `[lời đọc, mô tả hình]`. Thử từ rộng tới hẹp; mức cuối bỏ hẳn phần mô tả
+ * hình — nó chỉ là ngữ cảnh thêm, còn lời đọc thì không bỏ được. */
+const NGAN_SACH_DOAN_CHI_DAO = [[160, 120], [90, 60], [60, 0]]
+
+/**
+ * Khối vốn từ đưa vào lời nhắc — đọc THẲNG từ catalog đang ship.
+ *
+ * Không nhận danh sách mã từ máy khách, và không chép lại danh sách ở đây:
+ * hai bản chép tay là hai bản sẽ trôi lệch, và bản lệch ở đây có nghĩa mô
+ * hình được mời chọn một mã mà máy chủ sắp từ chối.
+ */
+function vonTuChoLoiNhac(phienBanMongDoi) {
+  const catalog = require('../services/visual-catalog.service').docCatalog()
+  if (phienBanMongDoi && phienBanMongDoi !== catalog.catalog_version) {
+    // Không im lặng dùng bản khác: bên gọi đã khai mình muốn bản nào.
+    throw new Error(`Lời nhắc chỉ đạo hình ảnh: input khai catalog `
+      + `${phienBanMongDoi} nhưng máy chủ đang chạy `
+      + `${catalog.catalog_version}`)
+  }
+  // Cách viết ở đây từng làm hỏng nguyên một lượt chạy thật (22/09/2026):
+  // bản đầu ghi `- nhóm shot — Khung hình: …` và mô hình trả về
+  // `nhom: "nhóm shot"` — nó chép nguyên cụm nó đọc thấy. Máy chủ từ chối
+  // đúng luật (huỷ cả lượt, không trừ tiền), nhưng lỗi nằm ở LỜI NHẮC chứ
+  // không ở mô hình. Nay mã nhóm được gọi tên rõ là "mã nhóm" và đứng một
+  // mình trong dấu nháy.
+  const khoi = catalog.groups.map((g) => {
+    const muc = g.values.map((v) => `"${v.id}" (${v.label_vi}`
+      + `${v.render_mode === 'supported' ? ', máy dựng được' : ', gợi ý cho người'})`)
+    return `- mã nhóm "${g.id}" (${g.label_vi}): ${muc.join(' · ')}`
+  })
+  return ['DANH SÁCH MÃ ĐƯỢC PHÉP DÙNG (không có mã nào khác tồn tại).',
+    'Trường "nhom" điền ĐÚNG mã nhóm trong dấu nháy; trường "ma" điền ĐÚNG',
+    'mã trong dấu nháy. Không thêm chữ, không dịch, không viết hoa khác đi.',
+    ...khoi].join('\n')
+}
+
+/** JSON schema cho output của `scene_director` — mini-spec I3.
+ *
+ * `chon` là MẢNG chứ không phải đối tượng khoá theo nhóm, và đó là chủ ý:
+ * đối tượng thì "hai mã cùng một nhóm" là chuyện không thể xảy ra về mặt cấu
+ * trúc, nên phép kiểm ấy không bao giờ chạy thật. Mảng thì mô hình CÓ THỂ trả
+ * trùng nhóm, và máy chủ phải bắt được — đó mới là phép kiểm có nghĩa.
+ */
+function sceneDirectorOutputSchema() {
+  return {
+    type: 'object',
+    required: ['doan'],
+    properties: {
+      doan: {
+        type: 'array',
+        minItems: 1,
+        maxItems: SO_DOAN_KICH_BAN_TOI_DA,
+        items: {
+          type: 'object',
+          required: ['thu_tu', 'chon', 'ly_do'],
+          properties: {
+            thu_tu: { type: 'integer' },
+            chon: {
+              type: 'array',
+              maxItems: 6,
+              items: {
+                type: 'object',
+                required: ['nhom', 'ma'],
+                properties: {
+                  nhom: { type: 'string' },
+                  ma: { type: 'string' },
+                },
+              },
+            },
+            ly_do: { type: 'string' },
+          },
+        },
+      },
+    },
+  }
+}
+
+/** Trần chữ của một câu lý do. 25 từ tiếng Việt hiếm khi quá 200 ký tự. */
+const TRAN_LY_DO = 200
+
+/**
+ * Chuẩn hoá đầu ra thô của `scene_director`. CHỈ lo phần hình dạng —
+ * phần "mã có thật không" do `services/visual-direction.service.js` soi,
+ * vì đó là nơi biết catalog và là nơi quyết định có trừ tiền hay không.
+ *
+ * Trả `null` khi hỏng khuôn, để cổng trợ lý ném `BAD_AI_RESPONSE` như mọi
+ * tác vụ khác.
+ */
+function parseSceneDirectorResult(raw, input) {
+  const doan = raw && Array.isArray(raw.doan) ? raw.doan : null
+  if (!doan) return null
+  const soDoan = Array.isArray(input?.beats) ? input.beats.length : 0
+  if (!soDoan || doan.length !== soDoan) return null
+
+  const ra = []
+  for (let i = 0; i < doan.length; i += 1) {
+    const d = doan[i] || {}
+    // `thu_tu` do mô hình trả về CHỈ dùng để kiểm, không dùng để sắp xếp:
+    // tin vào nó là mở đường cho một đoạn gán nhầm chỉ đạo của đoạn khác mà
+    // không có triệu chứng nào (đúng lỗi "ảnh lên nhầm đoạn" của H4d).
+    if (Number(d.thu_tu) !== i + 1) return null
+    const chon = Array.isArray(d.chon) ? d.chon : []
+    ra.push({
+      thuTu: i + 1,
+      chon: chon.map((c) => ({
+        nhom: String(c?.nhom || '').trim(),
+        ma: String(c?.ma || '').trim(),
+        // Giữ NGUYÊN các khoá lạ để lớp soi phía sau còn nhìn thấy chúng —
+        // lọc sạch ở đây thì một mô hình trả kèm `giay: 3` sẽ đi lọt.
+        ...Object.fromEntries(Object.entries(c || {})
+          .filter(([k]) => k !== 'nhom' && k !== 'ma')),
+      })),
+      lyDo: catCung(d.ly_do, TRAN_LY_DO),
+    })
+  }
+  return { doan: ra }
 }
 
 /** JSON schema cho output của `brand_script_rewrite`. */
@@ -1260,10 +1475,38 @@ function getTask(name) {
  * phiên bản prompt + dữ liệu vào) nên bấm lại là dùng lại, còn sửa prompt thì
  * nhớ đệm tự hết hiệu lực.
  */
+/**
+ * Tuần tự hoá ỔN ĐỊNH: cùng nội dung ⇒ cùng chuỗi, bất kể thứ tự khoá, và
+ * **giữ nguyên mọi tầng lồng nhau**.
+ *
+ * Bản trước dùng `JSON.stringify(input, Object.keys(input).sort())`. Tham số
+ * thứ hai là MẢNG ⇒ JSON coi nó là **danh sách khoá được phép giữ, áp cho
+ * MỌI tầng** — không phải "thứ tự khoá" như tên gọi gợi ý. Nên mọi đối tượng
+ * lồng bên trong bị rút sạch:
+ *
+ *     {catalogVersion:2, beats:[{beatType:'hook', loiDoc:'Câu một'}]}
+ *       → '{"beats":[{}],"catalogVersion":2}'
+ *
+ * Hậu quả: hai câu hỏi khác hẳn nhau nhưng cùng bộ khoá cấp 1 và cùng số
+ * phần tử mảng ra CÙNG một khoá đệm — tức lượt sau nhận kết quả của người
+ * hỏi trước, miễn phí và im lặng. Chưa ai dính vì mọi tác vụ đi qua
+ * `/v1/ai/assist` tới giờ đều có input phẳng; `scene_director` (I3) là tác vụ
+ * đầu tiên gửi mảng đối tượng, và nó lộ ra ngay ở test.
+ */
+function chuanHoaDeBam(x) {
+  if (Array.isArray(x)) return x.map(chuanHoaDeBam)
+  if (x && typeof x === 'object') {
+    const ra = {}
+    for (const k of Object.keys(x).sort()) ra[k] = chuanHoaDeBam(x[k])
+    return ra
+  }
+  return x
+}
+
 function cacheKey(task, input, images) {
   const crypto = require('node:crypto')
   // Sắp khoá trước khi băm: {a,b} và {b,a} là cùng một câu hỏi.
-  const chuan = JSON.stringify(input || {}, Object.keys(input || {}).sort())
+  const chuan = JSON.stringify(chuanHoaDeBam(input || {}))
   // Ảnh PHẢI nằm trong khoá: đổi ảnh mà khoá không đổi thì lần kiểm sau trả
   // lại kết luận của ảnh cũ — đúng thứ nguy hiểm nhất với một cổng kiểm tra
   // tuân thủ (mini-spec C1).
@@ -1277,6 +1520,7 @@ function cacheKey(task, input, images) {
 
 module.exports = {
   TASKS, TASK_NAMES, getTask, resultsSchema, cat, cacheKey, PROMPT_VERSION,
+  chuanHoaDeBam,
   // mini-spec H2 — lộ ra để test đơn vị (chống sao chép nguyên văn, schema).
   coSaoChepNguyenVan, khopSaoChep, TY_LE_PHU_DE_HUY,
   parseFlowBlueprintResult, parseFlowBlueprintResultChiTiet,
@@ -1286,5 +1530,8 @@ module.exports = {
   docChuOutputSchema, parseDocChuResult, SO_ANH_DOC_CHU_TOI_DA,
   // mini-spec H3 — viết lại kịch bản cho brand.
   brandScriptOutputSchema, parseBrandScriptResult, SO_DOAN_KICH_BAN_TOI_DA,
+  // mini-spec I3 — chỉ đạo hình ảnh theo từ điển.
+  sceneDirectorOutputSchema, parseSceneDirectorResult, vonTuChoLoiNhac,
+  TRAN_LY_DO,
   tranDoDaiBeat, catCung,
 }

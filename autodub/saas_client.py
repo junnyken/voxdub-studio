@@ -1068,6 +1068,50 @@ class SaasClient:
         self._note_usage(data)
         return data
 
+    # Mini-spec I3 — bản chỉ đạo hình ảnh của một kịch bản. Máy chủ giữ
+    # TOÀN BỘ phần quyết định: gọi mô hình, soi đầu ra với từ điển chỉ đạo
+    # hình ảnh, và tính cờ "gợi ý cho người" cho từng mã. App chỉ hiển thị —
+    # nó không được tự suy mã nào là gợi ý, vì suy sai là hứa với người dùng
+    # một hiệu ứng máy không làm được.
+
+    def tao_chi_dao_hinh_anh(
+        self, script_id: str, *, job_id: str, hold_id: str | None = None,
+        timeout: float = 180.0,
+    ) -> dict:
+        """Lấy chỉ đạo hình ảnh cho CẢ kịch bản bằng MỘT lượt gọi mô hình.
+
+        Kịch bản chưa ở trạng thái dùng được -> ``409 KICH_BAN_CHUA_SAN_SANG``
+        (máy chủ chặn TRƯỚC khi gọi mô hình, nên không mất Vox). Mô hình trả
+        về mã không có trong từ điển -> ``502 CHI_DAO_SAI_TU_DIEN`` và cũng
+        **không** trừ Vox: cả lượt bị huỷ chứ không lưu một phần.
+        """
+        payload = {"jobId": job_id}
+        if hold_id:
+            payload["holdId"] = hold_id
+        data = self._request(
+            "POST", f"/v1/brand-scripts/{script_id}/visual-direction",
+            timeout=timeout, json_body=payload)
+        self._note_usage(data)
+        return data
+
+    def doc_chi_dao_hinh_anh(self, script_id: str,
+                             timeout: float = 20.0) -> dict | None:
+        """Bản chỉ đạo đã lưu, hoặc ``None`` khi kịch bản chưa có bản nào.
+
+        Trả ``None`` thay vì ném cho đúng MỘT mã (``CHUA_CO_CHI_DAO``): "chưa
+        tạo" là trạng thái bình thường của mọi kịch bản mới, không phải lỗi.
+        Mọi lỗi khác vẫn ném — im lặng nuốt lỗi mạng ở đây thì giao diện hiện
+        "chưa có bản nào" cho một máy chủ đang hỏng.
+        """
+        try:
+            return self._request(
+                "GET", f"/v1/brand-scripts/{script_id}/visual-direction",
+                timeout=timeout)
+        except SaasError as e:
+            if e.code == "CHUA_CO_CHI_DAO":
+                return None
+            raise
+
     def send_pipeline_event(self, run_id: str, status: str, stage: str,
                             error_stage: str = "") -> None:
         """Báo trạng thái tiến trình 1 lượt dubbing (mini-spec V13, xem
