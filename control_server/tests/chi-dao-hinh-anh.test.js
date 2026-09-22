@@ -419,6 +419,73 @@ test('bản chỉ đạo KHÔNG mang câu chữ nào của kịch bản hay vide
   assert.ok(!tho.includes('example.com'), 'lộ nguồn video tham khảo')
 })
 
+// --------------------------------------- ngân sách lời nhắc ở quy mô thật ---
+
+test('kịch bản DÀI vẫn đủ đoạn trong lời nhắc, và không vượt trần', () => {
+  const assistPrompts = require('../src/prompts/assist')
+  const spec = assistPrompts.getTask('scene_director')
+
+  // Trường hợp xấu nhất mà schema cho phép: 40 đoạn, mỗi đoạn kịch trần
+  // `maxlength` của `models/BrandScript.js` (lời 1500, mô tả hình 600).
+  const beats = Array.from({ length: 40 }, (_, i) => ({
+    beatType: 'proof',
+    voiceoverTextVi: `${'x'.repeat(1500)}${i}`,
+    visualBriefVi: `${'y'.repeat(600)}${i}`,
+  }))
+  const loiNhac = spec.buildUser(chiDao.dungInput({ beats }, { toneGiong: 'x' }))
+  const dongDoan = loiNhac.split('\n').filter((d) => /^\d+\. \[/.test(d))
+
+  // HAI tính chất, và thứ tự ưu tiên giữa chúng là chuyện đã có tiền lệ:
+  // H3 từng cắt mù cả chuỗi ở cuối và MẤT 13 đoạn, khiến `parseResult` đòi
+  // đủ số đoạn rồi trả null — hỏng cả lượt sau khi đã tốn tiền gọi mô hình.
+  assert.strictEqual(dongDoan.length, 40,
+    'lời nhắc mất đoạn — mô hình sẽ trả thiếu và cả lượt hỏng')
+  assert.ok(loiNhac.length <= assistPrompts.TRAN_LOI_NHAC,
+    `lời nhắc ${loiNhac.length} ký tự, vượt trần ${assistPrompts.TRAN_LOI_NHAC}`)
+
+  // Và nó giữ đủ đoạn bằng cách HẠ MỨC mô tả hình, đúng như thiết kế —
+  // không phải nhờ may mắn.
+  assert.ok(!loiNhac.includes('hình đã tả'),
+    'ở 40 đoạn kịch trần thì phần mô tả hình phải được hạ để nhường chỗ')
+})
+
+test('ngân sách CẠN thì hạ mức mô tả, KHÔNG bao giờ bỏ bớt đoạn', () => {
+  const assistPrompts = require('../src/prompts/assist')
+  const beats = Array.from({ length: 40 }, (_, i) => ({
+    beatType: 'proof',
+    loiDoc: `${'x'.repeat(1500)}${i}`,
+    visualBrief: `${'y'.repeat(600)}${i}`,
+  }))
+
+  // Ba mức ngân sách, kể cả mức chật hơn cả bản hẹp nhất. Hôm nay lời nhắc
+  // thật còn dư ~1.000 ký tự nên phép cắt mù không lộ ra — gọi thẳng hàm
+  // dựng với ngân sách nhỏ là dựng lại đúng ngày khoảng dư biến mất.
+  for (const nganSach of [4000, 2000, 500]) {
+    const khoi = assistPrompts.dungDongDoanChiDao(beats, nganSach)
+    assert.strictEqual(khoi.split('\n').length, 40,
+      `ngân sách ${nganSach}: mất đoạn — mô hình sẽ trả thiếu và hỏng cả lượt`)
+  }
+
+  // Và nó hạ mức THẬT chứ không chỉ may mắn vừa: mức rộng nhất phải dài hơn
+  // hẳn mức hẹp nhất.
+  const rong = assistPrompts.dungDongDoanChiDao(beats, 1e9)
+  const hep = assistPrompts.dungDongDoanChiDao(beats, 500)
+  assert.ok(rong.length > hep.length * 2,
+    'không thấy cơ chế hạ mức hoạt động')
+  assert.ok(rong.includes('hình đã tả') && !hep.includes('hình đã tả'))
+})
+
+test('kịch bản ngắn thì GIỮ phần mô tả hình — không hạ mức oan', () => {
+  const assistPrompts = require('../src/prompts/assist')
+  const beats = Array.from({ length: 5 }, (_, i) => ({
+    beatType: 'hook', voiceoverTextVi: `Câu ${i} vừa phải`,
+    visualBriefVi: 'Gian bếp buổi sáng có nắng xiên qua cửa sổ',
+  }))
+  const loiNhac = assistPrompts.getTask('scene_director')
+    .buildUser(chiDao.dungInput({ beats }, { toneGiong: 'x' }))
+  assert.ok(loiNhac.includes('hình đã tả'))
+})
+
 test('dungInput KHÔNG gửi caption — caption là việc của H3', () => {
   const vao = chiDao.dungInput({
     beats: [{

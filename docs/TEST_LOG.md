@@ -19270,3 +19270,126 @@ dùng phải hiểu đây là đề xuất chứ không phải mô tả sản ph
   Câu chữ trong hộp thoại nói thẳng điều đó.
 * **Giá 5 Vox là giá khởi điểm.** Hai lượt thật tiêu 1.396/476 token vào/ra
   cho 5 đoạn; cần thêm số liệu ở kịch bản dài (20–40 đoạn) mới chốt được.
+
+## I3 — đo giá `scene_director` ở quy mô thật (22/09/2026)
+
+Chủ dự án muốn số ở quy mô thật để chốt giá; 5 Vox mới chỉ có số ở kịch bản
+5 đoạn. Đo thêm ở **20 đoạn** và **40 đoạn** (trần thực tế của H3).
+
+### Số đo — ba cỡ, lượt gọi mô hình THẬT (Perplexity `sonar`)
+
+| đoạn | lời nhắc (ký tự) | token vào | token ra | tổng token | độ trễ | mã chọn | gợi ý / máy dựng | mô tả hình trong lời nhắc |
+|---:|---:|---:|---:|---:|---:|---:|---|---|
+| 5 | 2.840 | 1.396 | 476 | 1.872 | 4,0s | 25 | 20 / 5 | còn |
+| 20 | 5.398 | 2.317 | 2.036 | 4.353 | 17,1s | 97 | 77 / 20 | còn |
+| 40 | 3.616 | 1.834 | 3.955 | 5.789 | 29,6s | 200 | 160 / 40 | **đã hạ** |
+
+Cả ba lượt: **đủ số đoạn nhận về** (5/5, 20/20, 40/40), **không đoạn nào thiếu
+câu lý do**, và mọi đoạn đều có một kiểu chuyển cảnh — luật (5) thêm vào lời
+nhắc hôm trước giữ nguyên hiệu lực ở quy mô lớn.
+
+### Đường cong: hai chiều ngược nhau
+
+* **Token RA tuyến tính theo số đoạn**: 95,2 · 101,8 · 98,9 token/đoạn — gần
+  như hằng số **~99 token mỗi đoạn**. Đây là phần chi phí thật sự tăng.
+* **Token VÀO KHÔNG tuyến tính, còn giảm ở 40 đoạn** (2.317 → 1.834). Lý do
+  đo được: ngân sách lời nhắc hạ mức mô tả hình khi kịch bản dài, nên lời nhắc
+  ở 40 đoạn (3.616 ký tự) NGẮN HƠN ở 20 đoạn (5.398). Trần 6.000 chưa bao giờ
+  bị chạm.
+
+Tổng token 5 → 40 đoạn tăng **3,1×** cho 8× lượng việc. Nếu tính theo giá
+thường thấy (token ra đắt ~3× token vào), chi phí máy chủ tăng **4,85×**.
+
+### Ngân sách lời nhắc — có chạm trần không, có cắt mất đoạn không
+
+Đo trường hợp xấu nhất mà schema cho phép (40 đoạn, mỗi đoạn kịch trần
+`maxlength` của `BrandScript`: lời 1.500 + mô tả hình 600 ký tự):
+
+| trường hợp | ký tự | dòng đoạn | mô tả hình |
+|---|---:|---|---|
+| 5 đoạn thường | 2.840 | 5/5 | còn |
+| 20 đoạn thường | 4.902 | 20/20 | còn |
+| 40 đoạn thường | 4.992 | 40/40 | đã hạ |
+| **40 đoạn kịch trần schema** | **4.992** | **40/40** | đã hạ |
+
+**Không chạm trần** (còn dư ~1.000 ký tự) và **không bao giờ mất đoạn**. Cơ
+chế hạ mức hoạt động đúng: hết mức rộng thì bỏ phần mô tả hình, không cắt mù
+cả chuỗi ở cuối — đúng lỗi H3 từng mắc (10/09: cắt mù làm mất 13/40 đoạn,
+`parseResult` đòi đủ số đoạn ⇒ hỏng cả lượt SAU KHI đã gọi mô hình).
+
+Chỗ này có một cái bẫy đã suýt lọt: bản test đầu chỉ đo lời nhắc thật, mà lời
+nhắc thật còn dư ~1.000 ký tự nên **phép cắt mù vẫn xanh** — tôi thử tiêm đúng
+lỗi ấy và test không đỏ. Đã tách phần dựng danh sách đoạn thành hàm riêng
+(`dungDongDoanChiDao`) để gọi được với ngân sách nhỏ: nay tiêm cắt mù là **đỏ
+đúng test** «ngân sách CẠN thì hạ mức mô tả, KHÔNG bao giờ bỏ bớt đoạn».
+
+### Phát hiện ngoài phạm vi, nhưng đáng báo: H3 không viết nổi kịch bản dài
+
+Đo được trong chính lượt này (4 lượt gọi `brand_script_rewrite` thật):
+
+| yêu cầu | mô hình trả về | kết quả |
+|---:|---:|---|
+| 40 đoạn (lần 1) | — | `BAD_AI_RESPONSE` sau 25,2s |
+| 40 đoạn (lần 2) | **25 đoạn** | `BAD_AI_RESPONSE` sau 16,4s |
+| 20 đoạn (lần 1) | **19 đoạn** | `BAD_AI_RESPONSE` sau 20,4s |
+| 20 đoạn (lần 2) | 20 đoạn | ĐẠT, 16,7s, token 1.652/1.440 |
+
+`parseBrandScriptResult` đòi ĐÚNG số đoạn (thiếu một đoạn là mọi đoạn sau gắn
+sai vai trò) nên nó từ chối — **đúng luật**. Người dùng **không bị trừ Vox**
+(route gọi `charge()` sau lượt mô hình, nhánh lỗi trả về trước đó). Nhưng:
+
+* ở **20 đoạn, 1/2 lượt hỏng**; ở **40 đoạn, 2/2 lượt hỏng**;
+* mỗi lượt hỏng vẫn tiêu token thật của máy chủ mà không thu được gì;
+* người dùng chỉ thấy câu "Chưa viết được kịch bản lúc này. Thử lại sau."
+
+Đây là việc của D2/H3 (backlog đã ghi "không vá vội: đổi lời nhắc là đổi đầu ra
+của mọi lượt viết"), không phải của I3 — nhưng nó **đổi kết luận giá** (xem
+dưới), nên ghi lại ở đây kèm số.
+
+Vì H3 không viết được 40 đoạn, kịch bản 40 đoạn để đo I3 được dựng bằng cách
+**lấy 20 đoạn H3 viết thật rồi nhân đôi**. Nói rõ chỗ này làm số đo kém đại
+diện ở đâu: nội dung 40 đoạn có lặp, nên mô hình chỉ đạo có thể chọn nhanh hơn
+và ra kết quả đều hơn so với một kịch bản 40 đoạn thật sự khác nhau. Token
+VÀO thì không ảnh hưởng (độ dài y hệt); token RA có thể hơi thấp hơn thực tế.
+
+### Kết luận giá
+
+Quy ra **Vox trên 1.000 token** (thấp = máy chủ chịu nhiều hơn):
+
+| lượt | tổng token | giá | Vox/1k token |
+|---|---:|---:|---:|
+| `brand_script_rewrite` 20 đoạn | 3.092 | 12 | **3,88** |
+| `scene_director` 5 đoạn | 1.872 | 5 | 2,67 |
+| `scene_director` 20 đoạn | 4.353 | 5 | 1,15 |
+| `scene_director` 40 đoạn | 5.789 | 5 | **0,86** |
+
+Ở 40 đoạn, I3 tiêu **1,87×** số token của một lượt H3 nhưng chỉ thu **42%**
+giá của nó — biên mỏng đi 4,5 lần so với H3.
+
+**Đề xuất: GIỮ 5 Vox phẳng lúc này**, kèm một mốc kích hoạt rõ ràng. Căn cứ:
+
+1. Kịch bản **>20 đoạn hôm nay không tồn tại được** — H3 hỏng 2/2 lượt ở 40
+   đoạn. Dựng bậc giá cho một cỡ mà sản phẩm chưa sinh ra được là thêm phức
+   tạp vào **mã tiền** để phục vụ một ca giả định.
+2. Ở cỡ chạy được thật (≤20 đoạn), 5 Vox cho 4,35k token vẫn nằm trong khoảng
+   các tác vụ trợ lý khác đang chịu.
+3. Giá là khoá cấu hình (`credit.cost.assist.scene_director`), đổi được lúc
+   chạy — nên đây là quyết định hoãn được mà không nợ kỹ thuật.
+
+**Mốc kích hoạt**: khi H3 viết được kịch bản >20 đoạn ổn định (việc của D2),
+chuyển I3 sang bậc theo số đoạn. Bảng đề xuất, tính từ chính số đo trên và cố
+ý để giá tăng CHẬM HƠN token (giữ ưu đãi cho kịch bản dài):
+
+| số đoạn | token đo được | giá đề xuất | Vox/1k |
+|---|---:|---:|---:|
+| ≤ 10 | ~1,9k | 5 (giữ nguyên) | 2,67 |
+| 11–25 | ~4,4k | 8 | 1,84 |
+| 26–40 | ~5,8k | 10 | 1,73 |
+
+Bậc giá cần một quyết định của chủ dự án vì nó đổi **mã tính tiền**, và nên
+chốt CÙNG LÚC với D2 cho H3 để hai tác vụ dùng một cách tính, không phải hai.
+
+### Test
+
+`control_server/tests/chi-dao-hinh-anh.test.js` — **19 đạt** (thêm 3 cho ngân
+sách lời nhắc). Cả bộ `npm test` **793 đạt / 1 bỏ qua / 0 đỏ**.

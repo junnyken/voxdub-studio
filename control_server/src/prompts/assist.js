@@ -818,15 +818,7 @@ const TASKS = {
       // tả hình của vài đoạn còn hơn mất hẳn một đoạn — `parseSceneDirectorResult`
       // đòi ĐÚNG số đoạn, thiếu một đoạn là hỏng cả lượt (và vẫn tốn tiền).
       const conLai = TRAN_LOI_NHAC - dauTrang.length - 120
-      let dongBeat = ''
-      for (const [loi, hinh] of NGAN_SACH_DOAN_CHI_DAO) {
-        dongBeat = beats.map((b, i) => [
-          `${i + 1}. [${b?.beatType || 'unknown'}]`,
-          b?.loiDoc ? `lời: ${cat(b.loiDoc, loi)}` : '',
-          hinh && b?.visualBrief ? `hình đã tả: ${cat(b.visualBrief, hinh)}` : '',
-        ].filter(Boolean).join(' | ')).join('\n')
-        if (dongBeat.length <= conLai) break
-      }
+      const dongBeat = dungDongDoanChiDao(beats, conLai)
 
       return [dauTrang,
         `Kịch bản gồm ${beats.length} đoạn, theo thứ tự:`,
@@ -1017,6 +1009,35 @@ function sceneDirectorOutputSchema() {
       },
     },
   }
+}
+
+/**
+ * Dựng khối "danh sách đoạn" cho lời nhắc chỉ đạo, trong `conLai` ký tự.
+ *
+ * Tách ra thành hàm riêng để **test được ở áp lực thật**: trong dữ liệu hôm
+ * nay, 40 đoạn kịch trần vẫn còn dư ~1.000 ký tự so với trần lời nhắc, nên
+ * một phép cắt mù ở cuối (`cat(caChuoi, TRAN)`) sẽ không lộ ra — cho tới ngày
+ * từ điển dài thêm và khoảng dư biến mất. Gọi thẳng hàm này với một ngân sách
+ * nhỏ là dựng được đúng ngày đó ngay bây giờ.
+ *
+ * Luật: thà mất phần mô tả hình của MỌI đoạn còn hơn mất một đoạn. Cắt mù cả
+ * chuỗi ở cuối là đúng lỗi H3 đã mắc (đo 10/09/2026: 40 đoạn thì mất 13 đoạn,
+ * `parseResult` đòi đủ số đoạn ⇒ null ⇒ hỏng cả lượt sau khi đã gọi mô hình).
+ *
+ * Hết mức hẹp nhất mà vẫn không vừa thì **giữ nguyên đủ số dòng** và để lời
+ * nhắc dài hơn trần: dài hơn là tốn thêm token, mất đoạn là hỏng cả lượt.
+ */
+function dungDongDoanChiDao(beats, conLai) {
+  let ra = ''
+  for (const [loi, hinh] of NGAN_SACH_DOAN_CHI_DAO) {
+    ra = beats.map((b, i) => [
+      `${i + 1}. [${b?.beatType || 'unknown'}]`,
+      b?.loiDoc ? `lời: ${cat(b.loiDoc, loi)}` : '',
+      hinh && b?.visualBrief ? `hình đã tả: ${cat(b.visualBrief, hinh)}` : '',
+    ].filter(Boolean).join(' | ')).join('\n')
+    if (ra.length <= conLai) break
+  }
+  return ra
 }
 
 /** Trần chữ của một câu lý do. 25 từ tiếng Việt hiếm khi quá 200 ký tự. */
@@ -1532,6 +1553,6 @@ module.exports = {
   brandScriptOutputSchema, parseBrandScriptResult, SO_DOAN_KICH_BAN_TOI_DA,
   // mini-spec I3 — chỉ đạo hình ảnh theo từ điển.
   sceneDirectorOutputSchema, parseSceneDirectorResult, vonTuChoLoiNhac,
-  TRAN_LY_DO,
+  TRAN_LY_DO, TRAN_LOI_NHAC, NGAN_SACH_DOAN_CHI_DAO, dungDongDoanChiDao, TRAN_LOI_NHAC, NGAN_SACH_DOAN_CHI_DAO,
   tranDoDaiBeat, catCung,
 }
