@@ -306,6 +306,14 @@ module.exports = async function brandScriptRoutes(fastify) {
       if (gateway.laLoiChuaCoNoiGoiTroLy(err)) {
         return reply.code(503).send({ code: err.code, message: err.message })
       }
+      if (err.code === 'BAD_AI_RESPONSE') {
+        return reply.code(502).send({
+          code: 'KICH_BAN_THIEU_DOAN',
+          message: 'Mô hình viết thiếu đoạn nên kịch bản bị huỷ — bạn KHÔNG bị trừ Vox. '
+          + 'Kịch bản càng nhiều đoạn càng hay gặp lỗi này. Thử lại một lượt; '
+          + 'nếu vẫn vậy thì báo quản trị viên đổi mô hình cho vai «trợ lý».',
+        })
+      }
       return reply.code(503).send({
         code: 'AI_UNAVAILABLE',
         message: 'Chưa viết được kịch bản lúc này. Thử lại sau.',
@@ -471,6 +479,14 @@ module.exports = async function brandScriptRoutes(fastify) {
       request.log.warn({ err, jobId, beatIndex }, 'regenerate-beat failed')
       if (gateway.laLoiChuaCoNoiGoiTroLy(err)) {
         return reply.code(503).send({ code: err.code, message: err.message })
+      }
+      if (err.code === 'BAD_AI_RESPONSE') {
+        return reply.code(502).send({
+          code: 'KICH_BAN_THIEU_DOAN',
+          message: 'Mô hình viết thiếu đoạn nên kịch bản bị huỷ — bạn KHÔNG bị trừ Vox. '
+          + 'Kịch bản càng nhiều đoạn càng hay gặp lỗi này. Thử lại một lượt; '
+          + 'nếu vẫn vậy thì báo quản trị viên đổi mô hình cho vai «trợ lý».',
+        })
       }
       return reply.code(503).send({
         code: 'AI_UNAVAILABLE',

@@ -419,6 +419,52 @@ test('bản chỉ đạo KHÔNG mang câu chữ nào của kịch bản hay vide
   assert.ok(!tho.includes('example.com'), 'lộ nguồn video tham khảo')
 })
 
+// ------------------------- câu chữ khi mô hình viết thiếu đoạn (H3) ---
+
+test('mô hình viết THIẾU ĐOẠN: nói đúng thứ đo được, không hẹn "thử lại sau"', async (t) => {
+  // Đo thật 22/09/2026: cùng một đầu vào, `sonar` trả đủ số đoạn 2/3 lượt ở
+  // 20 đoạn và 0/4 lượt ở 40 đoạn (trả 37, 33, 25, 25). Câu cũ — "Chưa viết
+  // được kịch bản lúc này. Thử lại sau." — sai với ca này theo hai đường:
+  // nó giấu chuyện người dùng KHÔNG bị trừ Vox, và nó hẹn một việc mà ở kịch
+  // bản dài đã hỏng 4/4 lượt.
+  const { device, token } = await thietBiMoi()
+  const brand = await BrandProfile.create({
+    ownerDeviceId: device._id, tenBrand: 'Bếp Nhà Vui',
+    moTaSanPham: 'Nồi chiên không dầu 5 lít', doiTuongKhach: 'Mẹ bỉm sữa',
+    toneGiong: 'Gần gũi', usp: 'Ba phút', rangBuocKhongDuocNoi: ['tốt nhất'],
+  })
+  const bp = await FlowBlueprint.create({
+    ownerDeviceId: device._id, sourceType: 'url',
+    sourceReference: 'https://example.com/v', status: 'ready',
+    beats: [{ startS: 0, endS: 2, beatType: 'hook', narrativeFunctionVi: 'Mở đầu' }],
+    evidenceFingerprint: dauVanTay.taoDauVanTay(['Một câu nguồn mẫu đủ dài']),
+  })
+  mock.method(gateway, 'assist', async () => {
+    // Đúng thứ cổng trợ lý ném khi `parseBrandScriptResult` trả null vì
+    // mô hình viết thiếu đoạn.
+    throw new gateway.AiError('BAD_AI_RESPONSE', 'Kết quả trả về không dùng được', 502)
+  })
+  t.after(() => mock.restoreAll())
+  const truoc = await credit.getBalance(device.fingerprint)
+
+  const res = await goi('POST', '/v1/brand-scripts/', token, {
+    jobId: `job-${crypto.randomBytes(8).toString('hex')}`,
+    brandProfileId: String(brand._id), flowBlueprintId: String(bp._id),
+  })
+
+  assert.strictEqual(res.statusCode, 502)
+  const than = res.json()
+  assert.strictEqual(than.code, 'KICH_BAN_THIEU_DOAN')
+  assert.match(than.message, /KHÔNG bị trừ Vox/,
+    'người dùng phải biết mình không mất tiền — không thì họ tưởng vừa trả tiền cho một lỗi')
+  assert.match(than.message, /nhiều đoạn/,
+    'phải nói ra chiều hướng đã đo được: càng dài càng hay hỏng')
+  assert.ok(!/thử lại sau/i.test(than.message),
+    'không được hẹn "thử lại sau" cho ca đã hỏng 4/4 lượt ở kịch bản dài')
+  assert.strictEqual(await credit.getBalance(device.fingerprint), truoc,
+    'lượt hỏng mà vẫn trừ tiền')
+})
+
 // --------------------------------------- ngân sách lời nhắc ở quy mô thật ---
 
 test('kịch bản DÀI vẫn đủ đoạn trong lời nhắc, và không vượt trần', () => {

@@ -19393,3 +19393,108 @@ chốt CÙNG LÚC với D2 cho H3 để hai tác vụ dùng một cách tính, k
 
 `control_server/tests/chi-dao-hinh-anh.test.js` — **19 đạt** (thêm 3 cho ngân
 sách lời nhắc). Cả bộ `npm test` **793 đạt / 1 bỏ qua / 0 đỏ**.
+
+## H3 viết thiếu đoạn — HỒI QUY do đổi mô hình, không phải lỗi có sẵn (22/09/2026)
+
+Mục trước tôi ghi "H3 không viết nổi kịch bản dài". **Quy kết đó SAI**, và
+phần sai nằm ở chỗ nguy hiểm nhất: nó chỉ về phía H3 (mã của mình) trong khi
+nguyên nhân là **mô hình vừa được đổi hôm qua**. Sửa theo hướng sai đó là đi
+vá một thứ không hỏng.
+
+### Đường đi thật của `brand_script_rewrite` hôm nay
+
+`routes/brand-scripts.js:294` và `:455` gọi `gateway.assist()` →
+`ai-gateway.service.js:1001` `providersFor('assist')` → `:1009` `role = 'assist'`.
+Tức H3 chạy bằng nhà cung cấp của **vai `assist`**.
+
+Trước commit `891c433` (I1 bước 3, hôm qua), vai `assist` **chưa có nhà cung
+cấp** nên mọi tác vụ trợ lý rơi sang vai `translate` — nghĩa là **toàn bộ
+pilot Phase H đã viết kịch bản bằng mô hình của vai dịch**, không phải bằng
+`sonar`. Từ hôm qua: chủ dự án cắm Perplexity `sonar` cho vai `assist`, ta
+bịt đường rơi, và H3 **vừa mới đổi mô hình** mà không ai gọi đó là đổi mô hình.
+
+Vai `translate` của prod là `gemini-2.5-flash` (ghi nhận ở mục 22/8 của chính
+tệp này, đo từ cấu hình thật).
+
+### Phép đo phân xử — cùng đầu vào, cùng lời nhắc, chỉ khác MÔ HÌNH
+
+| số đoạn | `sonar` (vai `assist` hôm nay) | `gemini-3.6-flash` (dòng Flash — xem ghi chú) |
+|---:|---|---|
+| 20 | **2/3 lượt đủ số đoạn** (nhận 20, **19**, 20) | **3/3** (20, 20, 20) |
+| 40 | **0/2 lượt** (nhận **37**, **33**) | **2/2** (40, 40) |
+
+Cộng hai lượt 40 đoạn đo hôm trước (nhận 25, 25): `sonar` **0/4** ở 40 đoạn.
+
+**Kết luận: hồi quy do đổi mô hình.** Cùng lời nhắc, cùng schema, cùng ngân
+sách chữ — một mô hình trả đủ 5/5 lượt, mô hình kia thiếu 3/5. `parseBrandScriptResult`
+từ chối **đúng luật** (thiếu một đoạn là mọi đoạn sau gắn sai vai trò).
+
+### Hai nghi phạm kỹ thuật — đã loại bằng số, không phải bằng lý lẽ
+
+* **`maxTokens` cắt đầu ra: KHÔNG.** Trần 16.384; đầu ra thật 1.212–2.811
+  token. Và một lượt bị cắt vì độ dài sẽ ném `TRUNCATED`
+  (`ai-gateway.service.js::readOpenAiReply`), không phải `BAD_AI_RESPONSE`.
+  Đầu ra của `sonar` là JSON **hợp lệ và trọn vẹn**, chỉ thiếu đoạn.
+* **`sonar` tra web chèn thêm vào đầu ra: KHÔNG.** Soi từng lượt: không có
+  dấu trích dẫn `[1]`/`[2]` trong chữ, không có khoá lạ ngoài
+  `loi_doc`/`caption`/`visual_brief`.
+
+### Phát hiện kèm theo, cần chủ dự án kiểm NGAY
+
+Khi dựng bản ghi Gemini để đo, `gemini-2.5-flash` trả **HTTP 404**:
+
+> *This model models/gemini-2.5-flash is no longer available to new users.
+> Please update your code to use models/gemini-3.6-flash*
+
+Khoá dùng để đo vẫn hợp lệ (liệt kê được 34 mô hình Gemini, có
+`gemini-2.5-flash` trong danh sách). Nghĩa là mô hình ấy **đang bị khai tử cho
+người dùng mới** — bản ghi cũ của prod có thể còn chạy nhờ được ân hạn, nhưng
+**không ai tạo mới được nữa**. Vai `translate` là đường dịch của TOÀN BỘ
+pipeline lồng tiếng, nên nếu nó tắt thì mất nhiều hơn H3 rất nhiều.
+
+**Việc cần làm (của chủ dự án, không phải của bản vá này):** bấm «Thử ngay»
+cho nhà cung cấp vai `translate` ở trang «Nơi gọi mô hình». Còn xanh thì lên
+lịch đổi; đỏ thì đổi ngay sang `gemini-3.6-flash`.
+
+### Ba hướng sửa — chủ dự án quyết, kèm cái giá của từng hướng
+
+1. **Đổi mô hình vai `assist` sang loại giữ được đầu ra dài có cấu trúc**
+   (vd `gemini-3.6-flash`). *Được*: H3 hết thiếu đoạn ngay, không sửa một dòng
+   mã nào. *Giá*: mọi tác vụ trợ lý đổi mô hình theo — 13 tác vụ, trong đó có
+   `packaging_check`/`doc_chu_khung_hinh` cần **nhìn được ảnh** (đã đo:
+   `sonar` nhìn được; mô hình mới phải đo lại). Và giá/token khác đi, các con
+   số định giá vừa đo phải đo lại.
+2. **Chọn mô hình theo TÁC VỤ, không chỉ theo vai.** *Được*: giữ `sonar` cho
+   tác vụ ngắn (rẻ, nhanh), dùng mô hình mạnh cho tác vụ đầu ra dài
+   (`brand_script_rewrite`, `scene_director`). *Giá*: thêm một tầng cấu hình
+   vào `AiProvider`/cổng trợ lý — đúng thứ mini-spec I1 dặn "không tạo
+   framework mới nếu registry hiện có đã đáp ứng"; phải cân nhắc kỹ.
+3. **Tách `brand_script_rewrite` sang một vai riêng** (vd `script`). *Được*:
+   không đụng mã dispatch, chỉ thêm một giá trị enum + một dòng nhà cung cấp.
+   *Giá*: mỗi lần thêm vai là thêm một chỗ có thể quên cắm — và ta vừa mất một
+   mini-spec (I1) để dọn đúng hậu quả của việc một vai không có nhà cung cấp.
+
+Không hướng nào tôi tự chọn. Cả ba đều đổi đường tiền hoặc đường cấu hình của
+toàn bộ cổng trợ lý.
+
+### Việc làm được ngay, đã làm: câu chữ nói đúng thứ đo được
+
+Câu cũ ở cả hai cửa H3: *"Chưa viết được kịch bản lúc này. Thử lại sau."* —
+sai theo hai đường. Nó **giấu chuyện người dùng không bị trừ Vox**, và nó
+**hẹn một việc đã hỏng 4/4 lượt** ở kịch bản 40 đoạn. Đúng lớp lỗi #6.
+
+Câu mới (mã riêng `KICH_BAN_THIEU_DOAN`, HTTP 502):
+
+> Mô hình viết thiếu đoạn nên kịch bản bị huỷ — bạn KHÔNG bị trừ Vox. Kịch bản
+> càng nhiều đoạn càng hay gặp lỗi này. Thử lại một lượt; nếu vẫn vậy thì báo
+> quản trị viên đổi mô hình cho vai «trợ lý».
+
+Cố ý **không** khuyên "chia nhỏ kịch bản": chưa đo rằng chia nhỏ thì chạy
+được. Thứ đã đo là **chiều hướng** (5 đoạn 2/2 đạt · 20 đoạn 2/3 · 40 đoạn
+0/4), và câu chữ chỉ nói đúng chừng ấy.
+
+Test: `chi-dao-hinh-anh.test.js` **20 đạt**; gỡ nhánh mới ⇒ **đỏ đúng test**
+«mô hình viết THIẾU ĐOẠN: nói đúng thứ đo được…».
+
+**Chi phí phép đo:** 10 lượt gọi mô hình thật (5 `sonar` + 5 Gemini) trên cơ
+sở dữ liệu dùng một lần. Không đụng cấu hình prod.
