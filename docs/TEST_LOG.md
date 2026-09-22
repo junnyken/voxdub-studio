@@ -19081,3 +19081,59 @@ vào môi trường một tiến trình không cần tới chúng.
 * **Câu chữ giá trong giao diện vẫn gõ tay** (`autodub_gui/gia.py`,
   `pages/brand_script_page.py`, `pages/editor_panels.py`) — hôm nay khớp giá
   mặc định, đổi giá ở trang quản trị thì giao diện không đổi theo.
+
+## Catalog v2 — mở hết sáu kiểu chuyển cảnh, ĐO trước khi ship (22/09/2026)
+
+Chủ dự án chốt: thêm ba kiểu còn lại (trượt trái · trượt lên · mở vòng) vào
+từ điển chỉ đạo hình ảnh. Ba kiểu này có thật trong `product_video.KIEU_CHUYEN`
+từ mini-spec C20 và đã được phát hiện ở lượt audit I2, nhưng v1 cố ý không
+ship vì bám đúng danh sách mini-spec I2 cho phép.
+
+`supported` từ **4/22 lên 7/25**; `catalog_version` **1 → 2**.
+
+### Đo thật trước khi cho vào — `scripts/kiem_catalog_h4.py`
+
+Cùng bộ đo của v1, không dựng bộ thứ hai: dự án 5 cảnh, giọng đọc THẬT, mốc
+D1 `6,44 · 7,44 · 5,94 · 6,94 · 6,43` giây (tổng **33,19s**), chuyển cảnh 0,30s.
+
+| mục | `kieu_chuyen` | ffmpeg | luồng hình | luồng tiếng | lệch H4c-1 | đuôi mất hình |
+|---|---|---|---:|---:|---:|---|
+| `cat_thang` | `khong` | concat | 33,23s | 33,19s | 0,043s | không |
+| `fade_nhe` | `mo_chong` | `xfade=fade` | 33,20s | 33,19s | 0,010s | không |
+| `crossfade_ngan` | `tan` | `xfade=dissolve` | 33,20s | 33,19s | 0,010s | không |
+| **`truot_trai`** | `truot_trai` | `xfade=slideleft` | 33,20s | 33,19s | **0,010s** | không |
+| **`truot_len`** | `truot_len` | `xfade=slideup` | 33,20s | 33,19s | **0,010s** | không |
+| **`mo_vong`** | `mo_vong` | `xfade=circleopen` | 33,20s | 33,19s | **0,010s** | không |
+
+Ngưỡng H4c-1 là 2 khung @30fps = 0,067s — cả sáu đạt. Phép canh "D1 không
+dựng lại đè lên bản đang đo" cũng đạt cho cả sáu (so `sha256`).
+
+### Hai con số phiên bản, không phải một
+
+`PHIEN_BAN_HO_TRO = [1, 2]` và `PHIEN_BAN_HIEN_TAI = 2` trả lời hai câu khác
+nhau, và gộp chúng làm một là hỏng theo hai chiều ngược nhau:
+
+* Bộ soi chỉ nhận đúng số mới ⇒ mọi **bản chỉ đạo đã lưu** (I3) mang số cũ
+  thành không đọc được — lên đời catalog hoá ra là xoá dữ liệu người dùng.
+* Bộ soi nhận mọi số ⇒ sửa nội dung mà **quên nâng số** trôi lọt, và bản chỉ
+  đạo cũ bỗng trông như vẫn khớp catalog mới.
+
+Nên: `kiemTraCatalog()` nhận cả hai số (đọc được dữ liệu cũ), còn lúc khởi
+động máy chủ có thêm một phép kiểm riêng — tệp ĐANG SHIP phải mang đúng
+`PHIEN_BAN_HIEN_TAI`, lệch là **không khởi động**. Cổng `kiemChon()` vẫn đòi
+đúng bản hiện tại: một lựa chọn dựng từ catalog cũ không được coi là còn hợp lệ.
+
+Tệp dữ liệu đổi tên `visual-direction-catalog.v1.json` →
+**`visual-direction-catalog.json`**: số phiên bản nằm TRONG dữ liệu, nên mỗi
+lần lên đời không phải đổi tên tệp (đổi tên là mất lịch sử git của nó).
+
+### Test
+
+`control_server/tests/visual-catalog.test.js` — **23 đạt** (thêm 2: "bộ soi
+đọc được bản cũ nhưng tệp đang ship phải mang số mới nhất", "ba kiểu mới đều
+supported và có mapping thật").
+
+`tests/test_i2_catalog_khop_renderer.py` — **21 đạt** (thêm phép kiểm **chiều
+ngược**: mọi kiểu có trong `KIEU_CHUYEN` đều phải có mặt trong catalog. v1
+thiếu ba kiểu là CÓ CHỦ Ý và ghi trong spec; từ v2 hai bên phải bằng nhau,
+muốn giữ một kiểu ở ngoài thì phải sửa test, tức là phải nói ra lý do).

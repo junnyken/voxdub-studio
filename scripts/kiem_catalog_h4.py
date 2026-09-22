@@ -43,7 +43,7 @@ sys.path.insert(0, os.path.join(GOC, "scripts"))
 import pilot_h4_cuc_bo as pilot   # noqa: E402  (phải sau khi vá sys.path)
 
 TEP_CATALOG = os.path.join(GOC, "control_server", "src", "data",
-                           "visual-direction-catalog.v1.json")
+                           "visual-direction-catalog.json")
 
 #: Năm cảnh — mini-spec I2 §Test Plan 6 đòi tối thiểu 5, và số lẻ giúp lộ lỗi
 #: lệch nửa cảnh rõ hơn số chẵn.

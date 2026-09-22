@@ -28,7 +28,7 @@ const cat = require('../src/services/visual-catalog.service')
 const { build } = require('../src/app')
 
 const TEP = path.join(__dirname, '..', 'src', 'data',
-  'visual-direction-catalog.v1.json')
+  'visual-direction-catalog.json')
 
 /** Bản SAO đọc thẳng từ đĩa — để sửa thử mà không đụng bản đang chạy. */
 function banSao() {
@@ -45,17 +45,42 @@ function moiMuc(data) {
 
 // ----------------------------------------------------------- khuôn dữ liệu ---
 
-test('catalog v1 trên đĩa đạt toàn bộ phép soi', () => {
+test('catalog trên đĩa đạt toàn bộ phép soi', () => {
   assert.deepStrictEqual(cat.kiemTraCatalog(banSao()), [])
 })
 
 test('phiên bản là bắt buộc và đọc ra đúng một con số', () => {
-  assert.strictEqual(cat.docCatalog().catalog_version, 1)
+  assert.strictEqual(cat.docCatalog().catalog_version, cat.PHIEN_BAN_HIEN_TAI)
+  assert.strictEqual(cat.PHIEN_BAN_HIEN_TAI, 2)
   const thieu = banSao(); delete thieu.catalog_version
   assert.ok(cat.kiemTraCatalog(thieu).some((l) => l.includes('catalog_version')))
-  const chuoi = banSao(); chuoi.catalog_version = '1'
+  const chuoi = banSao(); chuoi.catalog_version = '2'
   assert.ok(cat.kiemTraCatalog(chuoi).some((l) => l.includes('catalog_version')),
-    'phiên bản dạng chuỗi phải bị loại — "1" và 1 so sánh lỏng là chỗ trôi lệch')
+    'phiên bản dạng chuỗi phải bị loại — "2" và 2 so sánh lỏng là chỗ trôi lệch')
+})
+
+test('bộ soi ĐỌC được bản cũ, nhưng tệp đang ship phải mang số mới nhất', () => {
+  // Hai câu hỏi khác nhau: dữ liệu đã lưu từ phiên bản trước vẫn phải đọc
+  // được (nếu không, lên đời catalog là xoá dữ liệu người dùng), còn tệp
+  // đang ship thì không được tụt lại.
+  const cu_ = banSao(); cu_.catalog_version = 1
+  assert.deepStrictEqual(cat.kiemTraCatalog(cu_), [],
+    'bản cũ vẫn phải đọc được')
+  const la = banSao(); la.catalog_version = 99
+  assert.ok(cat.kiemTraCatalog(la).some((l) => l.includes('catalog_version')))
+  assert.ok(cat.PHIEN_BAN_HO_TRO.includes(cat.PHIEN_BAN_HIEN_TAI))
+})
+
+test('ba kiểu chuyển cảnh mới của v2 đều là supported và có mapping thật', () => {
+  const nhomCC = nhom(cat.docCatalog(), 'transition')
+  assert.strictEqual(nhomCC.values.length, 6,
+    'v2 mở hết sáu kiểu mà khâu ghép hình làm được')
+  for (const ma of ['truot_trai', 'truot_len', 'mo_vong']) {
+    const muc = nhomCC.values.find((v) => v.id === ma)
+    assert.ok(muc, `thiếu mục ${ma}`)
+    assert.strictEqual(muc.render_mode, 'supported')
+    assert.deepStrictEqual(Object.keys(muc.h4_mapping.parameters), ['kieu_chuyen'])
+  }
 })
 
 test('đủ sáu nhóm, đúng thứ tự mini-spec', () => {
@@ -224,31 +249,31 @@ test('chữ quảng cáo cũng bị soi, không chỉ mã', () => {
 
 test('cổng kiểm loại mã lạ, nhóm lạ và phiên bản lạ', () => {
   assert.strictEqual(cat.kiemChon(
-    { catalog_version: 1, shot: 'can_canh', transition: 'fade_nhe' }).ok, true)
+    { catalog_version: 2, shot: 'can_canh', transition: 'fade_nhe' }).ok, true)
 
-  assert.strictEqual(cat.kiemChon({ catalog_version: 1, shot: 'bay_flycam' }).ok,
+  assert.strictEqual(cat.kiemChon({ catalog_version: 2, shot: 'bay_flycam' }).ok,
     false)
-  assert.strictEqual(cat.kiemChon({ catalog_version: 1, camera: 'gimbal' }).ok,
+  assert.strictEqual(cat.kiemChon({ catalog_version: 2, camera: 'gimbal' }).ok,
     false)
-  assert.strictEqual(cat.kiemChon({ catalog_version: 2, shot: 'can_canh' }).ok,
-    false)
+  assert.strictEqual(cat.kiemChon({ catalog_version: 1, shot: 'can_canh' }).ok,
+    false, 'lựa chọn dựng từ catalog CŨ không được coi là còn hợp lệ')
   assert.strictEqual(cat.kiemChon({ shot: 'can_canh' }).ok, false)
-  assert.strictEqual(cat.kiemChon({ catalog_version: 1 }).ok, false)
+  assert.strictEqual(cat.kiemChon({ catalog_version: 2 }).ok, false)
   assert.strictEqual(cat.kiemChon('can_canh').ok, false)
 })
 
 test('mục gợi ý KHÔNG đi xuống được khâu dựng hình', () => {
-  const goi_y = cat.kiemChon({ catalog_version: 1, shot: 'can_canh' },
+  const goi_y = cat.kiemChon({ catalog_version: 2, shot: 'can_canh' },
     { mucDich: 'goi_y' })
   assert.strictEqual(goi_y.ok, true)
 
-  const dung = cat.kiemChon({ catalog_version: 1, shot: 'can_canh' },
+  const dung = cat.kiemChon({ catalog_version: 2, shot: 'can_canh' },
     { mucDich: 'dung_hinh' })
   assert.strictEqual(dung.ok, false,
     'cận cảnh là gợi ý chọn ảnh — gửi xuống ffmpeg thì không có gì để thực thi')
   assert.ok(dung.loi[0].includes('advisory_only'))
 
-  assert.strictEqual(cat.kiemChon({ catalog_version: 1, transition: 'fade_nhe' },
+  assert.strictEqual(cat.kiemChon({ catalog_version: 2, transition: 'fade_nhe' },
     { mucDich: 'dung_hinh' }).ok, true)
 })
 
@@ -263,7 +288,7 @@ test('GET /v1/config/visual-direction-catalog trả đúng bản đang chạy', 
   })
   assert.strictEqual(res.statusCode, 200)
   const than = res.json()
-  assert.strictEqual(than.catalog_version, 1)
+  assert.strictEqual(than.catalog_version, 2)
   assert.strictEqual(than.groups.length, 6)
   assert.deepStrictEqual(cat.kiemTraCatalog(than), [],
     'thứ trả ra API phải đạt đúng phép soi như tệp trên đĩa')

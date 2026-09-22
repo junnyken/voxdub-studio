@@ -302,7 +302,9 @@ của người quản trị, và máy chủ tự chặn nếu chưa đủ số l
 ## 4b. Từ điển chỉ đạo hình ảnh — một nguồn, hai người đọc (mini-spec I2)
 
 Vốn từ chỉ đạo hình ảnh nằm ở **đúng một tệp**:
-`control_server/src/data/visual-direction-catalog.v1.json`.
+`control_server/src/data/visual-direction-catalog.json` (số phiên bản nằm
+TRONG dữ liệu, không nằm ở tên tệp — lên đời không phải đổi tên và mất lịch sử
+git của tệp).
 
 Vì sao đặt trong `control_server/` chứ không ở `autodub/`: nhánh deploy chỉ
 mang `control_server/` + `website/` (xem `scripts/gen_vays_control_server_branch.sh`),

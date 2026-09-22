@@ -46,7 +46,7 @@ cửa ghi** — I2 chưa lưu lựa chọn nào; đó là việc của I3/I4.
 Response 200 (rút gọn):
 ```json
 {
-  "catalog_version": 1,
+  "catalog_version": 2,
   "groups": [
     { "id": "transition", "label_vi": "Chuyển cảnh", "description_vi": "…",
       "values": [
@@ -64,8 +64,9 @@ Sáu nhóm cố định: `shot` · `composition` · `motion` · `pacing` · `tra
 · `lighting_color`. Mỗi mục có đúng một trong hai trạng thái:
 
 * `supported` — khâu ghép hình của H4 làm được THẬT, và `h4_mapping` trỏ vào
-  hàm + tham số có thật (v1 có 4 mục: giữ hình tĩnh, cắt thẳng, mờ chồng,
-  tan dần — đã đo trên video 5 cảnh có giọng đọc thật, xem `docs/TEST_LOG.md`);
+  hàm + tham số có thật (v2 có 7 mục: giữ hình tĩnh, và sáu kiểu chuyển cảnh
+  cắt thẳng · mờ chồng · tan dần · trượt trái · trượt lên · mở vòng — cả sáu
+  đã đo trên video 5 cảnh có giọng đọc thật, xem `docs/TEST_LOG.md`);
 * `advisory_only` — **chỉ là gợi ý lúc chọn/chụp ảnh**, `h4_mapping` luôn
   `null`. Không bao giờ được gửi xuống như lệnh dựng.
 

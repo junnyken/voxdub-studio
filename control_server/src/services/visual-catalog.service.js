@@ -30,14 +30,31 @@
  *      whip pan, bám vật thể 3D, sinh video bằng AI — không có đường nào để
  *      chúng lọt vào tệp dữ liệu này mà không làm đỏ test.
  *
- * Tệp dữ liệu: `src/data/visual-direction-catalog.v1.json` (nguồn DUY NHẤT —
+ * Tệp dữ liệu: `src/data/visual-direction-catalog.json` (nguồn DUY NHẤT —
  * cả máy chủ lẫn `tests/test_i2_catalog_khop_renderer.py` bên Python đọc
  * chính tệp này, không ai chép lại).
  */
-const CATALOG_V1 = require('../data/visual-direction-catalog.v1.json')
+const CATALOG_DU_LIEU = require('../data/visual-direction-catalog.json')
 const { BEAT_TYPES } = require('../models/FlowBlueprint')
 
-/** Sáu nhóm của v1 — đóng, đúng thứ tự mini-spec I2 §C2. */
+/**
+ * Phiên bản catalog mà mã này hiểu, và phiên bản đang ship.
+ *
+ * Tách làm hai con số vì chúng trả lời hai câu khác nhau:
+ *   - `PHIEN_BAN_HO_TRO` — bộ soi chấp nhận những số nào. Bản chỉ đạo đã lưu
+ *     từ trước (I3) mang số cũ vẫn phải ĐỌC được, nếu không thì mỗi lần lên
+ *     đời catalog là xoá sạch dữ liệu người dùng.
+ *   - `PHIEN_BAN_HIEN_TAI` — số của tệp đang ship. Sửa nội dung mà quên nâng
+ *     số là chuyện dễ xảy ra nhất, nên máy chủ tự chặn ngay lúc khởi động.
+ *
+ * v2 (22/09/2026): thêm ba kiểu chuyển cảnh trượt trái · trượt lên · mở vòng
+ * — có sẵn trong `product_video.KIEU_CHUYEN` từ lâu, nay đã ĐO bằng ffmpeg
+ * trên video 5 cảnh có giọng đọc thật trước khi cho vào (xem TEST_LOG).
+ */
+const PHIEN_BAN_HO_TRO = Object.freeze([1, 2])
+const PHIEN_BAN_HIEN_TAI = 2
+
+/** Sáu nhóm của catalog — đóng, đúng thứ tự mini-spec I2 §C2. */
 const NHOM_V1 = Object.freeze([
   'shot', 'composition', 'motion', 'pacing', 'transition', 'lighting_color',
 ])
@@ -113,8 +130,9 @@ function kiemTraCatalog(data) {
   const loi = []
   if (!data || typeof data !== 'object') return ['catalog không phải đối tượng']
 
-  if (data.catalog_version !== 1) {
-    loi.push(`catalog_version phải là số 1 (đang là ${JSON.stringify(data.catalog_version)})`)
+  if (!PHIEN_BAN_HO_TRO.includes(data.catalog_version)) {
+    loi.push('catalog_version phải là một trong các số '
+      + `${PHIEN_BAN_HO_TRO.join(', ')} (đang là ${JSON.stringify(data.catalog_version)})`)
   }
   if (!Array.isArray(data.groups)) return [...loi, 'thiếu mảng groups']
 
@@ -219,12 +237,21 @@ function kiemTraCatalog(data) {
 
 /** Nạp + soi ngay lúc require: dữ liệu hỏng thì máy chủ không được khởi động. */
 function _napCatalog() {
-  const loi = kiemTraCatalog(CATALOG_V1)
+  const loi = kiemTraCatalog(CATALOG_DU_LIEU)
+  // Tệp ĐANG SHIP thì phải mang đúng số phiên bản hiện tại. Bộ soi ở trên
+  // chấp nhận cả số cũ (để đọc dữ liệu đã lưu), nên thiếu phép kiểm này thì
+  // sửa nội dung mà quên nâng số sẽ trôi lọt — và mọi bản chỉ đạo cũ bỗng
+  // trông như vẫn khớp catalog mới.
+  if (CATALOG_DU_LIEU.catalog_version !== PHIEN_BAN_HIEN_TAI) {
+    loi.push(`tệp đang ship khai catalog_version `
+      + `${JSON.stringify(CATALOG_DU_LIEU.catalog_version)} nhưng mã này ship `
+      + `bản ${PHIEN_BAN_HIEN_TAI} — nâng số hoặc sửa mã, đừng để lệch`)
+  }
   if (loi.length) {
-    throw new Error('Từ điển chỉ đạo hình ảnh v1 không hợp lệ:\n- '
+    throw new Error('Từ điển chỉ đạo hình ảnh không hợp lệ:\n- '
       + loi.join('\n- '))
   }
-  return Object.freeze(CATALOG_V1)
+  return Object.freeze(CATALOG_DU_LIEU)
 }
 
 const CATALOG = _napCatalog()
@@ -243,7 +270,7 @@ function timMuc(nhomId, mucId) {
  * Cổng kiểm cho bên tiêu thụ sau này (I3 `scene_director`, I4 lưu lựa chọn).
  *
  * `chon`: `{ catalog_version, nhom: giá_trị, ... }` ví dụ
- *         `{ catalog_version: 1, shot: 'can_canh', transition: 'fade_nhe' }`.
+ *         `{ catalog_version: 2, shot: 'can_canh', transition: 'fade_nhe' }`.
  * `mucDich`:
  *   - `'goi_y'`    — nhận cả `supported` lẫn `advisory_only` (để hiện cho người dùng);
  *   - `'dung_hinh'` — CHỈ nhận `supported`. Đây là chỗ chặn một mục gợi ý bị
@@ -279,6 +306,8 @@ function kiemChon(chon, { mucDich = 'goi_y' } = {}) {
 }
 
 module.exports = {
+  PHIEN_BAN_HO_TRO,
+  PHIEN_BAN_HIEN_TAI,
   NHOM_V1,
   TRANG_THAI,
   CACH_DUNG,

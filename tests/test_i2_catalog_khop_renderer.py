@@ -1,6 +1,6 @@
 """Từ điển chỉ đạo hình ảnh v1 phải KHỚP thứ khâu ghép hình làm được — I2.
 
-Catalog nằm ở máy chủ (`control_server/src/data/visual-direction-catalog.v1.json`)
+Catalog nằm ở máy chủ (`control_server/src/data/visual-direction-catalog.json`)
 còn khâu dựng hình nằm ở Python (`autodub/product_video.py`). Hai bên hai
 ngôn ngữ, hai lượt phát hành — đúng hình dạng của mọi lần "trôi lệch âm thầm"
 mà dự án này đã dính: `dub-langs` (V49), tốc độ đọc của H6, mã thành công
@@ -33,7 +33,7 @@ from autodub.product_video import KIEU_CHUYEN, _lenh_ghep, ghep_anh_nguoi_dung
 
 GOC = pathlib.Path(__file__).resolve().parent.parent
 TEP_CATALOG = (GOC / "control_server" / "src" / "data"
-               / "visual-direction-catalog.v1.json")
+               / "visual-direction-catalog.json")
 MA_RENDERER = (GOC / "autodub" / "product_video.py").read_text(encoding="utf-8")
 
 #: Tham số mang nghĩa thời gian — catalog bị cấm chạm vào, vì thời lượng cảnh
@@ -69,6 +69,23 @@ def _thoi_luong_dau_vao(lenh: list[str]) -> list[float]:
 
 
 # --------------------------------------------------------- catalog ⇄ mã ---
+
+def test_moi_kieu_chuyen_canh_CO_THAT_deu_co_mat_trong_catalog(catalog):
+    """Chiều NGƯỢC lại: mã có kiểu nào thì catalog phải khai kiểu đó.
+
+    v1 cố ý chỉ ship 3/6 kiểu (bám danh sách mini-spec I2 cho phép). v2 mở
+    hết, nên từ nay hai bên phải bằng nhau — thêm một kiểu vào `KIEU_CHUYEN`
+    mà quên catalog thì người dùng không bao giờ thấy nó, và không ai biết vì
+    sao. Muốn giữ một kiểu ở ngoài catalog thì phải sửa test này, tức là phải
+    nói ra lý do.
+    """
+    trong_catalog = {
+        m["h4_mapping"]["parameters"]["kieu_chuyen"]
+        for nhom, m in _moi_muc(catalog)
+        if nhom == "transition" and m["render_mode"] == "supported"}
+    assert trong_catalog == set(KIEU_CHUYEN), (
+        f"catalog khai {sorted(trong_catalog)} còn mã có {sorted(KIEU_CHUYEN)}")
+
 
 def test_moi_muc_supported_tro_vao_ham_CO_THAT(catalog):
     thay = 0
@@ -119,7 +136,10 @@ def test_cat_thang_KHONG_sinh_xfade(catalog):
 
 
 @pytest.mark.parametrize("ma_muc,ten_ffmpeg", [("fade_nhe", "fade"),
-                                               ("crossfade_ngan", "dissolve")])
+                                               ("crossfade_ngan", "dissolve"),
+                                               ("truot_trai", "slideleft"),
+                                               ("truot_len", "slideup"),
+                                               ("mo_vong", "circleopen")])
 def test_chuyen_canh_sinh_dung_bo_loc_ffmpeg(catalog, ma_muc, ten_ffmpeg):
     muc = next(m for _, m in _moi_muc(catalog) if m["id"] == ma_muc)
     lenh = " ".join(_lenh_ghep(["a.png", "b.png", "c.png"], "ra.mp4",
@@ -130,7 +150,8 @@ def test_chuyen_canh_sinh_dung_bo_loc_ffmpeg(catalog, ma_muc, ten_ffmpeg):
         f"{ten_ffmpeg} — nhãn và thứ chạy thật lệch nhau")
 
 
-@pytest.mark.parametrize("ma_muc", ["cat_thang", "fade_nhe", "crossfade_ngan"])
+@pytest.mark.parametrize("ma_muc", ["cat_thang", "fade_nhe", "crossfade_ngan",
+                                   "truot_trai", "truot_len", "mo_vong"])
 def test_canh_CUOI_khong_bi_chuyen_canh_an_mat(catalog, ma_muc):
     """Cảnh cuối phải giữ nguyên trọn thời lượng của nó.
 

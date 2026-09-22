@@ -289,19 +289,21 @@ Video ra luôn mang nhãn "AI-generated" ở cảnh đầu, không có tuỳ ch�
 `voxdub dub` · `batch` · `cloud` · `translate` · `watch` (theo dõi một thư
 mục, có video mới thì tự xử lý).
 
-### 3.9 Từ điển chỉ đạo hình ảnh v1 — HẠ TẦNG, chưa nối vào luồng nào
+### 3.9 Từ điển chỉ đạo hình ảnh v2 — HẠ TẦNG, chưa nối vào luồng nào
 
 **Đây không phải tính năng dựng video mới.** Nó là một danh sách từ vựng
-đóng, có số phiên bản (`control_server/src/data/visual-direction-catalog.v1.json`,
+đóng, có số phiên bản (`control_server/src/data/visual-direction-catalog.json`,
 đọc qua `GET /v1/config/visual-direction-catalog`) để bước sau — I3
 `scene_director`, CHƯA làm — có thứ hữu hạn mà chọn, thay vì để mô hình tự
 nghĩ ra thuật ngữ điện ảnh mà khâu ghép hình không dựng được.
 
-Sáu nhóm, 22 mục, và mỗi mục nói thật về mình:
+Sáu nhóm, **25 mục** (v2, 22/09/2026), và mỗi mục nói thật về mình:
 
-* **4 mục `supported`** — H4 làm được hôm nay: giữ hình tĩnh, cắt thẳng, mờ
-  chồng, tan dần. Đã đo trên video 5 cảnh có giọng đọc thật: cả ba kiểu
-  chuyển cảnh giữ đúng thời lượng D1/H4c-1 và không để lại đuôi mất hình.
+* **7 mục `supported`** — H4 làm được hôm nay: giữ hình tĩnh, và **sáu kiểu
+  chuyển cảnh** (cắt thẳng · mờ chồng · tan dần · trượt trái · trượt lên · mở
+  vòng). Cả sáu đã đo trên video 5 cảnh có giọng đọc thật: giữ đúng thời lượng
+  D1/H4c-1 (lệch tối đa 0,043s trên ngưỡng 0,067s) và không để lại đuôi mất
+  hình. Ba kiểu thêm ở v2 **đo trước khi ship**, không phải thêm rồi tin.
 * **18 mục `advisory_only`** — cỡ khung, bố cục, nhịp dựng, màu sắc: **gợi ý
   lúc chọn hoặc chụp ảnh**, không phải lệnh cho máy. Khâu ghép hình không
   cắt ảnh, không zoom, không pan, không chỉnh màu — nên hứa ngược lại là nói
