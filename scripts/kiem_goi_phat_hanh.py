@@ -1322,7 +1322,7 @@ def main() -> int:
                     help="chỉ in bảng tóm tắt từ bằng chứng đã có (cho CI)")
     ap.add_argument("--trang-thai-nguon", default="",
                     help="kết quả cổng dub từ mã nguồn ở bước trước")
-    ap.add_argument("--video", default=str(GOC_REPO / "tap01_clip.mp4"))
+    ap.add_argument("--video", default=str(GOC_REPO / "mau_kiem_chay.mp4"))
     ap.add_argument("--cai-dat", default="bat", choices=("bat", "script"))
     ap.add_argument("--timeout", type=int, default=2700)
     ap.add_argument("--sha", default="", help="commit ứng viên (ghi vào bằng chứng)")

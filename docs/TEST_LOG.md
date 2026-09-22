@@ -18533,3 +18533,155 @@ không có trình cài nào chạy (ca "bộ máy đã có sẵn") — đã sử
 **Vẫn CHƯA có lượt Windows nào cho bản vá này.** Giới hạn (2) chỉ đóng khi có
 một lượt `windows-latest` xanh với `previous-artifact.json` ghi `che_do_ban_cu
 ="gói phát hành riêng"` **và** `upgrade-seed.json` có mặt.
+
+## I0-FDE(h) — video mẫu nay do dự án tự dựng; mốc bản cũ lên v3.17.20 (22/09/2026)
+
+Bối cảnh: **`v3.17.20` đã phát hành thật** (run `35678475537`, trigger push
+tag, commit `4e823d4`). Tự kiểm lại bằng API chứ không chép lời:
+`published_at=2026-09-22T02:19:50Z`, `draft=false`, asset
+`VoxDub-Studio-v3.17.20-win64.zip` **78.086.487 byte**. Ba cổng bản đóng gói
+chạy xanh trên đúng ref tag trước khi `Publish GitHub Release` chạy.
+
+### Việc 2 — mốc "bản phát hành trước" lên `v3.17.20`
+
+`.github/workflows/release.yml` nay tải `--tag v3.17.20`.
+
+**Vì sao vẫn ghim tay.** Hai cách "tự động" đều tệ hơn:
+
+* `latest` — trong lượt push tag, release của **chính bản đang dựng** có thể
+  đã tồn tại (chạy lại lượt CI, hoặc release tạo tay trước). Cổng sẽ đi so
+  bản mới với chính nó: xanh mà không kiểm gì. Đã có test chặn từ mục
+  I0-FDE(f) (`test_ban_cu_ghim_TAG_CO_DINH_khong_phai_latest`).
+* "bản mới nhì, tính tự động" — nó **đổi theo thời gian**, nên hai lượt CI
+  cách nhau một tuần không còn so được với nhau, mà cổng này sống bằng đúng
+  việc so sánh giữa các lượt.
+
+Một mốc cố định, sửa tay, **hiện ngay trong diff lúc phát hành** thì đắt hơn
+một dòng và rẻ hơn một lượt xanh giả.
+
+Đã chạy thử **bước tải thật** với mốc mới (Linux, 22/09): tải xong
+`VoxDub-Studio-v3.17.20-win64.zip` **78.086.487 byte** (khớp `byte_api_khai`),
+sha256 `d418581e54d4c2d1…`, `phat_hanh_luc=2026-09-22T02:19:50Z`. Và phép so
+nội dung giữa hai bản phát hành thật `v3.17.19 → v3.17.20`: **1300 tệp, 6 tệp
+khác nội dung** (`VoxDub.exe`, `_internal/base_library.zip`, hai `RECORD`,
+`logs/voxdub.log`), 0 tệp lệch danh sách — chốt "hai gói phải khác nhau thật"
+của mục I0-FDE(f) vẫn có đủ dữ kiện để đi tiếp, không kêu oan. Thêm cảnh báo ⚠ ngay tại chỗ trong YAML
+và một chốt tĩnh mới: `test_moc_ban_cu_khong_moi_hon_phien_ban_dang_dung` —
+gõ nhầm sang một bản **chưa phát hành** thì đỏ ngay lúc sửa YAML, thay vì 404
+giữa lượt CI. Cố ý **không** đòi "tag phải khác `APP_VERSION`": sau khi phát
+hành, `main` còn mang đúng số vừa phát hành cho tới lần bump sau, đòi khác
+nhau là để repo đỏ thường trực — mà chốt đỏ thường trực thì người ta học cách
+ngó lơ nó.
+
+### Việc 1 — AUDIT trước: video mẫu phải giữ được những gì
+
+Giới hạn (1): `tap01_clip.mp4` vào repo ở `190cd2a` không kèm ghi chú nguồn,
+tên "tap01" gợi ý một tập phim của bên thứ ba; guardrail 11 đòi mẫu bắt buộc
+phải *project-owned or explicitly permitted*. Trước khi đổi, phải biết đổi
+đi thì **mất gì**. Bốn tính chất, mỗi cái gắn với một chốt có thật:
+
+1. **Tiếng nói KHÔNG được là tiếng Việt.** `pipeline.py:635` đặt
+   `khong_can_dich = cung_ngon_ngu(lang_code, target.key)` và chỉ giữ lại
+   khâu dịch khi độ tin cậy `< 0.85`. Mẫu tiếng Việt nghe rõ sẽ **bỏ hẳn
+   đường dịch**, trong khi cổng mã nguồn đòi `TRANSLATE_PENDING.txt` và cổng
+   bản đóng gói đòi `trang_thai_pipeline == "translate_pending"`. Đây là lý do
+   phương án "dùng chính VieNeu của dự án sinh tiếng" **không dùng được**:
+   VieNeu chỉ đọc tiếng Việt.
+2. **Chốt `.asr_lang` không đòi tiếng Anh**, chỉ đòi một **mã ngôn ngữ hợp
+   lệ** (`^[A-Za-z]{2,3}(-…)?$`) kèm **độ tin cậy > 0**. Nên đổi ngôn ngữ
+   nguồn sang bất kỳ thứ tiếng nào ≠ tiếng Việt đều giữ nguyên ý nghĩa chốt
+   C44; đổi sang tiếng Việt mới là làm nó vô nghĩa.
+3. **Đủ dài để hai ngưỡng còn phân biệt được.** Ngưỡng câm (-70 dB) và ngưỡng
+   lệch thời lượng (35%) đo trên **cả tệp**. Mẫu 2–3 giây: 35% chỉ còn dưới
+   một giây, mà riêng việc thay giọng đọc tiếng Việt đã lệch hơn thế — chốt
+   sẽ **kêu oan** chứ không bắt được lỗi. Giữ cỡ ~53 giây.
+4. **Phải có khoảng lặng giữa các câu**, vì bước ghép dồn phần trễ của giọng
+   đọc vào khoảng lặng (cơ chế đã ghi ở mini-spec D1). Mẫu nói liên tục sẽ
+   đẩy thời lượng ra xa và lại làm chốt 35% kêu oan.
+
+**Phụ đề cháy song ngữ của mẫu cũ**: không chốt nào của hai cổng dùng tới
+(`--subtitle-mode none` ở cả hai). Nhưng các pilot OCR (`MINI-SPEC_H2a`,
+`H2b`) thì có — nên mẫu mới **giữ lại tính chất đó** thay vì bỏ đi.
+
+### Hướng đã chọn: tự dựng, không đi tìm tệp "miễn phí" của người khác
+
+`scripts/tao_mau_kiem_chay.py` dựng `mau_kiem_chay.mp4`:
+
+* **lời thoại** — 8 câu tiếng Anh viết trong chính script đó;
+* **tiếng** — eSpeak NG đọc 8 câu, tổng hợp **formant** (tính ra sóng âm từ
+  quy tắc ngữ âm, không phát lại bản thu của ai);
+* **hình** — ffmpeg vẽ: nền một màu, tiêu đề, và phụ đề cháy **song ngữ**
+  (Anh + Việt đủ dấu, cho pilot OCR).
+
+Không chọn "clip public-domain/CC0" vì nó chỉ đổi câu hỏi *"tệp này của ai"*
+thành *"lời khai giấy phép kia có đúng không"* — vẫn phải tin một bên thứ ba,
+trong khi tự dựng thì không còn ai để phải tin.
+
+`mau_kiem_chay.json` (manifest, commit kèm) ghi: chủ sở hữu, cơ sở pháp lý
+từng phần, script dựng, phiên bản công cụ, thời lượng, byte, **sha256**, mốc
+thời gian từng câu, và **lượt đo thật bằng chính bộ nghe `tiny` của CI**.
+
+### Đo thật — hai mẫu, cùng máy, cùng ngày, cùng lệnh
+
+`python scripts/kiem_chay_that.py --den-cuoi` (Linux, `WHISPER_MODEL=tiny`,
+VieNeu thật):
+
+| | mẫu cũ `tap01_clip.mp4` | mẫu mới `mau_kiem_chay.mp4` |
+|---|---|---|
+| Kết quả | **ĐẠT** | **ĐẠT** |
+| Thời lượng nguồn | 53,5 s | 52,8 s |
+| Kích thước trong repo | 4.404.509 byte | **562.907 byte** |
+| Bộ nghe ra | **12 câu** | **8 câu** |
+| Ngôn ngữ | `en-US` (99%) | `en-US` (96%) |
+| Mức âm tệp ra | −18,6 dB | **−20,0 dB** |
+| Thời lượng tệp ra | 54,4 s (lệch 1,7%) | 52,8 s (lệch ~0%) |
+
+sha256 mẫu mới: `a5b76c3adc935205…` (số đầy đủ trong `mau_kiem_chay.json`).
+
+### Mạnh lên / yếu đi — nói thẳng cả hai chiều
+
+**Mạnh lên:**
+
+* hết câu hỏi bản quyền cho **cổng phát hành** (guardrail 11 §B);
+* mẫu **dựng lại được** từ script trong repo, thay vì một tệp không ai biết
+  từ đâu ra;
+* mốc thời gian từng câu, ngôn ngữ, số câu **được khai trong manifest và có
+  test canh** — mẫu cũ chưa bao giờ có gì tương đương;
+* repo nhẹ đi **3,8 MB**; lượt CI bớt một video 4,4 MB phải giải mã.
+
+**Yếu đi (thật, không giấu):**
+
+* **8 câu thay vì 12.** Phần đóng vai dịch tay và các lượt gọi giọng đọc ít
+  hơn một phần ba. Vẫn trên sàn 5 câu mà test canh, và vẫn khớp hồ sơ lịch sử
+  của mẫu cũ (`scripts/research/mau_chep_loi_tap01_en.json` ghi 8 câu), nhưng
+  đây là một khoản giảm có thật.
+* **Tiếng tổng hợp sạch, không tạp âm, một người nói.** Mẫu cũ là thoại thật
+  có nhiều người và tiếng nền. Cổng này kiểm **đường chạy** chứ không chấm
+  chất lượng nghe, nên không chốt nào mất hiệu lực — nhưng lớp "ASR chịu
+  được âm thật" thì không còn được chạm tới ở đây.
+
+**Không đổi:** ngưỡng câm, ngưỡng 35%, chốt `.asr_lang`, đường dịch tay,
+chính sách A, chốt mượn mã nguồn, che bí mật, điều kiện tag ở bước publish.
+
+### Còn treo
+
+* **`tap01_clip.mp4` vẫn nằm trong repo** — hai cổng không còn dùng nó, nhưng
+  các pilot OCR (H2a/H2b) và `scripts/research/` thì có, và lịch sử git vẫn
+  giữ tệp. Xoá hẳn hay giữ kèm ghi chú nguồn là **quyết định của chủ dự án**,
+  không phải việc của bản vá này.
+* **Chưa có lượt Windows nào chạy với mẫu mới.** Bằng chứng hiện có là một
+  lượt `--den-cuoi` trọn vẹn trên Linux. Cổng bản đóng gói (chạy `.exe`) chỉ
+  được chứng minh sau lượt CI kế tiếp.
+
+### Test
+
+`tests/test_mau_kiem_chay.py` (mới, **11 đạt**) khoá: mẫu + manifest có mặt ·
+sha256 khớp tệp thật · khai đủ chủ sở hữu và cơ sở pháp lý từng phần · đủ dài ·
+đủ nhiều câu **đo thật** · **không phải tiếng Việt** · có khoảng lặng · đúng
+h264+aac · và **hai cổng lẫn hai workflow thật sự trỏ vào mẫu này**.
+
+**11 phép đột biến — gỡ chốt nào cũng ĐỎ đúng chốt đó**: rút mẫu còn 2 giây ·
+mẫu nói tiếng Việt · bộ nghe chỉ ra 1 câu · manifest ghi ý định thay vì đo
+thật · sha256 lệch · bỏ cơ sở pháp lý · nói liên tục không khoảng lặng · hai
+cổng quay về mẫu cũ · CI quay về mẫu cũ · mốc bản cũ trỏ vào bản chưa phát
+hành.

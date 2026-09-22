@@ -370,6 +370,12 @@ này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cu
 
   1. **Bản quyền `tap01_clip.mp4` chưa xác định** — tệp vào repo ở commit
      `190cd2a` không kèm ghi chú nguồn.
+     *(22/09: hai cổng chạy thật nay dùng `mau_kiem_chay.mp4` — video do
+     chính dự án dựng bằng `scripts/tao_mau_kiem_chay.py`, có manifest ghi
+     chủ sở hữu + cơ sở pháp lý + sha256. Đã chạy trọn `--den-cuoi` trên
+     Linux, CHƯA có lượt Windows nào. `tap01_clip.mp4` vẫn nằm trong repo cho
+     các pilot OCR — xoá hay giữ là quyết định của chủ dự án. Xem
+     `docs/TEST_LOG.md` mục I0-FDE(h).)*
   2. **"Bản trước" của I0-E là CÙNG phiên bản với ứng viên** — chứng minh cơ
      chế dùng lại, **không** chứng minh migration giữa hai phiên bản khác nhau.
      *(22/09: đã có bản vá — bản cũ dựng từ gói phát hành thật `v3.17.19` tải

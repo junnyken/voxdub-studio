@@ -28,6 +28,13 @@
   chạy được rồi nâng cấp*. Đồng thời vá lỗ **bằng chứng không nói được vì
   sao**: nay ghi trọn stdout/stderr của mọi tiến trình con. Chi tiết:
   `docs/TEST_LOG.md`, mục *I0-FDE(g)*. Vẫn chưa có lượt Windows nào.
+- **22/09 — giới hạn (1) (bản quyền video mẫu):** hai cổng chạy thật nay dùng
+  `mau_kiem_chay.mp4`, video do chính dự án dựng (`scripts/tao_mau_kiem_chay.py`:
+  lời thoại của dự án + eSpeak NG tổng hợp formant + hình ffmpeg vẽ), kèm
+  manifest `mau_kiem_chay.json` (chủ sở hữu, cơ sở pháp lý, sha256, mốc từng
+  câu, lượt đo thật bằng Whisper `tiny`). Audit bốn tính chất phải giữ + số đo
+  hai mẫu cạnh nhau: `docs/TEST_LOG.md`, mục *I0-FDE(h)*. Mốc "bản phát hành
+  trước" của I0-E lên `v3.17.20`. Chưa có lượt Windows nào với mẫu mới.
 
 ---
 

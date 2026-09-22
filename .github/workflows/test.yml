@@ -125,7 +125,7 @@ jobs:
       - name: Một lượt dub thật, dừng ở bước dịch
         env:
           WHISPER_MODEL: tiny
-        run: python scripts/kiem_chay_that.py --video tap01_clip.mp4 --timeout 1800
+        run: python scripts/kiem_chay_that.py --video mau_kiem_chay.mp4 --timeout 1800
 
   # C57 — SINH LẠI NHÁNH DEPLOY TỰ ĐỘNG.
   #

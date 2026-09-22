@@ -322,8 +322,10 @@ def kiem(video: Path, python_exe: str, timeout_s: int, giu_lai: bool,
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--video", default="tap01_clip.mp4",
-                    help="video ngắn để chạy thử (mặc định: tap01_clip.mp4 trong repo)")
+    ap.add_argument("--video", default="mau_kiem_chay.mp4",
+                    help="video ngắn để chạy thử (mặc định: mau_kiem_chay.mp4 — "
+                         "video mẫu do chính dự án dựng, xem "
+                         "scripts/tao_mau_kiem_chay.py)")
     ap.add_argument("--python", default=sys.executable,
                     help="python dùng để chạy autodub.cli")
     ap.add_argument("--timeout", type=int, default=1800)
