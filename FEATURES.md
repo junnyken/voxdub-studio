@@ -10,14 +10,15 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-22 · phiên bản trong mã `3.17.20` — **chưa cắt tag, chưa
-> dựng `.exe`**; bản người dùng Windows đang cầm vẫn là `3.17.19`, đừng coi mã
+> Cập nhật: 2026-09-23 · phiên bản trong mã `3.17.21` — **chưa cắt tag, chưa
+> dựng `.exe`**; bản người dùng Windows đang cầm vẫn là `3.17.20`, đừng coi mã
 > trên `main` là thứ họ đang chạy (ghi chú phát hành:
-> `docs/PHAT-HANH_v3.17.20.md`). `voxdub-dub-worker`/`voxdub-app` trên máy chủ
-> THÌ đã khớp `main` (job `kiem-prod-theo-main` xanh, 21/09). **đo thật
-> 22/09**: 3.109 test Python, **0 hỏng**, 4 bỏ qua; test Node/React giữ số của
-> lượt đo 21/09 (733 Node — 1 bỏ qua — và 74 React), không chạy lại hôm nay
-> (xem §10).
+> `docs/PHAT-HANH_v3.17.21.md`). Máy chủ `voxdub-app` mang **lược đồ mới**
+> (`suaTay`, `visualPreset`) và một **cửa API mới** (`PUT
+> /v1/brand-scripts/:id/visual-direction`) — phải deploy máy chủ TRƯỚC khi
+> phát hành `.exe`, vì app mới gọi cửa đó. **Đo thật 23/09**: 3.225 test
+> Python (0 hỏng, 4 bỏ qua) · 803 test Node (1 bỏ qua) · 76 test React —
+> cả ba chạy lại trong cùng ngày.
 
 ---
 
