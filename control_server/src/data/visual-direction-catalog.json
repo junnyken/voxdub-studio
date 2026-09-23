@@ -283,7 +283,7 @@
     {
       "id": "transition",
       "label_vi": "Chuyển cảnh",
-      "description_vi": "Sáu kiểu dưới đây khâu ghép hình làm được THẬT (autodub/product_video.py::KIEU_CHUYEN) và đã đo giữ nguyên thời lượng D1/H4c-1. Lưu ý trung thực: luồng H4 hôm nay LUÔN dùng «Mờ chồng» — chưa có chỗ nào cho người dùng chọn kiểu khác; việc nối lựa chọn vào luồng là phần việc của I5.",
+      "description_vi": "Sáu kiểu dưới đây khâu ghép hình làm được THẬT (autodub/product_video.py::KIEU_CHUYEN) và đã đo giữ nguyên thời lượng D1/H4c-1. Từ I5, luồng H4 dựng theo ĐÚNG kiểu của từng đoạn — mỗi mối nối một kiểu, không còn áp «Mờ chồng» cho cả video. Đoạn bỏ trống rơi về nếp của thương hiệu (I6) nếu có, nếu không thì «Mờ chồng».",
       "values": [
         {
           "id": "cat_thang",

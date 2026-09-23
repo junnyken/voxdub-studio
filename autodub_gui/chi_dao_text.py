@@ -5,8 +5,9 @@ sai nhất thì phải test được mà không cần dựng cửa sổ.
 
 Sự thật phải nói ra, không được làm mờ đi: trong từ điển chỉ đạo hình ảnh
 hiện nay, **phần lớn mục là gợi ý cho NGƯỜI đi chọn/chụp ảnh**, chỉ nhóm
-chuyển cảnh (và "giữ hình tĩnh") là thứ máy dựng được — mà ngay cả những mục
-ấy thì luồng «Dựng video» hôm nay cũng chưa đọc tới (việc của I5).
+chuyển cảnh (và "giữ hình tĩnh") là thứ máy dựng được. Từ I5, luồng «Dựng
+video» ĐÃ đọc nhóm chuyển cảnh và dựng theo đúng nó; 18/25 mục còn lại vẫn
+chỉ là lời khuyên cho người, và đó mới là phần cần nói cho rõ.
 
 Trình bày một bản chỉ đạo như thể máy sắp tự làm tất cả là đúng hai lớp lỗi
 đã lặp lại nhiều lần trong dự án: hứa thứ không làm được (#5), và nói ra câu

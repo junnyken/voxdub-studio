@@ -9,8 +9,8 @@
  *
  *   1. người dùng đọc một chỉ dẫn không có thật ("rack focus" chẳng hạn) rồi
  *      tưởng máy làm được;
- *   2. I5 sau này đọc bản chỉ đạo để chọn `kieu_chuyen` sẽ gặp một mã không
- *      map được, ở tận khâu dựng video — nơi xa nhất so với chỗ gây lỗi.
+ *   2. I5 đọc bản chỉ đạo để chọn `kieu_chuyen`, nên một mã bịa sẽ nổ ở
+ *      tận khâu dựng video — nơi xa nhất so với chỗ gây lỗi.
  *
  * Nên luật ở đây là **huỷ CẢ lượt**, không "sửa cho gần đúng". Sửa gần đúng
  * nghĩa là đoán hộ mô hình, mà đoán sai thì không ai biết.

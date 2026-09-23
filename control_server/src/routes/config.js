@@ -84,9 +84,11 @@ module.exports = async function configRoutes(fastify) {
   // thêm được chút an toàn nào, mà lại khiến trang quản trị và bộ kiểm phải
   // đúc token chỉ để đọc một tệp hằng số.
   //
-  // Vì sao KHÔNG có cửa ghi: I2 chỉ dựng vốn từ. Lưu lựa chọn theo từng cảnh
-  // là việc của I3/I4 — mở cửa ghi bây giờ là mời dữ liệu vào trước khi có
-  // ai đọc nó.
+  // Vì sao cửa này vẫn KHÔNG có đường ghi: catalog là HẰNG SỐ sản phẩm,
+  // không phải dữ liệu người dùng. Lựa chọn theo từng cảnh có cửa ghi riêng
+  // từ I4 (`PUT /v1/brand-scripts/:id/visual-direction`) và nếp thương hiệu
+  // nằm trên hồ sơ brand (I6) — cả hai đều gắn với một chủ sở hữu, còn cái
+  // này thì không.
   fastify.get('/visual-direction-catalog', {
     config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
   }, async () => visualCatalog.docCatalog())
