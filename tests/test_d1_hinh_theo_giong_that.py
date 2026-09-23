@@ -19,12 +19,17 @@ import pytest
 from autodub import du_an_tu_kich_ban as dk
 
 
-def _ghi_nguon(work_dir, anh, giay_chuyen=0.0):
+def _ghi_nguon(work_dir, anh, giay_chuyen=0.0, kieu_chuyen=None):
     from autodub.workdir import data_path
     duong = data_path(work_dir, dk.TEN_NGUON_GOC, create_dir=True)
     os.makedirs(os.path.dirname(duong), exist_ok=True)
+    noi_dung = {"anh_moi_doan": anh, "giay_chuyen": giay_chuyen}
+    # `kieu_chuyen=None` = dự án dựng TRƯỚC I5: khoá này không tồn tại. Giữ
+    # được ca đó là cách duy nhất biết dự án cũ còn mở lại được.
+    if kieu_chuyen is not None:
+        noi_dung["kieu_chuyen"] = kieu_chuyen
     with open(duong, "w", encoding="utf-8") as f:
-        json.dump({"anh_moi_doan": anh, "giay_chuyen": giay_chuyen}, f)
+        json.dump(noi_dung, f)
     return duong
 
 
@@ -49,9 +54,11 @@ class _Ghep:
     def __init__(self):
         self.goi = []
 
-    def __call__(self, duong_anh, duong_ra, *, giay_moi_anh, giay_chuyen=0.3):
+    def __call__(self, duong_anh, duong_ra, *, giay_moi_anh, giay_chuyen=0.3,
+                 kieu_chuyen="mo_chong"):
         self.goi.append({"anh": list(duong_anh), "giay": list(giay_moi_anh),
-                         "ra": duong_ra, "chuyen": giay_chuyen})
+                         "ra": duong_ra, "chuyen": giay_chuyen,
+                         "kieu": kieu_chuyen})
         with open(duong_ra, "wb") as f:
             f.write(b"video gia")
         return duong_ra
@@ -434,3 +441,36 @@ def test_dung_lai_HONG_khong_duoc_giet_luot_xuat():
     ma = inspect.getsource(editor.rebuild_output)
     i = ma.index("dung_lai_video_theo_giong")
     assert "except Exception" in ma[i:i + 900]
+
+
+# ================================================================
+# I5 — chuyển cảnh phải SỐNG SÓT qua lượt dựng lại theo giọng thật
+# ================================================================
+#
+# Đây là chỗ bản chỉ đạo dễ biến mất nhất mà không ai thấy: người dùng trả
+# Vox cho bản chỉ đạo, dựng xong nhìn đúng, rồi D1 dựng LẠI slideshow theo
+# giọng thật và ghi đè bằng «Mờ chồng». Video cuối — cái đem đi đăng — không
+# còn dấu vết nào của bản chỉ đạo, và không có thông báo nào.
+
+def test_I5_kieu_chuyen_lay_lai_DUNG_bang_luc_dung_lan_dau(tmp_path):
+    wd = str(tmp_path / "duan"); os.makedirs(wd)
+    _ghi_nguon(wd, _anh(tmp_path, 3), giay_chuyen=0.3,
+               kieu_chuyen=["tan", "mo_vong"])
+    ghep = _Ghep()
+    dk.dung_lai_video_theo_giong(
+        wd, _segments([(0.0, 2.5), (2.5, 5.5), (5.5, 7.5)]),
+        ghep_video=ghep, do_thoi_luong=lambda _p: 7.5)
+    assert ghep.goi[-1]["kieu"] == ["tan", "mo_vong"], (
+        "dựng lại theo giọng thật đã xoá mất bản chỉ đạo")
+
+
+def test_I5_du_an_dung_TRUOC_I5_van_mo_lai_duoc(tmp_path):
+    """Dự án cũ không có khoá `kieu_chuyen`. «Mờ chồng» đúng là thứ chúng đã
+    dựng ra, nên đọc thiếu KHÔNG được đổi hành vi của chúng."""
+    wd = str(tmp_path / "duan"); os.makedirs(wd)
+    _ghi_nguon(wd, _anh(tmp_path, 2), giay_chuyen=0.3)   # không có kieu_chuyen
+    ghep = _Ghep()
+    dk.dung_lai_video_theo_giong(
+        wd, _segments([(0.0, 3.0), (3.0, 6.0)]),
+        ghep_video=ghep, do_thoi_luong=lambda _p: 6.0)
+    assert ghep.goi[-1]["kieu"] == "mo_chong"

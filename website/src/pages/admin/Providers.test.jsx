@@ -23,6 +23,7 @@ vi.mock('../../api/client', () => ({
     createProvider: vi.fn().mockResolvedValue({}),
     updateProvider: vi.fn().mockResolvedValue({}),
     providers: vi.fn().mockResolvedValue({ data: [] }),
+    testProvider: vi.fn().mockResolvedValue({}),
   },
 }))
 
@@ -151,5 +152,56 @@ describe('ProviderModal — cảnh báo lệch vai trò/giao thức (KHÔNG ch�
     await user.selectOptions(screen.getByDisplayValue('Dịch (translate)'), 'image')
     expect(screen.getByText(/cần một giao thức sinh được ảnh/)).toBeInTheDocument()
     expect(screen.getByText('Lưu')).not.toBeDisabled()
+  })
+})
+
+
+/**
+ * «Thử ngay» GHI vào bản ghi: máy chủ đặt `visionOkAt` khi mô hình đọc đúng
+ * số trong ảnh. Nút không bảo danh sách đọc lại thì câu xanh "nhìn được ảnh"
+ * nằm ngay cạnh cái nhãn vẫn ghi "chưa chứng minh nhìn được ảnh" — hai câu
+ * đá nhau trên cùng một dòng, và người vận hành không biết tin câu nào.
+ * Đây là lỗi đo được trên prod ngày 23/09/2026.
+ */
+describe('Thử ngay — mini-spec I5 §10', () => {
+  const noiGoi = {
+    _id: 'p1', name: 'Gemini trợ lý', role: 'assist', type: 'google',
+    model: 'gemini-3.6-flash', enabled: true, priority: 1,
+    hasApiKey: true, visionOkAt: null,
+  }
+
+  it('đọc LẠI danh sách sau khi thử xong, để nhãn không nói ngược', async () => {
+    adminApi.providers.mockResolvedValue({ data: [noiGoi] })
+    adminApi.testProvider.mockResolvedValue({
+      name: 'Gemini trợ lý', role: 'assist', goiDuoc: true,
+      nhinDuocAnh: true, docDuoc: '1234', soThat: '1234',
+    })
+    const user = userEvent.setup()
+    render(<Providers />)
+    await screen.findByText('Gemini trợ lý')
+    const soLanTruoc = adminApi.providers.mock.calls.length
+
+    await user.click(screen.getByText('Thử ngay'))
+    await screen.findByText(/đọc đúng số trong ảnh/)
+
+    expect(adminApi.testProvider).toHaveBeenCalledWith('p1')
+    expect(adminApi.providers.mock.calls.length).toBeGreaterThan(soLanTruoc)
+  })
+
+  it('thử HỎNG cũng đọc lại — trượt cũng là một thay đổi trạng thái', async () => {
+    adminApi.providers.mockResolvedValue({ data: [noiGoi] })
+    adminApi.testProvider.mockResolvedValue({
+      name: 'Gemini trợ lý', role: 'assist', goiDuoc: true,
+      nhinDuocAnh: false, docDuoc: '9999', soThat: '1234',
+    })
+    const user = userEvent.setup()
+    render(<Providers />)
+    await screen.findByText('Gemini trợ lý')
+    const soLanTruoc = adminApi.providers.mock.calls.length
+
+    await user.click(screen.getByText('Thử ngay'))
+    await screen.findByText(/KHÔNG nhìn được ảnh/)
+
+    expect(adminApi.providers.mock.calls.length).toBeGreaterThan(soLanTruoc)
   })
 })

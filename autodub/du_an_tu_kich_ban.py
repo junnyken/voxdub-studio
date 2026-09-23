@@ -270,8 +270,12 @@ def dung_lai_video_theo_giong(
         from autodub.product_video import ghep_anh_nguoi_dung
         ghep_video = ghep_anh_nguoi_dung
     giay_chuyen = float(nguon.get("giay_chuyen") or 0.0)
+    # I5 — dùng lại ĐÚNG kiểu chuyển cảnh của lượt dựng đầu. Dự án cũ
+    # (dựng trước I5) không có khoá này; "mo_chong" là đúng thứ chúng
+    # đã dựng ra, nên đọc thiếu cũng không đổi hành vi của chúng.
+    kieu_chuyen = nguon.get("kieu_chuyen") or "mo_chong"
     ghep_video(list(anh), duong_video, giay_moi_anh=giay,
-               giay_chuyen=giay_chuyen)
+               giay_chuyen=giay_chuyen, kieu_chuyen=kieu_chuyen)
 
     # Cổng thời lượng H4c-1 vẫn áp dụng — dựng lại mà lệch thì phải hỏng TO
     # TIẾNG, không âm thầm ghi đè một video sai lên một video đúng.
@@ -291,7 +295,7 @@ def dung_lai_video_theo_giong(
 def dung_du_an(
     kich_ban: dict, anh_moi_doan: list[str], work_dir: str, *,
     blueprint: dict | None = None, giay_chuyen: float = 0.3,
-    anh_ai: dict | None = None,
+    anh_ai: dict | None = None, kieu_chuyen="mo_chong",
     ghep_video=None, do_thoi_luong=None,
 ) -> KetQuaDungDuAn:
     """Dựng thư mục dự án mở được trong Trình chỉnh sửa.
@@ -362,7 +366,7 @@ def dung_du_an(
 
         ghep_video = ghep_anh_nguoi_dung
     ghep_video(list(anh_moi_doan), duong_video, giay_moi_anh=giay,
-               giay_chuyen=giay_chuyen)
+               giay_chuyen=giay_chuyen, kieu_chuyen=kieu_chuyen)
 
     # --- Cổng thời lượng (H4c-1) ------------------------------------------
     # ĐO LẠI video vừa dựng, không tin lệnh ffmpeg đã chạy xong là đúng.
@@ -435,6 +439,11 @@ def dung_du_an(
             # đã biết giọng đọc thật dài bao nhiêu.
             "anh_moi_doan": list(anh_moi_doan),
             "giay_chuyen": giay_chuyen,
+            # I5 — PHẢI lưu cùng danh sách ảnh, vì `dung_lai_video_theo_giong`
+            # dựng lại slideshow sau khi có giọng thật. Không lưu thì bản
+            # dựng lại âm thầm quay về «Mờ chồng» và bản chỉ đạo bị xoá
+            # sạch ở đúng cái video người dùng đem đi đăng.
+            "kieu_chuyen": kieu_chuyen,
         }, f, ensure_ascii=False, indent=1)
 
     logger.info("Đã dựng dự án %s: %d đoạn, ước %.1f giây",

@@ -291,7 +291,7 @@ function ProviderModal({ open, onClose, editing, onDone }) {
  * Không có nút này thì lỗi cấu hình (sai khoá, sai tên mô hình, mô hình
  * không nhìn được ảnh) chỉ lộ ra giữa một mẻ hiệu chỉnh đang tốn tiền.
  */
-function TestNowButton({ id }) {
+function TestNowButton({ id, onDone }) {
   const [dangChay, setDangChay] = useState(false)
   const [ket, setKet] = useState(null)
 
@@ -300,6 +300,11 @@ function TestNowButton({ id }) {
     setKet(null)
     try {
       setKet(await adminApi.testProvider(id))
+      // Phép thử GHI vào bản ghi (`visionOkAt`), nên danh sách phải đọc lại.
+      // Thiếu dòng này thì nút báo "nhìn được ảnh" ngay bên cạnh cái nhãn
+      // vẫn ghi "chưa chứng minh" — hai câu đá nhau trên cùng một dòng, và
+      // người vận hành không biết tin câu nào.
+      if (onDone) onDone()
     } catch (e) {
       setKet({ goiDuoc: false, loi: e.message })
     } finally {
@@ -404,7 +409,7 @@ export default function Providers() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2.5 flex-wrap">
                       <h2 className="font-semibold">{p.label || p.name}</h2>
-                      <TestNowButton id={p._id} />
+                      <TestNowButton id={p._id} onDone={reload} />
                       {p.role === 'assist' && (
                         <span className={`text-[11px] ${p.visionOkAt ? 'text-success' : 'text-warning'}`}>
                           {p.visionOkAt

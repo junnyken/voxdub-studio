@@ -52,9 +52,14 @@ class _GhepGia:
     def __init__(self):
         self.lan_goi = []
 
-    def __call__(self, duong_anh, duong_ra, *, giay_moi_anh, giay_chuyen=0.3):
+    def __call__(self, duong_anh, duong_ra, *, giay_moi_anh, giay_chuyen=0.3,
+                 kieu_chuyen="mo_chong"):
+        # `kieu_chuyen` khai RÕ chứ không nuốt bằng **kwargs: hàm giả nuốt
+        # tham số lạ thì đổi hợp đồng của hàm thật mà không test nào đỏ —
+        # đúng lớp lỗi "hai đầu không gặp nhau" mà tệp này sinh ra để chặn.
         self.lan_goi.append({"anh": list(duong_anh), "ra": duong_ra,
-                             "giay": list(giay_moi_anh), "chuyen": giay_chuyen})
+                             "giay": list(giay_moi_anh), "chuyen": giay_chuyen,
+                             "kieu": kieu_chuyen})
         with open(duong_ra, "wb") as f:
             f.write(b"video gia")
         return duong_ra
@@ -259,3 +264,35 @@ def test_ghep_anh_nguoi_dung_chan_khi_tep_khong_con(tmp_path):
     with pytest.raises(ValueError, match="Không còn tệp ảnh"):
         pv.ghep_anh_nguoi_dung([str(tmp_path / "khong_co.png")],
                                str(tmp_path / "ra.mp4"), giay_moi_anh=[2.0])
+
+
+# -- I5: chuyển cảnh theo Bản chỉ đạo hình ảnh ------------------------------
+
+def test_I5_kieu_chuyen_di_THANG_xuong_khau_ghep(tmp_path, anh):
+    duan = str(tmp_path / "duan")
+    ghep = _GhepGia()
+    da.dung_du_an(_kich_ban(), anh, duan, kieu_chuyen=["tan"],
+                  ghep_video=ghep, do_thoi_luong=ghep.do_thoi_luong)
+    assert ghep.lan_goi[-1]["kieu"] == ["tan"]
+
+
+def test_I5_khong_khai_kieu_thi_van_la_mo_chong_nhu_truoc(tmp_path, anh):
+    """Luồng H4 trước I5 luôn dùng «Mờ chồng». Mọi chỗ gọi cũ phải giữ nguyên
+    kết quả — I5 THÊM lựa chọn, không đổi mặc định."""
+    duan = str(tmp_path / "duan")
+    ghep = _GhepGia()
+    da.dung_du_an(_kich_ban(), anh, duan,
+                  ghep_video=ghep, do_thoi_luong=ghep.do_thoi_luong)
+    assert ghep.lan_goi[-1]["kieu"] == "mo_chong"
+
+
+def test_I5_kieu_chuyen_duoc_GHI_VAO_nguon_goc(tmp_path, anh):
+    """Không ghi thì `dung_lai_video_theo_giong` (D1) dựng lại bằng mặc định
+    và xoá sạch bản chỉ đạo ở đúng cái video đem đi đăng."""
+    duan = str(tmp_path / "duan")
+    ghep = _GhepGia()
+    da.dung_du_an(_kich_ban(), anh, duan, kieu_chuyen=["mo_vong"],
+                  ghep_video=ghep, do_thoi_luong=ghep.do_thoi_luong)
+    with open(os.path.join(duan, "data", da.TEN_NGUON_GOC), encoding="utf-8") as f:
+        nguon = json.load(f)
+    assert nguon["kieu_chuyen"] == ["mo_vong"]

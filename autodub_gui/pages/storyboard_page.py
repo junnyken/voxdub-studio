@@ -34,7 +34,8 @@ from autodub_gui.ui.phase_h_ribbon import PhaseHRibbon
 from autodub_gui.ui.table import Column, DataTable
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.workers import (
-    DungDuAnWorker, FlowBlueprintCrudWorker, SinhAnhMinhHoaWorker,
+    BrandScriptWorker, DungDuAnWorker, FlowBlueprintCrudWorker,
+    SinhAnhMinhHoaWorker,
 )
 
 logger = logging.getLogger(__name__)
@@ -91,6 +92,11 @@ class StoryboardPage(BasePage):
         #: thật của người ta không thuộc diện kiểm ảnh AI.
         self._anh_ai: dict[int, dict] = {}
         self._worker: DungDuAnWorker | None = None
+        #: Bản chỉ đạo hình ảnh của kịch bản đang mở (I5). Ở luồng này
+        #: mỗi đoạn có ĐÚNG một ảnh, nên số mối nối luôn bằng số đoạn trừ
+        #: một — không có ca lệch số lượng như trang «Ảnh sản phẩm».
+        self._ban_chi_dao: dict | None = None
+        self._chi_dao_worker: BrandScriptWorker | None = None
         self._bp_worker: FlowBlueprintCrudWorker | None = None
         self._ve_worker: SinhAnhMinhHoaWorker | None = None
         self._build()
@@ -168,6 +174,13 @@ class StoryboardPage(BasePage):
         self.btn_dung_ve.hide()
         hang.addWidget(self.btn_dung_ve)
         hang.addStretch()
+        # I5 — nói rõ video sắp dựng theo chuyển cảnh nào. Luồng này TRƯỚC
+        # ĐÂY luôn dùng «Mờ chồng» mà không nói ra; im lặng thì người dùng
+        # vừa trả Vox cho bản chỉ đạo lại không biết nó có tác dụng không.
+        self.nhan_chi_dao = QLabel("")
+        self.nhan_chi_dao.setObjectName("hint")
+        self.nhan_chi_dao.setWordWrap(True)
+        hang.addWidget(self.nhan_chi_dao)
         root.addLayout(hang)
 
     # -- Nhận kịch bản từ trang «Viết kịch bản» ----------------------------
@@ -177,8 +190,79 @@ class StoryboardPage(BasePage):
         self._blueprint = None
         self._anh = [""] * len(self._kich_ban.get("beats") or [])
         self._anh_ai = {}                  # RS-16 — kịch bản khác, ảnh khác
+        self._ban_chi_dao = None
+        self._tai_chi_dao()
         self._tai_blueprint()
         self._ve()
+
+    # -- I5: chuyển cảnh theo Bản chỉ đạo hình ảnh -------------------------
+
+    def _tai_chi_dao(self) -> None:
+        """Lấy bản chỉ đạo của kịch bản đang mở. Không tốn Vox (chỉ đọc).
+
+        Tự lấy chứ không bắt người dùng bấm thêm một nút: họ đã trả Vox cho
+        bản chỉ đạo ở trang trước, để nó nằm im là tính tiền một thứ không
+        dùng tới.
+        """
+        script_id = str((self._kich_ban or {}).get("id") or "")
+        if not script_id:
+            self._dat_nhan_chi_dao()
+            return
+        if self._chi_dao_worker is not None and self._chi_dao_worker.isRunning():
+            return
+        # Nói ra ngay, đừng để nhãn rỗng: khoảng lặng giữa lúc mở kịch bản và
+        # lúc bản chỉ đạo về là chỗ người dùng dễ bấm «Dựng dự án» nhất.
+        self.nhan_chi_dao.setText("Đang đọc bản chỉ đạo hình ảnh…")
+        worker = BrandScriptWorker("doc_chi_dao", script_id=script_id, parent=self)
+        worker.finished_ok.connect(self._chi_dao_xong)
+        worker.failed.connect(self._chi_dao_hong)
+        self._chi_dao_worker = worker
+        worker.start()
+
+    def _chi_dao_xong(self, action: str, ket) -> None:
+        self._ban_chi_dao = ket or None
+        self._dat_nhan_chi_dao()
+
+    def _chi_dao_hong(self, action: str, loi: str) -> None:
+        # Không toast: người dùng chưa bấm gì, và "chưa có bản chỉ đạo" là
+        # trạng thái bình thường của phần lớn kịch bản. Chỉ ghi nhãn.
+        logger.warning("Không đọc được bản chỉ đạo: %s", loi)
+        self._ban_chi_dao = None
+        self._dat_nhan_chi_dao()
+
+    def _dat_nhan_chi_dao(self) -> None:
+        if not self._ban_chi_dao:
+            self.nhan_chi_dao.setText(
+                "Chuyển cảnh: Mờ chồng (chưa có bản chỉ đạo hình ảnh)")
+            return
+        so = len((self._ban_chi_dao.get("doan") or []))
+        if self._ban_chi_dao.get("laCu"):
+            self.nhan_chi_dao.setText(
+                "Bản chỉ đạo đã cũ — tạo lại ở trang «Viết kịch bản» "
+                "trước khi dựng")
+            return
+        self.nhan_chi_dao.setText(
+            f"Chuyển cảnh: theo bản chỉ đạo hình ảnh ({so} đoạn)")
+
+    def _kieu_chuyen_se_dung(self):
+        """Kiểu chuyển cảnh cho lượt dựng này — chuỗi, hoặc một kiểu mỗi mối.
+
+        Trả ``None`` nghĩa là đã báo người dùng và KHÔNG dựng tiếp.
+        """
+        from autodub.chi_dao_hinh_anh import (
+            ChiDaoDaCu, kieu_chuyen_theo_moi_noi,
+        )
+        if not self._ban_chi_dao:
+            return "mo_chong"
+        try:
+            kieus, ghi_chu = kieu_chuyen_theo_moi_noi(
+                self._ban_chi_dao, len(self._anh))
+        except ChiDaoDaCu as e:
+            TOASTS.warn(str(e))
+            return None
+        for cau in ghi_chu:
+            TOASTS.warn(cau)
+        return "mo_chong" if kieus is None else kieus
 
     def _tai_blueprint(self) -> None:
         """Lấy Flow Blueprint gốc để so nhịp — cả điểm của H2 là học nhịp,
@@ -559,11 +643,16 @@ class StoryboardPage(BasePage):
         goc = os.path.join(self._goc_ra(), "storyboard")
         work_dir = os.path.join(goc, time.strftime("%Y%m%d_%H%M%S") + "_vi")
 
+        kieu = self._kieu_chuyen_se_dung()
+        if kieu is None:
+            return
+
         self.btn_dung.setEnabled(False)
         self.status.setText("Đang ghép ảnh thành video… (không tốn Vox)")
         self._worker = DungDuAnWorker(self._kich_ban, self._anh, work_dir,
                                       anh_ai=dict(self._anh_ai),
-                                      blueprint=self._blueprint, parent=self)
+                                      blueprint=self._blueprint,
+                                      kieu_chuyen=kieu, parent=self)
         self._worker.finished_ok.connect(self._xong)
         self._worker.failed.connect(self._hong)
         self._worker.start()

@@ -62,6 +62,8 @@ class _WorkerGia:
 def page(monkeypatch):
     # Chặn lượt gọi mạng lấy Blueprint — trang không được tự gọi mạng trong test.
     monkeypatch.setattr(sp, "FlowBlueprintCrudWorker", _WorkerGia)
+    # I5 — trang tự đọc bản chỉ đạo khi nhận kịch bản. Cũng là gọi mạng.
+    monkeypatch.setattr(sp, "BrandScriptWorker", _WorkerGia)
     return sp.StoryboardPage(lambda: object())
 
 
@@ -401,3 +403,87 @@ def test_trang_thai_me_phan_ba_ca_khong_phai_hai():
     assert _me(hong=[_hong(0)]).trang_thai == "hong_ca_me"
     # Ảnh vẽ được nhưng trượt kiểm mà không đoạn nào đạt ⇒ vẫn là hỏng cả mẻ.
     assert _me(ket_qua=[_ket(0, dat=False)]).trang_thai == "hong_ca_me"
+
+
+# ------------------------------- I5: chuyển cảnh theo Bản chỉ đạo ----------
+#
+# Luồng này TRƯỚC I5 luôn dùng «Mờ chồng» mà không nói ra. Hai thứ phải đúng:
+# mặc định không đổi cho người chưa có bản chỉ đạo, và khi có thì dùng đúng
+# nó — chứ không phải trả Vox rồi vẫn ra «Mờ chồng».
+
+def _ban_chi_dao(kieu_tung_doan, **them):
+    return {
+        "catalogVersion": 2, "laCu": False,
+        "doan": [
+            {"thuTu": i + 1, "lyDo": "vì vậy", "chon": [{
+                "nhom": "transition", "ma": f"ma{i}", "nhan": f"ma{i}",
+                "laGoiY": False,
+                "dung": {"implementation": "product_video.ghep_anh_nguoi_dung",
+                         "parameters": {"kieu_chuyen": k}},
+            }]}
+            for i, k in enumerate(kieu_tung_doan)
+        ],
+        **them,
+    }
+
+
+def test_I5_chua_co_ban_chi_dao_thi_van_la_mo_chong(page):
+    page.dat_kich_ban(_kich_ban())
+    page._chi_dao_xong("doc_chi_dao", None)      # máy chủ: kịch bản này chưa có
+    assert page._kieu_chuyen_se_dung() == "mo_chong"
+    assert "Mờ chồng" in page.nhan_chi_dao.text()
+
+
+def test_I5_trong_luc_doc_thi_NOI_RA_chu_khong_de_nhan_rong(page):
+    """Khoảng lặng giữa lúc mở kịch bản và lúc bản chỉ đạo về là chỗ người
+    dùng dễ bấm «Dựng dự án» nhất — nhãn rỗng ở đó là im lặng đúng lúc tệ."""
+    page.dat_kich_ban(_kich_ban())
+    assert page.nhan_chi_dao.text().strip(), "nhãn rỗng khi đang đọc"
+    assert "Đang đọc" in page.nhan_chi_dao.text()
+
+
+def test_I5_co_ban_chi_dao_thi_dung_dung_no(page):
+    page.dat_kich_ban(_kich_ban())          # 2 đoạn → 2 ảnh → 1 mối nối
+    page._chi_dao_xong("doc_chi_dao", _ban_chi_dao(["khong", "tan"]))
+    assert page._kieu_chuyen_se_dung() == ["tan"]
+    assert "bản chỉ đạo" in page.nhan_chi_dao.text()
+
+
+def test_I5_ban_chi_dao_da_CU_thi_KHONG_dung(page):
+    page.dat_kich_ban(_kich_ban())
+    page._chi_dao_xong("doc_chi_dao",
+                       _ban_chi_dao(["khong", "tan"], laCu=True, kichBanDaDoi=True))
+    assert page._kieu_chuyen_se_dung() is None, "bản cũ mà vẫn dựng = gán nhầm đoạn"
+    assert "đã cũ" in page.nhan_chi_dao.text()
+
+
+def test_I5_doc_ban_chi_dao_hong_thi_KHONG_chan_dung_video(page):
+    """Máy chủ hỏng không được làm người dùng mất luôn khả năng dựng video —
+    dựng bằng «Mờ chồng» như trước I5 là đúng, miễn là NÓI RA."""
+    page.dat_kich_ban(_kich_ban())
+    page._chi_dao_hong("doc_chi_dao", "mạng hỏng")
+    assert page._kieu_chuyen_se_dung() == "mo_chong"
+    assert "chưa có bản chỉ đạo" in page.nhan_chi_dao.text()
+
+
+def test_I5_doi_kich_ban_thi_BO_ban_chi_dao_cu(page):
+    """Bản chỉ đạo của kịch bản A áp cho kịch bản B là gán nhầm hoàn toàn."""
+    page.dat_kich_ban(_kich_ban())
+    page._chi_dao_xong("doc_chi_dao", _ban_chi_dao(["khong", "tan"]))
+    page.dat_kich_ban(_kich_ban())          # mở kịch bản khác
+    assert page._ban_chi_dao is None
+    assert page._kieu_chuyen_se_dung() == "mo_chong"
+
+
+def test_I5_kieu_di_THANG_vao_worker_dung(page, monkeypatch):
+    """Chốt đường nối cuối: thứ trang tính ra phải tới được `dung_du_an`."""
+    page.dat_kich_ban(_kich_ban())
+    page._anh = ["/tmp/a.png", "/tmp/b.png"]
+    page._ve()
+    page._chi_dao_xong("doc_chi_dao", _ban_chi_dao(["khong", "mo_vong"]))
+    nhan = {}
+    monkeypatch.setattr(sp, "DungDuAnWorker",
+                        lambda *a, **k: nhan.update(k) or _WorkerGia())
+    monkeypatch.setattr(sp.os.path, "isdir", lambda _p: True)
+    page._dung()
+    assert nhan.get("kieu_chuyen") == ["mo_vong"], nhan
