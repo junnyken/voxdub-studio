@@ -196,3 +196,100 @@ def test_dung_du_an_bang_ffmpeg_THAT_va_do_lai(tmp_path):
 
     # Và video phải mở được thật, không phải một tệp rỗng đúng tên.
     assert os.path.getsize(ket.duong_video) > 10_000
+
+
+# ---------------------------------- I5: chuyển cảnh riêng TỪNG MỐI NỐI ----
+#
+# Mini-spec I5 §6. Vì sao phải đo chứ không chỉ đọc lệnh: bộ test hiện có đọc
+# *chuỗi lệnh* ffmpeg, mà một lệnh đúng hình dạng vẫn ra sai thời lượng — đó
+# đúng là cách lỗi H4c-1 lọt qua lần đầu. Trộn kiểu làm phép bù phức tạp hơn
+# hẳn (mối cắt thẳng ăn 0 giây, mối xfade ăn `giay_chuyen`), nên nguy cơ lệch
+# dồn quay lại là thật.
+
+#: Sáu hình dạng bắt buộc của §6. Mỗi mục: (thời lượng từng ảnh, kiểu từng mối)
+HINH_DANG_TRON_KIEU = [
+    ([2.0, 1.0, 3.0], ["khong", "khong"]),                  # toàn cắt thẳng
+    ([2.0, 1.0, 3.0], ["mo_chong", "mo_chong"]),            # toàn mờ chồng
+    ([2.0, 1.0, 3.0, 1.5, 2.0],
+     ["khong", "mo_chong", "khong", "mo_chong"]),           # xen kẽ
+    ([2.0, 1.0, 3.0], ["khong", "mo_chong"]),               # cắt ở mối ĐẦU
+    ([2.0, 1.0, 3.0], ["mo_chong", "khong"]),               # cắt ở mối CUỐI
+    ([2.0, 1.0, 3.0, 1.5],
+     ["mo_chong", "tan", "truot_len"]),                     # ba kiểu liền nhau
+]
+
+
+@co_ffmpeg
+@pytest.mark.parametrize("giay,kieus", HINH_DANG_TRON_KIEU)
+def test_I5_tron_kieu_van_dung_thoi_luong(tmp_path, giay, kieus):
+    anh = _anh_that(tmp_path, len(giay))
+    ra = str(tmp_path / "ra.mp4")
+    p = subprocess.run(_lenh_ghep(anh, ra, giay, 0.3, kieus),
+                       capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr[-500:]
+    do_duoc = _do(ra)
+    lech = abs(do_duoc - sum(giay))
+    assert lech <= LECH_THOI_LUONG_TOI_DA_S, (
+        f"kiểu {kieus}: video dài {do_duoc:.3f}s, dòng thời gian "
+        f"{sum(giay):.3f}s — lệch {lech:.3f}s")
+
+
+@co_ffmpeg
+def test_I5_lech_KHONG_cong_don_khi_tron_kieu(tmp_path):
+    """Trộn kiểu là chỗ dễ bù thừa nhất, và bù thừa thì cộng dồn.
+
+    Bù đều `giay_chuyen` cho mọi mối (hợp đồng cũ) sẽ kéo DÀI video thêm đúng
+    `giay_chuyen × (số mối cắt thẳng)`. Xen kẽ cắt/mờ với n tăng dần thì số
+    mối cắt thẳng tăng theo, nên lỗi ấy lộ ra ở đây chứ không ở một hình dạng
+    đơn lẻ.
+    """
+    lech_theo_n = {}
+    for n in (3, 5, 9):
+        giay = [1.5] * n
+        kieus = ["khong" if j % 2 == 0 else "mo_chong" for j in range(n - 1)]
+        anh = _anh_that(tmp_path, n)
+        ra = str(tmp_path / f"tron{n}.mp4")
+        subprocess.run(_lenh_ghep(anh, ra, giay, 0.3, kieus), check=True,
+                       capture_output=True)
+        lech_theo_n[n] = abs(_do(ra) - sum(giay))
+
+    assert max(lech_theo_n.values()) <= LECH_THOI_LUONG_TOI_DA_S, lech_theo_n
+    assert lech_theo_n[9] - lech_theo_n[3] <= 1 / 30 + 1e-6, (
+        f"sai lệch cộng dồn theo số mối nối: {lech_theo_n}")
+
+
+def test_I5_moi_cat_thang_giua_chuoi_KHONG_dung_xfade(tmp_path):
+    """`xfade` với `duration=0` KHÔNG tương đương cắt thẳng — nó vẫn ăn mất
+    một khoảng của cảnh sau. Chốt bằng chính chuỗi lệnh để bản sau không lười
+    đổi `concat` thành `xfade:duration=0` cho gọn mã."""
+    lenh = _lenh_ghep(["a.png", "b.png", "c.png"], "ra.mp4", [2.0, 1.0, 3.0],
+                      0.3, ["mo_chong", "khong"])
+    loc = lenh[lenh.index("-filter_complex") + 1]
+    assert "concat=n=2:v=1:a=0" in loc, loc
+    assert "duration=0.000" not in loc, loc
+    # Mối đầu vẫn phải là xfade thật.
+    assert "xfade=transition=fade" in loc, loc
+
+
+def test_I5_chuoi_van_ap_cho_moi_moi_noi():
+    """Hợp đồng cũ giữ nguyên: một chuỗi = áp cho mọi mối."""
+    a = ["a.png", "b.png", "c.png"]
+    lenh_chuoi = _lenh_ghep(a, "ra.mp4", [2.0, 1.0, 3.0], 0.3, "tan")
+    lenh_ds = _lenh_ghep(a, "ra.mp4", [2.0, 1.0, 3.0], 0.3, ["tan", "tan"])
+    assert lenh_chuoi == lenh_ds
+
+
+def test_I5_danh_sach_dai_sai_thi_NEM_LOI():
+    """Thiếu một phần tử mà im lặng bù mặc định = người dùng nhận về chuyển
+    cảnh mình không chọn."""
+    with pytest.raises(ValueError, match="Cần đúng 2 kiểu"):
+        _lenh_ghep(["a.png", "b.png", "c.png"], "ra.mp4", 2.0, 0.3,
+                   ["mo_chong"])
+    with pytest.raises(ValueError, match="Cần đúng 2 kiểu"):
+        _lenh_ghep(["a.png", "b.png", "c.png"], "ra.mp4", 2.0, 0.3,
+                   ["mo_chong", "tan", "khong"])
+
+
+def test_I5_ma_la_trong_danh_sach_thi_NEM_LOI():
+    with pytest.raises(ValueError, match="Không có kiểu chuyển cảnh"):
+        _lenh_ghep(["a.png", "b.png"], "ra.mp4", 2.0, 0.3, ["rack_focus"])

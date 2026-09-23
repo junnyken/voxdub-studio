@@ -4,7 +4,9 @@
 - **Phụ thuộc:** I2 (catalog v2), I3 (`scene_director` + `visual-direction.service`)
 - **Tác giả:** Claude (viết từ đọc mã thật, không từ tài liệu)
 - **Ngày:** 2026-09-23
-- **Trạng thái:** CHƯA bắt đầu — spec chờ chủ dự án chốt §0
+- **Trạng thái:** ĐANG LÀM — chủ dự án chốt **Hướng A** (riêng từng mối
+  nối) ngày 23/09/2026. Gộp thêm lỗi nhãn «Thử ngay» không làm mới danh
+  sách nhà cung cấp (xem §10).
 
 ---
 
@@ -25,7 +27,7 @@ Không động vào phép tính thời lượng. Nhưng bỏ đi phần lớn gi
 chỉ đạo: mô hình chọn `cat_thang` cho hook và `fade_nhe` cho phần thân là có
 chủ ý, gộp thành một kiểu là xoá mất chủ ý đó.
 
-**Đề xuất: Hướng A, kèm cổng đo bắt buộc ở §6.** Lý do: hướng B làm tính năng
+**ĐÃ CHỐT: Hướng A, kèm cổng đo bắt buộc ở §6.** Lý do: hướng B làm tính năng
 trông như đã nối trong khi thực chất vẫn đoán hộ người dùng — đúng loại "hỏng
 im lặng" mà I3 đã cố tránh khi từ chối "sửa cho gần đúng". Rủi ro của A là
 rủi ro **đo được**, và §6 buộc phải đo.
@@ -158,3 +160,22 @@ Ba dòng giữa **phải hiện ra chữ cho người dùng đọc**, không đ�
 Sinh ảnh theo `shot`/`composition`/`lighting_color`; hiệu ứng mới; đổi
 `GIAY_CHUYEN_CANH` mặc định; đưa bản chỉ đạo vào luồng lồng tiếng thường
 (I5 chỉ nói về video sản phẩm).
+
+
+---
+
+## 10. Gộp thêm: nhãn «Thử ngay» không làm mới danh sách
+
+**Lỗi đã kiểm 23/09/2026.** Bấm «Thử ngay» trên trang *Nơi gọi mô hình* hiện
+câu xanh "Gọi được và đọc đúng số trong ảnh — nhìn được ảnh", nhưng nhãn bên
+cạnh vẫn là "chưa chứng minh nhìn được ảnh".
+
+Không phải lỗi ghi. `ai-gateway.service.js` `thuNgay()` đã
+`$set: { visionOkAt: new Date() }` khi đạt. Lỗi ở giao diện:
+`TestNowButton({ id })` trong `website/src/pages/admin/Providers.jsx` chỉ giữ
+kết quả trong state riêng, **không báo cho danh sách cha nạp lại**; nhãn đọc
+`p.visionOkAt` từ danh sách cũ nên đứng yên tới khi tải lại trang.
+
+**Sửa:** truyền `onDone` để nút báo ngược lên, danh sách nạp lại sau mỗi lượt
+thử. Cần một test chặn hồi quy — nút đổi trạng thái lưu trữ mà không làm mới
+chỗ hiển thị trạng thái đó là cái bẫy đọc-sai kinh điển.

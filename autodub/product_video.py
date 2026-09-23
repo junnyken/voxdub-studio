@@ -24,6 +24,8 @@ xử lý ảnh/video nặng không được nằm trong tiến trình chính c�
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import json
 import os
 import subprocess
@@ -358,8 +360,42 @@ def _chuan_hoa_giay(anh: list[str], giay_moi_anh) -> list[float]:
     return ds
 
 
+def _chuan_hoa_kieu(anh: list[str], kieu_chuyen) -> list[str]:
+    """Một kiểu chuyển cảnh cho MỖI MỐI NỐI — mini-spec I5.
+
+    Nhận cả hai dạng, cố ý:
+
+    * một chuỗi ⇒ áp cho mọi mối nối. Đây là hợp đồng cũ, mọi chỗ gọi sẵn có
+      giữ nguyên hành vi;
+    * một danh sách dài đúng ``len(anh) - 1`` ⇒ mỗi mối một kiểu, theo thứ tự.
+
+    Mối nối thứ j nối ảnh j với ảnh j+1, nên n ảnh có đúng n-1 mối. Danh sách
+    dài sai thì NÉM LỖI chứ không bù mặc định cho đủ: bù im lặng nghĩa là
+    người dùng nhận về chuyển cảnh mình không chọn — đúng thứ `_lenh_ghep` đã
+    từ chối làm với khoá lạ.
+    """
+    so_moi = max(len(anh) - 1, 0)
+    if isinstance(kieu_chuyen, str):
+        # Kiểm cả khi chỉ có một ảnh: khoá sai là lỗi lập trình, và nó phải
+        # lộ ra ở mọi hình dạng đầu vào chứ không chỉ khi tình cờ có mối nối.
+        if kieu_chuyen not in KIEU_CHUYEN:
+            raise ValueError(f"Không có kiểu chuyển cảnh «{kieu_chuyen}»")
+        return [kieu_chuyen] * so_moi
+
+    kieus = list(kieu_chuyen)
+    if len(kieus) != so_moi:
+        raise ValueError(
+            f"Cần đúng {so_moi} kiểu chuyển cảnh cho {len(anh)} ảnh, "
+            f"nhận được {len(kieus)}")
+    for k in kieus:
+        if k not in KIEU_CHUYEN:
+            raise ValueError(f"Không có kiểu chuyển cảnh «{k}»")
+    return kieus
+
+
 def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh,
-               giay_chuyen: float, kieu_chuyen: str = "mo_chong") -> list[str]:
+               giay_chuyen: float,
+               kieu_chuyen: "str | Sequence[str]" = "mo_chong") -> list[str]:
     """Dựng lệnh ffmpeg cho một video trình chiếu.
 
     Tách riêng để test đọc được lệnh mà không phải chạy ffmpeg thật.
@@ -371,10 +407,10 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh,
     chứ không âm thầm rơi về mờ chồng: người dùng chọn một kiểu rồi nhận về
     kiểu khác là hỏng im lặng, còn khoá lạ ở đây chỉ có thể do lỗi lập trình.
     """
-    if kieu_chuyen not in KIEU_CHUYEN:
-        raise ValueError(f"Không có kiểu chuyển cảnh «{kieu_chuyen}»")
+    kieus = _chuan_hoa_kieu(anh, kieu_chuyen)
     giay = _chuan_hoa_giay(anh, giay_moi_anh)
-    ten_ffmpeg = KIEU_CHUYEN[kieu_chuyen][1]
+    #: Tên hiệu ứng ffmpeg của TỪNG mối nối; chuỗi rỗng = cắt thẳng.
+    ten_moi = [KIEU_CHUYEN[k][1] for k in kieus]
     # Mỗi lần `xfade` CHỒNG hai cảnh lên nhau nên nó ăn mất đúng
     # `giay_chuyen` giây của dòng thời gian. Không bù thì video ra ngắn hơn
     # tổng thời lượng yêu cầu đúng `giay_chuyen × (n-1)` — và tệ hơn con số
@@ -389,8 +425,14 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh,
     # không có chuyển cảnh nào sau nó), rồi đặt mốc chuyển cảnh đúng vào
     # ranh giới thật của đoạn. Sau bù, đo lại trên 8 hình dạng khác nhau:
     # lệch tối đa **đúng 1 khung @30fps (0,0333s)** và KHÔNG tăng theo số ảnh.
-    dai_vao = [g + giay_chuyen for g in giay[:-1]] + [giay[-1]] \
-        if ten_ffmpeg and len(giay) > 1 else list(giay)
+    #
+    # I5: trộn kiểu thì phép bù phải theo TỪNG mối. Mối cắt thẳng ăn 0 giây,
+    # mối có xfade ăn đúng `giay_chuyen`. Bù đều cho tất cả (hợp đồng cũ) sẽ
+    # bù THỪA ở mỗi mối cắt thẳng, và phần thừa cộng dồn — đúng hình dạng lỗi
+    # đã đo ở trên, chỉ khác dấu.
+    an_moi = [giay_chuyen if t else 0.0 for t in ten_moi]
+    dai_vao = ([g + an for g, an in zip(giay[:-1], an_moi)] + [giay[-1]]
+               if len(giay) > 1 else list(giay))
 
     lenh: list[str] = ["ffmpeg", "-y"]
     for duong, g in zip(anh, dai_vao):
@@ -407,16 +449,32 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh,
             f"setsar=1,fps=30[v{i}]")
 
     truoc = "v0"
-    if not ten_ffmpeg:
-        # Cắt thẳng: nối đuôi nhau, không chồng lấn. `xfade` với thời lượng 0
-        # không tương đương — nó vẫn ăn mất một khoảng của cảnh sau.
-        if len(anh) > 1:
-            loc.append("".join(f"[v{i}]" for i in range(len(anh)))
-                       + f"concat=n={len(anh)}:v=1:a=0[xn]")
-            truoc = "xn"
+    if len(anh) > 1 and not any(ten_moi):
+        # Cắt thẳng TOÀN BỘ: nối một lần bằng `concat` n chiều. `xfade` với
+        # thời lượng 0 không tương đương — nó vẫn ăn mất một khoảng của cảnh
+        # sau. Giữ nguyên đường này thay vì nối đôi n-1 lần: nó đã được đo và
+        # đã có test đọc đúng chuỗi lệnh này.
+        loc.append("".join(f"[v{i}]" for i in range(len(anh)))
+                   + f"concat=n={len(anh)}:v=1:a=0[xn]")
+        truoc = "xn"
     else:
         for i in range(1, len(anh)):
             sau = f"x{i}"
+            ten_ffmpeg = ten_moi[i - 1]
+            if not ten_ffmpeg:
+                # Một mối cắt thẳng nằm GIỮA chuỗi có chuyển cảnh: nối đôi
+                # bằng `concat`. Vẫn không được dùng `xfade` duration=0 ở
+                # đây, vì lý do y hệt trường hợp cắt thẳng toàn bộ.
+                # `settb` KHÔNG phải trang trí: `concat` trả timebase
+                # 1/1000000 còn mỗi ảnh sau `fps=30` là 1/30, và `xfade` từ
+                # chối hai đầu vào khác timebase ("First input link main
+                # timebase do not match..."), làm hỏng CẢ lượt dựng. Chỉ lộ
+                # ra khi một mối cắt thẳng đứng TRƯỚC một mối có chuyển cảnh
+                # — đo thật bằng ffmpeg mới thấy, đọc chuỗi lệnh thì không.
+                loc.append(
+                    f"[{truoc}][v{i}]concat=n=2:v=1:a=0,settb=1/30[{sau}]")
+                truoc = sau
+                continue
             # Mốc chuyển cảnh = ranh giới THẬT của đoạn thứ i trên dòng thời
             # gian, tức tổng thời lượng các đoạn trước nó. Không trừ gì cả:
             # phần chồng lấn đã được bù ở `dai_vao` phía trên.
@@ -445,7 +503,7 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh,
 
 def ghep_anh_nguoi_dung(duong_anh: list[str], duong_ra: str, *,
                        giay_moi_anh, giay_chuyen: float = 0.3,
-                       kieu_chuyen: str = "mo_chong",
+                       kieu_chuyen: "str | Sequence[str]" = "mo_chong",
                        timeout: float = 300.0) -> str:
     """Ghép ảnh NGƯỜI DÙNG TỰ CHỌN thành video — mini-spec H4c.
 
@@ -485,7 +543,7 @@ def ghep_anh_nguoi_dung(duong_anh: list[str], duong_ra: str, *,
 def dung_video(anh: list[AnhNguon], duong_ra: str, *,
                giay_moi_anh=GIAY_MOI_ANH,
                giay_chuyen: float = GIAY_CHUYEN_CANH,
-               kieu_chuyen: str = "mo_chong",
+               kieu_chuyen: "str | Sequence[str]" = "mo_chong",
                timeout: float = 300.0) -> str:
     """Ghép các ảnh đã duyệt thành một video ngắn.
 
