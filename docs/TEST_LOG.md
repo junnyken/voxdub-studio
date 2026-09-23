@@ -19590,3 +19590,51 @@ hiệu đổi thành công, và các đánh đổi.
 **Chi phí phép đo:** 8 lượt ảnh (4 mỗi mô hình) + 10 lượt bộ thu + 6 lượt giá
 (3 H3 + 3 I3) + 1 lượt chẩn đoán = 25 lượt gọi mô hình thật, CSDL dùng một
 lần, không đụng cấu hình prod.
+
+---
+
+## I1(c) — Đổi mô hình vai `assist` đã ÁP THẬT trên prod (23/09/2026)
+
+Chủ dự án đã thao tác xong trên trang **Nơi gọi mô hình**. Trạng thái đọc từ
+ảnh chụp trang quản trị:
+
+| Nơi gọi | Vai | Ưu tiên | Mô hình | Bật |
+|---|---|---|---|---|
+| `Gemini trợ lý` | Trợ lý | **1** | `gemini-3.6-flash` | bật |
+| `sonar` | Trợ lý | 100 | `sonar` | **TẮT** |
+| `Gemini image` | Sinh ảnh | 100 | `gemini-2.5-flash-image` | bật |
+| `Google Gemini` | Dịch | 1 | `gemini-3.5-flash` | bật |
+
+`providersFor()` sắp `.sort({ priority: 1 })` — **số nhỏ thắng** — nên vai
+`assist` nay đi `gemini-3.6-flash`. Đây là thứ đóng nguyên nhân H3 kịch bản
+dài (đo trước: `sonar` 0/4 ở 40 phân đoạn, `gemini-3.6-flash` 2/2).
+
+### Đo lại khả năng nhìn ảnh của mô hình mới
+
+Trang quản trị hiện nhãn *"chưa chứng minh nhìn được ảnh"* trên bản ghi mới.
+Nhãn đó chỉ phản ánh `visionOkAt` còn rỗng, **không** phải kết quả trượt —
+`locNoiNhinDuocAnh()` sẽ tự thử ở lượt tác vụ ảnh đầu tiên. Đo trước bằng
+đúng bài thử của `vision-probe.service.js` (PNG tự vẽ, số 4 chữ số ngẫu
+nhiên), khoá đo riêng, KHÔNG đụng cấu hình prod:
+
+| Đường gọi | HTTP | Đọc đúng số? |
+|---|---|---|
+| `type=google` → `/v1beta/models/gemini-3.6-flash:generateContent` | 200 | **CÓ** |
+| `type=openai_compat` → `/v1beta/chat/completions` (đúng địa chỉ đang cắm) | 200 | **CÓ** |
+| `type=openai_compat` → `/v1beta/openai/chat/completions` | 200 | **CÓ** |
+
+Ba đường đều đọc đúng, nên **bẫy "kiểu lệch địa chỉ" không xảy ra** với bản
+ghi này: Google nhận cả `/v1beta/chat/completions` lẫn `/v1beta/openai/...`
+ở lớp tương thích OpenAI. Ghi lại vì lúc đầu tôi đã coi đây là rủi ro chặn.
+
+**Đính chính một khẳng định sai trong phiên này:** tôi từng kết luận "5 tác vụ
+ảnh đang chết vì `sonar` mù". Sai — `FEATURES.md` §4 đã ghi từ 22/09 rằng
+`sonar` **đọc được ảnh**, và nhãn "chưa chứng minh" là trạng thái `visionOkAt`
+rỗng chứ không phải phán quyết trượt. Việc đổi mô hình vẫn đúng, nhưng lý do
+là kịch bản dài (H3), không phải thị giác.
+
+**Còn treo:** chưa ai bấm «Thử ngay» trên bản ghi `Gemini trợ lý`, nên
+`visionOkAt` của prod vẫn rỗng và phép đo trên đây dùng **khoá đo**, không
+phải khoá đang cắm. Một cú bấm là đóng được.
+
+**Chi phí phép đo:** 4 lượt gọi mô hình thật.

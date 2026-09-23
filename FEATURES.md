@@ -343,9 +343,9 @@ hình thật.**
 
 | Thứ | Vì sao chưa chạy |
 |---|---|
-| ~~Toàn bộ cổng trợ lý~~ **ĐÃ CHẠY THẬT 22/09/2026** | Vai `assist` nay có nhà cung cấp (Perplexity `sonar`). **10 lượt gọi thật** qua `explain_error`, `character_name`, `tighten_line`, `scene_script` — xem `docs/TEST_LOG.md` mục I1. Đường rơi im lặng sang vai `translate` đã bị đóng cùng ngày |
-| **Sinh ảnh sản phẩm** | Chưa có nhà cung cấp cho vai `image`. Không có vai dự phòng (cố ý — rơi về `translate` chỉ sinh ra chữ). Bốn giao thức: Google Gemini · OpenRouter Images · OpenAI/Grok Images · **tự khai** (nền tảng bất kỳ) — **DeepSeek không sinh được ảnh** |
-| **Cổng kiểm tuân thủ** | Cùng lý do trên |
+| ~~Toàn bộ cổng trợ lý~~ **ĐÃ CHẠY THẬT 22/09/2026** | Vai `assist` nay có nhà cung cấp. **10 lượt gọi thật** qua `explain_error`, `character_name`, `tighten_line`, `scene_script` — xem `docs/TEST_LOG.md` mục I1. Đường rơi im lặng sang vai `translate` đã bị đóng cùng ngày |
+| **Sinh ảnh sản phẩm** | **Vai `image` ĐÃ có nhà cung cấp** (`Gemini image` · `gemini-2.5-flash-image`, bản ghi báo lần gọi OK cuối 20:53 22/08/2026). Thứ còn chặn nay là **chốt `image.scene.stage`** (xem dòng dưới), không phải thiếu nhà cung cấp. Không có vai dự phòng (cố ý — rơi về `translate` chỉ sinh ra chữ). Bốn giao thức: Google Gemini · OpenRouter Images · OpenAI/Grok Images · **tự khai** (nền tảng bất kỳ) — **DeepSeek không sinh được ảnh** |
+| **Cổng kiểm tuân thủ** | Vai `assist` đã có nhà cung cấp nhìn được ảnh; còn thiếu là một lượt bấm tay đầu-cuối trên Windows |
 | **Trang Ảnh sản phẩm trong app** | Đã có trong bản phát hành (mục «Ảnh sản phẩm» ở thanh bên, từ v3.6.0, commit C1 21/08), nhưng chốt `image.scene.stage` mặc định TẮT nên bấm vào chưa chạy được gì |
 
 **Đây là MỘT việc, không phải bốn**: thêm hai dòng nhà cung cấp trong trang
@@ -368,6 +368,17 @@ máy chủ** trên cơ sở dữ liệu dùng một lần, không phải đườ
 Windows. Bốn tác vụ có ảnh cũng đã đo riêng: `sonar` đọc được ảnh nên chúng
 không bị chặn.
 
+**Cập nhật 23/09/2026 — nhà cung cấp vai `assist` đã đổi.** `sonar` nay **đang
+tắt**; vai `assist` chạy bằng `Gemini trợ lý` (`gemini-3.6-flash`, ưu tiên 1),
+`sonar` giữ lại ở ưu tiên 100 nhưng tắt. Lý do đổi là **kịch bản dài**: đo
+thật cho thấy `sonar` 0/4 ở 40 phân đoạn, `gemini-3.6-flash` 2/2 — tức H3
+(`brand_script_rewrite`) hỏng vì chính lựa chọn mô hình, không phải vì mã.
+Khả năng nhìn ảnh của mô hình mới đã đo riêng (đọc đúng dãy số trong ảnh tự
+vẽ của `vision-probe.service.js`, cả đường `google` lẫn `openai_compat`).
+Nhãn "chưa chứng minh nhìn được ảnh" trên trang quản trị chỉ nghĩa là
+`visionOkAt` còn rỗng trên bản ghi đó — **không** phải model mù; lượt tác vụ
+ảnh đầu tiên sẽ tự thử và tự ghi nhận.
+
 Tính năng ảnh sản phẩm còn có **chốt ba nấc** (`image.scene.stage`), mặc định
 **TẮT**: phải chuyển sang `calibration` (chỉ vài máy được phép), chạy 20–30
 ảnh thật, soi tay từng phán quyết, rồi mới bấm `production`.
@@ -378,8 +389,9 @@ thoại của người nói đó từ transcript đang mở, không cần đổi
 nhân vật). Cố ý **không tự ghi** tên gợi ý vào hồ sơ nhân vật — người dùng
 phải tự gõ, vì tên sai tự ghi sẽ áp cho mọi tập sau (có test chặn cứng:
 `tests/test_tro_ly_giai_doan_2.py::test_khong_tu_ghi_ten_vao_ho_so`). Việc
-này vẫn nằm trong nhóm "chưa chạy thật" chỉ vì **chưa có nhà cung cấp cho vai
-`assist`** (xem bảng trên) — mã đã xong, đang chờ đúng thao tác quản trị đó.
+này vẫn nằm trong nhóm "chưa chạy thật" — nhưng **không còn vì thiếu nhà cung
+cấp**: vai `assist` đã có từ 22/09/2026. Thứ còn thiếu là một lượt **bấm tay
+trong app Windows**.
 
 ---
 
@@ -650,8 +662,10 @@ Các bản đề xuất trước đã mắc đúng những lỗi dưới đây. 
 2. **"Hiệu chỉnh ngưỡng chấp nhận"** — không có ngưỡng nào. Phán quyết là
    nhãn văn bản. Thứ thật sự thay đổi khi hiệu chỉnh là **câu lệnh gửi mô
    hình**, và phiên bản của nó đã được ghi từng lượt.
-3. **"Đăng ký vai `image`/`assist` vào hệ thống"** — đã đăng ký rồi. Thiếu là
-   *bản ghi nhà cung cấp kèm khoá API*, một thao tác trong trang quản trị.
+3. **"Đăng ký vai `image`/`assist` vào hệ thống"** — đã đăng ký rồi, và tính
+   đến 23/09/2026 **cả hai vai đều đã có bản ghi nhà cung cấp kèm khoá API**.
+   Thứ còn lại với `image` là **chốt ba nấc `image.scene.stage`**, không phải
+   việc cắm nhà cung cấp.
 4. **"Sửa lỗi 401"** — `401` nghĩa là thiếu token thiết bị, đúng và phải giữ
    mãi. Thiếu nhà cung cấp trả `503`. Đặt "hết 401" làm tiêu chí thành công
    là mời người sau đi phá xác thực.
@@ -674,9 +688,11 @@ Các bản đề xuất trước đã mắc đúng những lỗi dưới đây. 
 
 Xếp theo mức sẵn sàng, không phải theo mức hấp dẫn:
 
-**Chặn ngay trước mắt (không phải việc lập trình):** cắm nhà cung cấp cho vai
-`assist` và `image`, chạy 20–30 ảnh thật để hiệu chỉnh, rồi mở tính năng.
-Cho tới lúc đó, mọi thứ trong §4 vẫn là mã chết.
+**Chặn ngay trước mắt (không phải việc lập trình):** nhà cung cấp cho vai
+`assist` và `image` **đã cắm xong** (22–23/09/2026). Việc còn lại là thêm
+**vân tay máy** vào `image.scene.calibration.devices`, chạy **20–30 ảnh thật**
+rồi **soi tay từng phán quyết** — máy chủ đếm số lượt *đã soi*, không đếm số
+lượt *đã chạy* — sau đó mới chuyển `production`.
 
 **Việc kỹ thuật đã rõ hình:**
 - Hiện tiến độ lượt chạy trên máy chủ.
