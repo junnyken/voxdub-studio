@@ -232,3 +232,73 @@ def test_worker_tra_chu_ok_thuan_khong_bi_bao_nham(bo_kich):
     """Worker trả "ok" (không phải JSON) — không được coi là phụ thuộc hỏng."""
     assert bo_kich._phu_thuoc_hong("ok") is None
     assert bo_kich._phu_thuoc_hong('{"ok":true,"db":"không dùng"}') is None
+
+
+# -- Cổng báo lỗi thì phải ĐỌC ĐƯỢC LÝ DO ----------------------------------
+#
+# Đo thật 23/09/2026: node Vibe Host vào chế độ bảo trì, cổng trả đúng câu
+# `NODE_DRAINING: Node "wings.cmc-1..." đang ở chế độ bảo trì`. Nhưng cả CI
+# lẫn lượt chạy tay đều chỉ in «không đọc được kết quả redeploy_project
+# (Expecting value: line 1 column 1)» — vì `goi_cong` bỏ qua cờ `isError` rồi
+# `json.loads` một câu chữ thường.
+#
+# Hậu quả không phải mất thẩm mỹ: một lỗi hạ tầng BÌNH THƯỜNG (chờ là xong)
+# bị che thành một lỗi bí ẩn, và người đọc log không có cách nào biết nên
+# chờ hay nên đi sửa mã.
+
+def _tra_ve(bo_kich, monkeypatch, than: dict):
+    """Giả tầng HTTP, KHÔNG giả `goi_cong` — chỗ hỏng nằm trong chính nó."""
+    import io as _io
+    import json as _json
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return _json.dumps(than).encode("utf-8")
+
+    monkeypatch.setattr(bo_kich.urllib.request, "urlopen",
+                        lambda *a, **k: _Resp())
+
+
+def test_cong_bao_isError_thi_NOI_RA_ly_do(bo_kich, monkeypatch):
+    _tra_ve(bo_kich, monkeypatch, {
+        "jsonrpc": "2.0", "id": 1,
+        "result": {"isError": True, "content": [{
+            "type": "text",
+            "text": 'NODE_DRAINING: Node "wings.cmc-1" đang ở chế độ bảo trì',
+        }]},
+    })
+    with pytest.raises(bo_kich.DeployHong, match="NODE_DRAINING"):
+        bo_kich.goi_cong("redeploy_project", {"projectId": "x"},
+                         cong="https://vd", token="Bearer k")
+
+
+def test_cong_bao_isError_KHONG_kem_ly_do_thi_van_noi_duoc(bo_kich, monkeypatch):
+    _tra_ve(bo_kich, monkeypatch, {
+        "jsonrpc": "2.0", "id": 1,
+        "result": {"isError": True, "content": [{"type": "text", "text": "  "}]},
+    })
+    with pytest.raises(bo_kich.DeployHong, match="không kèm lý do"):
+        bo_kich.goi_cong("redeploy_project", {"projectId": "x"},
+                         cong="https://vd", token="Bearer k")
+
+
+def test_than_khong_phai_JSON_thi_van_TRA_NGUYEN_cau_cong_noi(bo_kich, monkeypatch):
+    """Không có `isError` mà `text` cũng không phải JSON — vẫn phải cho người
+    đọc thấy cổng đã nói gì, chứ không chỉ in tên lỗi phân tích."""
+    _tra_ve(bo_kich, monkeypatch, {
+        "jsonrpc": "2.0", "id": 1,
+        "result": {"content": [{"type": "text", "text": "dich vu dang khoi dong"}]},
+    })
+    with pytest.raises(bo_kich.DeployHong, match="dich vu dang khoi dong"):
+        bo_kich.goi_cong("redeploy_project", {"projectId": "x"},
+                         cong="https://vd", token="Bearer k")
+
+
+def test_than_JSON_hop_le_thi_van_chay_y_nhu_truoc(bo_kich, monkeypatch):
+    _tra_ve(bo_kich, monkeypatch, {
+        "jsonrpc": "2.0", "id": 1,
+        "result": {"content": [{"type": "text", "text": '{"jobId": "j1"}'}]},
+    })
+    assert bo_kich.goi_cong("redeploy_project", {"projectId": "x"},
+                            cong="https://vd", token="Bearer k") == {"jobId": "j1"}

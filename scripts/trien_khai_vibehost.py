@@ -83,13 +83,33 @@ def goi_cong(ten_tac_vu: str, tham_so: dict, *, cong: str, token: str,
 
     if "error" in tra_ve:
         raise DeployHong(f"cổng báo lỗi: {tra_ve['error']}")
-    noi_dung = tra_ve.get("result", {}).get("content") or []
+    ket = tra_ve.get("result") or {}
+    noi_dung = ket.get("content") or []
     if not noi_dung:
         raise DeployHong(f"cổng trả nội dung rỗng cho {ten_tac_vu}")
+    chu = noi_dung[0].get("text", "")
+
+    # Cổng báo lỗi bằng `isError: true` và đặt LÝ DO dạng câu chữ vào `text`
+    # — không phải JSON. Thiếu nhánh này thì `json.loads` bên dưới ném
+    # "Expecting value: line 1 column 1" và cả lượt deploy hỏng với một câu
+    # KHÔNG nói gì về nguyên nhân.
+    #
+    # Đo thật 23/09/2026: node đang bảo trì, cổng trả
+    # `NODE_DRAINING: Node "wings.cmc-1..." đang ở chế độ bảo trì`, mà cả CI
+    # lẫn lượt chạy tay đều chỉ in "không đọc được kết quả redeploy_project".
+    # Lỗi hạ tầng bình thường bị che thành lỗi bí ẩn — và không ai biết chỉ
+    # cần chờ.
+    if ket.get("isError"):
+        raise DeployHong(f"{ten_tac_vu}: {chu.strip() or 'cổng báo lỗi không kèm lý do'}")
+
     try:
-        return json.loads(noi_dung[0]["text"])
+        return json.loads(chu)
     except (KeyError, json.JSONDecodeError) as e:
-        raise DeployHong(f"không đọc được kết quả {ten_tac_vu} ({e})") from e
+        # Trả nguyên câu cổng nói, cắt cho gọn — vẫn hơn hẳn chỉ in tên lỗi
+        # phân tích.
+        raise DeployHong(
+            f"không đọc được kết quả {ten_tac_vu} ({e}); cổng trả: "
+            f"{chu.strip()[:300] or '(rỗng)'}") from e
 
 
 def doi_chieu_dau_nhanh(nhanh: str, sha_mong_doi: str, *,
