@@ -25,9 +25,9 @@ from __future__ import annotations
 #: Nhóm duy nhất khâu ghép hình thực thi được (catalog I2 §C2).
 NHOM_CHUYEN_CANH = "transition"
 
-#: Dùng khi một đoạn không chọn kiểu nào — cố ý TRÙNG mặc định cũ của
-#: `ghep_anh_nguoi_dung`, để "không có chỉ đạo" cho ra đúng thứ người dùng
-#: vẫn nhận trước I5, chứ không phải một kiểu mới lạ.
+#: Dùng khi một đoạn không chọn kiểu nào VÀ thương hiệu chưa đặt nếp — cố ý
+#: TRÙNG mặc định cũ của `ghep_anh_nguoi_dung`, để "không có chỉ đạo" cho ra
+#: đúng thứ người dùng vẫn nhận trước I5, chứ không phải một kiểu mới lạ.
 KIEU_MAC_DINH = "mo_chong"
 
 
@@ -92,13 +92,19 @@ def kieu_chuyen_theo_moi_noi(ban: dict | None, so_anh: int):
 
     # Mối nối thứ j lấy kiểu của đoạn j+1 (xem docstring của module). Ảnh
     # nhiều hơn đoạn thì phần dư dùng kiểu của đoạn CUỐI — nói ra, không giấu.
+    # I6 — đoạn bỏ trống rơi về NẾP của thương hiệu nếu có, chứ không rơi
+    # cứng về «Mờ chồng». Máy chủ đã quy nếp ra tham số dựng sẵn; app không
+    # giữ bảng mã→tham số nào (rào chắn 1 của I5).
+    nep = str(ban.get("nepMacDinh") or "").strip()
+    kieu_roi = nep or KIEU_MAC_DINH
+
     kieus: list[str] = []
     doan_trong: list[int] = []
     for j in range(so_moi):
         chi_so = min(j + 1, len(doan) - 1)
         kieu = _kieu_cua_doan(doan[chi_so])
         if kieu is None:
-            kieu = KIEU_MAC_DINH
+            kieu = kieu_roi
             doan_trong.append(doan[chi_so].get("thuTu") or chi_so + 1)
         kieus.append(kieu)
 
@@ -112,6 +118,9 @@ def kieu_chuyen_theo_moi_noi(ban: dict | None, so_anh: int):
             f"chỉ dùng chỉ đạo của {so_anh} đoạn đầu.")
     if doan_trong:
         ds = ", ".join(str(x) for x in sorted(set(doan_trong)))
+        # Nói RÕ đang rơi về đâu. "dùng mặc định" là câu vô nghĩa với người
+        # vừa đặt nếp cho thương hiệu rồi tự hỏi nó có tác dụng không.
+        vi = "nếp của thương hiệu" if nep else "«Mờ chồng»"
         ghi_chu.append(
-            f"Đoạn {ds} không có chỉ đạo chuyển cảnh — dùng «Mờ chồng».")
+            f"Đoạn {ds} không có chỉ đạo chuyển cảnh — dùng {vi}.")
     return kieus, ghi_chu

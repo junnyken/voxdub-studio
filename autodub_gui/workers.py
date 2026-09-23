@@ -1170,16 +1170,18 @@ class BrandScriptWorker(QThread):
 
     def __init__(self, action: str, *, script_id: str = "",
                  flow_blueprint_id: str = "", brand_profile_id: str = "",
-                 beat_index: int = 0, parent=None):
+                 beat_index: int = 0, doan: list | None = None, parent=None):
         super().__init__(parent)
         if action not in ("list", "delete", "create", "regenerate",
-                          "chi_dao", "doc_chi_dao"):
+                          "chi_dao", "doc_chi_dao", "catalog_chi_dao",
+                          "sua_chi_dao"):
             raise ValueError(f"Thao tác kịch bản không hợp lệ: {action!r}")
         self._action = action
         self._script_id = script_id
         self._flow_blueprint_id = flow_blueprint_id
         self._brand_profile_id = brand_profile_id
         self._beat_index = beat_index
+        self._doan = list(doan or [])
 
     def run(self) -> None:
         from autodub.saas_client import get_client, new_job_id
@@ -1202,6 +1204,11 @@ class BrandScriptWorker(QThread):
                     self._script_id, job_id=new_job_id())
             elif self._action == "doc_chi_dao":
                 ket = client.doc_chi_dao_hinh_anh(self._script_id)
+            elif self._action == "catalog_chi_dao":
+                ket = client.doc_catalog_chi_dao()
+            elif self._action == "sua_chi_dao":
+                # I4 — 0 Vox, không gọi mô hình. Máy chủ soi lại bằng catalog.
+                ket = client.sua_chi_dao_hinh_anh(self._script_id, self._doan)
             else:
                 ket = client.regenerate_brand_script_beat(
                     self._script_id, self._beat_index, job_id=new_job_id())

@@ -134,3 +134,39 @@ def test_ket_qua_dung_THANG_duoc_cho_khau_ghep_hinh():
     assert "xfade=transition=dissolve" in loc      # tan
     assert "xfade=transition=circleopen" in loc    # mo_vong
     assert "xfade=transition=slideleft" in loc     # truot_trai
+
+
+# -- I6: nếp của thương hiệu là chỗ rơi cho đoạn bỏ trống -------------------
+
+def test_I6_doan_bo_trong_roi_ve_NEP_thuong_hieu(_=None):
+    ban = _ban(["khong", None, "tan"])
+    ban["nepMacDinh"] = "truot_len"
+    kieus, ghi_chu = kieu_chuyen_theo_moi_noi(ban, 3)
+    assert kieus == ["truot_len", "tan"]
+    assert any("nếp của thương hiệu" in c for c in ghi_chu), ghi_chu
+
+
+def test_I6_khong_co_nep_thi_van_roi_ve_mo_chong_nhu_truoc():
+    ban = _ban(["khong", None, "tan"])
+    kieus, ghi_chu = kieu_chuyen_theo_moi_noi(ban, 3)
+    assert kieus == [KIEU_MAC_DINH, "tan"]
+    assert any("Mờ chồng" in c for c in ghi_chu), ghi_chu
+
+
+def test_I6_nep_KHONG_de_len_doan_da_co_chi_dao():
+    """Nếp là chỗ rơi, không phải lệnh. Đè lên lựa chọn đã có là quyết thay
+    người dùng — và xoá luôn thứ họ vừa trả Vox để có."""
+    ban = _ban(["khong", "tan", "mo_vong"])
+    ban["nepMacDinh"] = "truot_trai"
+    kieus, ghi_chu = kieu_chuyen_theo_moi_noi(ban, 3)
+    assert kieus == ["tan", "mo_vong"]
+    assert ghi_chu == []
+
+
+def test_I6_nep_rong_hoac_thieu_deu_khong_lam_vo():
+    for gia_tri in ("", "   ", None):
+        ban = _ban(["khong", None])
+        if gia_tri is not None:
+            ban["nepMacDinh"] = gia_tri
+        kieus, _ = kieu_chuyen_theo_moi_noi(ban, 2)
+        assert kieus == [KIEU_MAC_DINH], gia_tri

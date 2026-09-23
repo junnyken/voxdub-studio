@@ -31,6 +31,25 @@ const brandProfileSchema = new mongoose.Schema({
   // (ví dụ cấm hứa công dụng y tế, cấm từ tuyệt đối "tốt nhất/số một" — cùng
   // luật đã có ở scene_script C3b).
   rangBuocKhongDuocNoi: { type: [String], default: [] },
+  // I6 — nếp chỉ đạo hình ảnh của thương hiệu này.
+  //
+  // Là GỢI Ý, không phải ràng buộc: `scene_director` vẫn được chọn khác khi
+  // một đoạn cần thế. Ép cứng thì preset vô hiệu hoá luôn việc chỉ đạo, mà
+  // chỉ đạo mới là thứ người dùng trả tiền.
+  //
+  // `catalogVersion` để biết preset còn khớp từ điển hiện tại hay đã cũ —
+  // cùng lý do với bản chỉ đạo.
+  visualPreset: {
+    catalogVersion: { type: Number, default: 0 },
+    chon: {
+      type: [{
+        nhom: { type: String, required: true, maxlength: 40 },
+        ma: { type: String, required: true, maxlength: 60 },
+      }],
+      default: [],
+      _id: false,
+    },
+  },
 }, { timestamps: true })
 
 module.exports = mongoose.models.BrandProfile

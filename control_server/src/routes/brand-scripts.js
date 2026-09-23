@@ -150,6 +150,40 @@ const createBodySchema = {
   },
 }
 
+/** Thân của cửa sửa tay (I4). Cố ý CHẶT: chỉ `nhom` + `ma`, và
+ * `additionalProperties: false` ở mọi tầng — trường lạ lọt vào một bản ghi
+ * con là thứ không ai thấy cho tới khi nó làm hỏng một lượt dựng. */
+const suaChiDaoBodySchema = {
+  type: 'object',
+  required: ['doan'],
+  additionalProperties: false,
+  properties: {
+    doan: {
+      type: 'array', minItems: 1, maxItems: 40,
+      items: {
+        type: 'object',
+        required: ['chon'],
+        additionalProperties: false,
+        properties: {
+          thuTu: { type: 'integer', minimum: 1 },
+          chon: {
+            type: 'array', maxItems: 12,
+            items: {
+              type: 'object',
+              required: ['nhom', 'ma'],
+              additionalProperties: false,
+              properties: {
+                nhom: { type: 'string', minLength: 1, maxLength: 40 },
+                ma: { type: 'string', minLength: 1, maxLength: 60 },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+}
+
 const regenBodySchema = {
   type: 'object',
   required: ['jobId', 'beatIndex'],
@@ -571,7 +605,48 @@ module.exports = async function brandScriptRoutes(fastify) {
         code: 'CHUA_CO_CHI_DAO',
         message: 'Kịch bản này chưa có bản chỉ đạo hình ảnh.' })
     }
-    return xemChiDao(doc)
+    return xemChiDao(doc, await nepMacDinhCua(doc))
+  })
+
+  /**
+   * Sửa tay bản chỉ đạo — mini-spec I4. **KHÔNG gọi mô hình, KHÔNG trừ Vox.**
+   *
+   * Đây là cửa ghi mà I2 cố ý chưa mở ("mở cửa ghi bây giờ là mời dữ liệu
+   * vào trước khi có ai đọc nó"). Điều kiện đó hết hiệu lực khi I5 làm bản
+   * chỉ đạo điều khiển đầu ra thật — và chính I5 mở ra lỗ này: mô hình chọn
+   * sai một đoạn thì người dùng không có đường sửa nào ngoài trả tiền sinh
+   * lại cả bản.
+   *
+   * Chỉ nhận `nhom` + `ma`. `nhan`, `laGoiY`, `dung` do máy chủ tính từ
+   * catalog — nhận chúng từ client là để client tự phong cho một mã khả
+   * năng mà khâu dựng không có.
+   */
+  fastify.put('/:id/visual-direction', {
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    schema: { body: suaChiDaoBodySchema },
+  }, async (request, reply) => {
+    const doc = await timCuaThietBi(BrandScript, request.params.id, request.device._id)
+    if (!doc) {
+      return reply.code(404).send({
+        code: 'KHONG_THAY_KICH_BAN', message: 'Không thấy kịch bản này.' })
+    }
+    if (!doc.visualDirection) {
+      // Sửa tay KHÔNG thay được lượt sinh đầu tiên: không có bản nào thì
+      // cũng không có `lyDo`, không có `scriptHash`, và số đoạn lấy đâu ra.
+      return reply.code(404).send({
+        code: 'CHUA_CO_CHI_DAO',
+        message: 'Kịch bản này chưa có bản chỉ đạo hình ảnh để sửa.' })
+    }
+    const soi = chiDao.kiemSuaTay(request.body, doc.visualDirection)
+    if (!soi.ok) {
+      // Bản cũ KHÔNG suy suyển: soi xong mới ghi.
+      return reply.code(400).send({
+        code: chiDao.MA_LOI_SUA_TAY,
+        message: `Bản sửa không hợp lệ: ${soi.loi.join('; ')}` })
+    }
+    doc.visualDirection = soi.ban
+    await doc.save()
+    return xemChiDao(doc, await nepMacDinhCua(doc))
   })
 
   /**
@@ -731,7 +806,7 @@ module.exports = async function brandScriptRoutes(fastify) {
     })
 
     const response = {
-      ...xemChiDao(doc),
+      ...xemChiDao(doc, await nepMacDinhCua(doc)),
       jobId,
       creditCharged: paid.charged,
       balanceAfter: paid.balanceAfter,
@@ -771,7 +846,33 @@ module.exports = async function brandScriptRoutes(fastify) {
  *   - `canhBao` — câu nói thẳng tỉ lệ gợi ý / máy dựng được.
  * Lưu sẵn thì một bản lưu từ hôm qua sẽ tự khai mình còn mới.
  */
-function xemChiDao(doc) {
+/**
+ * Nếp chỉ đạo của thương hiệu, đã quy ra tham số dựng — mini-spec I6.
+ *
+ * Trả về chuỗi `kieu_chuyen` hoặc '' . Vì sao quy ra ở đây chứ không gửi mã
+ * thô: app KHÔNG được giữ bảng mã→tham số (rào chắn 1 của I5), và cách duy
+ * nhất để nó không phải giữ là máy chủ nói thẳng tham số.
+ *
+ * Preset dựng bằng catalog CŨ thì bỏ qua — mã có thể đã bị gỡ, và rơi về
+ * một mã không còn tồn tại thì tệ hơn rơi về mặc định.
+ */
+async function nepMacDinhCua(doc) {
+  if (!doc.brandProfileId) return ''
+  const brand = await BrandProfile.findById(doc.brandProfileId)
+    .select('visualPreset').lean()
+  const preset = brand && brand.visualPreset
+  if (!preset || preset.catalogVersion !== catalogChiDao.docCatalog().catalog_version) {
+    return ''
+  }
+  for (const c of (preset.chon || [])) {
+    const dung = catalogChiDao.cachDungCua(c.nhom, c.ma)
+    const kieu = dung && dung.parameters && dung.parameters.kieu_chuyen
+    if (kieu) return String(kieu)
+  }
+  return ''
+}
+
+function xemChiDao(doc, nepMacDinh = '') {
   const ban = doc.visualDirection
   const tt = chiDao.trangThaiBan(ban, doc.beats)
   return {
@@ -780,6 +881,12 @@ function xemChiDao(doc) {
     taoLuc: ban.taoLuc,
     soGoiY: ban.soGoiY,
     soMayDungDuoc: ban.soMayDungDuoc,
+    // I6 — chỗ rơi cho đoạn bỏ trống. '' nghĩa là brand chưa đặt nếp,
+    // và bên tiêu thụ giữ nguyên mặc định cũ («Mờ chồng»).
+    nepMacDinh,
+    // I4 — app cần biết TRƯỚC khi mời người dùng sinh lại: sinh lại đè lên
+    // toàn bộ, kể cả phần họ đã tự sửa.
+    coSuaTay: chiDao.coSuaTay(ban),
     ...tt,
     doan: (ban.doan || []).map((d) => ({
       thuTu: d.thuTu,
@@ -792,6 +899,7 @@ function xemChiDao(doc) {
         const dung = catalogChiDao.cachDungCua(c.nhom, c.ma)
         return {
           nhom: c.nhom, ma: c.ma, nhan: c.nhan, laGoiY: c.laGoiY,
+          suaTay: Boolean(c.suaTay),
           ...(dung ? { dung } : {}),
         }
       }),

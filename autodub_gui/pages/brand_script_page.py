@@ -123,12 +123,23 @@ class BrandScriptPage(BasePage):
         self._brands: list[dict] = []
         self._scripts: list[dict] = []
         self._hien_tai: dict | None = None
+        #: Từ điển chỉ đạo (I4) — tải một lần, dùng để dựng ô chọn.
+        self._catalog_chi_dao: dict | None = None
+        self._hop_chi_dao = None
+        self._worker_sua = None
+        self._worker_catalog = None
         #: Lượt TỐN TIỀN đang chạy ("create"/"regenerate"), None nếu không có.
         #: RS-4: trước đây mọi lượt xong — kể cả `list` chạy nền — đều bật lại
         #: nút Viết, nên một lượt `list` về đích giữa lúc đang viết là mở lại
         #: đúng cái nút vừa khoá, và bấm thêm một cái là trừ tiền lần hai.
         self._dang_ton_tien: str | None = None
         self._build()
+        # I4 — tải từ điển chỉ đạo ngay: 0 Vox, không cần token, và có sẵn
+        # trước khi người dùng mở hộp thoại thì họ không phải chờ hai lượt.
+        self._worker_catalog = BrandScriptWorker("catalog_chi_dao", parent=self)
+        self._worker_catalog.finished_ok.connect(self._on_action_ok)
+        self._worker_catalog.failed.connect(self._on_action_failed)
+        self._worker_catalog.start()
 
     def _build(self) -> None:
         root = QVBoxLayout(self)
@@ -369,6 +380,14 @@ class BrandScriptPage(BasePage):
         # mini-spec I3 — bản chỉ đạo KHÔNG phải kịch bản. Phải chặn trước
         # dòng dưới: gán nó vào `self._hien_tai` là thay kịch bản đang mở
         # bằng một đối tượng không có `beats`, và cả bảng biến mất.
+        if action == "catalog_chi_dao":
+            self._catalog_chi_dao = ket or {}
+            return
+        if action == "sua_chi_dao":
+            # Kết quả THẬT của lượt ghi, báo ngược vào hộp thoại đang mở.
+            if self._hop_chi_dao is not None:
+                self._hop_chi_dao.bao_ket_qua(True)
+            return
         if action in ("doc_chi_dao", "chi_dao"):
             self.btn_chi_dao.setEnabled(bool(self._hien_tai))
             if action == "doc_chi_dao" and not ket:
@@ -388,6 +407,14 @@ class BrandScriptPage(BasePage):
 
     def _on_action_failed(self, action: str, message: str) -> None:
         self._mo_lai_nut(action)
+        if action == "catalog_chi_dao":
+            # Mất khả năng SỬA không phải sự cố: hộp thoại lùi về chỉ-đọc.
+            # Không toast — người dùng chưa yêu cầu gì.
+            return
+        if action == "sua_chi_dao":
+            if self._hop_chi_dao is not None:
+                self._hop_chi_dao.bao_ket_qua(False, message)
+            return
         if action in ("doc_chi_dao", "chi_dao"):
             # Nút phải mở lại, nếu không người dùng kẹt ở một màn hình không
             # bấm được gì sau một lỗi mạng.
@@ -535,7 +562,37 @@ class BrandScriptPage(BasePage):
 
     def _hien_chi_dao(self, ban: dict) -> None:
         from autodub_gui.ui.chi_dao_dialog import ChiDaoHinhAnhDialog
-        ChiDaoHinhAnhDialog(ban, self).exec()
+        self._hop_chi_dao = ChiDaoHinhAnhDialog(
+            ban, self, muc_chuyen=self._muc_chuyen_cua_catalog(),
+            on_luu=self._luu_chi_dao)
+        self._hop_chi_dao.exec()
+        self._hop_chi_dao = None
+
+    def _muc_chuyen_cua_catalog(self) -> list:
+        """Mã nhóm `transition` để dựng ô chọn — mini-spec I4.
+
+        Lấy từ catalog máy chủ, KHÔNG gõ sẵn vào app. Chưa tải được thì trả
+        rỗng và hộp thoại tự lùi về chỉ-đọc: thà như trước I4 còn hơn hiện
+        một ô rỗng rồi lưu về một bản trống trơn.
+        """
+        for nhom in ((self._catalog_chi_dao or {}).get("groups") or []):
+            if nhom.get("id") != "transition":
+                continue
+            return [{"ma": v["id"], "nhan": v.get("label_vi") or v["id"]}
+                    for v in (nhom.get("values") or [])]
+        return []
+
+    def _luu_chi_dao(self, doan: list) -> None:
+        if not self._hien_tai:
+            raise RuntimeError("chưa mở kịch bản nào")
+        # Worker RIÊNG, không dùng `self._worker`: hộp thoại đang mở đè lên
+        # trang, và lượt này chạy song song với bất cứ thứ gì trang đang làm.
+        self._worker_sua = BrandScriptWorker(
+            "sua_chi_dao", script_id=str(self._hien_tai.get("id") or ""),
+            doan=doan, parent=self)
+        self._worker_sua.finished_ok.connect(self._on_action_ok)
+        self._worker_sua.failed.connect(self._on_action_failed)
+        self._worker_sua.start()
 
     def _ten_brand(self, kb: dict) -> str:
         for h in self._brands:

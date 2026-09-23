@@ -541,3 +541,323 @@ test('dungInput KHÔNG gửi caption — caption là việc của H3', () => {
   }, { toneGiong: 'x' })
   assert.ok(!JSON.stringify(vao).includes('CHU-TREN-HINH-DAC-BIET'))
 })
+
+// =========================================================================
+// MINI-SPEC I4 — sửa tay bản chỉ đạo
+// =========================================================================
+//
+// Cửa này I2 cố ý chưa mở ("mở cửa ghi bây giờ là mời dữ liệu vào trước khi
+// có ai đọc nó"). I5 làm bản chỉ đạo điều khiển đầu ra THẬT, nên điều kiện
+// đó hết hiệu lực — và chính I5 mở ra lỗ mà I4 vá: mô hình chọn sai một đoạn
+// thì người dùng không có đường sửa nào ngoài trả tiền sinh lại cả bản.
+//
+// Ba thứ phải canh, cả ba đều im lặng nếu hỏng:
+//   1. cửa ghi KHÔNG được nhẹ tay hơn đường tự động — người gõ nhầm mã cũng
+//      sai y như mô hình bịa mã, và hậu quả rơi xuống cùng một chỗ;
+//   2. sửa tay KHÔNG được đổi `scriptHash` — đổi là bản chỉ đạo tự khai mình
+//      đã cũ và I5 từ chối dựng;
+//   3. KHÔNG một đồng Vox nào bị trừ: không có lượt gọi mô hình nào.
+
+/** Đặt sẵn một bản chỉ đạo hợp lệ vào kịch bản, không qua mô hình. */
+async function datChiDao(kb, soDoan) {
+  const soi = chiDao.kiemBanChiDao(traLoiTot(soDoan), {
+    soDoan, scriptHash: chiDao.bamKichBan(kb.beats),
+  })
+  assert.ok(soi.ok, `dựng bản mẫu hỏng: ${(soi.loi || []).join('; ')}`)
+  await BrandScript.updateOne({ _id: kb._id }, { $set: { visualDirection: soi.ban } })
+  return soi.ban
+}
+
+function suaMot(soDoan, chiSo, nhom, ma) {
+  return {
+    doan: Array.from({ length: soDoan }, (_, i) => ({
+      thuTu: i + 1,
+      chon: [
+        { nhom: 'shot', ma: 'can_canh' },
+        { nhom: 'transition',
+          ma: i === chiSo && nhom === 'transition' ? ma
+            : (i === 0 ? 'cat_thang' : 'fade_nhe') },
+      ],
+    })),
+  }
+}
+
+test('I4: sửa tay lưu được, và đánh dấu ĐÚNG chỗ người đã can thiệp', async () => {
+  const { device, token } = await thietBiMoi()
+  const { kb } = await kichBanSanSang(device._id, { soDoan: 3 })
+  await datChiDao(kb, 3)
+
+  const res = await goi('PUT', `/v1/brand-scripts/${kb._id}/visual-direction`,
+    token, suaMot(3, 1, 'transition', 'mo_vong'))
+
+  assert.equal(res.statusCode, 200)
+  const than = res.json()
+  const doan2 = than.doan[1].chon.find((c) => c.nhom === 'transition')
+  assert.equal(doan2.ma, 'mo_vong')
+  assert.equal(doan2.suaTay, true, 'mã đã đổi mà không đánh dấu sửa tay')
+  // Đoạn không đụng tới thì KHÔNG được mang cờ — cờ bật hết thì mất nghĩa.
+  const doan1 = than.doan[0].chon.find((c) => c.nhom === 'transition')
+  assert.equal(doan1.suaTay, false)
+  assert.equal(than.coSuaTay, true)
+})
+
+test('I4: sửa tay KHÔNG đổi scriptHash — nếu không, bản tự khai mình đã cũ',
+  async () => {
+    const { device, token } = await thietBiMoi()
+    const { kb } = await kichBanSanSang(device._id, { soDoan: 3 })
+    const truoc = await datChiDao(kb, 3)
+
+    const res = await goi('PUT', `/v1/brand-scripts/${kb._id}/visual-direction`,
+      token, suaMot(3, 0, 'transition', 'crossfade_ngan'))
+    // Chốt lượt ghi ĐÃ chạy. Thiếu dòng này thì một lượt 400 cũng làm test
+    // xanh — hash không đổi vì chẳng có gì được ghi cả.
+    assert.equal(res.statusCode, 200, res.body)
+
+    const sau = (await BrandScript.findById(kb._id).lean()).visualDirection
+    assert.equal(sau.scriptHash, truoc.scriptHash)
+    assert.equal(sau.catalogVersion, truoc.catalogVersion)
+    const xem = (await goi('GET', `/v1/brand-scripts/${kb._id}/visual-direction`,
+      token)).json()
+    assert.equal(xem.laCu, false, 'sửa tay xong bản chỉ đạo hoá cũ')
+  })
+
+test('I4: KHÔNG gọi mô hình và KHÔNG trừ Vox', async () => {
+  const { device, token } = await thietBiMoi(200)
+  const { kb } = await kichBanSanSang(device._id, { soDoan: 3 })
+  await datChiDao(kb, 3)
+  const goiMo = mock.method(gateway, 'assist', async () => {
+    throw new Error('sửa tay mà vẫn gọi mô hình')
+  })
+
+  const res = await goi('PUT', `/v1/brand-scripts/${kb._id}/visual-direction`,
+    token, suaMot(3, 2, 'transition', 'truot_len'))
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(goiMo.mock.callCount(), 0)
+  const sau = await require('../src/models/Device').findById(device._id).lean()
+  assert.equal(sau.balance, 200, 'sửa tay mà vẫn trừ Vox')
+})
+
+test('I4: mã lạ bị TỪ CHỐI và bản cũ KHÔNG suy suyển', async () => {
+  const { device, token } = await thietBiMoi()
+  const { kb } = await kichBanSanSang(device._id, { soDoan: 3 })
+  const truoc = await datChiDao(kb, 3)
+
+  const res = await goi('PUT', `/v1/brand-scripts/${kb._id}/visual-direction`,
+    token, suaMot(3, 1, 'transition', 'rack_focus'))
+
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().code, chiDao.MA_LOI_SUA_TAY)
+  const sau = (await BrandScript.findById(kb._id).lean()).visualDirection
+  assert.deepEqual(
+    sau.doan.map((d) => d.chon.map((c) => c.ma)),
+    truoc.doan.map((d) => d.chon.map((c) => c.ma)),
+    'lượt sửa hỏng đã ghi đè lên bản cũ')
+})
+
+test('I4: số đoạn lệch thì TỪ CHỐI — không ghép theo vị trí được', async () => {
+  const { device, token } = await thietBiMoi()
+  const { kb } = await kichBanSanSang(device._id, { soDoan: 3 })
+  await datChiDao(kb, 3)
+
+  const res = await goi('PUT', `/v1/brand-scripts/${kb._id}/visual-direction`,
+    token, suaMot(2, 0, 'transition', 'crossfade_ngan'))
+
+  assert.equal(res.statusCode, 400)
+  assert.match(res.json().message, /3 đoạn.*2/)
+})
+
+test('I4: hai mã cùng một nhóm trong một đoạn thì TỪ CHỐI', async () => {
+  const { device, token } = await thietBiMoi()
+  const { kb } = await kichBanSanSang(device._id, { soDoan: 2 })
+  await datChiDao(kb, 2)
+
+  const res = await goi('PUT', `/v1/brand-scripts/${kb._id}/visual-direction`,
+    token, {
+      doan: [
+        { thuTu: 1, chon: [
+          { nhom: 'transition', ma: 'crossfade_ngan' },
+          { nhom: 'transition', ma: 'mo_vong' }] },
+        { thuTu: 2, chon: [{ nhom: 'transition', ma: 'fade_nhe' }] },
+      ],
+    })
+
+  assert.equal(res.statusCode, 400)
+  assert.match(res.json().message, /hai lần|nhiều nhất một mã/)
+})
+
+test('I4: client KHÔNG tự phong được khả năng — laGoiY tính từ catalog',
+  async () => {
+    const { device, token } = await thietBiMoi()
+    const { kb } = await kichBanSanSang(device._id, { soDoan: 2 })
+    await datChiDao(kb, 2)
+
+    // `can_canh` là GỢI Ý cho người, máy không dựng được. Client gửi kèm
+    // `laGoiY: false` + `dung` để cố khai nó là thứ máy dựng được.
+    //
+    // Soi KẾT QUẢ chứ không soi mã trạng thái: Fastify GỠ BỎ trường lạ theo
+    // `additionalProperties: false` thay vì từ chối, nên lượt này trả 200 —
+    // và như vậy là đủ an toàn, miễn là thứ LƯU LẠI do catalog tính. Chốt ở
+    // tính chất thì bản sau đổi sang từ chối hẳn cũng không làm test đỏ oan.
+    const res = await goi('PUT', `/v1/brand-scripts/${kb._id}/visual-direction`,
+      token, {
+        doan: [
+          { thuTu: 1,
+            chon: [{
+              nhom: 'shot', ma: 'can_canh', laGoiY: false,
+              dung: { implementation: 'product_video.ghep_anh_nguoi_dung',
+                      parameters: { kieu_chuyen: 'tan' } },
+            }] },
+          { thuTu: 2, chon: [{ nhom: 'transition', ma: 'fade_nhe' }] },
+        ],
+      })
+
+    assert.ok(res.statusCode === 200 || res.statusCode === 400,
+      `mã lạ: ${res.statusCode}`)
+    if (res.statusCode === 400) return          // từ chối hẳn cũng đạt
+
+    const than = res.json()
+    const muc = than.doan[0].chon.find((c) => c.nhom === 'shot')
+    assert.equal(muc.laGoiY, true,
+      'client tự phong được "máy dựng được" cho một mã chỉ là gợi ý')
+    assert.equal(muc.dung, undefined,
+      'client tự gắn được cách dựng cho một mã khâu dựng không có')
+  })
+
+test('I4: chưa có bản chỉ đạo thì KHÔNG sửa tay thay cho lượt sinh', async () => {
+  const { device, token } = await thietBiMoi()
+  const { kb } = await kichBanSanSang(device._id, { soDoan: 2 })
+
+  const res = await goi('PUT', `/v1/brand-scripts/${kb._id}/visual-direction`,
+    token, suaMot(2, 0, 'transition', 'crossfade_ngan'))
+
+  assert.equal(res.statusCode, 404)
+  assert.equal(res.json().code, 'CHUA_CO_CHI_DAO')
+})
+
+test('I4: kịch bản của thiết bị KHÁC thì không sửa được', async () => {
+  const { device } = await thietBiMoi()
+  const { token: tokenNguoiLa } = await thietBiMoi()
+  const { kb } = await kichBanSanSang(device._id, { soDoan: 2 })
+  await datChiDao(kb, 2)
+
+  const res = await goi('PUT', `/v1/brand-scripts/${kb._id}/visual-direction`,
+    tokenNguoiLa, suaMot(2, 0, 'transition', 'crossfade_ngan'))
+
+  assert.equal(res.statusCode, 404)
+})
+
+// =========================================================================
+// MINI-SPEC I6 — nếp chỉ đạo của thương hiệu
+// =========================================================================
+//
+// Nếp là THÓI QUEN, không phải lệnh. Ba chỗ nó chạm vào, và cả ba phải
+// không được lấn quyền người dùng:
+//   1. lời nhắc của `scene_director` — gợi ý, mô hình vẫn chọn khác được;
+//   2. chỗ rơi của đoạn bỏ trống — thay «Mờ chồng» cứng, và phải NÓI RA;
+//   3. KHÔNG bao giờ đè lên đoạn đã có chỉ đạo.
+
+test('I6: preset hợp lệ lưu được, catalogVersion do MÁY CHỦ đặt', async () => {
+  const { device, token } = await thietBiMoi()
+  const { brand } = await kichBanSanSang(device._id, { soDoan: 2 })
+
+  const res = await goi('PUT', `/v1/brand-profiles/${brand._id}`, token, {
+    tenBrand: brand.tenBrand,
+    rangBuocKhongDuocNoi: brand.rangBuocKhongDuocNoi,
+    // Client cố đặt catalogVersion = 999 để preset tự khai mình còn mới.
+    visualPreset: { chon: [{ nhom: 'transition', ma: 'truot_len' }] },
+  })
+
+  assert.equal(res.statusCode, 200)
+  const luu = await BrandProfile.findById(brand._id).lean()
+  assert.equal(luu.visualPreset.chon[0].ma, 'truot_len')
+  assert.equal(luu.visualPreset.catalogVersion,
+    catalog.docCatalog().catalog_version)
+})
+
+test('I6: preset mang mã lạ bị TỪ CHỐI và hồ sơ cũ KHÔNG suy suyển', async () => {
+  const { device, token } = await thietBiMoi()
+  const { brand } = await kichBanSanSang(device._id, { soDoan: 2 })
+
+  const res = await goi('PUT', `/v1/brand-profiles/${brand._id}`, token, {
+    tenBrand: 'Tên mới hoàn toàn',
+    rangBuocKhongDuocNoi: [],
+    visualPreset: { chon: [{ nhom: 'transition', ma: 'whip_pan' }] },
+  })
+
+  assert.equal(res.statusCode, 400)
+  assert.equal(res.json().code, 'PRESET_KHONG_HOP_LE')
+  const luu = await BrandProfile.findById(brand._id).lean()
+  assert.equal(luu.tenBrand, brand.tenBrand,
+    'preset sai đã kéo theo cả tên brand bị ghi đè')
+})
+
+test('I6: bản chỉ đạo trả kèm nepMacDinh đã QUY RA tham số dựng', async () => {
+  const { device, token } = await thietBiMoi()
+  const { brand, kb } = await kichBanSanSang(device._id, { soDoan: 3 })
+  await datChiDao(kb, 3)
+  await BrandProfile.updateOne({ _id: brand._id }, {
+    $set: { visualPreset: {
+      catalogVersion: catalog.docCatalog().catalog_version,
+      chon: [{ nhom: 'transition', ma: 'crossfade_ngan' }] } },
+  })
+
+  const than = (await goi('GET', `/v1/brand-scripts/${kb._id}/visual-direction`,
+    token)).json()
+
+  // `crossfade_ngan` map sang `tan` — app KHÔNG được giữ bảng này, nên máy
+  // chủ phải nói thẳng tham số.
+  assert.equal(than.nepMacDinh, 'tan')
+})
+
+test('I6: preset dựng bằng catalog CŨ thì bỏ qua, không rơi vào mã đã gỡ',
+  async () => {
+    const { device, token } = await thietBiMoi()
+    const { brand, kb } = await kichBanSanSang(device._id, { soDoan: 2 })
+    await datChiDao(kb, 2)
+    await BrandProfile.updateOne({ _id: brand._id }, {
+      $set: { visualPreset: {
+        catalogVersion: catalog.docCatalog().catalog_version - 1,
+        chon: [{ nhom: 'transition', ma: 'crossfade_ngan' }] } },
+    })
+
+    const than = (await goi('GET', `/v1/brand-scripts/${kb._id}/visual-direction`,
+      token)).json()
+
+    assert.equal(than.nepMacDinh, '',
+      'preset của catalog cũ vẫn được dùng làm chỗ rơi')
+  })
+
+test('I6: brand chưa đặt nếp thì nepMacDinh rỗng', async () => {
+  const { device, token } = await thietBiMoi()
+  const { kb } = await kichBanSanSang(device._id, { soDoan: 2 })
+  await datChiDao(kb, 2)
+  const than = (await goi('GET', `/v1/brand-scripts/${kb._id}/visual-direction`,
+    token)).json()
+  assert.equal(than.nepMacDinh, '')
+})
+
+test('I6: lời nhắc nói nếp là THÓI QUEN, không phải bắt buộc', async () => {
+  const assistPrompts = require('../src/prompts/assist')
+  const vao = chiDao.dungInput(
+    { beats: [{ beatType: 'hook', voiceoverTextVi: 'Xin chào', visualBriefVi: 'Cận' }] },
+    { toneGiong: 'Gần gũi',
+      rangBuocKhongDuocNoi: [],
+      visualPreset: { catalogVersion: catalog.docCatalog().catalog_version,
+        chon: [{ nhom: 'transition', ma: 'fade_nhe' }] } })
+
+  assert.deepEqual(vao.brand.nepChiDao, [{ nhom: 'transition', ma: 'fade_nhe' }])
+  const loiNhac = assistPrompts.getTask('scene_director').buildUser(vao)
+  assert.match(loiNhac, /thường dùng/)
+  assert.match(loiNhac, /THÓI QUEN, không phải bắt buộc/,
+    'ép cứng preset thì nó vô hiệu hoá luôn việc chỉ đạo')
+})
+
+test('I6: preset của catalog cũ KHÔNG đi vào lời nhắc', async () => {
+  const vao = chiDao.dungInput(
+    { beats: [{ beatType: 'hook', voiceoverTextVi: 'Xin chào' }] },
+    { visualPreset: { catalogVersion: 1,
+      chon: [{ nhom: 'transition', ma: 'fade_nhe' }] } })
+  assert.deepEqual(vao.brand.nepChiDao, [],
+    'nhắc mô hình dùng một mã có thể đã bị gỡ = tự làm hỏng lượt vừa trả tiền')
+})

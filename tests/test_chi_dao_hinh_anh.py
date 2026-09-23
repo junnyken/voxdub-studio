@@ -199,3 +199,114 @@ def test_client_loi_KHAC_thi_van_nem(monkeypatch):
     c = SaasClient.__new__(SaasClient)
     with pytest.raises(SaasError):
         c.doc_chi_dao_hinh_anh("kb1")
+
+
+# -- 7. I4: sửa tay ----------------------------------------------------------
+#
+# Hộp thoại mặc định vẫn CHỈ ĐỌC (xem test ở mục 5, vẫn phải xanh). Chế độ sửa
+# chỉ bật khi có ĐỦ ba thứ: danh sách mã từ máy chủ, chỗ lưu, và bản còn khớp
+# kịch bản. Thiếu một là lùi về chỉ đọc — thà như trước I4 còn hơn hiện một ô
+# rỗng rồi lưu về một bản trống trơn.
+
+MUC_CHUYEN = [
+    {"ma": "cat_thang", "nhan": "Cắt thẳng"},
+    {"ma": "fade_nhe", "nhan": "Mờ nhẹ"},
+    {"ma": "crossfade_ngan", "nhan": "Hoà ngắn"},
+    {"ma": "mo_vong", "nhan": "Mở vòng tròn"},
+]
+
+
+def _hop_sua(qapp, ban=None, luu=None):
+    from autodub_gui.ui.chi_dao_dialog import ChiDaoHinhAnhDialog
+    return ChiDaoHinhAnhDialog(
+        ban or BAN_MAU, muc_chuyen=MUC_CHUYEN, on_luu=luu or (lambda _d: None))
+
+
+def test_I4_co_du_dieu_kien_thi_hien_nut_luu(qapp):
+    from PySide6.QtWidgets import QAbstractButton
+    hop = _hop_sua(qapp)
+    nhan = [b.text() for b in hop.findChildren(QAbstractButton)]
+    assert "Lưu chỉnh sửa" in nhan, nhan
+    # Nút hứa render vẫn KHÔNG được mọc ra, kể cả ở chế độ sửa: dựng video là
+    # việc của trang «Dựng video».
+    for cam in ("áp dụng", "render", "sinh ảnh", "dựng video", "xuất video"):
+        assert not any(cam in n.lower() for n in nhan), f"có nút «{cam}»"
+
+
+def test_I4_thieu_danh_sach_ma_thi_LUI_ve_chi_doc(qapp):
+    from PySide6.QtWidgets import QAbstractButton
+    from autodub_gui.ui.chi_dao_dialog import ChiDaoHinhAnhDialog
+    hop = ChiDaoHinhAnhDialog(BAN_MAU, muc_chuyen=[], on_luu=lambda _d: None)
+    assert [b.text() for b in hop.findChildren(QAbstractButton)] == ["Đóng"]
+
+
+def test_I4_ban_da_CU_thi_KHONG_cho_sua(qapp):
+    """Bản cũ nói về một kịch bản khác — sửa nó là chỉnh chuyển cảnh cho
+    những đoạn không còn tồn tại."""
+    from PySide6.QtWidgets import QAbstractButton
+    ban = dict(BAN_MAU, laCu=True, kichBanDaDoi=True)
+    hop = _hop_sua(qapp, ban)
+    assert [b.text() for b in hop.findChildren(QAbstractButton)] == ["Đóng"]
+
+
+def test_I4_o_chon_mo_dung_ma_dang_co(qapp):
+    hop = _hop_sua(qapp)
+    assert hop._dong[0].o_chuyen.currentData() == "fade_nhe"
+    # Đoạn 2 không có mã nào → phải là mục "không chỉ định", KHÔNG phải mã đầu
+    # danh sách: mở sẵn một mã người dùng chưa chọn rồi lưu là gán hộ.
+    assert hop._dong[1].o_chuyen.currentData() == ""
+
+
+def test_I4_doi_o_chon_thi_doan_dang_chon_doi_theo(qapp):
+    hop = _hop_sua(qapp)
+    o = hop._dong[0].o_chuyen
+    o.setCurrentIndex(o.findData("mo_vong"))
+    doan = hop.doan_dang_chon()
+    ma = [c["ma"] for c in doan[0]["chon"] if c["nhom"] == "transition"]
+    assert ma == ["mo_vong"]
+    # Nhóm KHÁC phải giữ nguyên — I4 chỉ sửa `transition`.
+    assert {"nhom": "shot", "ma": "can_canh"} in [
+        {"nhom": c["nhom"], "ma": c["ma"]} for c in doan[0]["chon"]]
+
+
+def test_I4_chon_KHONG_CHI_DINH_thi_bo_han_ma_transition(qapp):
+    """Bỏ trống phải gửi đi được — nếu không thì nếp thương hiệu (I6) mất chỗ
+    phát huy, vì mọi đoạn đều có mã."""
+    hop = _hop_sua(qapp)
+    o = hop._dong[0].o_chuyen
+    o.setCurrentIndex(o.findData(""))
+    doan = hop.doan_dang_chon()
+    assert not any(c["nhom"] == "transition" for c in doan[0]["chon"])
+
+
+def test_I4_chi_gui_nhom_va_ma_KHONG_gui_co_may_chu_tinh(qapp):
+    """`nhan`/`laGoiY`/`dung` do máy chủ tính từ catalog. Gửi kèm là để client
+    tự phong cho một mã khả năng mà khâu dựng không có."""
+    hop = _hop_sua(qapp)
+    for d in hop.doan_dang_chon():
+        for c in d["chon"]:
+            assert set(c) == {"nhom", "ma"}, c
+
+
+def test_I4_KHONG_bao_da_luu_truoc_khi_biet_ket_qua(qapp):
+    """Bên gọi ghi ở luồng nền. Viết «Đã lưu» ngay lúc bấm là báo thành công
+    trước khi máy chủ nhận hay từ chối."""
+    hop = _hop_sua(qapp)
+    hop._luu()
+    assert "Đang lưu" in hop.lbl_luu.text()
+    assert "Đã lưu" not in hop.lbl_luu.text()
+
+    hop.bao_ket_qua(False, "máy chủ từ chối")
+    assert "Chưa lưu được" in hop.lbl_luu.text()
+    assert "máy chủ từ chối" in hop.lbl_luu.text()
+
+    hop.bao_ket_qua(True)
+    assert "Đã lưu" in hop.lbl_luu.text()
+
+
+def test_I4_loi_ngay_luc_goi_cung_toi_duoc_nguoi_dung(qapp):
+    def hong(_doan):
+        raise RuntimeError("chưa mở kịch bản nào")
+    hop = _hop_sua(qapp, luu=hong)
+    hop._luu()
+    assert "chưa mở kịch bản nào" in hop.lbl_luu.text()

@@ -19711,3 +19711,81 @@ minh đỏ bằng bốn phép tiêm:
 Mục 4 của §8 (một lượt **bấm tay trên Windows**: chọn kịch bản → tải bản chỉ
 đạo → dựng → xem video ra đúng chuyển cảnh) — không tự động hoá được ở đây.
 Và §10 (nhãn «Thử ngay» không làm mới danh sách) chưa làm.
+
+---
+
+## I4 + I6 — Sửa tay Bản chỉ đạo & Nếp thương hiệu (23/09/2026)
+
+### 1. Vì sao bây giờ mới làm được
+
+Cửa ghi cố ý đóng từ I2, lý do ghi tại `routes/config.js`: *"mở cửa ghi bây
+giờ là mời dữ liệu vào trước khi có ai đọc nó"*. I5 (cùng ngày) làm bản chỉ
+đạo điều khiển đầu ra thật ⇒ điều kiện hết hiệu lực. Và chính I5 mở ra lỗ mà
+I4 vá: mô hình chọn sai một đoạn thì người dùng không có đường sửa nào ngoài
+trả Vox sinh lại cả bản.
+
+### 2. Máy chủ
+
+`PUT /v1/brand-scripts/:id/visual-direction` — 0 Vox, không gọi mô hình, soi
+lại bằng ĐÚNG bộ soi của đường tự động. `tests/chi-dao-hinh-anh.test.js`:
+**36 passed** (20 cũ + 16 của I4/I6). `npm test`: **803 pass, 1 skip**.
+
+Chứng minh đỏ bằng sáu phép tiêm lỗi:
+
+| Tiêm | Đỏ |
+|---|---|
+| cờ `suaTay` bật cho mọi mã (mất nghĩa) | 1 |
+| sửa tay đổi `scriptHash` | 1 |
+| không kiểm số đoạn khớp | 1 |
+| ghi đè kể cả khi soi hỏng | 3 |
+| preset không soi bằng catalog | 1 |
+| bỏ kiểm phiên bản catalog của preset | 1 |
+
+### 3. Một test của tôi xanh GIẢ — phép tiêm lôi ra
+
+`I4: sửa tay KHÔNG đổi scriptHash` ban đầu **không chốt mã trạng thái** của
+lượt PUT. Tiêm lỗi "đổi scriptHash" mà test vẫn xanh ⇒ truy ra hai chuyện:
+
+1. lượt PUT đang trả **400** nên chẳng có gì được ghi, hash không đổi, và
+   test xanh vì **không có gì xảy ra**;
+2. lý do 400: dữ liệu test dùng `tan` — **giá trị tham số dựng** của Python
+   (`KIEU_CHUYEN`), không phải **mã catalog**. Mã đúng: `crossfade_ngan`.
+
+Đã thêm `assert.equal(res.statusCode, 200)` và sửa 5 chỗ dùng nhầm mã.
+
+### 4. Giao diện
+
+`tests/test_chi_dao_hinh_anh.py`: **24 passed** (15 cũ + 9 của I4). Hộp thoại
+**mặc định vẫn CHỈ ĐỌC** — `_sua_duoc()` đòi đủ ba thứ (danh sách mã từ máy
+chủ · chỗ lưu · bản còn khớp kịch bản), nên test canh cũ
+(`nhãn nút == ["Đóng"]`) xanh nguyên mà không phải nới.
+
+Chứng minh đỏ bằng năm phép tiêm:
+
+| Tiêm | Đỏ |
+|---|---|
+| bản đã cũ vẫn cho sửa | 1 |
+| bỏ mục «không chỉ định» (đoạn trống bị gán hộ mã đầu) | 2 |
+| ô chọn không đọc mã đang có | 1 |
+| báo «Đã lưu» ngay lúc bấm | 1 |
+| không thu hẹp payload về `{nhom, ma}` | 1 |
+
+*(Phép tiêm đầu tiên tôi thử cho ô chọn — đổi `else 0` thành `else 1` — **vô
+hiệu**: `findData("")` vẫn tìm thấy mục «không chỉ định» ở vị trí 0 nên nhánh
+`else` không bao giờ chạy. Ghi lại vì một phép tiêm vô hiệu trông y hệt một
+bộ test yếu.)*
+
+### 5. I6 — nếp là THÓI QUEN, không phải lệnh
+
+Ba chỗ nếp chạm vào, cả ba không lấn quyền người dùng:
+- lời nhắc `scene_director` nói rõ *"THÓI QUEN, không phải bắt buộc"*;
+- chỗ rơi cho đoạn bỏ trống (thay «Mờ chồng» cứng), và **nói ra** đang dùng nếp;
+- **không bao giờ** đè lên đoạn đã có chỉ đạo — có test canh.
+
+Preset dựng bằng catalog CŨ thì bỏ qua ở cả hai đường: mã có thể đã bị gỡ, và
+rơi vào một mã không còn tồn tại thì tệ hơn rơi về mặc định.
+
+### 6. Còn treo
+
+Một lượt **bấm tay trên Windows**: mở hộp thoại → đổi chuyển cảnh một đoạn →
+Lưu → sang «Dựng video» → dựng → xem video ra đúng thứ vừa sửa.

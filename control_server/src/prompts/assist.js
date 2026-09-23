@@ -805,12 +805,25 @@ const TASKS = {
       const cam = Array.isArray(brand.rangBuocKhongDuocNoi)
         ? brand.rangBuocKhongDuocNoi.filter(Boolean) : []
 
+      // I6 — nếp của thương hiệu. Nói rõ là GỢI Ý, không phải lệnh: ép cứng
+      // thì preset vô hiệu hoá luôn việc chỉ đạo, mà chỉ đạo mới là thứ
+      // người dùng trả tiền. Câu này cố ý đặt SAU tông giọng và ràng buộc
+      // cấm — hai thứ đó là luật, preset chỉ là thói quen.
+      const nep = Array.isArray(brand.nepChiDao) ? brand.nepChiDao : []
+      const dongNep = nep.length
+        ? 'Thương hiệu này thường dùng: '
+          + nep.slice(0, 8).map((c) => `${c.nhom}=${c.ma}`).join(' · ')
+          + '. Đây là THÓI QUEN, không phải bắt buộc — đoạn nào cần khác thì '
+          + 'cứ chọn khác và nói lý do.'
+        : ''
+
       const dauTrang = [
         brand.toneGiong ? `Giọng điệu của thương hiệu: ${cat(brand.toneGiong, 200)}` : '',
         cam.length
           ? `Tránh mọi liên tưởng tới: ${cam.slice(0, 10)
             .map((c) => cat(String(c), 60)).join(' · ')}`
           : '',
+        dongNep,
         vonTuChoLoiNhac(input?.catalogVersion),
       ].filter(Boolean).join('\n')
 

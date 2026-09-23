@@ -70,6 +70,12 @@ const maChiDaoSchema = new mongoose.Schema({
   ma: { type: String, required: true, maxlength: 60 },
   nhan: { type: String, default: '', maxlength: 120 },
   laGoiY: { type: Boolean, default: true },
+  // I4 — người dùng tự chọn mã này thay cho thứ mô hình đề xuất.
+  //
+  // Cần phân biệt được, vì lượt SINH LẠI phải cảnh báo trước khi đè: công
+  // sửa tay biến mất không một lời là cách nhanh nhất khiến người dùng thôi
+  // tin vào tính năng này.
+  suaTay: { type: Boolean, default: false },
 }, { _id: false })
 
 const doanChiDaoSchema = new mongoose.Schema({

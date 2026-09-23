@@ -1094,6 +1094,36 @@ class SaasClient:
         self._note_usage(data)
         return data
 
+    def doc_catalog_chi_dao(self, timeout: float = 20.0) -> dict:
+        """Từ điển chỉ đạo hình ảnh — mini-spec I4.
+
+        `auth=False` vì cửa này không cần token: vốn từ sản phẩm, không khoá,
+        không lời nhắc mô hình, không dữ liệu của thiết bị nào (xem chú thích
+        tại `routes/config.js`).
+
+        App PHẢI hỏi máy chủ thay vì gõ sẵn danh sách vào đây. Chép tay một
+        từ điển đang tiến hoá là dựng ra nguồn sự thật thứ hai, và nó lệch im
+        lặng đúng vào ngày catalog lên phiên bản mới.
+        """
+        return self._request("GET", "/v1/config/visual-direction-catalog",
+                             auth=False, timeout=timeout)
+
+    def sua_chi_dao_hinh_anh(self, script_id: str, doan: list,
+                             timeout: float = 30.0) -> dict:
+        """Lưu bản chỉ đạo người dùng tự sửa — mini-spec I4. **0 Vox.**
+
+        Chỉ gửi `nhom` + `ma`. `nhan`, `laGoiY`, `dung` do máy chủ tính từ
+        catalog; gửi kèm là để client tự phong cho một mã khả năng mà khâu
+        dựng không có.
+        """
+        gon = [{"thuTu": d.get("thuTu"),
+                "chon": [{"nhom": c["nhom"], "ma": c["ma"]}
+                         for c in (d.get("chon") or [])]}
+               for d in doan]
+        return self._request(
+            "PUT", f"/v1/brand-scripts/{script_id}/visual-direction",
+            timeout=timeout, json_body={"doan": gon})
+
     def doc_chi_dao_hinh_anh(self, script_id: str,
                              timeout: float = 20.0) -> dict | None:
         """Bản chỉ đạo đã lưu, hoặc ``None`` khi kịch bản chưa có bản nào.

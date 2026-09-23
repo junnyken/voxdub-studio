@@ -13,6 +13,7 @@
  * `autodub/saas_client.py`, cùng đường device-token với cổng trợ lý AI.
  */
 const BrandProfile = require('../models/BrandProfile')
+const visualCatalog = require('../services/visual-catalog.service')
 
 function view(doc) {
   return {
@@ -23,6 +24,11 @@ function view(doc) {
     toneGiong: doc.toneGiong,
     usp: doc.usp,
     rangBuocKhongDuocNoi: doc.rangBuocKhongDuocNoi,
+    visualPreset: {
+      catalogVersion: doc.visualPreset?.catalogVersion || 0,
+      chon: (doc.visualPreset?.chon || []).map(
+        (c) => ({ nhom: c.nhom, ma: c.ma })),
+    },
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   }
@@ -31,7 +37,7 @@ function view(doc) {
 /** Đúng những trường người dùng được phép đặt. `ownerDeviceId` KHÔNG nằm ở
  * đây và không bao giờ được nằm ở đây — nó lấy từ token, xem `POST` bên dưới. */
 const TRUONG_CHO_PHEP = ['tenBrand', 'moTaSanPham', 'doiTuongKhach',
-  'toneGiong', 'usp', 'rangBuocKhongDuocNoi']
+  'toneGiong', 'usp', 'rangBuocKhongDuocNoi', 'visualPreset']
 
 const bodySchema = {
   type: 'object',
@@ -66,7 +72,67 @@ const bodySchema = {
       // vẫn hữu hạn. Câu từ chối nay nói tiếng Việt nhờ bản vá E8.
       type: 'array', maxItems: 200, items: { type: 'string', maxLength: 300 },
     },
+    // I6 — nếp chỉ đạo hình ảnh của thương hiệu. Schema chỉ canh HÌNH DẠNG;
+    // mã có thật hay không thì catalog nói, và phép soi đó nằm ở handler
+    // (`soiPreset`) vì JSON Schema không tra được từ điển động.
+    //
+    // KHÔNG nhận `catalogVersion` từ client: nó là thứ máy chủ biết, và để
+    // client đặt là mở đường cho một preset tự khai mình còn mới.
+    visualPreset: {
+      type: 'object',
+      required: ['chon'],
+      additionalProperties: false,
+      properties: {
+        chon: {
+          type: 'array', maxItems: 12,
+          items: {
+            type: 'object',
+            required: ['nhom', 'ma'],
+            additionalProperties: false,
+            properties: {
+              nhom: { type: 'string', minLength: 1, maxLength: 40 },
+              ma: { type: 'string', minLength: 1, maxLength: 60 },
+            },
+          },
+        },
+      },
+    },
   },
+}
+
+/**
+ * Soi preset bằng ĐÚNG từ điển mà bản chỉ đạo dùng — mini-spec I6.
+ *
+ * Không có đường tắt cho dữ liệu "của mình": preset mang mã sai thì nó đi
+ * thẳng vào lời nhắc của `scene_director` và vào chỗ rơi của đoạn bỏ trống,
+ * tức hỏng ở hai nơi xa chỗ gõ nhầm.
+ *
+ * Trả `{ ok, loi }` hoặc `{ ok: true, gia_tri }` đã gắn `catalogVersion`.
+ */
+function soiPreset(preset) {
+  const cat_ = visualCatalog.docCatalog()
+  const chon = (preset && preset.chon) || []
+  const loi = []
+  const daThayNhom = new Set()
+  for (const c of chon) {
+    if (daThayNhom.has(c.nhom)) {
+      loi.push(`nhóm "${c.nhom}" đặt hai lần — mỗi nhóm nhiều nhất một mã`)
+      continue
+    }
+    daThayNhom.add(c.nhom)
+    const ket = visualCatalog.kiemChon(
+      { catalog_version: cat_.catalog_version, [c.nhom]: c.ma },
+      { mucDich: 'goi_y' })
+    if (!ket.ok) loi.push(ket.loi.join('; '))
+  }
+  if (loi.length) return { ok: false, loi }
+  return {
+    ok: true,
+    gia_tri: {
+      catalogVersion: cat_.catalog_version,
+      chon: chon.map((c) => ({ nhom: c.nhom, ma: c.ma })),
+    },
+  }
 }
 
 /** `:id` sai khuôn ObjectId (CastError) coi như không thấy, không phải 500
@@ -91,8 +157,18 @@ module.exports = async function brandProfileRoutes(fastify) {
   })
 
   fastify.post('/', { schema: { body: bodySchema } }, async (request, reply) => {
+    const than = { ...request.body }
+    if (than.visualPreset) {
+      const soi = soiPreset(than.visualPreset)
+      if (!soi.ok) {
+        return reply.code(400).send({
+          code: 'PRESET_KHONG_HOP_LE',
+          message: `Nếp chỉ đạo không hợp lệ: ${soi.loi.join('; ')}` })
+      }
+      than.visualPreset = soi.gia_tri
+    }
     const doc = await BrandProfile.create({
-      ...request.body, ownerDeviceId: request.device._id,
+      ...than, ownerDeviceId: request.device._id,
     })
     return reply.code(201).send(view(doc))
   })
@@ -106,6 +182,17 @@ module.exports = async function brandProfileRoutes(fastify) {
     // Chép theo DANH SÁCH TRẮNG, không `Object.assign(doc, request.body)`:
     // hai lớp chặn cho cùng một lỗ, vì lớp schema ở trên chỉ cần một lần ai
     // đó thêm trường mới mà quên là hở lại.
+    if (Object.prototype.hasOwnProperty.call(request.body, 'visualPreset')) {
+      const soi = soiPreset(request.body.visualPreset)
+      if (!soi.ok) {
+        // Soi TRƯỚC khi chép bất cứ trường nào: hồ sơ cũ không được suy suyển
+        // vì một preset sai.
+        return reply.code(400).send({
+          code: 'PRESET_KHONG_HOP_LE',
+          message: `Nếp chỉ đạo không hợp lệ: ${soi.loi.join('; ')}` })
+      }
+      request.body.visualPreset = soi.gia_tri
+    }
     for (const truong of TRUONG_CHO_PHEP) {
       if (Object.prototype.hasOwnProperty.call(request.body, truong)) {
         doc[truong] = request.body[truong]
