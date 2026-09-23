@@ -437,7 +437,15 @@ def _lenh_ghep(anh: list[str], ra: str, giay_moi_anh,
     lenh: list[str] = ["ffmpeg", "-y"]
     for duong, g in zip(anh, dai_vao):
         # `-loop 1` biến ảnh tĩnh thành luồng hình; `-t` cắt đúng độ dài cần.
-        lenh += ["-loop", "1", "-t", f"{g:.3f}", "-i", duong]
+        #
+        # `-framerate 30` KHÔNG thừa. Thiếu nó, ffmpeg giải mã ảnh ở 25 fps
+        # mặc định, nên `-t` chỉ cắt được theo mốc 1/25 = 0,04s. Thời lượng
+        # rơi ĐÚNG GIỮA hai mốc bị làm tròn LÊN ở mọi ảnh, và đường `concat`
+        # cộng dồn chỗ dôi: đo thật bằng ffprobe, 3 ảnh × 1,5s ra 4,600s thay
+        # vì 4,500s (dôi 0,0333s mỗi ảnh). Hai giá trị trong ô chọn của người
+        # dùng dính đúng bẫy này — 1,5s và 2,5s — mà 2,5s là MẶC ĐỊNH
+        # (`GIAY_MOI_ANH`). Đặt bằng fps đích thì `-t` cắt đúng khung.
+        lenh += ["-framerate", "30", "-loop", "1", "-t", f"{g:.3f}", "-i", duong]
 
     loc = []
     for i in range(len(anh)):
