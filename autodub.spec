@@ -77,6 +77,9 @@ hiddenimports = [
                                        # --tu-kiem-goi (nhập trong thân hàm)
     "autodub.product_scene",           # trang Ảnh sản phẩm: dựng bối cảnh (C1)
     "autodub.product_video",           # trang Ảnh sản phẩm: ghép video ngắn (C6)
+    "autodub.chi_dao_hinh_anh",        # trang Ảnh sản phẩm: dựng theo Bản
+                                       # chỉ đạo hình ảnh (I5) — nhập trong
+                                       # thân _kieu_chuyen_se_dung()
     "autodub.media.cat_tep",           # trang Chép lời: cắt tệp dài (C25)
     "cryptography.hazmat.primitives.ciphers.aead",  # AESGCM của securestore
     "_cffi_backend",                   # cryptography cần lúc chạy

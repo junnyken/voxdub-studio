@@ -305,6 +305,28 @@ function kiemChon(chon, { mucDich = 'goi_y' } = {}) {
   return { ok: loi.length === 0, loi }
 }
 
+/**
+ * Cách dựng THẬT của một mục — chỉ trả khi mục đó `supported`.
+ *
+ * Vì sao tính lúc ĐỌC chứ không lưu vào bản chỉ đạo: bản chỉ đạo lưu MÃ,
+ * còn cách dựng là chuyện của catalog. Tính lúc đọc thì sửa ánh xạ một chỗ
+ * là mọi bản đã lưu khớp theo ngay — không phải di trú dữ liệu, và không
+ * bao giờ có hai nguồn sự thật để trôi lệch nhau.
+ *
+ * Mục `advisory_only` trả `null` chứ không trả bảng tham số rỗng: rỗng sẽ
+ * khiến bên gọi tưởng dựng được mà chẳng có gì để làm.
+ */
+function cachDungCua(nhomId, mucId) {
+  const muc = timMuc(nhomId, mucId)
+  if (!muc || muc.render_mode !== 'supported') return null
+  const anh_xa = muc.h4_mapping
+  if (!anh_xa || !anh_xa.implementation) return null
+  return {
+    implementation: anh_xa.implementation,
+    parameters: { ...(anh_xa.parameters || {}) },
+  }
+}
+
 module.exports = {
   PHIEN_BAN_HO_TRO,
   PHIEN_BAN_HIEN_TAI,
@@ -316,5 +338,6 @@ module.exports = {
   kiemTraCatalog,
   docCatalog,
   timMuc,
+  cachDungCua,
   kiemChon,
 }

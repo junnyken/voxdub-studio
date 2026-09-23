@@ -27,7 +27,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QFileDialog, QGridLayout, QHBoxLayout,
-    QLabel, QListWidget, QListWidgetItem, QScrollArea, QVBoxLayout, QWidget,
+    QInputDialog, QLabel, QListWidget, QListWidgetItem, QScrollArea,
+    QVBoxLayout, QWidget,
 )
 
 from autodub_gui import tokens
@@ -42,8 +43,8 @@ from autodub_gui.env_store import read_env, write_env
 from autodub_gui.ui.toast import TOASTS
 from autodub_gui.widgets import LogPanel
 from autodub_gui.workers import (
-    ImageProvidersWorker, ProductSceneWorker, ProductVideoWorker,
-    SceneScriptWorker,
+    BrandScriptWorker, ImageProvidersWorker, ProductSceneWorker,
+    ProductVideoWorker, SceneScriptWorker,
 )
 
 _PAGE_MARGIN = 28
@@ -110,6 +111,13 @@ class ProductScenePage(BasePage):
         self._worker_video: ProductVideoWorker | None = None
         self._worker_kich_ban: SceneScriptWorker | None = None
         self._worker_noi_goi: ImageProvidersWorker | None = None
+        self._worker_chi_dao: BrandScriptWorker | None = None
+        #: Bản chỉ đạo hình ảnh đang dùng (I5). Giữ BẢN THÔ chứ không giữ
+        #: danh sách kiểu đã tính: số mối nối phụ thuộc số ảnh, mà số ảnh
+        #: chỉ biết được lúc bấm dựng — tính sớm là tính cho một số ảnh
+        #: có thể đã đổi từ lúc tải bản chỉ đạo về.
+        self._ban_chi_dao: dict | None = None
+        self._ten_chi_dao = ""
         self._anh_kich_ban: list = []
         self._thu_muc_ket_qua = ""
         self._o_boi_canh: dict[str, QCheckBox] = {}
@@ -224,6 +232,29 @@ class ProductScenePage(BasePage):
         hang_video.addWidget(self.thoi_luong, 1)
         hang_video.addWidget(self.kieu_chuyen, 1)
         card.body.addLayout(hang_video)
+
+        # --- I5: dựng theo Bản chỉ đạo hình ảnh -------------------------
+        # Ô chọn ở trên áp MỘT kiểu cho cả video. Bản chỉ đạo cho một kiểu
+        # mỗi đoạn, nên khi đang dùng nó thì ô kia bị khoá — để người dùng
+        # nhìn là biết mình đang theo cái nào, chứ không phải đoán vì sao
+        # chọn một kiểu mà video ra kiểu khác.
+        hang_chi_dao = QHBoxLayout()
+        hang_chi_dao.setSpacing(tokens.SP_3)
+        self.btn_chi_dao = GhostButton("Theo bản chỉ đạo…")
+        self.btn_chi_dao.setToolTip(
+            "Dùng chuyển cảnh mà trợ lý đã chỉ định cho từng đoạn kịch bản, "
+            "thay vì áp một kiểu cho cả video.")
+        self.btn_chi_dao.clicked.connect(self._mo_chon_chi_dao)
+        self.btn_bo_chi_dao = GhostButton("Bỏ dùng")
+        self.btn_bo_chi_dao.clicked.connect(self._bo_chi_dao)
+        self.btn_bo_chi_dao.setVisible(False)
+        self.nhan_chi_dao = QLabel("Chưa dùng bản chỉ đạo — áp kiểu đã chọn ở trên.")
+        self.nhan_chi_dao.setWordWrap(True)
+        self.nhan_chi_dao.setObjectName("hint")
+        hang_chi_dao.addWidget(self.btn_chi_dao)
+        hang_chi_dao.addWidget(self.btn_bo_chi_dao)
+        hang_chi_dao.addWidget(self.nhan_chi_dao, 1)
+        card.body.addLayout(hang_chi_dao)
 
         # Mặc định TẮT, và nói thẳng giá: bật lên là mỗi lượt gợi ý đắt hơn.
         # Một ô tick âm thầm làm tăng tiền là thứ người dùng chỉ phát hiện ra
@@ -455,6 +486,10 @@ class ProductScenePage(BasePage):
             TOASTS.warn("Chưa có ảnh nào đăng bán được để ghép. Dựng ảnh trước đã.")
             return
 
+        kieu = self._kieu_chuyen_se_dung(len(anh))
+        if kieu is None:
+            return
+
         ra = os.path.join(thu_muc, "video_san_pham.mp4")
         self.btn_video.setEnabled(False)
         self.status.setText(f"Đang ghép {len(anh)} ảnh thành video…")
@@ -462,7 +497,7 @@ class ProductScenePage(BasePage):
         worker = ProductVideoWorker(
             anh, ra,
             giay_moi_anh=float(self.thoi_luong.current_key() or 2.5),
-            kieu_chuyen=str(self.kieu_chuyen.current_key() or "mo_chong"),
+            kieu_chuyen=kieu,
             parent=self)
         # Kiểm liên tục (C7) chạy TRONG worker rồi bắn cảnh báo ngược lên —
         # đây là CẢNH BÁO, không phải cổng chặn: video vẫn ghép, quyền quyết
@@ -533,6 +568,122 @@ class ProductScenePage(BasePage):
             muc.setFlags(muc.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             muc.setCheckState(Qt.CheckState.Checked)
             self.thu_tu.addItem(muc)
+
+    # ------------------------------------- I5: Bản chỉ đạo hình ảnh --
+
+    @staticmethod
+    def _nhan_kich_ban(kb: dict) -> str:
+        """Một dòng đủ để người dùng nhận ra kịch bản nào là kịch bản nào.
+
+        Kịch bản brand không có trường tên, nên lấy câu đọc của đoạn đầu —
+        đó chính là thứ người dùng nhớ về nó.
+        """
+        beats = kb.get("beats") or []
+        dau = (beats[0].get("voiceoverTextVi") if beats else "") or "(chưa có lời)"
+        dau = " ".join(str(dau).split())
+        if len(dau) > 60:
+            dau = dau[:57] + "…"
+        return f"{dau}  · {len(beats)} đoạn"
+
+    def _mo_chon_chi_dao(self) -> None:
+        if self._worker_chi_dao is not None and self._worker_chi_dao.isRunning():
+            return
+        self.btn_chi_dao.setEnabled(False)
+        self.nhan_chi_dao.setText("Đang lấy danh sách kịch bản…")
+        worker = BrandScriptWorker("list", parent=self)
+        worker.finished_ok.connect(self._chi_dao_xong)
+        worker.failed.connect(self._chi_dao_hong)
+        self._worker_chi_dao = worker
+        worker.start()
+
+    def _chi_dao_xong(self, action: str, ket) -> None:
+        if action == "list":
+            self._chon_kich_ban(ket or [])
+            return
+        # action == "doc_chi_dao"
+        self.btn_chi_dao.setEnabled(True)
+        if not ket:
+            self.nhan_chi_dao.setText(
+                "Kịch bản này chưa có bản chỉ đạo — mở trang «Hồ sơ Brand» "
+                "để tạo, hoặc chọn kịch bản khác.")
+            return
+        self._ban_chi_dao = ket
+        so_doan = len(ket.get("doan") or [])
+        self.kieu_chuyen.setEnabled(False)
+        self.btn_bo_chi_dao.setVisible(True)
+        self.nhan_chi_dao.setText(
+            f"Đang dùng bản chỉ đạo của «{self._ten_chi_dao}» — {so_doan} đoạn. "
+            "Ô «Chuyển cảnh» bị khoá vì mỗi mối nối có kiểu riêng.")
+        self.log.append_log(
+            f"Sẽ dựng theo bản chỉ đạo hình ảnh ({so_doan} đoạn) — "
+            "mỗi mối nối một kiểu chuyển cảnh.", 20)
+
+    def _chon_kich_ban(self, ds: list) -> None:
+        self.btn_chi_dao.setEnabled(True)
+        co = [kb for kb in (ds or []) if kb.get("coChiDao")]
+        if not co:
+            self.nhan_chi_dao.setText(
+                "Chưa có kịch bản nào kèm bản chỉ đạo hình ảnh. Tạo ở trang "
+                "«Hồ sơ Brand» → «Chỉ đạo hình ảnh…».")
+            return
+        nhan = [self._nhan_kich_ban(kb) for kb in co]
+        chon, ok = QInputDialog.getItem(
+            self, "Chọn kịch bản", "Dựng video theo bản chỉ đạo của:",
+            nhan, 0, False)
+        if not ok:
+            self.nhan_chi_dao.setText(
+                "Chưa dùng bản chỉ đạo — áp kiểu đã chọn ở trên.")
+            return
+        kb = co[nhan.index(chon)]
+        self._ten_chi_dao = chon.split("  ·")[0]
+        self.btn_chi_dao.setEnabled(False)
+        self.nhan_chi_dao.setText("Đang tải bản chỉ đạo…")
+        worker = BrandScriptWorker(
+            "doc_chi_dao", script_id=str(kb.get("id") or ""), parent=self)
+        worker.finished_ok.connect(self._chi_dao_xong)
+        worker.failed.connect(self._chi_dao_hong)
+        self._worker_chi_dao = worker
+        worker.start()
+
+    def _chi_dao_hong(self, action: str, loi: str) -> None:
+        self.btn_chi_dao.setEnabled(True)
+        self.nhan_chi_dao.setText("Chưa dùng bản chỉ đạo — áp kiểu đã chọn ở trên.")
+        TOASTS.warn(f"Không lấy được bản chỉ đạo: {loi}")
+
+    def _bo_chi_dao(self) -> None:
+        self._ban_chi_dao = None
+        self._ten_chi_dao = ""
+        self.kieu_chuyen.setEnabled(True)
+        self.btn_bo_chi_dao.setVisible(False)
+        self.nhan_chi_dao.setText("Chưa dùng bản chỉ đạo — áp kiểu đã chọn ở trên.")
+
+    def _kieu_chuyen_se_dung(self, so_anh: int):
+        """Kiểu chuyển cảnh cho lượt dựng sắp tới — một chuỗi, hoặc một danh
+        sách một-kiểu-mỗi-mối khi đang dùng bản chỉ đạo.
+
+        Trả ``None`` nghĩa là đã báo người dùng và KHÔNG dựng tiếp: bản chỉ
+        đạo lệch kịch bản thì dựng bừa là gán chuyển cảnh cho nhầm đoạn.
+        """
+        from autodub.chi_dao_hinh_anh import (
+            ChiDaoDaCu, kieu_chuyen_theo_moi_noi,
+        )
+        tay = str(self.kieu_chuyen.current_key() or "mo_chong")
+        if not self._ban_chi_dao:
+            return tay
+        try:
+            kieus, ghi_chu = kieu_chuyen_theo_moi_noi(self._ban_chi_dao, so_anh)
+        except ChiDaoDaCu as e:
+            TOASTS.warn(str(e))
+            self.log.append_log(str(e), 30)
+            return None
+        if kieus is None:
+            return tay
+        # Mọi chỗ máy tự quyết đều phải đọc được LẠI — Nhật ký chứ không phải
+        # toast ba giây, vì người dùng cần đối chiếu khi cầm video đi đăng.
+        for cau in ghi_chu:
+            self.log.append_log(cau, 30)
+            TOASTS.warn(cau)
+        return kieus
 
     def _goi_y_kich_ban(self) -> None:
         """Xin gợi ý câu dẫn cho từng cảnh, in ra Nhật ký để người dùng chép.

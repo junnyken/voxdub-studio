@@ -26,6 +26,7 @@ const { replay, remember, ghiSoDung, precheck, charge, kiemHanMucNgay } = requir
 const dauVanTay = require('../services/dau-van-tay.service')
 const kiem = require('../services/kiem-kich-ban.service')
 const chiDao = require('../services/visual-direction.service')
+const catalogChiDao = require('../services/visual-catalog.service')
 
 /**
  * Trường hồ sơ brand BẮT BUỘC phải có nội dung trước khi sinh kịch bản.
@@ -48,6 +49,10 @@ function view(doc) {
     brandProfileId: String(doc.brandProfileId),
     status: doc.status,
     originalityCheckVersion: doc.originalityCheckVersion,
+    // Chỉ CÓ hay KHÔNG, không kèm nội dung: danh sách kịch bản cần đủ để
+    // dựng ô chọn "dựng video theo bản chỉ đạo" (I5), còn nội dung bản chỉ
+    // đạo thì hỏi riêng ở `/:id/visual-direction`.
+    coChiDao: Boolean(doc.visualDirection),
     beats: (doc.beats || []).map((b) => ({
       beatType: b.beatType,
       voiceoverTextVi: b.voiceoverTextVi,
@@ -779,9 +784,17 @@ function xemChiDao(doc) {
     doan: (ban.doan || []).map((d) => ({
       thuTu: d.thuTu,
       lyDo: d.lyDo,
-      chon: (d.chon || []).map((c) => ({
-        nhom: c.nhom, ma: c.ma, nhan: c.nhan, laGoiY: c.laGoiY,
-      })),
+      // `dung` tính lúc ĐỌC từ catalog, không lấy từ thứ đã lưu (I5): bản chỉ
+      // đạo lưu MÃ, còn cách dựng là chuyện của catalog. Nhờ vậy sửa ánh xạ
+      // một chỗ là mọi bản cũ khớp theo ngay, và app không cần — không được —
+      // giữ một bảng mã→tham số thứ hai.
+      chon: (d.chon || []).map((c) => {
+        const dung = catalogChiDao.cachDungCua(c.nhom, c.ma)
+        return {
+          nhom: c.nhom, ma: c.ma, nhan: c.nhan, laGoiY: c.laGoiY,
+          ...(dung ? { dung } : {}),
+        }
+      }),
     })),
   }
 }

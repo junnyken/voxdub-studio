@@ -4,9 +4,10 @@
 - **Phụ thuộc:** I2 (catalog v2), I3 (`scene_director` + `visual-direction.service`)
 - **Tác giả:** Claude (viết từ đọc mã thật, không từ tài liệu)
 - **Ngày:** 2026-09-23
-- **Trạng thái:** ĐANG LÀM — chủ dự án chốt **Hướng A** (riêng từng mối
-  nối) ngày 23/09/2026. Gộp thêm lỗi nhãn «Thử ngay» không làm mới danh
-  sách nhà cung cấp (xem §10).
+- **Trạng thái (23/09/2026):** **§4 mục 1–3, 5–7 ĐẠT** — khâu dựng nhận
+  kiểu riêng từng mối nối, trang «Ảnh sản phẩm» đọc được Bản chỉ đạo,
+  người dùng ghi đè được và thấy rõ đang theo cái nào. **Còn treo: mục 4**
+  (bấm tay trên Windows) và §10 (nhãn «Thử ngay»).
 
 ---
 
@@ -179,3 +180,44 @@ kết quả trong state riêng, **không báo cho danh sách cha nạp lại**; 
 **Sửa:** truyền `onDone` để nút báo ngược lên, danh sách nạp lại sau mỗi lượt
 thử. Cần một test chặn hồi quy — nút đổi trạng thái lưu trữ mà không làm mới
 chỗ hiển thị trạng thái đó là cái bẫy đọc-sai kinh điển.
+
+
+---
+
+## 11. Chốt phát sinh khi làm — ghi lại vì spec không nói
+
+### (a) Đoạn ↔ mối nối: kiểu của đoạn i là kiểu đi VÀO đoạn i
+
+Bản chỉ đạo cho một kiểu mỗi ĐOẠN, mối nối nằm GIỮA hai ảnh: n ảnh chỉ có
+n-1 mối. Không tài liệu nào của I2/I3 nói chiều nào. Chốt:
+
+> mối nối thứ j (nối ảnh j và j+1) lấy kiểu của **đoạn j+1**;
+> kiểu của **đoạn đầu không dùng** — không có gì đứng trước nó.
+
+Căn cứ: `mo_vong` ánh xạ sang `circleopen` — vòng tròn MỞ RA để lộ cảnh kế,
+tức hiệu ứng *giới thiệu* một cảnh. `fade_nhe`/`crossfade_ngan` đối xứng nên
+không phân biệt được chiều; `mo_vong` là mã duy nhất phân biệt được, nên nó
+là căn cứ. Chốt ở `autodub/chi_dao_hinh_anh.py`, có test canh
+(`test_kieu_cua_doan_la_kieu_DI_VAO_doan_do`, đảo chiều là 7 test đỏ).
+
+### (b) Tham số dựng tính lúc ĐỌC, không lưu vào bản chỉ đạo
+
+Bản chỉ đạo lưu `{nhom, ma, nhan, laGoiY}` — không có tham số dựng. Thay vì
+thêm trường vào dữ liệu đã lưu, `xemChiDao` gọi `catalogChiDao.cachDungCua()`
+lúc trả về. Đổi ánh xạ một chỗ là mọi bản cũ khớp theo ngay, không phải di
+trú, và app không bao giờ cần giữ bảng mã→tham số thứ hai (rào chắn 1).
+
+### (c) Lỗi timebase — cổng đo §6 bắt được, đọc lệnh thì không
+
+`concat` trả timebase 1/1000000 còn ảnh sau `fps=30` là 1/30; `xfade` từ chối
+hai đầu vào khác timebase và làm **hỏng cả lượt dựng** (ffmpeg thoát 234).
+Chỉ xảy ra khi một mối cắt thẳng đứng TRƯỚC một mối có chuyển cảnh — tức
+đúng thứ chỉ I5 mới tạo ra. Vá bằng `settb=1/30`.
+
+### (d) Lỗi CÓ SẴN phát hiện nhờ cổng đo (ngoài phạm vi I5, đã vá riêng)
+
+Ảnh PNG giải mã ở 25 fps mặc định nên `-t` chỉ cắt theo mốc 0,04s. Thời lượng
+rơi đúng giữa hai mốc bị làm tròn LÊN ở mọi ảnh và `concat` cộng dồn: 3 ảnh ×
+1,5s ra 4,600s thay vì 4,500s. Hai trong sáu giá trị của ô chọn người dùng
+dính bẫy (1,5 và 2,5), mà **2,5 là mặc định**. Vá bằng `-framerate 30`, commit
+riêng `5f12b09` để rollback được độc lập.

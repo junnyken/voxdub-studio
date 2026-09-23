@@ -19638,3 +19638,76 @@ là kịch bản dài (H3), không phải thị giác.
 phải khoá đang cắm. Một cú bấm là đóng được.
 
 **Chi phí phép đo:** 4 lượt gọi mô hình thật.
+
+---
+
+## I5 — «Dựng video» đọc Bản chỉ đạo hình ảnh (23/09/2026)
+
+Hướng A (chuyển cảnh riêng từng mối nối), chủ dự án chốt.
+
+### 1. Cổng đo §6 — ffmpeg thật, đo lại bằng ffprobe
+
+Sáu hình dạng trộn kiểu bắt buộc, cộng phép kiểm lệch-không-cộng-dồn ở n =
+3/5/9. Ngưỡng: `LECH_THOI_LUONG_TOI_DA_S = 2/30`.
+
+| Hình dạng | Kết quả |
+|---|---|
+| toàn `cat_thang` · toàn `fade_nhe` · xen kẽ · cắt ở mối ĐẦU · cắt ở mối CUỐI · ba kiểu liền nhau | **đạt cả sáu** |
+
+`tests/test_h4c1_thoi_luong.py`: **23 passed** (17 cũ + 6 của I5).
+
+### 2. Cổng đo tìm ra thứ ĐỌC LỆNH không thấy được
+
+**(a) Lỗi do I5 tạo ra.** `concat` trả timebase 1/1000000, ảnh sau `fps=30`
+là 1/30, `xfade` từ chối hai đầu vào khác timebase → **hỏng cả lượt dựng**,
+ffmpeg thoát 234. Chỉ xảy ra khi một mối cắt thẳng đứng TRƯỚC một mối có
+chuyển cảnh. Vá `settb=1/30`.
+
+**(b) Lỗi CÓ SẴN, không do I5.** Ảnh PNG giải mã ở 25 fps mặc định nên `-t`
+chỉ cắt theo mốc 1/25 = 0,04s:
+
+| Thời lượng/ảnh (×3) | Trước vá | Sau vá `-framerate 30` |
+|---|---|---|
+| 1,5s | 4,600s (cần 4,500) | **4,500s** |
+| 2,5s | 7,600s (cần 7,500) | **7,500s** |
+| 2,0 / 3,0 / 4,0 / 6,0s | đúng sẵn | đúng |
+
+`GIAY_CHON_DUOC` có sáu giá trị, **hai dính bẫy (1,5 và 2,5) và 2,5 là mặc
+định**. Đường D1 KHÔNG bị: thời lượng lấy từ giọng đọc thật nên lẻ, sai số
+triệt tiêu — đo 3/5/8 cảnh với thời lượng ngẫu nhiên: lệch ≤ 0,0153s.
+Commit riêng `5f12b09`.
+
+### 3. Phép ánh xạ đoạn → mối nối
+
+`tests/test_i5_chi_dao_sang_chuyen_canh.py`: **12 passed**. Chứng minh đỏ
+bằng ba phép tiêm lỗi:
+
+| Tiêm | Đỏ |
+|---|---|
+| đảo chiều đoạn↔mối nối (dùng «ra khỏi đoạn») | 7 đỏ |
+| bỏ câu giải thích khi đoạn bỏ trống | 3 đỏ |
+| bỏ chặn bản chỉ đạo đã cũ | 2 đỏ |
+
+### 4. Phần nối giao diện
+
+`tests/test_product_scene_page.py`: **54 passed** (46 cũ + 8 của I5). Chứng
+minh đỏ bằng bốn phép tiêm:
+
+| Tiêm | Đỏ |
+|---|---|
+| bỏ qua bản chỉ đạo, luôn dùng ô chọn tay | 4 đỏ |
+| bản đã cũ vẫn dựng tiếp | 1 đỏ |
+| không khoá ô chọn tay khi đang theo bản chỉ đạo | 1 đỏ |
+| không ghi câu tự-quyết vào Nhật ký | 2 đỏ |
+
+### 5. Máy chủ
+
+`cachDungCua()` đối chiếu đủ catalog: **7 mục `supported`** trả đúng tham số,
+**18 mục `advisory_only`** trả `null`, mã không tồn tại trả `null`.
+`control_server`: **794 pass, 1 skip** — không vỡ gì.
+
+### 6. Còn treo
+
+Mục 4 của §8 (một lượt **bấm tay trên Windows**: chọn kịch bản → tải bản chỉ
+đạo → dựng → xem video ra đúng chuyển cảnh) — không tự động hoá được ở đây.
+Và §10 (nhãn «Thử ngay» không làm mới danh sách) chưa làm.

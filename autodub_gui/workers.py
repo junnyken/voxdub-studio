@@ -1639,7 +1639,11 @@ class ProductVideoWorker(QThread):
     canh_bao = Signal(str)  # các cảnh chưa liền mạch — KHÔNG chặn ghép
 
     def __init__(self, anh, duong_ra: str, giay_moi_anh: float = 2.5,
-                 kieu_chuyen: str = "mo_chong", parent=None):
+                 kieu_chuyen="mo_chong", parent=None):
+        # `kieu_chuyen` nhận cả chuỗi (một kiểu cho cả video) lẫn danh sách
+        # một-kiểu-mỗi-mối-nối (I5, khi dựng theo Bản chỉ đạo hình ảnh).
+        # `product_video._chuan_hoa_kieu` kiểm độ dài và mã, nên ở đây chỉ
+        # chuyển tiếp — thêm một lớp kiểm nữa là thêm một chỗ để lệch nhau.
         super().__init__(parent)
         self._anh = list(anh)
         self._duong_ra = duong_ra

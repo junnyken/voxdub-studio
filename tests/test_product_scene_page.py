@@ -695,3 +695,93 @@ def test_canh_bao_dung_thu_vao_NHAT_KY_chu_khong_chi_toast(page, monkeypatch):
 
     assert "đừng đăng bán" in page.log.toPlainText()
     assert _WorkerGhiLai.nhan, "cảnh báo không được biến thành chặn"
+
+
+# -- I5: dựng theo Bản chỉ đạo hình ảnh -------------------------------------
+#
+# Trọng tâm: trang phải nói ra MỌI chỗ nó tự quyết, và phải TỪ CHỐI dựng khi
+# bản chỉ đạo không còn khớp kịch bản. Dựng bừa bằng một bản cũ là gán chuyển
+# cảnh cho nhầm đoạn — hỏng im lặng, người dùng không có cách nào nhận ra.
+
+def _ban_chi_dao(kieu_tung_doan, **them):
+    return {
+        "catalogVersion": 2, "laCu": False,
+        "doan": [
+            {"thuTu": i + 1, "lyDo": "vì vậy", "chon": [] if k is None else [{
+                "nhom": "transition", "ma": f"ma{i}", "nhan": f"ma{i}",
+                "laGoiY": False,
+                "dung": {"implementation": "product_video.ghep_anh_nguoi_dung",
+                         "parameters": {"kieu_chuyen": k}},
+            }]}
+            for i, k in enumerate(kieu_tung_doan)
+        ],
+        **them,
+    }
+
+
+def test_chua_dung_chi_dao_thi_van_ap_MOT_kieu_nhu_cu(page):
+    assert page._ban_chi_dao is None
+    ra = page._kieu_chuyen_se_dung(4)
+    assert isinstance(ra, str)
+    assert ra == str(page.kieu_chuyen.current_key() or "mo_chong")
+
+
+def test_dung_chi_dao_thi_tra_MOT_KIEU_MOI_MOI_NOI(page):
+    page._ban_chi_dao = _ban_chi_dao(["khong", "tan", "mo_vong", "truot_len"])
+    ra = page._kieu_chuyen_se_dung(4)          # 4 ảnh = 3 mối nối
+    assert ra == ["tan", "mo_vong", "truot_len"]
+
+
+def test_ban_chi_dao_da_CU_thi_TU_CHOI_dung_chu_khong_dung_bua(page):
+    page._ban_chi_dao = _ban_chi_dao(
+        ["khong", "tan"], laCu=True, kichBanDaDoi=True)
+    assert page._kieu_chuyen_se_dung(3) is None, (
+        "bản chỉ đạo lệch kịch bản mà vẫn trả kiểu = gán nhầm đoạn")
+
+
+def test_so_anh_lech_so_doan_thi_GHI_VAO_NHAT_KY(page):
+    """Toast biến mất sau ba giây; người dùng cần đọc lại được câu này khi
+    cầm video đi đăng."""
+    page._ban_chi_dao = _ban_chi_dao(["khong", "tan"])   # 2 đoạn
+    truoc = page.log.toPlainText()
+    ra = page._kieu_chuyen_se_dung(5)                    # 5 ảnh
+    assert ra == ["tan", "tan", "tan", "tan"]
+    them = page.log.toPlainText()[len(truoc):]
+    assert "5 ảnh" in them and "2 đoạn" in them, them
+
+
+def test_doan_bo_trong_cung_phai_duoc_noi_ra(page):
+    page._ban_chi_dao = _ban_chi_dao(["khong", None, "tan"])
+    truoc = page.log.toPlainText()
+    ra = page._kieu_chuyen_se_dung(3)
+    assert ra == ["mo_chong", "tan"]
+    assert "Đoạn 2" in page.log.toPlainText()[len(truoc):]
+
+
+def test_bo_dung_chi_dao_thi_tra_lai_quyen_chon_tay(page):
+    page._ban_chi_dao = _ban_chi_dao(["khong", "tan"])
+    page.kieu_chuyen.setEnabled(False)
+    page.btn_bo_chi_dao.setVisible(True)
+
+    page._bo_chi_dao()
+
+    assert page._ban_chi_dao is None
+    assert page.kieu_chuyen.isEnabled(), "ô chọn tay phải mở lại"
+    assert not page.btn_bo_chi_dao.isVisible()
+    assert isinstance(page._kieu_chuyen_se_dung(3), str)
+
+
+def test_nhan_chi_dao_noi_ro_dang_dung_cai_nao(page):
+    """Guardrail 5 của I5: người dùng phải THẤY mình đang theo cái nào."""
+    page._ten_chi_dao = "Kem chống nắng"
+    page._chi_dao_xong("doc_chi_dao", _ban_chi_dao(["khong", "tan", "mo_vong"]))
+    chu = page.nhan_chi_dao.text()
+    assert "Kem chống nắng" in chu and "3 đoạn" in chu, chu
+    assert not page.kieu_chuyen.isEnabled(), (
+        "đang theo bản chỉ đạo mà ô chọn tay vẫn bật = người dùng tưởng nó có tác dụng")
+
+
+def test_kich_ban_chua_co_ban_chi_dao_thi_noi_ro_chu_khong_im(page):
+    page._chi_dao_xong("doc_chi_dao", None)
+    assert page._ban_chi_dao is None
+    assert "chưa có bản chỉ đạo" in page.nhan_chi_dao.text().lower()
