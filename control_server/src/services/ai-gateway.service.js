@@ -214,10 +214,60 @@ async function callOpenAiCompat(provider, { system, user, schema, images, maxRet
     `Không gọi được ${provider.name} sau ${maxRetries} lần — ${lastError}`)
 }
 
+/**
+ * Lý do thật khi nhà cung cấp trả HTTP 200 mà kèm lỗi trong THÂN.
+ *
+ * Vì sao cần: phép kiểm mã trạng thái ở trên chỉ bắt 4xx. Nhiều cổng trả
+ * **200** rồi nhét lỗi vào thân theo khuôn riêng của họ — và lúc đó
+ * `readOpenAiReply` chỉ thấy `content` rỗng, nên báo "trả về nội dung rỗng":
+ * một câu KHÔNG nói gì về việc phải làm.
+ *
+ * Đo thật 24/09/2026 với GuRouter: cổng trả 200 + `choices: null` +
+ * `base_resp.status_msg = "Token Plan usage limit reached: Upgrade your Token
+ * Plan or purchase Credits"`. Người vận hành chỉ cần nạp tiền, nhưng thông
+ * báo của ta khiến việc đó trông như một lỗi mã. Mất hai lượt đo mới ra.
+ *
+ * `base_resp.status_code === 0` là THÀNH CÔNG theo quy ước MiniMax — chỉ coi
+ * là lỗi khi nó khác 0.
+ */
+function lyDoTuThanLoi(data) {
+  if (!data || typeof data !== 'object') return ''
+  const br = data.base_resp
+  if (br && br.status_code) {
+    return `${br.status_msg || 'nhà cung cấp báo lỗi'} (mã ${br.status_code})`
+  }
+  if (data.error) {
+    return String(data.error.message || JSON.stringify(data.error)).slice(0, 300)
+  }
+  if (typeof data.message === 'string' && data.message.trim()) {
+    return data.message.slice(0, 300)
+  }
+  return ''
+}
+
 function readOpenAiReply(data, provider) {
   const choice = data && data.choices && data.choices[0]
   const content = choice && choice.message && choice.message.content
   if (!content || !String(content).trim()) {
+    // Hỏi nhà cung cấp TRƯỚC khi tự kết luận "rỗng": họ thường đã nói rõ lý
+    // do, và ném nó đi là bắt người vận hành tự đoán. Ném `PROVIDER_REJECTED`
+    // chứ không `EMPTY_RESPONSE`: lỗi loại này thử lại cũng vậy, phải rơi
+    // xuống nơi gọi sau.
+    const vi_sao = lyDoTuThanLoi(data)
+    if (vi_sao) {
+      throw new AiError('PROVIDER_REJECTED', `${provider.name}: ${vi_sao}`)
+    }
+    // Model suy luận tiêu hết token đầu ra cho phần nghĩ, để `content` rỗng
+    // và đặt chữ ở `reasoning_content`. Nói ra thì người vận hành biết ngay
+    // phải đổi model hay nâng trần, thay vì đoán.
+    const m = (choice && choice.message) || {}
+    const noi_khac = ['reasoning_content', 'reasoning', 'thinking']
+      .find((k) => m[k] && String(m[k]).trim())
+    if (noi_khac) {
+      throw new AiError('EMPTY_RESPONSE',
+        `${provider.name} trả lời ở "${noi_khac}" chứ không ở "content" — `
+        + 'đây là model suy luận, đổi sang model thường hoặc tắt suy luận')
+    }
     throw new AiError('EMPTY_RESPONSE', `${provider.name} trả về nội dung rỗng`)
   }
   if (choice.finish_reason === 'length') {
