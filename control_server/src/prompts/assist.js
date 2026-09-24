@@ -791,6 +791,16 @@ const TASKS = {
       'được. Hai cảnh liền nhau luôn có một kiểu chuyển nào đó, nên hãy chọn',
       'kiểu hợp với đoạn thay vì bỏ trống — bỏ trống không làm video mượt hơn,',
       'nó chỉ khiến người dựng phải tự đoán.',
+      '(6) Mỗi đoạn có thể kèm THỜI LƯỢNG (giây) và một câu về NHỊP. Dùng',
+      'chúng, đừng bỏ qua:',
+      '- đoạn NGẮN (dưới ~3 giây): chuyển cảnh mềm chiếm một phần đáng kể của',
+      'chính đoạn đó, nên nghiêng về "cat_thang" và khung hình đơn giản, một',
+      'ý duy nhất;',
+      '- đoạn DÀI (trên ~6 giây): có chỗ cho chuyển mềm và bố cục rộng hơn;',
+      '- câu nhịp nói "cắt nhanh", "dồn dập" thì đừng chọn chuyển mềm kéo dài,',
+      'dù đoạn có dài.',
+      'Đoạn KHÔNG kèm thời lượng thì chọn theo vai trò và lời đọc như thường —',
+      'đừng suy ra thời lượng từ độ dài câu chữ.',
       'Danh sách có hai loại mã, và bạn phải hiểu đúng khác biệt:',
       '- "máy dựng được": khâu ghép hình sẽ thực hiện được;',
       '- "gợi ý cho người": chỉ là lời khuyên khi người dùng đi chọn hoặc',
@@ -1040,13 +1050,25 @@ function sceneDirectorOutputSchema() {
  * Hết mức hẹp nhất mà vẫn không vừa thì **giữ nguyên đủ số dòng** và để lời
  * nhắc dài hơn trần: dài hơn là tốn thêm token, mất đoạn là hỏng cả lượt.
  */
+/** Mức ngân sách chữ cho MỘT đoạn của bản chỉ đạo: `[lời đọc, mô tả hình]`.
+ * Thử từ rộng tới hẹp. Thời lượng và nhịp KHÔNG nằm trong ngân sách này —
+ * xem chú thích trong `dungDongDoanChiDao`. */
 function dungDongDoanChiDao(beats, conLai) {
   let ra = ''
   for (const [loi, hinh] of NGAN_SACH_DOAN_CHI_DAO) {
     ra = beats.map((b, i) => [
       `${i + 1}. [${b?.beatType || 'unknown'}]`,
+      // I7 §A1 — thời lượng đặt NGAY SAU số thứ tự và KHÔNG chịu ngân sách,
+      // cùng lý do với `brand_script_rewrite`: khối mô tả bị cắt dần khi
+      // chạm trần, còn con số này thì không được phép mất. Nó là thứ duy
+      // nhất phân biệt đoạn 2 giây với đoạn 8 giây — mất nó là quay lại
+      // đúng tình trạng chọn bố cục mù.
+      Number.isFinite(b?.giay) && b.giay > 0 ? `${b.giay.toFixed(1)} giây` : '',
       b?.loiDoc ? `lời: ${cat(b.loiDoc, loi)}` : '',
       hinh && b?.visualBrief ? `hình đã tả: ${cat(b.visualBrief, hinh)}` : '',
+      // Nhịp chịu CÙNG bậc ngân sách với mô tả hình: nó là gợi ý, còn thời
+      // lượng là sự thật đo được.
+      hinh && b?.nhip ? `nhịp nguồn: ${cat(b.nhip, Math.min(hinh, 120))}` : '',
     ].filter(Boolean).join(' | ')).join('\n')
     if (ra.length <= conLai) break
   }

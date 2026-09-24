@@ -49,7 +49,36 @@ function bamKichBan(beats) {
  * Dữ liệu gửi cho mô hình. Cố ý KHÔNG gửi `captionSuggestionVi`: caption là
  * việc của H3, gửi thêm chỉ tốn token mà không đổi được chỉ đạo hình.
  */
-function dungInput(kichBan, brand) {
+/**
+ * Thời lượng từng đoạn, lấy từ Blueprint gốc — mini-spec I7 §A1.
+ *
+ * Vì sao phải lần về Blueprint: `BrandScript.beats` **không lưu thời lượng**.
+ * Nguồn duy nhất là `FlowBlueprint.beats[i].startS/endS` của video tham khảo.
+ *
+ * Ghép theo VỊ TRÍ là hợp lệ vì `parseBrandScriptResult` ép cứng
+ * `doan.length === beatsNguon.length` — kịch bản không thể có số đoạn khác
+ * Blueprint sinh ra nó.
+ *
+ * NHƯNG Blueprint có thể được sinh lại sau khi kịch bản đã tạo. Lệch số đoạn
+ * ⇒ **bỏ trống cả lượt**, không ghép phần nào: gán thời lượng của đoạn khác
+ * cho một đoạn là tệ hơn hẳn không gán gì — mô hình sẽ chọn bố cục tự tin
+ * trên một con số sai, và không ai nhìn ra.
+ */
+function giayTungDoan(kichBan, blueprint) {
+  const doan = (kichBan && kichBan.beats) || []
+  const nguon = (blueprint && blueprint.beats) || []
+  if (!nguon.length || nguon.length !== doan.length) return []
+  return nguon.map((b) => {
+    const a = Number(b?.startS)
+    const z = Number(b?.endS)
+    if (!Number.isFinite(a) || !Number.isFinite(z) || z <= a) return null
+    return Math.round((z - a) * 10) / 10
+  })
+}
+
+function dungInput(kichBan, brand, blueprint) {
+  const giay = giayTungDoan(kichBan, blueprint)
+  const nguon = (blueprint && blueprint.beats) || []
   return {
     catalogVersion: catalog.docCatalog().catalog_version,
     brand: {
@@ -67,10 +96,17 @@ function dungInput(kichBan, brand) {
             (c) => ({ nhom: c.nhom, ma: c.ma }))
         : [],
     },
-    beats: (kichBan?.beats || []).map((b) => ({
+    beats: (kichBan?.beats || []).map((b, i) => ({
       beatType: b?.beatType || 'unknown',
       loiDoc: b?.voiceoverTextVi || '',
       visualBrief: b?.visualBriefVi || '',
+      // I7 §A1 — `null` khi không lần được về Blueprint. Bên dựng lời nhắc
+      // BỎ HẲN dòng đó thay vì ghi 0: "0 giây" là một con số SAI, còn
+      // "không có" là một sự thật.
+      giay: giay.length ? giay[i] : null,
+      nhip: giay.length
+        ? String(nguon[i]?.pacingNoteVi || '').trim()
+        : '',
     })),
   }
 }
@@ -291,6 +327,7 @@ function coSuaTay(ban) {
 
 module.exports = {
   MA_LOI_SAI_TU_DIEN,
+  giayTungDoan,
   MA_LOI_SUA_TAY,
   KHOA_THOI_GIAN,
   bamKichBan,

@@ -49,7 +49,12 @@ class _DongDoan(QFrame):
         lay.setContentsMargins(tokens.SP_3, tokens.SP_3, tokens.SP_3, tokens.SP_3)
         lay.setSpacing(tokens.SP_1)
 
-        tieu_de = QLabel(f"Đoạn {doan.get('thuTu')}")
+        # I7 §A3 — thời lượng đoạn. Không có thì BỎ HẲN, không in "0 giây":
+        # người sửa tay chọn chuyển cảnh dựa vào con số này, và một con số
+        # sai còn tệ hơn không có con số nào.
+        giay = doan.get("giay")
+        dai = f" · {giay:.1f} giây" if isinstance(giay, (int, float)) else ""
+        tieu_de = QLabel(f"Đoạn {doan.get('thuTu')}{dai}")
         tieu_de.setObjectName("sectionTitle")
         lay.addWidget(tieu_de)
 

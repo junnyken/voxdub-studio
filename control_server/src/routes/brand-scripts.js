@@ -605,7 +605,7 @@ module.exports = async function brandScriptRoutes(fastify) {
         code: 'CHUA_CO_CHI_DAO',
         message: 'Kịch bản này chưa có bản chỉ đạo hình ảnh.' })
     }
-    return xemChiDao(doc, await nepMacDinhCua(doc))
+    return xemChiDao(doc, await nepMacDinhCua(doc), await giayChoGiaoDien(doc))
   })
 
   /**
@@ -646,7 +646,7 @@ module.exports = async function brandScriptRoutes(fastify) {
     }
     doc.visualDirection = soi.ban
     await doc.save()
-    return xemChiDao(doc, await nepMacDinhCua(doc))
+    return xemChiDao(doc, await nepMacDinhCua(doc), await giayChoGiaoDien(doc))
   })
 
   /**
@@ -719,6 +719,12 @@ module.exports = async function brandScriptRoutes(fastify) {
         message: 'Hồ sơ brand gốc đã bị xoá — không lấy chỉ đạo hình ảnh được.' })
     }
 
+    // I7 §A1 — thời lượng từng đoạn chỉ có ở Blueprint gốc; kịch bản brand
+    // KHÔNG lưu nó. Thiếu/lệch thì `dungInput` tự bỏ trống, nên ở đây không
+    // cần chặn: mất thời lượng làm chỉ đạo kém đi, không làm nó sai.
+    const blueprint = await timCuaThietBi(
+      FlowBlueprint, doc.flowBlueprintId, device._id)
+
     const spec = assistPrompts.getTask('scene_director')
     const cfg = await config.getMany(['credit.enabled', spec.costKey])
     const cost = cfg['credit.enabled'] ? (cfg[spec.costKey] || 0) : 0
@@ -744,7 +750,7 @@ module.exports = async function brandScriptRoutes(fastify) {
     try {
       result = await gateway.assist({
         task: 'scene_director',
-        input: chiDao.dungInput(doc, brand),
+        input: chiDao.dungInput(doc, brand, blueprint),
         images: [],
       })
     } catch (err) {
@@ -806,7 +812,7 @@ module.exports = async function brandScriptRoutes(fastify) {
     })
 
     const response = {
-      ...xemChiDao(doc, await nepMacDinhCua(doc)),
+      ...xemChiDao(doc, await nepMacDinhCua(doc), await giayChoGiaoDien(doc)),
       jobId,
       creditCharged: paid.charged,
       balanceAfter: paid.balanceAfter,
@@ -856,6 +862,22 @@ module.exports = async function brandScriptRoutes(fastify) {
  * Preset dựng bằng catalog CŨ thì bỏ qua — mã có thể đã bị gỡ, và rơi về
  * một mã không còn tồn tại thì tệ hơn rơi về mặc định.
  */
+/**
+ * Thời lượng từng đoạn cho GIAO DIỆN — mini-spec I7 §A3.
+ *
+ * Người sửa tay bản chỉ đạo (I4) đang chọn chuyển cảnh mà không biết đoạn
+ * dài bao nhiêu — mù đúng như mô hình trước §A1. Một lượt đọc Blueprint là
+ * cái giá rẻ để họ thôi phải đoán.
+ *
+ * Bỏ trống khi Blueprint mất hoặc lệch số đoạn: cùng luật với `giayTungDoan`.
+ */
+async function giayChoGiaoDien(doc) {
+  if (!doc.flowBlueprintId) return []
+  const bp = await FlowBlueprint.findById(doc.flowBlueprintId)
+    .select('beats.startS beats.endS').lean()
+  return chiDao.giayTungDoan(doc, bp)
+}
+
 async function nepMacDinhCua(doc) {
   if (!doc.brandProfileId) return ''
   const brand = await BrandProfile.findById(doc.brandProfileId)
@@ -872,7 +894,7 @@ async function nepMacDinhCua(doc) {
   return ''
 }
 
-function xemChiDao(doc, nepMacDinh = '') {
+function xemChiDao(doc, nepMacDinh = '', giay = []) {
   const ban = doc.visualDirection
   const tt = chiDao.trangThaiBan(ban, doc.beats)
   return {
@@ -888,9 +910,12 @@ function xemChiDao(doc, nepMacDinh = '') {
     // toàn bộ, kể cả phần họ đã tự sửa.
     coSuaTay: chiDao.coSuaTay(ban),
     ...tt,
-    doan: (ban.doan || []).map((d) => ({
+    doan: (ban.doan || []).map((d, i) => ({
       thuTu: d.thuTu,
       lyDo: d.lyDo,
+      // I7 §A3 — `null` khi không lần được về Blueprint. Giao diện bỏ hẳn
+      // chỗ hiện thay vì in "0 giây".
+      giay: Number.isFinite(giay[i]) ? giay[i] : null,
       // `dung` tính lúc ĐỌC từ catalog, không lấy từ thứ đã lưu (I5): bản chỉ
       // đạo lưu MÃ, còn cách dựng là chuyện của catalog. Nhờ vậy sửa ánh xạ
       // một chỗ là mọi bản cũ khớp theo ngay, và app không cần — không được —

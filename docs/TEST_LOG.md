@@ -19789,3 +19789,73 @@ rơi vào một mã không còn tồn tại thì tệ hơn rơi về mặc đị
 
 Một lượt **bấm tay trên Windows**: mở hộp thoại → đổi chuyển cảnh một đoạn →
 Lưu → sang «Dựng video» → dựng → xem video ra đúng thứ vừa sửa.
+
+---
+
+## I7 §A — bố cục theo nhịp (24/09/2026)
+
+### 1. Khe hở, đo được trước khi sửa
+
+`visual-direction.service.dungInput()` gửi cho `scene_director` **đúng ba
+trường mỗi đoạn**: `beatType`, `loiDoc`, `visualBrief`. Không thời lượng,
+không nhịp. Mô hình chọn chuyển cảnh mà **không phân biệt được đoạn 2 giây
+với đoạn 8 giây** — một cú chuyển mềm 0,3s ăn 15% đoạn ngắn nhưng không đáng
+kể ở đoạn dài.
+
+Thời lượng **chỉ có ở Blueprint gốc**: `BrandScript.beats` không lưu nó
+(rà `models/BrandScript.js`: không trường `startS`/`endS`/`giay` nào).
+
+### 2. Ghép theo vị trí — vì sao hợp lệ, và chốt chặn khi không
+
+`parseBrandScriptResult` ép cứng `doan.length === beatsNguon.length`
+(assist.js:1138), nên kịch bản **không thể** có số đoạn khác Blueprint sinh
+ra nó. Nhưng Blueprint **sinh lại được** sau khi kịch bản đã tạo ⇒ luật:
+lệch số đoạn thì **bỏ trống CẢ LƯỢT**, không ghép phần nào. Gán thời lượng
+của đoạn khác cho một đoạn là để mô hình chọn bố cục tự tin trên một con số
+sai — không ai nhìn ra.
+
+### 3. Ngân sách lời nhắc — trước/sau
+
+Trần 6.000. Thời lượng đặt **ngoài** bậc ngân sách (cùng lý do với
+`brand_script_rewrite`: khối mô tả bị cắt dần khi chạm trần, con số này thì
+không được phép mất). Nhịp chịu **cùng** bậc với mô tả hình.
+
+| số đoạn | trước §A | sau §A | đủ dòng đoạn | còn giữ giây |
+|---|---|---|---|---|
+| 10 | 3.279 | 4.010 | 10/10 | có |
+| 20 | 4.895 | 3.440 | 20/20 | có |
+| 30 | 4.024 | 4.330 | 30/30 | có |
+| 40 | 4.810 | 5.220 | 40/40 | **có** |
+
+*(Số không tăng đều vì bậc ngân sách cắt mô tả khi chạm trần.)*
+
+### 4. Ngưỡng — suy từ chi phí thật, không gõ đại
+
+`ghep_anh_nguoi_dung` mặc định `giay_chuyen = 0,3s`. Một chuyển mềm ăn ≥10%
+đoạn là thấy rõ ⇒ `0,3 ÷ 0,10 = 3,0s`. Nên ngưỡng "ngắn" đặt ở **~3 giây**,
+"dài" ở **~6 giây** (gấp đôi). Hai con số này **chưa qua cổng đo A/B của §6**
+— chúng là điểm xuất phát có căn cứ, không phải kết luận.
+
+### 5. Test
+
+`control_server`: **824 pass, 1 skip** (thêm 9 test cho §A).
+Python: **155 pass** trên 5 tệp liên quan (thêm 2 test cho §A3).
+
+Chứng minh đỏ bằng sáu phép tiêm:
+
+| Tiêm | Đỏ |
+|---|---|
+| lệch số đoạn vẫn ghép (bỏ chốt §2) | 1 |
+| mốc hỏng trả `0` thay vì `null` | 1 |
+| thời lượng chịu ngân sách như mô tả hình | 1 |
+| không truyền nhịp | 1 |
+| hộp thoại không hiện thời lượng | 1 |
+| hộp thoại in "0.0 giây" khi thiếu | 1 |
+
+### 6. Còn treo
+
+**Cổng đo A/B của §6 CHƯA chạy** — 3 brand × 2 video, trước/sau, chấm mù,
+trần tăng giá 15%. Chưa có nó thì chỉ chứng minh được *thông tin đã tới nơi*,
+**chưa** chứng minh *bố cục tốt lên*. Hai việc khác nhau, và spec đòi cả hai.
+
+§B (đồng nhất bối cảnh) chưa bắt đầu.

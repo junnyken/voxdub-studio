@@ -310,3 +310,34 @@ def test_I4_loi_ngay_luc_goi_cung_toi_duoc_nguoi_dung(qapp):
     hop = _hop_sua(qapp, luu=hong)
     hop._luu()
     assert "chưa mở kịch bản nào" in hop.lbl_luu.text()
+
+
+# -- 8. I7 §A3: hộp thoại hiện thời lượng đoạn -----------------------------
+#
+# Người sửa tay (I4) chọn chuyển cảnh cho từng đoạn mà KHÔNG biết đoạn dài
+# bao nhiêu — mù đúng như mô hình trước §A1. Một đoạn 2 giây và một đoạn 8
+# giây cần kiểu chuyển khác nhau, nên con số này là thứ quyết định.
+
+def test_I7_hop_thoai_hien_thoi_luong_doan(qapp):
+    from autodub_gui.ui.chi_dao_dialog import ChiDaoHinhAnhDialog
+    ban = {**BAN_MAU, "doan": [
+        {**BAN_MAU["doan"][0], "giay": 2.0},
+        {**BAN_MAU["doan"][1], "giay": 7.5},
+    ]}
+    chu = ChiDaoHinhAnhDialog(ban).chu_hien_ra()
+    assert "2.0 giây" in chu, chu
+    assert "7.5 giây" in chu, chu
+
+
+def test_I7_khong_co_thoi_luong_thi_BO_HAN_chu_khong_in_0(qapp):
+    """Blueprint mất hoặc lệch số đoạn thì máy chủ trả `giay: null`. In
+    "0.0 giây" cho ca đó là bịa một con số, và người dùng sẽ chọn cắt thẳng
+    cho một đoạn có thể dài 8 giây."""
+    from autodub_gui.ui.chi_dao_dialog import ChiDaoHinhAnhDialog
+    ban = {**BAN_MAU, "doan": [
+        {**BAN_MAU["doan"][0], "giay": None},
+        BAN_MAU["doan"][1],                      # không có khoá `giay`
+    ]}
+    chu = ChiDaoHinhAnhDialog(ban).chu_hien_ra()
+    assert "giây" not in chu, f"in thời lượng cho đoạn không có: {chu}"
+    assert "Đoạn 1" in chu and "Đoạn 2" in chu

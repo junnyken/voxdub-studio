@@ -469,7 +469,7 @@ test('mô hình viết THIẾU ĐOẠN: nói đúng thứ đo được, không h
 
 test('kịch bản DÀI vẫn đủ đoạn trong lời nhắc, và không vượt trần', () => {
   const assistPrompts = require('../src/prompts/assist')
-  const spec = assistPrompts.getTask('scene_director')
+  const spec = require('../src/prompts/assist').getTask('scene_director')
 
   // Trường hợp xấu nhất mà schema cho phép: 40 đoạn, mỗi đoạn kịch trần
   // `maxlength` của `models/BrandScript.js` (lời 1500, mô tả hình 600).
@@ -527,7 +527,7 @@ test('kịch bản ngắn thì GIỮ phần mô tả hình — không hạ mức
     beatType: 'hook', voiceoverTextVi: `Câu ${i} vừa phải`,
     visualBriefVi: 'Gian bếp buổi sáng có nắng xiên qua cửa sổ',
   }))
-  const loiNhac = assistPrompts.getTask('scene_director')
+  const loiNhac = require('../src/prompts/assist').getTask('scene_director')
     .buildUser(chiDao.dungInput({ beats }, { toneGiong: 'x' }))
   assert.ok(loiNhac.includes('hình đã tả'))
 })
@@ -847,7 +847,7 @@ test('I6: lời nhắc nói nếp là THÓI QUEN, không phải bắt buộc', a
         chon: [{ nhom: 'transition', ma: 'fade_nhe' }] } })
 
   assert.deepEqual(vao.brand.nepChiDao, [{ nhom: 'transition', ma: 'fade_nhe' }])
-  const loiNhac = assistPrompts.getTask('scene_director').buildUser(vao)
+  const loiNhac = require('../src/prompts/assist').getTask('scene_director').buildUser(vao)
   assert.match(loiNhac, /thường dùng/)
   assert.match(loiNhac, /THÓI QUEN, không phải bắt buộc/,
     'ép cứng preset thì nó vô hiệu hoá luôn việc chỉ đạo')
@@ -860,4 +860,118 @@ test('I6: preset của catalog cũ KHÔNG đi vào lời nhắc', async () => {
       chon: [{ nhom: 'transition', ma: 'fade_nhe' }] } })
   assert.deepEqual(vao.brand.nepChiDao, [],
     'nhắc mô hình dùng một mã có thể đã bị gỡ = tự làm hỏng lượt vừa trả tiền')
+})
+
+// =========================================================================
+// MINI-SPEC I7 §A — bố cục theo NHỊP
+// =========================================================================
+//
+// Trước I7, `dungInput` gửi cho `scene_director` đúng ba trường mỗi đoạn:
+// beatType, loiDoc, visualBrief. KHÔNG thời lượng, KHÔNG nhịp. Nên mô hình
+// chọn chuyển cảnh mà không phân biệt được đoạn 2 giây với đoạn 8 giây —
+// một cú chuyển mềm 0,3s ăn 15% đoạn ngắn nhưng không đáng kể ở đoạn dài.
+//
+// Thời lượng chỉ có ở Blueprint gốc; `BrandScript.beats` không lưu nó.
+
+function bpBeats(khoang) {
+  return khoang.map(([a, z], i) => ({
+    startS: a, endS: z, beatType: ['hook', 'proof', 'cta'][i % 3],
+    narrativeFunctionVi: 'vai trò mẫu',
+    pacingNoteVi: 'Cắt nhanh, mỗi câu một ý',
+  }))
+}
+
+const kbGia = (soDoan) => ({
+  beats: Array.from({ length: soDoan }, () => ({
+    beatType: 'hook', voiceoverTextVi: 'Câu mẫu.', visualBriefVi: 'Cận cảnh',
+  })),
+})
+
+test('I7: thời lượng lần đúng từ Blueprint theo VỊ TRÍ', async () => {
+  const giay = chiDao.giayTungDoan(kbGia(3), { beats: bpBeats([[0, 2], [2, 5.5], [5.5, 12]]) })
+  assert.deepEqual(giay, [2, 3.5, 6.5])
+})
+
+test('I7: KHÔNG có Blueprint thì bỏ trống, không đoán', async () => {
+  assert.deepEqual(chiDao.giayTungDoan(kbGia(3), null), [])
+  assert.deepEqual(chiDao.giayTungDoan(kbGia(3), { beats: [] }), [])
+})
+
+test('I7: Blueprint LỆCH số đoạn thì bỏ trống CẢ LƯỢT, không ghép phần nào',
+  async () => {
+    // Blueprint sinh lại sau khi kịch bản đã tạo ⇒ số đoạn khác. Ghép theo
+    // vị trí lúc này là gán thời lượng của đoạn KHÁC — mô hình sẽ chọn bố
+    // cục tự tin trên một con số sai, và không ai nhìn ra.
+    const giay = chiDao.giayTungDoan(kbGia(3), { beats: bpBeats([[0, 2], [2, 5]]) })
+    assert.deepEqual(giay, [], 'ghép nhầm còn tệ hơn không ghép')
+  })
+
+test('I7: mốc hỏng thì đoạn đó là null, các đoạn khác vẫn có', async () => {
+  const giay = chiDao.giayTungDoan(kbGia(3), {
+    beats: [{ startS: 0, endS: 2 }, { startS: 5, endS: 5 }, { startS: 5, endS: 9 }],
+  })
+  assert.deepEqual(giay, [2, null, 4], 'endS <= startS phải thành null')
+})
+
+test('I7: dungInput đưa được giây + nhịp xuống mô hình', async () => {
+  const vao = chiDao.dungInput(
+    kbGia(2), { toneGiong: 'Gần gũi', rangBuocKhongDuocNoi: [] },
+    { beats: bpBeats([[0, 2], [2, 9]]) })
+  assert.equal(vao.beats[0].giay, 2)
+  assert.equal(vao.beats[1].giay, 7)
+  assert.match(vao.beats[0].nhip, /Cắt nhanh/)
+})
+
+test('I7: không có Blueprint thì giay là null, nhip rỗng — KHÔNG phải 0',
+  async () => {
+    const vao = chiDao.dungInput(kbGia(2), {}, null)
+    assert.equal(vao.beats[0].giay, null,
+      'giay = 0 sẽ được đọc thành "đoạn dài 0 giây", một con số SAI')
+    assert.equal(vao.beats[0].nhip, '')
+  })
+
+test('I7: lời nhắc IN thời lượng, và bỏ HẲN dòng khi không có', async () => {
+  const spec = require('../src/prompts/assist').getTask('scene_director')
+  const u = spec.buildUser({
+    catalogVersion: catalog.docCatalog().catalog_version,
+    brand: { toneGiong: '', rangBuocKhongDuocNoi: [], nepChiDao: [] },
+    beats: [
+      { beatType: 'hook', giay: 2, nhip: '', loiDoc: 'A.', visualBrief: 'B' },
+      { beatType: 'cta', giay: null, nhip: '', loiDoc: 'C.', visualBrief: 'D' },
+    ],
+  })
+  const dong = u.split('\n').filter((l) => /^\d+\. \[/.test(l))
+  assert.match(dong[0], /2\.0 giây/)
+  assert.doesNotMatch(dong[1], /giây/,
+    'đoạn không có thời lượng mà vẫn in "0.0 giây" là bịa một con số')
+})
+
+test('I7: thời lượng SỐNG SÓT qua sức ép ngân sách ở 40 đoạn', async () => {
+  // Thời lượng cố ý nằm NGOÀI bậc ngân sách. Nếu nó chịu cắt như mô tả hình
+  // thì kịch bản dài quay về đúng tình trạng chọn bố cục mù.
+  const spec = require('../src/prompts/assist').getTask('scene_director')
+  const beats = Array.from({ length: 40 }, (_, i) => ({
+    beatType: 'hook', giay: 3.5,
+    nhip: 'Cắt nhanh, mỗi câu một ý, chữ hiện cùng trọng âm của câu nói',
+    loiDoc: 'Sáng nào cũng vội, bữa sáng thành ra qua loa cho xong việc.',
+    visualBrief: 'Cận cảnh nồi trên mặt bàn bếp, tay mở nắp, ánh sáng cửa sổ',
+  }))
+  const u = spec.buildUser({
+    catalogVersion: catalog.docCatalog().catalog_version,
+    brand: { toneGiong: 'Gần gũi', rangBuocKhongDuocNoi: [], nepChiDao: [] },
+    beats,
+  })
+  const dong = u.split('\n').filter((l) => /^\d+\. \[/.test(l))
+  assert.equal(dong.length, 40, 'mất đoạn')
+  assert.equal(dong.filter((l) => /3\.5 giây/.test(l)).length, 40,
+    'thời lượng bị cắt mất khi chạm trần ngân sách')
+})
+
+test('I7: lời nhắc DẠY mô hình dùng con số đó, không chỉ đưa số', async () => {
+  const sys = require('../src/prompts/assist').getTask('scene_director').system
+  assert.match(sys, /NGẮN/, 'không nói gì về đoạn ngắn')
+  assert.match(sys, /DÀI/, 'không nói gì về đoạn dài')
+  assert.match(sys, /cat_thang/, 'không chỉ ra việc phải làm với đoạn ngắn')
+  assert.match(sys, /KHÔNG kèm thời lượng/,
+    'không dặn gì cho đoạn thiếu thời lượng — mô hình sẽ tự suy từ độ dài câu')
 })
