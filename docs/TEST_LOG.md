@@ -20190,9 +20190,21 @@ dùng nó (`docker-compose.yml:14` chỉ là chú thích, và trỏ
 
 ### Kết quả thật
 
-`/health` của worker: `9b5b8ea2a98e` → **`dfe66e6b8a0b`**. Version 62 → 63,
-`lastDeployedAt` 21/09 23:31 → 24/09 16:29. Deploy được **mà không cấp một
-biến nào**.
+`/health` của worker: `9b5b8ea2a98e` → `dfe66e6b8a0b` → **`d9afde6b918e`**.
+Version 62 → 63 → 64, `lastDeployedAt` 21/09 23:31 → 24/09 16:54. Deploy được
+**mà không cấp một biến nào**. App: v110 → v111, cùng SHA.
+
+CI đã sinh lại cả hai nhánh bằng script đã sửa — `.env.example` ở gốc **0/0**,
+nên bản vá vĩnh viễn chứ không phải nhánh thử tay.
+
+`kiem_prod_theo_main.py` nay **mã thoát 0**, cả hai «ĐÚNG NHỊP»; `kiem_nhanh_deploy.py`
+cũng 0. Cổng D5 đã đỏ đúng suốt từ 21/09 và chỉ xanh khi prod thật sự lên —
+không nơi nào bị nới.
+
+**Một cổng CI khác báo xanh mà không làm gì:** `trien-khai-prod` ghi
+`::warning::Chưa cấu hình secret VIBEHOST_TOKEN — BỎ QUA bước đưa lên prod`
+rồi thoát 0. CI chưa bao giờ tự deploy — mọi lượt tới giờ đều là tay. Mục C58
+còn treo, ngoài phạm vi D6, ghi lại vì bảng job trông như prod đã tự lên.
 
 ### Chưa làm được
 

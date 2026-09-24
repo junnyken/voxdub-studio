@@ -228,16 +228,27 @@ trình. Gỡ sau khi D6 xong để trả lại phép tự tính.
 
 | Tiêu chí §5 | Kết quả |
 |---|---|
-| 1. Deploy được, không cấp biến desktop | ✅ worker: `ENV_REQUIRED` biến mất, lượt dựng chạy thẳng · app: **chưa chứng minh được**, xem dưới |
+| 1. Deploy được, không cấp biến desktop | ✅ worker · app: **chưa chứng minh được**, xem (b) |
 | 2. Thư mục build không đổi một byte | ✅ `dub-worker` cây `d447d11` trước = sau · `webapp` 240/241 blob giống hệt, tệp lệch duy nhất là `SOURCE_SHA` (đúng thiết kế) |
-| 3. `kiem-prod-theo-main` xanh | ⏳ còn lệch **1 tệp** mỗi dịch vụ — chính script sinh vừa sửa; hết sau khi CI sinh lại nhánh |
-| 4. Không nới chốt nào | ✅ `kiem_nhanh_deploy.py` xanh, D5 vẫn bắt đúng phần lệch còn lại |
-| 5. Gỡ 7 biến tạm | ❌ **không làm được qua MCP** — xem dưới |
-| 6. `pytest` + `npm test` xanh | ghi ở `docs/TEST_LOG.md` |
+| 3. `kiem-prod-theo-main` xanh | ✅ mã thoát 0, cả hai «ĐÚNG NHỊP» ở `d9afde6b918e` |
+| 4. Không nới chốt nào | ✅ `kiem_nhanh_deploy.py` mã thoát 0; D5 vẫn bắt đúng lúc còn lệch, rồi tự xanh khi deploy xong |
+| 5. Gỡ 7 biến tạm | ❌ **không làm được qua MCP** — xem (a) |
+| 6. `pytest` + `npm test` xanh | ✅ 3.241 / 848 / 79, và CI xanh toàn bộ trừ D5 (D5 đỏ lúc đó vì prod chưa deploy — nay đã xanh) |
 
-**Bằng chứng chính:** `/health` của worker đi từ `9b5b8ea2a98e` (21/09) sang
-`dfe66e6b8a0b`, version 62 → 63. D5 trước đó báo worker tụt **4 tệp** dưới
-`autodub/`; sau lượt deploy chỉ còn 1 tệp, và tệp đó là script sinh.
+**Bằng chứng chính:** worker kẹt từ 21/09 nay deploy được mà không cấp biến
+nào. `/health` đi `9b5b8ea2a98e` → `dfe66e6b8a0b` → `d9afde6b918e`, version
+62 → 63 → 64. App: v110 → v111, cùng SHA `d9afde6b918e`. D5 trước đó báo
+worker tụt **4 tệp** dưới `autodub/`; sau lượt deploy đầu còn 1 tệp (chính
+script sinh), sau lượt deploy thứ hai **hết hẳn**.
+
+CI đã sinh lại cả hai nhánh bằng script đã sửa — `.env.example` ở gốc:
+**0/0**. Nên bản vá là vĩnh viễn, không phải nhánh thử tay.
+
+**Một cổng CI khác đang báo xanh mà không làm gì:** `trien-khai-prod` ghi
+`::warning::Chưa cấu hình secret VIBEHOST_TOKEN — BỎ QUA bước đưa lên prod`
+rồi thoát 0. Tức CI **chưa bao giờ** tự deploy; mọi lượt tới giờ đều là tay.
+Đây là mục C58 còn treo, không thuộc D6, nhưng ghi ở đây vì nó làm người đọc
+bảng job tưởng prod đã tự lên.
 
 ### Hai việc CHƯA xong
 
