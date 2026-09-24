@@ -82,6 +82,33 @@ jobs:
         working-directory: control_server
         run: npm test
 
+  # Bộ test giao diện web — 76 test Vitest + React Testing Library.
+  #
+  # Vì sao thêm (24/09/2026): rà `.github/workflows/` ra **0 lần** nhắc tới
+  # `website/`. Bộ này tồn tại từ lâu, có `npm test` hẳn hoi, và CHƯA BAO GIỜ
+  # chạy trong CI — nó chỉ xanh khi có người nhớ chạy tay. Hai test thêm ngày
+  # 23/09 cho lỗi nhãn «Thử ngay» lọt vào `main` mà không cổng nào soi.
+  #
+  # Một bộ test không ai chạy thì không phải cổng, nó là tài liệu.
+  website-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: website/package-lock.json
+
+      - name: Cài dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Chạy test
+        working-directory: website
+        run: npm test
+
   # Mini-spec V90 — chốt chặn cho bẫy đã sập HAI lần: `voxdub-app` và
   # `voxdub-dub-worker` deploy từ nhánh sinh tự động, không phải `main`.
   # Quên chạy script sinh nhánh thì VAYS build lại mã cũ mà mọi chặng vẫn
