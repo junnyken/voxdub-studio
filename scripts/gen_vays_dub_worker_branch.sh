@@ -56,6 +56,30 @@ git worktree add -B "$BRANCH" "$WORKTREE_DIR" "$GOC_SINH" >/dev/null
 
 cd "$WORKTREE_DIR"
 
+# D6 — GỠ `.env.example` CỦA APP DESKTOP KHỎI GỐC NHÁNH.
+#
+# Nhánh này là worktree từ `main` nên nó mang CẢ repo, kể cả `.env.example` ở
+# gốc — tệp của app desktop, không liên quan gì tới thứ được dựng ở đây.
+#
+# Bộ quét cấu hình của nền tảng đọc tệp Ở GỐC NHÁNH (không đọc build context)
+# rồi CHẶN mọi lượt deploy bằng `ENV_REQUIRED`, đòi cấp 15 biến. Đo 24/09:
+# nó đòi đúng những biến mà nó đọc ra rỗng — 11 biến khai `VAR=` cộng 4 biến
+# màu khai `VAR=#FFFFFF` (bộ đọc của nó coi `#` là mở chú thích). 11+4=15, và
+# trong 65 biến của tệp không biến nào khác có hai tính chất đó.
+#
+# KHÔNG sửa `.env.example` trên `main` để né: đã đo `python-dotenv` (thứ
+# autodub/config.py dùng) và `set -a; . .env` đều trả đúng `#FFFFFF`, nên tệp
+# trên main không hỏng — chỉ bộ đọc của nền tảng hiểu khác.
+#
+# Cấp bừa 15 biến cho worker là KHÔNG được: 5 biến `TRANSLATE_*` chèn thẳng
+# một dòng bịa vào mọi lời nhắc dịch, còn `VOXDUB_API_URL` khác rỗng lật
+# worker sang chế độ SaaS (cổng duy nhất phân biệt hai chế độ).
+#
+# Chỉ gỡ tệp Ở GỐC. `control_server/.env.example` và `website/.env.example`
+# giữ nguyên — đo 24/09 xác nhận nền tảng không đọc chúng (nếu có thì nó đã
+# đòi 22 biến của control_server chứ không đòi 15 biến desktop).
+rm -f .env.example
+
 SRC="control_server/worker-dub"
 TARGET="dub-worker"
 
