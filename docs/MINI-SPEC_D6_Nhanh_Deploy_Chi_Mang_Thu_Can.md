@@ -2,7 +2,7 @@
 
 - **Họ:** D — toàn vẹn đường deploy (tiếp D3, D5)
 - **Tác giả:** Claude (viết từ đo mã thật, 24/09/2026)
-- **Trạng thái:** CHƯA bắt đầu — spec chờ duyệt
+- **Trạng thái:** ĐÃ LÀM 24/09/2026 — trừ mục D (xem §7)
 
 ---
 
@@ -68,6 +68,20 @@ chứa bản chép đã chọn lọc:
 Lý do có thư mục gốc mới đã ghi trong script: *"VAYS build theo model 1 subdir
 = build context, và subdir chỉ nhận THƯ MỤC CON Ở NGAY GỐC REPO"*. Hệ quả
 ngoài ý muốn: `.env.example` của app desktop đi theo lên gốc nhánh deploy.
+
+### (b2) Nền tảng có HAI cơ chế — chỉ MỘT cái chặn
+
+Đo từ nhật ký dựng 24/09 (lượt `ecd8c59`, sau khi đã gỡ tệp):
+
+| Cơ chế | Nguồn | Hành vi | Số biến |
+|---|---|---|---|
+| `ENV_REQUIRED` | `.env.example` ở **gốc nhánh** | **CHẶN** deploy | 15 |
+| `[Env] Phát hiện … CHƯA khai báo` | quét **mã nguồn** | chỉ *"cân nhắc thêm"* | 20 |
+
+Hai danh sách gần như rời nhau (`ADMIN_TOKEN`, `DEMUCS_*`, `HF_TOKEN`,
+`CORS_ORIGIN`… ở danh sách 20; chỉ `DISPLAY_NAME` trùng). **Đừng cấp 20 biến
+kia** — nó là lời khuyên, không phải cổng, và lượt dựng 24/09 chạy qua nó bình
+thường. Ghi ở đây vì đọc vội rất dễ tưởng đây là `ENV_REQUIRED` quay lại.
 
 ### (c) Vì sao KHÔNG cấp bừa 15 biến cho xong
 
@@ -207,3 +221,40 @@ trình. Gỡ sau khi D6 xong để trả lại phép tự tính.
 - Bật CI chạy **định kỳ** — chỉ nên làm SAU khi `kiem-prod-theo-main` xanh
   ổn định, nếu không mỗi ngày một lượt đỏ và cổng lại thành thứ không ai đọc.
 - Đổi nội dung ảnh Docker của hai dịch vụ.
+
+---
+
+## 7. Kết quả thật (24/09/2026)
+
+| Tiêu chí §5 | Kết quả |
+|---|---|
+| 1. Deploy được, không cấp biến desktop | ✅ worker: `ENV_REQUIRED` biến mất, lượt dựng chạy thẳng · app: **chưa chứng minh được**, xem dưới |
+| 2. Thư mục build không đổi một byte | ✅ `dub-worker` cây `d447d11` trước = sau · `webapp` 240/241 blob giống hệt, tệp lệch duy nhất là `SOURCE_SHA` (đúng thiết kế) |
+| 3. `kiem-prod-theo-main` xanh | ⏳ còn lệch **1 tệp** mỗi dịch vụ — chính script sinh vừa sửa; hết sau khi CI sinh lại nhánh |
+| 4. Không nới chốt nào | ✅ `kiem_nhanh_deploy.py` xanh, D5 vẫn bắt đúng phần lệch còn lại |
+| 5. Gỡ 7 biến tạm | ❌ **không làm được qua MCP** — xem dưới |
+| 6. `pytest` + `npm test` xanh | ghi ở `docs/TEST_LOG.md` |
+
+**Bằng chứng chính:** `/health` của worker đi từ `9b5b8ea2a98e` (21/09) sang
+`dfe66e6b8a0b`, version 62 → 63. D5 trước đó báo worker tụt **4 tệp** dưới
+`autodub/`; sau lượt deploy chỉ còn 1 tệp, và tệp đó là script sinh.
+
+### Hai việc CHƯA xong
+
+**(a) Gỡ biến rác — cần làm tay trên giao diện.** Cổng VAYS chỉ có `set_env`,
+**không có lệnh xoá**, và `set_env` bắt buộc `value` tối thiểu 1 ký tự nên
+đến "để trống" cũng không được. Cần xoá:
+
+- `voxdub-dub-worker` — 7 biến: `SUBTITLE_COLOR`, `SUBTITLE_OUTLINE_COLOR`,
+  `SUBTITLE_BOX_COLOR`, `KARAOKE_HIGHLIGHT_COLOR`, `VIENEU_MAX_WORKERS`,
+  `PARALLEL_WORKERS`, `WHISPER_BEAM_SIZE`.
+- `voxdub-app` — 15 biến rác (id `cmudv…`), gồm cả 5 biến `TRANSLATE_*`,
+  `VOXDUB_API_URL`, `VOXDUB_API_KEY`, `DISPLAY_NAME`.
+
+`VIENEU_MAX_WORKERS` đang bị **ghim**: container được cấp thêm RAM/CPU về sau
+vẫn sẽ chạy 1 tiến trình.
+
+**(b) Tiêu chí 1 cho `voxdub-app` chưa chứng minh được.** App hiện đã có đủ
+15 biến nên cổng `ENV_REQUIRED` không kêu — nhưng đó là vì biến đã được cấp,
+không phải vì tệp đã gỡ. Chỉ chứng minh được sau khi xoá 15 biến ở (a). Cơ
+chế và hình dạng nhánh giống hệt worker, nhưng **giống hệt không phải là đo**.

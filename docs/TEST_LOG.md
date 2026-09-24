@@ -20093,3 +20093,102 @@ nhiều khung vẫn cộng dồn tới lúc vượt ngưỡng.
 pytest **3.236 passed**, 4 skipped · control_server **848 pass**, 1 skip ·
 website **76 passed**. Chứng minh đỏ: 3 phép tiêm cho phép bỏ khung trùng,
 1 cho cảnh báo cấu hình, 1 cho việc xoá `lastError`.
+
+## D6 — Nhánh deploy không mang `.env.example` của app desktop (24/09/2026)
+
+`voxdub-dub-worker` không deploy được từ **21/09**. Mọi lượt `redeploy_project`
+bị chặn bằng `ENV_REQUIRED`, đòi cấp 15 biến — toàn biến của **app desktop**,
+mà máy chủ đọc **0/15**.
+
+### Nguyên nhân: đo chứ không suy
+
+Tôi suýt kết luận sai ngay bước đầu. Nhìn thông báo đòi 15 biến, tôi nghĩ
+"nền tảng thấy `.env.example` rồi đòi hết biến trong đó". Đếm ra thì tệp có
+**65** biến, nó chỉ đòi **15**. Nó lọc, và dấu hiệu lọc đo được chính xác:
+
+| Dạng khai | Số biến | Bị đòi |
+|---|---|---|
+| `VAR=` rỗng hẳn | 11 | có |
+| `VAR=#FFFFFF` (4 biến màu) | 4 | có |
+| còn lại (`VOICE_SPEED=1.0`, `WHISPER_MODEL=auto`…) | 50 | không |
+
+11 + 4 = đúng 15, và trong 65 biến **không biến nào khác** có một trong hai
+tính chất đó. Bộ đọc của nền tảng coi `#` là mở chú thích nên 4 biến màu với
+nó cũng là rỗng.
+
+**App KHÔNG dính lỗi này** — đã đo `python-dotenv` (thứ `autodub/config.py`
+dùng) và `set -a; . .env` trong bash: cả hai trả đúng `'#FFFFFF'`. Nên không
+sửa `.env.example` trên `main` để né bộ quét; tệp trên main vốn đúng.
+
+**Nền tảng đọc tệp ở GỐC NHÁNH, không đọc build context.** Bằng chứng: build
+context có `control_server/.env.example` với 22 biến khác hẳn, không biến nào
+trong đó bị đòi.
+
+Tệp gốc có mặt trên nhánh deploy vì nhánh sinh bằng **worktree từ `main`** nên
+mang cả repo — VAYS chỉ nhận thư mục con Ở NGAY GỐC làm build context, nên
+script phải dựng một thư mục gốc mới thay vì trỏ vào đường lồng.
+
+### Hai cơ chế, chỉ một cái chặn
+
+Nhật ký dựng của lượt chạy được cho thấy nền tảng còn một cơ chế thứ hai:
+
+| Cơ chế | Nguồn | Hành vi | Số biến |
+|---|---|---|---|
+| `ENV_REQUIRED` | `.env.example` ở gốc nhánh | **CHẶN** | 15 |
+| `[Env] Phát hiện … CHƯA khai báo` | quét mã nguồn | *"cân nhắc thêm"* | 20 |
+
+Hai danh sách gần như rời nhau (`ADMIN_TOKEN`, `DEMUCS_*`, `HF_TOKEN`… ở
+danh sách 20; chỉ `DISPLAY_NAME` trùng). Danh sách 20 **không chặn** — lượt
+dựng 24/09 đi qua nó bình thường. Ghi lại vì đọc vội rất dễ tưởng
+`ENV_REQUIRED` quay lại.
+
+### Vì sao không cấp bừa cho xong
+
+`voxdub-app` thì cấp được (máy chủ web không đọc biến nào trong 15). Worker
+thì không: 5 biến `TRANSLATE_*` đi thẳng vào lời nhắc dịch
+(`autodub/text/translate_hint.py:277`), nên giá trị nào khác rỗng cũng thêm
+một dòng **bịa** vào mọi lượt dịch; còn `VOXDUB_API_URL` khác rỗng làm
+`saas_client.is_configured()` thành `true`, **lật worker sang chế độ SaaS** —
+cổng duy nhất phân biệt hai chế độ. Cổng từ chối cả chuỗi rỗng lẫn một dấu
+cách, nên không có giá trị nào vừa qua cổng vừa rỗng-về-nghĩa.
+
+### Kiểm giả thuyết TRƯỚC khi sửa script
+
+Không sửa script rồi mới biết. Đẩy một nhánh thử đã gỡ tệp (`ecd8c59`) rồi
+gọi `redeploy_project` — cổng **nhận việc ngay**, không còn `ENV_REQUIRED`.
+Chỉ sau đó mới sửa hai script sinh.
+
+**Thư mục build không đổi một byte**, chứng minh bằng băm cây chứ không bằng
+mắt: `dub-worker` trước và sau khi gỡ đều là `d447d11`. Với nhánh
+control-server, sinh lại bằng script đã sửa vào một bare repo cục bộ rồi so
+băm blob: 240/241 tệp giống hệt, tệp duy nhất lệch là
+`webapp/control_server/SOURCE_SHA` — đúng thiết kế, vì nó ghi SHA của `main`.
+
+### Test
+
+`tests/test_d6_nhanh_deploy_sach.py` (5 test) **chạy thật** script sinh trong
+một repo tạm với bare repo làm remote, rồi soi nhánh nó đẩy ra — thay vì so
+chuỗi trong mã script như các test D3 cạnh nó. So chuỗi thì đổi cách viết là
+test mù; thứ cần canh là KẾT QUẢ trên nhánh.
+
+**Chứng minh đỏ:** gỡ đúng dòng `rm -f .env.example` khỏi bản script trong
+repo tạm rồi sinh lại — nhánh lại mang `.env.example`. Không có bước này thì
+bản xanh có thể đến từ lý do khác (vd script chưa bao giờ chép tệp đó vào).
+
+Hai test canh `control_server/.env.example` và `website/.env.example` **vẫn
+còn**: gỡ rộng tay hơn là đổi thứ đi vào ảnh, ngoài phạm vi D6.
+
+### Kết quả thật
+
+`/health` của worker: `9b5b8ea2a98e` → **`dfe66e6b8a0b`**. Version 62 → 63,
+`lastDeployedAt` 21/09 23:31 → 24/09 16:29. Deploy được **mà không cấp một
+biến nào**.
+
+### Chưa làm được
+
+Gỡ 7 biến cấp tạm cho worker (4 biến màu + `VIENEU_MAX_WORKERS`,
+`PARALLEL_WORKERS`, `WHISPER_BEAM_SIZE`) và 15 biến rác trên `voxdub-app`
+**không làm được qua MCP**: cổng chỉ có `set_env`, không có lệnh xoá, và
+`set_env` bắt buộc `value` tối thiểu 1 ký tự nên đến "để trống" cũng không
+được. Phải xoá tay trên giao diện. `VIENEU_MAX_WORKERS` đang bị **ghim**, tức
+container được cấp thêm RAM/CPU về sau vẫn sẽ chạy 1 tiến trình.
