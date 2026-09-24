@@ -19627,6 +19627,38 @@ Ba đường đều đọc đúng, nên **bẫy "kiểu lệch địa chỉ" kh�
 ghi này: Google nhận cả `/v1beta/chat/completions` lẫn `/v1beta/openai/...`
 ở lớp tương thích OpenAI. Ghi lại vì lúc đầu tôi đã coi đây là rủi ro chặn.
 
+> ### ĐÍNH CHÍNH 24/09/2026 — kết luận trên SAI, và nó tốn của chủ dự án mấy ngày
+>
+> Ba lượt đo ấy là **lượt gọi đơn giản**, không kèm `response_format`. Nhưng
+> **mọi tác vụ thật** của VoxDub đều gửi `response_format: {type:
+> 'json_schema', strict: true}`. Đo lại đúng thứ đó:
+>
+> | Đường | Thân | Kết quả |
+> |---|---|---|
+> | `/v1beta/chat/completions` | `json_object` | 200 |
+> | `/v1beta/chat/completions` | không có `response_format` | 200 |
+> | `/v1beta/chat/completions` | **`json_schema` strict** | **400 INVALID_ARGUMENT** |
+> | `/v1beta/openai/chat/completions` | **`json_schema` strict** | **400 INVALID_ARGUMENT** |
+>
+> **Lớp tương thích OpenAI của Google KHÔNG nhận structured output nghiêm
+> ngặt.** Chỉ đường GỐC (`type: 'google'` → `callGemini`, dùng
+> `responseSchema`) mới nhận.
+>
+> Hậu quả thật: bản ghi `Gemini trợ lý` khai `openai_compat` trỏ vào endpoint
+> gốc của Google ⇒ **toàn bộ 14 tác vụ trợ lý hỏng** từ lúc đổi nhà cung cấp.
+> Chủ dự án phát hiện ra khi phân tích cấu trúc video trả `HTTP 400`. Truy ra
+> được nhờ **stack trace trong log prod** (`at callOpenAiCompat`) — không
+> phải nhờ suy luận: tôi đã loại trừ nhầm schema, kích thước, trần token và
+> vai trò trước đó.
+>
+> **Bài học phương pháp**, đáng hơn bản thân bản vá: tôi đo **ca dễ** rồi kết
+> luận cho **ca khó**. Phép đo khả năng của một nhà cung cấp phải gửi ĐÚNG
+> thứ hệ thống thật gửi — ở đây là schema nghiêm ngặt — chứ không phải một
+> lượt "ping" cho tiện.
+>
+> Cách chữa cho người dùng: đổi **Giao thức** của bản ghi từ «Chuẩn OpenAI»
+> sang «Google Gemini». Đã xác nhận chạy 24/09.
+
 **Đính chính một khẳng định sai trong phiên này:** tôi từng kết luận "5 tác vụ
 ảnh đang chết vì `sonar` mù". Sai — `FEATURES.md` §4 đã ghi từ 22/09 rằng
 `sonar` **đọc được ảnh**, và nhãn "chưa chứng minh" là trạng thái `visionOkAt`
