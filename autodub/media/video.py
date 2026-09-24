@@ -26,6 +26,89 @@ def probe_duration_s(video_path: str) -> float | None:
         return None
 
 
+#: Cạnh ảnh thu nhỏ dùng so khung, và lưới chia ô để so CỤC BỘ.
+#:
+#: Vì sao phải so theo Ô chứ không theo trung bình cả khung — số đo
+#: 24/09/2026 trên khung mô phỏng bảng phần mềm (18 dòng chữ):
+#:
+#:     cặp khung            trung bình cả khung    max theo ô 8x8
+#:     y hệt                       0,00                 0,00
+#:     chỉ di chuột                0,03                 1,83
+#:     ĐỔI MỘT DÒNG CHỮ            0,07                 4,59
+#:     màn hình khác hẳn           3,33                33,39
+#:
+#: Theo trung bình, "chữ đổi thật" (0,07) chỉ gấp đôi "chuột di" (0,03) —
+#: quá sát để đặt ngưỡng an toàn. Một dòng trên 18 dòng là ~5% diện tích,
+#: chia đều cả khung thì biến mất. Theo ô thì nó dồn vào một băng và lộ ra.
+CANH_DAU_VAN_TAY = 64
+O_MOI_CANH = 8
+
+#: Hai khung coi là TRÙNG khi ô chênh nhiều nhất vẫn dưới ngưỡng này
+#: (thang 0-255). 3,0 nằm giữa "chuột di" (1,83) và "đổi một dòng" (4,59).
+NGUONG_TRUNG = 3.0
+
+
+def dau_van_tay_khung(duong_anh: str, *, timeout: float = 15.0) -> bytes | None:
+    """Chữ ký thô của một khung hình, để biết khung sau có ĐỔI không —
+    mini-spec I7 (bỏ khung trùng trước khi OCR).
+
+    Dùng **ffmpeg** chứ không PIL: bản đóng gói CỐ Ý không mang theo PIL
+    (`autodub.spec` loại nó), còn ffmpeg thì luôn có mặt — cùng lý do
+    `product_scene.chuan_bi_anh()` đã ghi.
+
+    Trả `None` khi không đọc được. Bên gọi phải coi đó là "không biết" và
+    GIỮ khung, không phải "giống khung trước".
+    """
+    cmd = [
+        "ffmpeg", "-v", "error", "-i", duong_anh,
+        "-vf", f"scale={CANH_DAU_VAN_TAY}:{CANH_DAU_VAN_TAY},format=gray",
+        "-f", "rawvideo", "-",
+    ]
+    try:
+        ra = subprocess.run(cmd, capture_output=True, timeout=timeout)
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if ra.returncode != 0:
+        return None
+    du_lieu = ra.stdout
+    if len(du_lieu) != CANH_DAU_VAN_TAY * CANH_DAU_VAN_TAY:
+        return None
+    return du_lieu
+
+
+def lech_o_lon_nhat(truoc: bytes, sau: bytes) -> float:
+    """Ô chênh lệch nhiều nhất giữa hai chữ ký (thang 0-255)."""
+    canh = CANH_DAU_VAN_TAY
+    buoc = canh // O_MOI_CANH
+    lon_nhat = 0.0
+    for oy in range(O_MOI_CANH):
+        for ox in range(O_MOI_CANH):
+            tong = 0
+            for r in range(oy * buoc, (oy + 1) * buoc):
+                nen = r * canh
+                for c in range(ox * buoc, (ox + 1) * buoc):
+                    i = nen + c
+                    tong += abs(truoc[i] - sau[i])
+            lon_nhat = max(lon_nhat, tong / (buoc * buoc))
+    return lon_nhat
+
+
+def khung_da_doi(truoc: bytes | None, sau: bytes | None,
+                 nguong: float = NGUONG_TRUNG) -> bool:
+    """Hai khung có khác nhau đủ để đáng OCR lại không.
+
+    Thiếu một chữ ký ⇒ **coi là ĐÃ ĐỔI**. Không đọc được thì phải giữ khung:
+    bỏ nhầm một khung đổi chữ là mất bằng chứng âm thầm, còn giữ thừa một
+    khung chỉ tốn thêm ít thời gian. Sai về phía nào cũng có giá, nhưng hai
+    cái giá đó không bằng nhau.
+    """
+    if truoc is None or sau is None:
+        return True
+    if len(truoc) != len(sau):
+        return True
+    return lech_o_lon_nhat(truoc, sau) >= nguong
+
+
 def extract_frame(video_path: str, out_png: str, at_seconds: float = 1.0) -> str:
     """Trích một khung hình làm PNG qua ffmpeg — mini-spec H2, chuyển vào
     core (`autodub/`) từ bản gốc chỉ dùng nội bộ GUI

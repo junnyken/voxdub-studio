@@ -259,7 +259,9 @@ def trich_bang_chung(
 
     # --- OCR (Scope C.2 — tái dùng H2a, KHÔNG dùng detect_text_regions) ---
     say("ocr", "Đang đọc chữ trên hình…")
-    from autodub.media.video import extract_frame, probe_duration_s
+    from autodub.media.video import (
+        dau_van_tay_khung, extract_frame, khung_da_doi, probe_duration_s,
+    )
 
     dai_giay = probe_duration_s(media_path) or 0.0
     moc = moc_lay_mau_thich_ung(dai_giay)
@@ -272,6 +274,10 @@ def trich_bang_chung(
     anh_paths: list[str] = []
     moc_lay_duoc: list[float] = []
     chon_bo_doc = ""
+    # I7 — đếm khung bị bỏ vì trùng, để nhật ký nói được đã tiết kiệm bao
+    # nhiêu. Không đếm thì phép tối ưu này không có cách nào tự chứng minh.
+    van_tay_giu: bytes | None = None
+    so_khung_bo = 0
     if moc:
         with tempfile.TemporaryDirectory(prefix="voxdub_flow_ocr_") as khung_dir:
             for i, t in enumerate(moc):
@@ -283,6 +289,23 @@ def trich_bang_chung(
                 except Exception as e:  # noqa: BLE001 — thiếu 1 khung không sao
                     logger.warning("Không trích được khung %.2fs (%s)", t, e)
                     continue
+                # I7 — BỎ KHUNG TRÙNG trước khi OCR.
+                #
+                # Vì sao đáng: OCR cục bộ tốn 2-3 giây mỗi khung ở ảnh thưa
+                # chữ và 13-14 giây ở ảnh đặc chữ (đo 24/09). Video 47 giây
+                # lấy 125 khung ⇒ 5 phút ở ca nhẹ, gần nửa giờ ở ca nặng.
+                # Quay màn hình thì rất nhiều khung liên tiếp y hệt nhau —
+                # OCR lại chúng là trả tiền cho cùng một câu trả lời.
+                #
+                # So với khung GIỮ GẦN NHẤT, không phải khung liền trước:
+                # đổi từ từ qua nhiều khung vẫn cộng dồn tới lúc vượt ngưỡng,
+                # còn so với khung liền trước thì mỗi bước đều nhỏ và cả đoạn
+                # trôi đi không ai thấy.
+                van_tay = dau_van_tay_khung(out)
+                if not khung_da_doi(van_tay_giu, van_tay):
+                    so_khung_bo += 1
+                    continue
+                van_tay_giu = van_tay
                 anh_paths.append(out)
                 moc_lay_duoc.append(t)
 
@@ -356,7 +379,12 @@ def trich_bang_chung(
     tom_tat = (f"ASR: {len(transcript)} câu"
               + (f" (ngôn ngữ: {ngon_ngu})" if ngon_ngu else " (chưa nhận ra ngôn ngữ)")
               + f". OCR: {len(ocr_evidence)} quan sát"
-              + f" từ {len(moc_lay_duoc)} khung lấy mẫu."
+              + f" từ {len(moc_lay_duoc)} khung lấy mẫu"
+              # I7 — nói ra phần tiết kiệm. Một phép tối ưu không tự chứng
+              # minh được thì lần sau không ai dám sửa ngưỡng của nó.
+              + (f" (bỏ {so_khung_bo} khung trùng"
+                 f"/{so_khung_bo + len(moc_lay_duoc)})" if so_khung_bo else "")
+              + "."
               + (f" Bộ đọc: {chon_bo_doc}." if anh_paths else ""))
     if canh_bao:
         tom_tat += " " + " ".join(canh_bao)

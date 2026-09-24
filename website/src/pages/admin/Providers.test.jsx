@@ -205,3 +205,46 @@ describe('Thử ngay — mini-spec I5 §10', () => {
     expect(adminApi.providers.mock.calls.length).toBeGreaterThan(soLanTruoc)
   })
 })
+
+/**
+ * Cấu hình nhầm đã làm hỏng THẬT, mất của chủ dự án mấy ngày (24/09/2026):
+ * giao thức «Chuẩn OpenAI» trỏ vào endpoint GỐC của Google.
+ *
+ * Lớp tương thích OpenAI của Google nhận `json_object` và lượt gọi trơn,
+ * nhưng trả 400 INVALID_ARGUMENT với `json_schema` strict — mà MỌI tác vụ
+ * của VoxDub gửi đúng cái đó. Hậu quả: cả 14 tác vụ trợ lý hỏng, trong khi
+ * nút «Thử ngay» bản đơn giản vẫn xanh nên trông như đã cấu hình đúng.
+ */
+describe('cảnh báo cấu hình nhầm — Google + Chuẩn OpenAI', () => {
+  const CAU_CANH_BAO = /endpoint GỐC của Google/
+
+  it('hiện cảnh báo khi giao thức OpenAI trỏ vào endpoint gốc của Google', async () => {
+    const user = await openAddModal()
+    await user.clear(screen.getByPlaceholderText('https://openrouter.ai/api/v1'))
+    await user.type(screen.getByPlaceholderText('https://openrouter.ai/api/v1'),
+      'https://generativelanguage.googleapis.com/v1beta')
+    expect(screen.getByText(CAU_CANH_BAO)).toBeInTheDocument()
+  })
+
+  it('KHÔNG cảnh báo khi giao thức đã là Google', async () => {
+    const user = await openAddModal()
+    await user.clear(screen.getByPlaceholderText('https://openrouter.ai/api/v1'))
+    await user.type(screen.getByPlaceholderText('https://openrouter.ai/api/v1'),
+      'https://generativelanguage.googleapis.com/v1beta')
+    // Đổi giao thức sang Google — cảnh báo phải biến mất, nếu không nó kêu
+    // cả khi người dùng ĐÃ sửa đúng, và một cảnh báo luôn kêu là cảnh báo
+    // không ai đọc.
+    const oGiaoThuc = screen.getAllByRole('combobox')
+      .find((s) => [...s.options].some((o) => o.value === 'google'))
+    await user.selectOptions(oGiaoThuc, 'google')
+    expect(screen.queryByText(CAU_CANH_BAO)).not.toBeInTheDocument()
+  })
+
+  it('KHÔNG cảnh báo cho nhà cung cấp OpenAI bình thường', async () => {
+    const user = await openAddModal()
+    await user.clear(screen.getByPlaceholderText('https://openrouter.ai/api/v1'))
+    await user.type(screen.getByPlaceholderText('https://openrouter.ai/api/v1'),
+      'https://api.perplexity.ai')
+    expect(screen.queryByText(CAU_CANH_BAO)).not.toBeInTheDocument()
+  })
+})

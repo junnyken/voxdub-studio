@@ -177,6 +177,16 @@ function ProviderModal({ open, onClose, editing, onDone }) {
               Giao thức này chỉ sinh ảnh, không dùng được cho vai chữ.
             </p>
           )}
+          {laGoogleNhungKhaiOpenAi(form) && (
+            <p className="sm:col-span-2 text-xs text-danger">
+              Địa chỉ này là endpoint GỐC của Google nhưng giao thức đang để
+              «Chuẩn OpenAI». Lớp tương thích OpenAI của Google KHÔNG nhận
+              structured output nghiêm ngặt, mà mọi tác vụ đều gửi nó — nên
+              lượt gọi nào cũng sẽ trả <span className="font-mono">400
+              INVALID_ARGUMENT</span>, kể cả khi «Thử ngay» đơn giản chạy
+              được. Đổi giao thức sang «Google Gemini».
+            </p>
+          )}
 
           <label className="label">Mô hình</label>
           <input
@@ -340,6 +350,26 @@ function TestNowButton({ id, onDone }) {
       {chu && <span className={`text-[11px] ${mau}`}>{chu}</span>}
     </span>
   )
+}
+
+/**
+ * Cấu hình nhầm đã làm hỏng thật: giao thức «Chuẩn OpenAI» trỏ vào endpoint
+ * GỐC của Google.
+ *
+ * Đo ngày 24/09/2026: lớp tương thích OpenAI của Google nhận `json_object`
+ * và lượt gọi trơn, nhưng trả **400 INVALID_ARGUMENT** với
+ * `response_format: {type:'json_schema', strict:true}` — mà MỌI tác vụ của
+ * VoxDub đều gửi đúng cái đó. Hậu quả: cả 14 tác vụ trợ lý hỏng, trong khi
+ * nút «Thử ngay» phiên bản đơn giản vẫn xanh.
+ *
+ * Vì sao cảnh báo ở ĐÂY chứ không chặn lúc lưu: Google có thể hỗ trợ trong
+ * tương lai, và chặn cứng một cấu hình hợp lệ-về-sau là tự dựng rào. Nhưng
+ * để im thì người sau lặp lại đúng mấy ngày vừa mất.
+ */
+function laGoogleNhungKhaiOpenAi(form) {
+  if (!form || form.type !== 'openai_compat') return false
+  const u = String(form.baseUrl || '').toLowerCase()
+  return u.includes('generativelanguage.googleapis.com')
 }
 
 const GIAO_THUC_ANH = new Set(['google', 'openrouter_images', 'openai_images',

@@ -20029,3 +20029,67 @@ khung người, hạ sân khấu brand thành gợi ý, in khối rỗng khi bra
 - **Cổng đo A/B chưa chạy.** Nay có BA thay đổi chất lượng: §A · §8 · §B. Bộ
   đo `scripts/do-ab-i7.js` mới dựng ba cấu hình cho §A/§8 — cần thêm cấu
   hình thứ tư cho §B.
+
+---
+
+## Ba bản vá sau sự cố cấu hình nhầm (24/09/2026)
+
+### 1. Cảnh báo «Chuẩn OpenAI trỏ vào endpoint gốc của Google»
+
+Form nhà cung cấp cảnh báo đỏ khi `type = openai_compat` mà `baseUrl` chứa
+`generativelanguage.googleapis.com`, kèm đúng lý do đã đo: lớp tương thích
+OpenAI của Google trả **400** với `json_schema` strict, **kể cả khi «Thử
+ngay» đơn giản chạy được** — chính điều đó làm cấu hình sai trông như đúng.
+
+**Cảnh báo, KHÔNG chặn.** Google có thể hỗ trợ về sau; chặn cứng một cấu
+hình hợp-lệ-tương-lai là tự dựng rào. 3 test, gồm một test canh cảnh báo
+**biến mất** khi đã sửa đúng — cảnh báo luôn kêu là cảnh báo không ai đọc.
+
+### 2. «Thử ngay» xoá `lastError`
+
+Nút gọi thẳng `thuNhinMotNoi`, không qua `callWithFallback` — nơi duy nhất
+xoá `lastError`. Hệ quả đo được trên prod: chủ dự án sửa xong giao thức,
+nhãn thị giác xanh, mà dòng «lỗi gần nhất» vẫn hiện lỗi 400 cũ. Người vừa
+sửa xong vẫn thấy màn hình nói mình chưa sửa.
+
+### 3. Bỏ khung trùng trước khi OCR — và phép so ĐẦU TIÊN của tôi sai
+
+**Vì sao cần:** OCR cục bộ đo được **2–3 giây/khung** ở ảnh thưa chữ,
+**13–14 giây/khung** ở ảnh đặc chữ. Video 47 giây lấy **125 khung**, không
+có trần ⇒ 5 phút ở ca nhẹ, gần nửa giờ ở ca nặng.
+
+**Phép so đầu tiên (trung bình cả khung) KHÔNG dùng được:**
+
+| cặp khung | trung bình cả khung | max theo ô 8×8 |
+|---|---|---|
+| y hệt | 0,00 | 0,00 |
+| chỉ di chuột | 0,03 | 1,83 |
+| **đổi một dòng chữ** | **0,07** | **4,59** |
+| màn hình khác hẳn | 3,33 | 33,39 |
+
+Theo trung bình, "chữ đổi thật" chỉ gấp đôi "chuột di" — không có chỗ đặt
+ngưỡng. Một dòng trên 18 dòng là ~5% diện tích; chia đều cả khung thì tan
+dưới mức nhiễu. Theo ô thì nó dồn vào một băng và lộ ra, cho khoảng trống
+1,83 → 4,59 để chốt ngưỡng **3,0**.
+
+**Một lỗi nữa của tôi trên đường đi:** mẫu thử "đổi một ô số" ban đầu thực
+ra **không đổi gì** — `replace('137', …)` trên chuỗi `'…ke toan 411'` không
+khớp, nên hai ảnh y hệt nhau. Chỉ phát hiện vì thấy **128×128 vẫn ra 0,00**,
+một con số không thể đúng. Nếu tin số đo đầu tiên thì đã kết luận "phép băm
+không phân biệt được gì" và bỏ cả hướng này.
+
+**Dùng ffmpeg chứ không PIL** — bản đóng gói cố ý không mang PIL
+(`autodub.spec` loại nó), cùng lý do `product_scene.chuan_bi_anh()` đã ghi.
+
+**Không đọc được chữ ký ⇒ GIỮ khung**, không bỏ. Bỏ nhầm một khung đổi chữ
+là mất bằng chứng âm thầm; giữ thừa chỉ tốn ít thời gian. Hai cái giá đó
+không bằng nhau.
+
+So với **khung GIỮ gần nhất**, không phải khung liền trước: đổi từ từ qua
+nhiều khung vẫn cộng dồn tới lúc vượt ngưỡng.
+
+### Test
+
+pytest **3.236 passed**, 4 skipped · control_server **848 pass**, 1 skip ·
+website **76 passed**. Chứng minh đỏ: 3 phép tiêm cho phép bỏ khung trùng,
+1 cho cảnh báo cấu hình, 1 cho việc xoá `lastError`.

@@ -857,6 +857,11 @@ async function thuNgay(provider) {
       ket.coAnh = Boolean(ra.image?.data)
       ket.kichThuocAnh = ra.image?.data ? ra.image.data.length : 0
       ket.kieuAnh = ra.image?.mimeType || ''
+      // Cùng lý do với vai chữ bên dưới: nút này chứng minh được nhà cung
+      // cấp chạy, nên lỗi cũ phải đi.
+      await AiProvider.updateOne({ _id: provider._id }, {
+        $set: { lastOkAt: new Date(), lastError: '' },
+      }).catch(() => {})
     } catch (err) {
       ket.goiDuoc = false
       ket.maLoi = err.code || 'AI_UNAVAILABLE'
@@ -875,9 +880,18 @@ async function thuNgay(provider) {
     ket.docDuoc = thu.traLoi
     ket.soThat = thu.so
     await AiProvider.updateOne({ _id: provider._id }, {
-      $set: thu.dat
-        ? { visionOkAt: new Date(), visionNote: '' }
-        : { visionOkAt: null, visionNote: `đọc "${thu.traLoi}" thay vì ${thu.so}` },
+      // Gọi ĐƯỢC ⇒ xoá lỗi cũ. Đường gọi thật (`callWithFallback`) đã làm
+      // vậy, nhưng nút này gọi THẲNG `thuNhinMotNoi` nên không đi qua đó —
+      // hệ quả: nhà cung cấp đã sửa xong, nhãn thị giác xanh, mà dòng «lỗi
+      // gần nhất» vẫn đứng đó cho tới lượt tác vụ thật kế tiếp. Người vận
+      // hành vừa sửa xong vẫn thấy màn hình nói mình chưa sửa.
+      $set: {
+        lastOkAt: new Date(),
+        lastError: '',
+        ...(thu.dat
+          ? { visionOkAt: new Date(), visionNote: '' }
+          : { visionOkAt: null, visionNote: `đọc "${thu.traLoi}" thay vì ${thu.so}` }),
+      },
     }).catch(() => {})
     invalidateProviders()
   } catch (err) {

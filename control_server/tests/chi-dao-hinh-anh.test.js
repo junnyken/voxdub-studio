@@ -1237,3 +1237,45 @@ test('I7§B2-b: brand CHƯA đặt sân khấu thì không in khối rỗng', as
 })
 
 function assistPromptsMod() { return require('../src/prompts/assist') }
+
+test('«Thử ngay» XOÁ lỗi cũ khi chứng minh được nhà cung cấp đã chạy', async () => {
+  // Bug thật 24/09/2026: chủ dự án sửa xong giao thức, nhãn thị giác chuyển
+  // xanh, mà dòng «lỗi gần nhất» vẫn đứng nguyên lỗi 400 cũ — vì đường gọi
+  // THẬT (`callWithFallback`) xoá `lastError` còn nút này gọi thẳng
+  // `thuNhinMotNoi`, không đi qua đó.
+  //
+  // Hệ quả: người vận hành vừa sửa xong vẫn thấy màn hình nói mình chưa sửa.
+  const { device } = await thietBiMoi()
+  const AiProvider = require('../src/models/AiProvider')
+  const nc = await AiProvider.create({
+    name: 'thu-xoa-loi', role: 'assist', type: 'google',
+    model: 'gemini-3.6-flash', apiKeyEnc: require('../src/utils/crypto').encrypt('k'),
+    enabled: true, priority: 1,
+    lastError: 'google từ chối request (HTTP 400)',
+    lastErrorAt: new Date(),
+  })
+  assert.ok(device)
+
+  // Giả tầng HTTP: trả về đúng số của bài thử nhìn.
+  const bai = require('../src/services/vision-probe.service').taoBaiThu
+  let soThat = null
+  const goc = require('../src/services/vision-probe.service').taoBaiThu
+  mock.method(require('../src/services/vision-probe.service'), 'taoBaiThu', () => {
+    const b = goc(); soThat = b.so; return b
+  })
+  mock.method(require('axios'), 'post', async () => ({
+    status: 200,
+    data: { candidates: [{ content: { parts: [{
+      text: JSON.stringify({ results: [{ value: soThat, reason: 'đọc được' }] }),
+    }] } }] },
+  }))
+  assert.ok(bai)
+
+  const ket = await gateway.thuNgay(nc)
+  assert.equal(ket.goiDuoc, true, JSON.stringify(ket))
+
+  const sau = await AiProvider.findById(nc._id).lean()
+  assert.equal(sau.lastError, '',
+    'nút đã chứng minh nhà cung cấp chạy mà lỗi cũ vẫn nằm đó')
+  assert.ok(sau.lastOkAt, 'không ghi mốc lần chạy được gần nhất')
+})

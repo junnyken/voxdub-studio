@@ -326,3 +326,67 @@ def test_bam_DUNG_khong_bi_bao_thanh_that_bai(tmp_path, video_co_phu_de,
     monkeypatch.setattr(transcriber_mod, "transcribe", _huy)
     with pytest.raises(TranscribeCancelled):
         fb.trich_bang_chung(video_co_phu_de, str(tmp_path / "work"), Settings())
+
+
+# -- I7: bỏ khung trùng trước khi OCR --------------------------------------
+#
+# OCR cục bộ tốn 2-3 giây mỗi khung ở ảnh thưa chữ, 13-14 giây ở ảnh đặc chữ
+# (đo 24/09/2026). Video 47 giây lấy 125 khung ⇒ 5 phút ở ca nhẹ, gần nửa
+# giờ ở ca nặng — chủ dự án gặp đúng ca nặng với video quay màn hình phần
+# mềm kế toán.
+#
+# Phép so đặt ở `media/video.py` và phải so theo Ô, không theo trung bình cả
+# khung: một dòng trên 18 dòng là ~5% diện tích, chia đều cả khung thì biến
+# mất dưới mức nhiễu của con trỏ chuột.
+
+def test_I7_thieu_chu_ky_thi_GIU_khung_chu_khong_bo():
+    """Không đọc được ⇒ "không biết", KHÔNG phải "giống khung trước". Bỏ
+    nhầm một khung đổi chữ là mất bằng chứng âm thầm; giữ thừa chỉ tốn ít
+    thời gian. Hai cái giá đó không bằng nhau."""
+    from autodub.media.video import khung_da_doi
+    assert khung_da_doi(None, b"x" * 4096) is True
+    assert khung_da_doi(b"x" * 4096, None) is True
+    assert khung_da_doi(None, None) is True
+
+
+def test_I7_chu_ky_lech_do_dai_cung_GIU():
+    from autodub.media.video import khung_da_doi
+    assert khung_da_doi(b"x" * 4096, b"x" * 100) is True
+
+
+def test_I7_khung_y_het_thi_BO():
+    from autodub.media.video import khung_da_doi
+    a = bytes(range(256)) * 16
+    assert khung_da_doi(a, a) is False
+
+
+def test_I7_doi_MOT_O_nho_van_bi_bat():
+    """Đây là ca mà phép so theo TRUNG BÌNH cả khung bỏ sót: đổi mạnh ở một
+    vùng nhỏ. Trung bình toàn khung loãng đi dưới mức nhiễu; max theo ô thì
+    dồn lại và lộ ra."""
+    from autodub.media.video import CANH_DAU_VAN_TAY, khung_da_doi, lech_o_lon_nhat
+    n = CANH_DAU_VAN_TAY * CANH_DAU_VAN_TAY
+    a = bytearray([128]) * n
+    b = bytearray(a)
+    # Bôi đen trọn một ô 8x8 ở góc trên trái.
+    for r in range(8):
+        for c in range(8):
+            b[r * CANH_DAU_VAN_TAY + c] = 0
+    assert lech_o_lon_nhat(bytes(a), bytes(b)) == 128.0
+    assert khung_da_doi(bytes(a), bytes(b)) is True
+    # Và đây là điểm của cả phép đo: CÙNG thay đổi ấy, tính trung bình trên
+    # cả khung thì NẰM DƯỚI NGƯỠNG — tức phép so cũ sẽ coi hai khung này là
+    # trùng và bỏ mất một khung có chữ đổi.
+    import statistics
+    from autodub.media.video import NGUONG_TRUNG
+    tb = statistics.mean(abs(x - y) for x, y in zip(a, b))
+    assert tb < NGUONG_TRUNG, (
+        f"trung bình {tb} — phép so toàn khung sẽ coi đây là trùng, "
+        "đó chính là lý do phải so theo ô")
+
+
+def test_I7_nguong_nam_GIUA_hai_ca_da_do():
+    """1,83 = chuột di · 4,59 = đổi một dòng chữ (đo 24/09). Ngưỡng phải nằm
+    giữa, nếu không thì hoặc bỏ mất chữ đổi, hoặc giữ mọi khung có chuột."""
+    from autodub.media.video import NGUONG_TRUNG
+    assert 1.83 < NGUONG_TRUNG < 4.59, f"ngưỡng {NGUONG_TRUNG} ra ngoài khoảng đã đo"
