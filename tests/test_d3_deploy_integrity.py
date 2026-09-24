@@ -391,6 +391,14 @@ def test_DAU_CUOI_sinh_nhanh_that_thi_bo_do_phai_noi_KHONG_LECH(tmp_path):
             "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com",
             "GIT_COMMITTER_NAME": "test",
             "GIT_COMMITTER_EMAIL": "test@example.com",
+            # D6 — cắt nốt cấu hình git CỦA MÁY. Phần danh tính ở trên đã
+            # chặn một kiểu phụ thuộc máy; `commit.gpgsign=true` hay một
+            # `core.hooksPath` trỏ hook thất bại là kiểu còn lại, và nó làm
+            # script sinh hỏng ⇒ test đỏ vì cấu hình người chạy chứ không vì
+            # mã. Đã đo: bật hai thứ đó là 2 test end-to-end ở tệp này đỏ.
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_CONFIG_NOSYSTEM": "1",
         }
         for ten in ("gen_vays_control_server_branch.sh",
                     "gen_vays_dub_worker_branch.sh"):
@@ -509,6 +517,14 @@ def test_DAU_CUOI_hai_commit_chi_khac_TAI_LIEU_thi_thu_muc_build_KHONG_doi(tmp_p
     moi_truong_goc = {
         "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "test@example.com",
         "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "test@example.com",
+        # D6 — cắt nốt cấu hình git CỦA MÁY. Phần danh tính ở trên đã
+        # chặn một kiểu phụ thuộc máy; `commit.gpgsign=true` hay một
+        # `core.hooksPath` trỏ hook thất bại là kiểu còn lại, và nó làm
+        # script sinh hỏng ⇒ test đỏ vì cấu hình người chạy chứ không vì
+        # mã. Đã đo: bật hai thứ đó là 2 test end-to-end ở tệp này đỏ.
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_CONFIG_SYSTEM": os.devnull,
+        "GIT_CONFIG_NOSYSTEM": "1",
     }
 
     try:

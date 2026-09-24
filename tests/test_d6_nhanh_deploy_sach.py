@@ -27,7 +27,32 @@ ENV_MAU = (
 )
 
 
+def _moi_truong(**them):
+    """Cắt đứt cấu hình git CỦA MÁY khỏi repo tạm.
+
+    Không có bước này thì `commit.gpgsign=true` hay một `core.hooksPath` trỏ
+    hook thất bại của người chạy làm `git commit` trong repo tạm hỏng, và cả
+    5 test đỏ vì lý do không liên quan gì tới thứ chúng đo. Đã đo thật: tiêm
+    một trong hai là 5/5 đỏ.
+    """
+    moi = dict(os.environ, **them)
+    moi["GIT_CONFIG_GLOBAL"] = os.devnull
+    moi["GIT_CONFIG_SYSTEM"] = os.devnull
+    moi["GIT_CONFIG_NOSYSTEM"] = "1"
+    # Biến GIT_CONFIG_KEY_n/VALUE_n là cấu hình rời, GIT_CONFIG_GLOBAL không
+    # che được chúng — phải gỡ riêng.
+    for k in [k for k in moi
+              if k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))]:
+        moi.pop(k)
+    moi.pop("GIT_CONFIG_COUNT", None)
+    return moi
+
+
 def _chay(cmd, cwd, **kw):
+    kw.setdefault("env", _moi_truong())
+    # Hạn giờ để script treo thì test ĐỎ chứ không treo theo — pytest không tự
+    # cắt tiến trình con, nên thiếu nó là cả lượt CI đứng im tới lúc hết giờ.
+    kw.setdefault("timeout", 300)
     return subprocess.run(cmd, cwd=cwd, check=True, capture_output=True,
                           text=True, encoding="utf-8", errors="replace", **kw)
 
@@ -77,8 +102,8 @@ def _repo_gia(goc, ten_script):
 
 
 def _sinh(nguon, bare, ten_script):
-    moi = dict(os.environ, REMOTE=bare, GOC="main")
-    _chay(["bash", f"scripts/{ten_script}"], nguon, env=moi)
+    _chay(["bash", f"scripts/{ten_script}"], nguon,
+          env=_moi_truong(REMOTE=bare, GOC="main"))
 
 
 def _tep_tren_nhanh(bare, nhanh):
