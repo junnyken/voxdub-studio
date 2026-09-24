@@ -20178,6 +20178,16 @@ bản xanh có thể đến từ lý do khác (vd script chưa bao giờ chép t
 Hai test canh `control_server/.env.example` và `website/.env.example` **vẫn
 còn**: gỡ rộng tay hơn là đổi thứ đi vào ảnh, ngoài phạm vi D6.
 
+pytest **3.241 passed**, 4 skipped (3.236 → 3.241 = 5 test D6) ·
+control_server **848 pass**, 1 skip · website **79 passed**.
+
+**Đã kiểm không có đường nào dựa vào tệp bị gỡ:** không Dockerfile/compose nào
+dùng nó (`docker-compose.yml:14` chỉ là chú thích, và trỏ
+`control_server/.env.example` — tệp được giữ). Hai nơi đọc thật là
+`autodub_gui/app.py:1049` (app desktop tạo `.env` từ mẫu, đọc từ thư mục cài
+đặt) và `scripts/build_exe.py:333` (bản Windows chép mẫu từ `PROJECT_ROOT`)
+— cả hai chạy trên `main`, nơi tệp còn nguyên.
+
 ### Kết quả thật
 
 `/health` của worker: `9b5b8ea2a98e` → **`dfe66e6b8a0b`**. Version 62 → 63,
