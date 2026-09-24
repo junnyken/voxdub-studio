@@ -95,9 +95,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 22, KHÁC `node-tests` (20). Không phải tuỳ tiện: lượt chạy đầu
+      # tiên của job này trên Node 20 đỏ ngay với
+      # `webidl.util.markAsUncloneable is not a function` — `jsdom` gọi hàm
+      # chỉ có ở Node mới. Bộ test website VẪN LUÔN cần Node mới; không ai
+      # biết vì chưa từng có môi trường nào khác máy dev thử nó.
+      #
+      # `control_server` giữ 20 vì đó là bản Node của dịch vụ CHẠY THẬT. Đây
+      # chỉ là công cụ dựng, nên lệch phiên bản ở đây không nói gì về prod.
+      # Yêu cầu nay ghi ở `website/package.json` (`engines`) chứ không chỉ
+      # nằm trong tệp CI.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: website/package-lock.json
 

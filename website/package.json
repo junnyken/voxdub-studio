@@ -2,6 +2,9 @@
   "name": "voxdub-website",
   "private": true,
   "version": "3.17.21",
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",
