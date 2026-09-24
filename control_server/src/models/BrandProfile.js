@@ -31,6 +31,17 @@ const brandProfileSchema = new mongoose.Schema({
   // (ví dụ cấm hứa công dụng y tế, cấm từ tuyệt đối "tốt nhất/số một" — cùng
   // luật đã có ở scene_script C3b).
   rangBuocKhongDuocNoi: { type: [String], default: [] },
+  // I7 §B2-b — SÂN KHẤU quen thuộc của thương hiệu.
+  //
+  // Đặt ở hồ sơ brand chứ không chỉ ở từng kịch bản: đồng nhất trong MỘT
+  // video là chuyện dễ, đồng nhất giữa NHIỀU video của cùng thương hiệu mới
+  // là thứ người xem nhận ra. Để trống thì mô hình tự chốt cho kịch bản đó —
+  // giống nếp chỉ đạo của I6, đây là CHỖ RƠI chứ không phải lệnh.
+  sanKhau: {
+    boiCanh: { type: String, default: '', maxlength: 300 },
+    daoCuAnhSang: { type: String, default: '', maxlength: 300 },
+    quyUocKhungNguoi: { type: String, default: '', maxlength: 300 },
+  },
   // I6 — nếp chỉ đạo hình ảnh của thương hiệu này.
   //
   // Là GỢI Ý, không phải ràng buộc: `scene_director` vẫn được chọn khác khi

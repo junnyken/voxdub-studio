@@ -19942,3 +19942,58 @@ tiêm nhắm đúng bậc đang dùng.
 Cổng đo A/B của §6 **chưa chạy** — §A và §8 nay là **hai** thay đổi chất
 lượng chồng lên nhau. Đo chung thì không biết cái nào có tác dụng; spec đã
 cảnh báo đúng chuyện này. Cần ba cấu hình: gốc · +§A · +§A+§8.
+
+---
+
+## I7 §B — đồng nhất bối cảnh & nhân vật (24/09/2026)
+
+### 1. Mâu thuẫn phải giải, không lờ
+
+Chủ dự án muốn **"nhân vật đồng nhất"**, nhưng lời nhắc H3 **cấm** tả khuôn
+mặt / ngoại hình / tuổi / tóc / trang phục — luật riêng tư, không nới.
+
+Cách giải: chốt một **SÂN KHẤU** ba phần — bối cảnh · đạo cụ+ánh sáng ·
+**quy ước khung người**. Vế thứ ba là mấu chốt: thứ tạo cảm giác "cùng một
+người" trong video ngắn là **khung hình nhất quán** ("chỉ thấy bàn tay,
+không bao giờ thấy mặt"), không phải mô tả nhận dạng. Nằm hoàn toàn ngoài
+luật cấm — và có test canh để luật gốc không bị gỡ kèm.
+
+### 2. Sân khấu chốt TRƯỚC danh sách đoạn
+
+`san_khau` đứng trước `doan` trong schema, và **có test canh thứ tự khoá**.
+Mô hình sinh tuần tự, nên thứ nó viết ra đầu tiên trở thành ràng buộc cho
+phần sau; đặt sau thì nó chỉ còn là bản tóm tắt của những gì đã lỡ viết
+lung tung.
+
+### 3. Thiếu sân khấu KHÔNG huỷ lượt
+
+Kịch bản vẫn dùng được, chỉ mất phần đồng nhất. Huỷ một lượt **đã tốn tiền**
+vì một khối phụ là bắt người dùng trả giá cho lỗi của mô hình. (Khác với
+`beats` — thiếu đoạn là kịch bản lệch khung, buộc phải huỷ.)
+
+### 4. Hai tầng, đúng khuôn I6
+
+- `BrandProfile.sanKhau` — sân khấu quen của thương hiệu, **dùng lại giữa
+  nhiều kịch bản**. Đồng nhất trong MỘT video là chuyện dễ; đồng nhất giữa
+  NHIỀU video của cùng brand mới là thứ người xem nhận ra.
+- Chưa đặt thì mô hình tự chốt cho kịch bản đó (schema vẫn đòi), nên không
+  có ca "không có sân khấu nào".
+- Khác I6 một điểm **cố ý**: nếp chỉ đạo là *gợi ý*, sân khấu là *bắt buộc
+  dùng lại* — đổi bối cảnh giữa các video của cùng brand phá đúng cái đồng
+  nhất đang xây. Lời nhắc ghi thẳng "DÙNG LẠI, đừng chốt sân khấu mới".
+
+### 5. Test
+
+`control_server`: **847 pass, 1 skip** (+6 cho §B). Chứng minh đỏ bằng 5 phép
+tiêm: bỏ `required`, huỷ lượt khi thiếu, gỡ luật riêng tư khỏi câu quy ước
+khung người, hạ sân khấu brand thành gợi ý, in khối rỗng khi brand chưa đặt.
+
+### 6. Còn treo
+
+- `scene_continuity` **chưa** nhận sân khấu qua trường `note` (§B4). Nó vẫn
+  cố ý không xét bối cảnh — đúng cho ngữ cảnh cũ, nhưng khi kịch bản đã có
+  sân khấu chốt thì "khác bối cảnh" trở thành tín hiệu đáng nói.
+- Giao diện chưa hiện sân khấu.
+- **Cổng đo A/B chưa chạy.** Nay có BA thay đổi chất lượng: §A · §8 · §B. Bộ
+  đo `scripts/do-ab-i7.js` mới dựng ba cấu hình cho §A/§8 — cần thêm cấu
+  hình thứ tư cho §B.

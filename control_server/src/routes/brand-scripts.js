@@ -66,6 +66,12 @@ function view(doc) {
       complianceExcerpt: b.complianceExcerpt,
       complianceRule: b.complianceRule,
     })),
+    // I7 §B — sân khấu của kịch bản, để giao diện hiện được.
+    sanKhau: {
+      boiCanh: doc.sanKhau?.boiCanh || '',
+      daoCuAnhSang: doc.sanKhau?.daoCuAnhSang || '',
+      quyUocKhungNguoi: doc.sanKhau?.quyUocKhungNguoi || '',
+    },
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   }
@@ -380,6 +386,10 @@ module.exports = async function brandScriptRoutes(fastify) {
       // RS-1 — ghi luật ĐÃ DÙNG, để lần đọc sau biết luật có đổi không.
       brandRulesFingerprint: kiem.vanTayRangBuoc(brand.rangBuocKhongDuocNoi || []),
       beats: daKiem.beats,
+      // I7 §B — sân khấu chung của kịch bản. `result` chứ không `daKiem`:
+      // bộ kiểm nguyên gốc/tuân thủ chỉ chạm `beats`, nó không biết và không
+      // cần biết khối này.
+      sanKhau: result.sanKhau || undefined,
     })
 
     const response = { ...view(doc), creditCharged: paid.charged, balanceAfter: paid.balanceAfter }
@@ -983,6 +993,10 @@ function dungInput(blueprint, brand, vietLai) {
       toneGiong: brand.toneGiong,
       usp: brand.usp,
       rangBuocKhongDuocNoi: brand.rangBuocKhongDuocNoi || [],
+      // I7 §B2-b — sân khấu đã đặt sẵn ở hồ sơ brand. Đưa xuống để mô hình
+      // DÙNG LẠI thay vì chốt một sân khấu mới mỗi kịch bản: đồng nhất giữa
+      // nhiều video của cùng thương hiệu mới là thứ người xem nhận ra.
+      sanKhau: brand.sanKhau || null,
     },
   }
 }

@@ -1137,3 +1137,103 @@ test('I7§8: hai khuôn đi từ BLUEPRINT qua route tới tận lời nhắc', 
   assert.match(u, /CAU-HOI-NGAN-ROI-NGAT-MOT-NHIP/,
     'có trong đầu vào nhưng không vào được lời nhắc')
 })
+
+// =========================================================================
+// MINI-SPEC I7 §B — đồng nhất bối cảnh & nhân vật
+// =========================================================================
+//
+// Trước I7, rà lời nhắc H3 với 8 cụm khoá về đồng nhất: KHÔNG khớp cụm nào.
+// Mỗi `visual_brief` viết độc lập, nên đoạn 1 có thể là gian bếp và đoạn 5
+// là bàn làm việc, không gì chặn. Bộ `scene_continuity` đang có thì CỐ Ý
+// không xét bối cảnh, chạy trên ảnh ĐÃ DỰNG, và chỉ cảnh báo.
+//
+// Mâu thuẫn phải giải chứ không lờ: chủ dự án muốn "nhân vật đồng nhất" mà
+// H3 bị CẤM tả ngoại hình người. Cách giải: chốt QUY ƯỚC KHUNG NGƯỜI — thứ
+// tạo cảm giác "cùng một người" trong video ngắn là khung hình nhất quán,
+// không phải mô tả nhận dạng. Nằm hoàn toàn ngoài luật cấm.
+
+test('I7§B: schema ĐÒI sân khấu, và đòi TRƯỚC danh sách đoạn', async () => {
+  const sch = assistPromptsMod().brandScriptOutputSchema()
+  assert.ok(sch.required.includes('san_khau'), 'sân khấu không bắt buộc')
+  // Thứ tự khoá quan trọng: mô hình sinh tuần tự, nên thứ viết ra trước trở
+  // thành ràng buộc cho phần sau. Đặt sau thì nó chỉ là bản tóm tắt của
+  // những gì đã lỡ viết lung tung.
+  const khoa = Object.keys(sch.properties)
+  assert.ok(khoa.indexOf('san_khau') < khoa.indexOf('doan'),
+    `sân khấu phải đứng trước đoạn, đang là: ${khoa.join(', ')}`)
+  const sk = sch.properties.san_khau
+  assert.deepEqual([...sk.required].sort(),
+    ['boi_canh', 'dao_cu_anh_sang', 'quy_uoc_khung_nguoi'])
+})
+
+test('I7§B: lời nhắc buộc mọi cảnh ở CÙNG nơi chốn, và GIỮ luật riêng tư',
+  async () => {
+    const sys = assistPromptsMod().getTask('brand_script_rewrite').system
+    assert.match(sys, /SÂN KHẤU/, 'không dặn chốt sân khấu')
+    assert.match(sys, /CÙNG bối cảnh/, 'không buộc các cảnh cùng nơi chốn')
+    assert.match(sys, /Đổi góc máy và cỡ khung thì/,
+      'cấm tuốt thì kịch bản thành một khung hình bất động')
+    // Luật riêng tư KHÔNG được nới một chữ — §B giải bài toán đồng nhất mà
+    // không đụng vào nó.
+    assert.match(sys, /không tả khuôn mặt, ngoại hình, tuổi, tóc hay trang phục/,
+      'quy ước khung người bị hiểu thành giấy phép tả người')
+    assert.match(sys, /KHÔNG mô tả khuôn mặt, ngoại hình, tuổi tác/,
+      'luật riêng tư gốc bị gỡ')
+  })
+
+test('I7§B: parse chép được sân khấu, cắt theo maxlength của model', async () => {
+  const ap = assistPromptsMod()
+  const tran = ap.tranDoDaiBeat().sanKhau
+  const r = ap.parseBrandScriptResult({
+    san_khau: {
+      boi_canh: 'b'.repeat(tran + 50),
+      dao_cu_anh_sang: 'Ánh sáng cửa sổ từ trái',
+      quy_uoc_khung_nguoi: 'Chỉ thấy bàn tay, không bao giờ thấy mặt',
+    },
+    doan: [{ loi_doc: 'A', caption: 'B', visual_brief: 'C' }],
+  }, { beats: [{ beatType: 'hook' }] })
+  assert.equal(r.sanKhau.boiCanh.length, tran, 'không cắt theo trần của model')
+  assert.match(r.sanKhau.quyUocKhungNguoi, /bàn tay/)
+})
+
+test('I7§B: THIẾU sân khấu thì KHÔNG huỷ cả lượt', async () => {
+  // Huỷ một lượt đã tốn tiền vì một khối phụ là bắt người dùng trả giá cho
+  // lỗi của mô hình. Kịch bản vẫn dùng được, chỉ mất phần đồng nhất.
+  const r = assistPromptsMod().parseBrandScriptResult(
+    { doan: [{ loi_doc: 'A', caption: 'B', visual_brief: 'C' }] },
+    { beats: [{ beatType: 'hook' }] })
+  assert.ok(r, 'huỷ cả lượt vì thiếu một khối phụ')
+  assert.equal(r.sanKhau.boiCanh, '')
+  assert.equal(r.beats.length, 1)
+})
+
+test('I7§B2-b: sân khấu của BRAND đi vào lời nhắc kèm lệnh dùng lại', async () => {
+  const u = assistPromptsMod().getTask('brand_script_rewrite').buildUser({
+    brand: {
+      tenBrand: 'Mắt Bão', rangBuocKhongDuocNoi: [],
+      sanKhau: {
+        boiCanh: 'Bàn làm việc nhỏ cạnh cửa sổ',
+        daoCuAnhSang: 'Đèn bàn ấm từ bên trái',
+        quyUocKhungNguoi: 'Chỉ thấy bàn tay trên bàn phím',
+      },
+    },
+    beats: [{ beatType: 'hook', giay: 3, narrativeFunctionVi: 'vai trò' }],
+  })
+  assert.match(u, /SÂN KHẤU của thương hiệu/)
+  assert.match(u, /DÙNG LẠI, đừng chốt sân khấu mới/,
+    'không nói rõ là bắt buộc — mô hình sẽ chốt sân khấu mới mỗi kịch bản')
+  assert.match(u, /Bàn làm việc nhỏ cạnh cửa sổ/)
+})
+
+test('I7§B2-b: brand CHƯA đặt sân khấu thì không in khối rỗng', async () => {
+  for (const sk of [null, undefined, { boiCanh: '', daoCuAnhSang: '', quyUocKhungNguoi: '' }]) {
+    const u = assistPromptsMod().getTask('brand_script_rewrite').buildUser({
+      brand: { tenBrand: 'X', rangBuocKhongDuocNoi: [], sanKhau: sk },
+      beats: [{ beatType: 'hook', giay: 3, narrativeFunctionVi: 'vai trò' }],
+    })
+    assert.doesNotMatch(u, /SÂN KHẤU của thương hiệu/,
+      `in khối rỗng với sanKhau = ${JSON.stringify(sk)}`)
+  }
+})
+
+function assistPromptsMod() { return require('../src/prompts/assist') }

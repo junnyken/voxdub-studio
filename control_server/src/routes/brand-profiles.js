@@ -24,6 +24,11 @@ function view(doc) {
     toneGiong: doc.toneGiong,
     usp: doc.usp,
     rangBuocKhongDuocNoi: doc.rangBuocKhongDuocNoi,
+    sanKhau: {
+      boiCanh: doc.sanKhau?.boiCanh || '',
+      daoCuAnhSang: doc.sanKhau?.daoCuAnhSang || '',
+      quyUocKhungNguoi: doc.sanKhau?.quyUocKhungNguoi || '',
+    },
     visualPreset: {
       catalogVersion: doc.visualPreset?.catalogVersion || 0,
       chon: (doc.visualPreset?.chon || []).map(
@@ -37,7 +42,7 @@ function view(doc) {
 /** Đúng những trường người dùng được phép đặt. `ownerDeviceId` KHÔNG nằm ở
  * đây và không bao giờ được nằm ở đây — nó lấy từ token, xem `POST` bên dưới. */
 const TRUONG_CHO_PHEP = ['tenBrand', 'moTaSanPham', 'doiTuongKhach',
-  'toneGiong', 'usp', 'rangBuocKhongDuocNoi', 'visualPreset']
+  'toneGiong', 'usp', 'rangBuocKhongDuocNoi', 'visualPreset', 'sanKhau']
 
 const bodySchema = {
   type: 'object',
@@ -78,6 +83,15 @@ const bodySchema = {
     //
     // KHÔNG nhận `catalogVersion` từ client: nó là thứ máy chủ biết, và để
     // client đặt là mở đường cho một preset tự khai mình còn mới.
+    sanKhau: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        boiCanh: { type: 'string', maxLength: 300 },
+        daoCuAnhSang: { type: 'string', maxLength: 300 },
+        quyUocKhungNguoi: { type: 'string', maxLength: 300 },
+      },
+    },
     visualPreset: {
       type: 'object',
       required: ['chon'],

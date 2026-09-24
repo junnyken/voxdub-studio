@@ -127,6 +127,16 @@ const brandScriptSchema = new mongoose.Schema({
   brandRulesFingerprint: { type: String, default: '' },
   beats: { type: [beatSchema], default: [] },
   // mini-spec I3 — `null` nghĩa là chưa ai tạo bản chỉ đạo cho kịch bản này.
+  // I7 §B — SÂN KHẤU dùng chung cho cả kịch bản.
+  //
+  // `quyUocKhungNguoi` là cách giữ "nhân vật đồng nhất" mà KHÔNG đụng luật
+  // cấm tả ngoại hình: nó nói NGƯỜI XUẤT HIỆN TRONG KHUNG THẾ NÀO (chỉ thấy
+  // bàn tay, luôn từ vai xuống…), không nói người đó trông ra sao.
+  sanKhau: {
+    boiCanh: { type: String, default: '', maxlength: 300 },
+    daoCuAnhSang: { type: String, default: '', maxlength: 300 },
+    quyUocKhungNguoi: { type: String, default: '', maxlength: 300 },
+  },
   visualDirection: { type: banChiDaoSchema, default: null },
 }, { timestamps: true })
 

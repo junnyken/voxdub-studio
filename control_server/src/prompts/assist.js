@@ -661,6 +661,15 @@ const TASKS = {
       'gói ba ý vào một đoạn rồi vượt ngân sách.',
       'Ngân sách chỉ tính cho loi_doc. caption luôn ngắn hơn nữa (3-8 từ);',
       'visual_brief KHÔNG bị giới hạn vì nó không được đọc thành tiếng.',
+      'TRƯỚC danh sách đoạn, chốt một SÂN KHẤU dùng chung cho cả kịch bản:',
+      '(a) bối cảnh — một NƠI CHỐN cụ thể; (b) đạo cụ và hướng ánh sáng;',
+      '(c) quy ước khung người — cách người xuất hiện trong khung, ví dụ',
+      '"chỉ thấy bàn tay, không bao giờ thấy mặt".',
+      'Rồi MỌI visual_brief phải xảy ra trong CÙNG bối cảnh đó, dưới CÙNG',
+      'hướng sáng, theo CÙNG quy ước khung người. Đổi góc máy và cỡ khung thì',
+      'được — đổi NƠI CHỐN thì không, trừ khi vai trò của đoạn đòi hỏi rõ.',
+      'Quy ước khung người là quy ước KHUNG HÌNH, không phải mô tả người:',
+      'vẫn TUYỆT ĐỐI không tả khuôn mặt, ngoại hình, tuổi, tóc hay trang phục.',
       'Một số đoạn kèm "khuôn nói nguồn" và "khuôn chữ nguồn": đó là mô tả',
       'TRỪU TƯỢNG về CÁCH video tham khảo diễn đạt đoạn đó — ví dụ "câu hỏi',
       'ngắn rồi ngắt", "liệt kê ba ý dồn dập", "chữ hiện từng cụm theo trọng',
@@ -680,6 +689,10 @@ const TASKS = {
         brand.doiTuongKhach ? `Đối tượng khách: ${cat(brand.doiTuongKhach, 600)}` : '',
         brand.toneGiong ? `Giọng điệu cần giữ: ${cat(brand.toneGiong, 200)}` : '',
         brand.usp ? `Điểm mạnh cần làm nổi bật: ${cat(brand.usp, 600)}` : '',
+        // I7 §B2-b — sân khấu quen của thương hiệu. Nói rõ là PHẢI DÙNG LẠI:
+        // đây không phải gợi ý như nếp chỉ đạo (I6), vì đổi bối cảnh giữa
+        // các video của cùng brand là thứ phá đúng cái đồng nhất đang xây.
+        dongSanKhauBrand(brand.sanKhau),
         // Cắt số ràng buộc đưa vào lời nhắc: hồ sơ brand không giới hạn số
         // dòng, mà khối này nằm TRƯỚC danh sách đoạn — dán 30 dòng checklist
         // tuân thủ là đẩy hết phần đoạn ra khỏi ngân sách. Bộ kiểm sau khi
@@ -930,6 +943,23 @@ function flowBlueprintOutputSchema() {
  * tác vụ (object literal chưa xong lúc hàm này được ĐỊNH NGHĨA). */
 const SO_ANH_DOC_CHU_TOI_DA = 6
 
+/** Dòng SÂN KHẤU của thương hiệu trong lời nhắc — I7 §B2-b.
+ *
+ * Rỗng khi hồ sơ chưa đặt: lúc đó mô hình tự chốt sân khấu cho kịch bản đó
+ * (schema vẫn đòi `san_khau`), nên không có ca "không có sân khấu nào".
+ */
+function dongSanKhauBrand(sk) {
+  if (!sk) return ''
+  const phan = [
+    sk.boiCanh ? `bối cảnh: ${cat(sk.boiCanh, 300)}` : '',
+    sk.daoCuAnhSang ? `đạo cụ + ánh sáng: ${cat(sk.daoCuAnhSang, 300)}` : '',
+    sk.quyUocKhungNguoi ? `khung người: ${cat(sk.quyUocKhungNguoi, 300)}` : '',
+  ].filter(Boolean)
+  if (!phan.length) return ''
+  return 'SÂN KHẤU của thương hiệu — DÙNG LẠI, đừng chốt sân khấu mới:\n'
+    + phan.map((p) => `- ${p}`).join('\n')
+}
+
 /** Trần độ dài lời nhắc của `scene_director` (I3).
  *
  * GIỮ 6.000. Người viết kịch bản có trần riêng — xem
@@ -1015,6 +1045,16 @@ function tranDoDaiBeat() {
     if (!max) throw new Error(`models/BrandScript.js: ${ten} thiếu maxlength`)
     ra[ten] = max
   }
+  // I7 §B — trần của sân khấu, cũng đọc THẲNG từ model. Ba trường cùng
+  // `maxlength`, lấy một là đủ; lệch nhau thì ném, vì lúc đó `catCung` sẽ
+  // cắt đúng cho trường này và sai cho hai trường kia.
+  const skPaths = ['boiCanh', 'daoCuAnhSang', 'quyUocKhungNguoi']
+    .map((t) => require('../models/BrandScript').schema.path(`sanKhau.${t}`))
+  const skMax = skPaths.map((p) => p && p.options.maxlength)
+  if (skMax.some((m) => !m) || new Set(skMax).size !== 1) {
+    throw new Error('models/BrandScript.js: ba trường sanKhau phải cùng maxlength')
+  }
+  ra.sanKhau = skMax[0]
   return ra
 }
 
@@ -1182,8 +1222,26 @@ function parseSceneDirectorResult(raw, input) {
 function brandScriptOutputSchema() {
   return {
     type: 'object',
-    required: ['doan'],
+    required: ['san_khau', 'doan'],
     properties: {
+      // I7 §B — SÂN KHẤU, chốt TRƯỚC danh sách đoạn.
+      //
+      // Đặt trước là cố ý: mô hình sinh tuần tự, nên thứ nó viết ra đầu tiên
+      // trở thành ràng buộc cho phần sau. Đặt sau thì nó chỉ còn là bản tóm
+      // tắt của những gì đã lỡ viết lung tung.
+      //
+      // `quy_uoc_khung_nguoi` giải bài toán "nhân vật đồng nhất" mà KHÔNG
+      // đụng luật cấm tả ngoại hình: thứ tạo cảm giác "cùng một người" trong
+      // video ngắn là khung hình nhất quán, không phải mô tả nhận dạng.
+      san_khau: {
+        type: 'object',
+        required: ['boi_canh', 'dao_cu_anh_sang', 'quy_uoc_khung_nguoi'],
+        properties: {
+          boi_canh: { type: 'string' },
+          dao_cu_anh_sang: { type: 'string' },
+          quy_uoc_khung_nguoi: { type: 'string' },
+        },
+      },
       doan: {
         type: 'array',
         minItems: 1,
@@ -1239,7 +1297,19 @@ function parseBrandScriptResult(raw, input) {
   // biết mà gọi lại — im lặng nhận là ra một kịch bản thủng giữa chừng.
   if (beats.some((b) => !b.voiceoverTextVi && !b.captionSuggestionVi)) return null
 
-  return { beats }
+  // I7 §B — sân khấu. Cắt theo `maxlength` của model, cùng lý do với beats.
+  //
+  // Thiếu hẳn khối này thì KHÔNG huỷ cả lượt: kịch bản vẫn dùng được, chỉ
+  // mất phần đồng nhất. Huỷ một lượt đã tốn tiền vì một khối phụ là bắt
+  // người dùng trả giá cho lỗi của mô hình.
+  const sk = (raw && raw.san_khau) || {}
+  const sanKhau = {
+    boiCanh: catCung(sk.boi_canh, tran.sanKhau),
+    daoCuAnhSang: catCung(sk.dao_cu_anh_sang, tran.sanKhau),
+    quyUocKhungNguoi: catCung(sk.quy_uoc_khung_nguoi, tran.sanKhau),
+  }
+
+  return { beats, sanKhau }
 }
 
 /** JSON schema cho output của `doc_chu_khung_hinh`. Ép mô hình gắn số thứ tự
