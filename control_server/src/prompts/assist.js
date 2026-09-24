@@ -624,7 +624,7 @@ const TASKS = {
    */
   brand_script_rewrite: {
     costKey: 'credit.cost.assist.brand_script_rewrite',
-    maxInput: 6000,
+    maxInput: 20000,
     outputSchema: () => brandScriptOutputSchema(),
     parseResult: (raw, input) => parseBrandScriptResult(raw, input),
     system: [
@@ -661,6 +661,12 @@ const TASKS = {
       'gói ba ý vào một đoạn rồi vượt ngân sách.',
       'Ngân sách chỉ tính cho loi_doc. caption luôn ngắn hơn nữa (3-8 từ);',
       'visual_brief KHÔNG bị giới hạn vì nó không được đọc thành tiếng.',
+      'Một số đoạn kèm "khuôn nói nguồn" và "khuôn chữ nguồn": đó là mô tả',
+      'TRỪU TƯỢNG về CÁCH video tham khảo diễn đạt đoạn đó — ví dụ "câu hỏi',
+      'ngắn rồi ngắt", "liệt kê ba ý dồn dập", "chữ hiện từng cụm theo trọng',
+      'âm". Hãy viết theo CÁCH ấy bằng nội dung của thương hiệu này.',
+      'Đây KHÔNG phải câu chữ của nguồn và bạn KHÔNG được dựng lại câu chữ',
+      'nguồn từ nó — học cách nói, không mượn lời nói.',
       'Trả đúng số đoạn được yêu cầu, theo đúng thứ tự.',
     ].join(' '),
     buildUser: (input) => {
@@ -705,10 +711,10 @@ const TASKS = {
       // Hai phần KHÔNG được phép mất: đủ số dòng đoạn, và chỉ dẫn viết lại.
       const dauTrang = dong.join('\n')
       const vietLai = phanVietLai(input).join('\n')
-      const conLai = TRAN_LOI_NHAC - dauTrang.length - vietLai.length - 80
+      const conLai = TRAN_LOI_NHAC_KICH_BAN - dauTrang.length - vietLai.length - 80
 
       let dongBeat = ''
-      for (const [nfv, pn] of NGAN_SACH_BEAT) {
+      for (const [nfv, pn, kc, kn] of NGAN_SACH_BEAT) {
         dongBeat = beats.map((b, i) => {
           const soTu = soTuChoDoan(b?.giay)
           return [
@@ -717,8 +723,18 @@ const TASKS = {
             // có thể bị cắt bớt khi hết ngân sách prompt (xem vòng lặp
             // NGAN_SACH_BEAT), còn con số này thì không được phép mất.
             soTu ? `${b.giay.toFixed(1)} giây — TỐI ĐA ${soTu} từ` : '',
-            b?.narrativeFunctionVi ? `vai trò: ${cat(b.narrativeFunctionVi, nfv)}` : '',
+            // `nfv &&` chứ không chỉ kiểm có dữ liệu: ngân sách 0 mà vẫn in
+            // `vai trò: ` rỗng là rác trong lời nhắc, và nó che mất việc vai
+            // trò đã bị hy sinh — một test canh "vai trò không bao giờ mất"
+            // sẽ xanh giả vì cái nhãn vẫn còn đó.
+            nfv && b?.narrativeFunctionVi
+              ? `vai trò: ${cat(b.narrativeFunctionVi, nfv)}` : '',
             pn && b?.pacingNoteVi ? `nhịp: ${cat(b.pacingNoteVi, pn)}` : '',
+            // I7 §8 — KHUÔN của nguồn, không phải câu chữ của nguồn. H2 đã
+            // trừu tượng hoá sẵn và bộ chặn sao chép vẫn quét đầu ra, nên
+            // đây không phải đường lách.
+            kc && b?.khuonChu ? `khuôn chữ nguồn: ${cat(b.khuonChu, kc)}` : '',
+            kn && b?.khuonNoi ? `khuôn nói nguồn: ${cat(b.khuonNoi, kn)}` : '',
           ].filter(Boolean).join(' | ')
         }).join('\n')
         if (dongBeat.length <= conLai) break
@@ -914,19 +930,65 @@ function flowBlueprintOutputSchema() {
  * tác vụ (object literal chưa xong lúc hàm này được ĐỊNH NGHĨA). */
 const SO_ANH_DOC_CHU_TOI_DA = 6
 
-/** Trần độ dài lời nhắc của `brand_script_rewrite`. */
+/** Trần độ dài lời nhắc của `scene_director` (I3).
+ *
+ * GIỮ 6.000. Người viết kịch bản có trần riêng — xem
+ * `TRAN_LOI_NHAC_KICH_BAN` ngay dưới và lý do phải tách.
+ */
 const TRAN_LOI_NHAC = 6000
+
+/** Trần RIÊNG của `brand_script_rewrite` — mini-spec I7 §8.
+ *
+ * Tách khỏi `TRAN_LOI_NHAC` vì hai tác vụ dùng chung hằng số đó: nới cho
+ * người viết kịch bản đã vô tình nới cả `scene_director`, tăng tiền của nó
+ * mà không ai yêu cầu. Một test có sẵn bắt được ngay lượt đầu — nó canh rằng
+ * ở 40 đoạn bậc ngân sách của `scene_director` PHẢI kích hoạt.
+ *
+ * Ở trần 6.000, kịch bản từ 20 đoạn trở lên mất sạch bốn chiều mô tả trừ
+ * vai trò — tức hai khuôn mới của §8 chỉ có tác dụng cho kịch bản ngắn.
+ *
+ * **20.000 chọn từ SỐ ĐO, không phỏng đoán** (24/09, độ dài THẬT của mô tả
+ * H2 sinh ra — thường 70–160 ký tự), đo ở bậc ngân sách RỘNG NHẤT:
+ *
+ *   | số đoạn | dài lời nhắc |
+ *   |---------|--------------|
+ *   | 20      |  9.029       |
+ *   | 30      | 13.300       |
+ *   | 40      | 17.570       |
+ *
+ * 20.000 phủ hết cỡ lớn nhất schema cho phép (40 đoạn) mà **vẫn giữ đủ bốn
+ * chiều**. Thang `NGAN_SACH_BEAT` giữ nguyên để đỡ ca cực đoan: mọi mô tả
+ * kịch trần 300 ký tự cần ~40.400, và lúc đó thang mới là thứ cứu.
+ *
+ * ≈ 5–6 nghìn token. Cái tăng là TIỀN mỗi lượt — chủ dự án chốt 24/09 là
+ * chấp nhận, đổi lấy kịch bản sát giọng nguồn hơn.
+ */
+const TRAN_LOI_NHAC_KICH_BAN = 20000
 
 /** Số ràng buộc brand đưa vào lời nhắc. Bộ kiểm sau khi sinh vẫn quét TOÀN
  * BỘ ràng buộc — đây chỉ là phần nhắc trước cho mô hình, và nó phải nhường
  * chỗ cho danh sách đoạn. */
 const SO_RANG_BUOC_TRONG_LOI_NHAC = 20
 
-/** Các mức ngân sách chữ cho MỘT đoạn: `[vai trò, nhịp]`. Thử lần lượt từ
- * rộng tới hẹp cho tới khi đủ chỗ. Mức cuối bỏ hẳn phần nhịp — thà mất phần
- * gợi ý nhịp còn hơn mất cả một đoạn, vì `parseBrandScriptResult` đòi ĐÚNG
- * số đoạn và thiếu một đoạn là hỏng cả lượt. */
-const NGAN_SACH_BEAT = [[300, 200], [150, 100], [80, 40], [40, 0]]
+/** Bốn chiều: `[vai trò, nhịp, khuôn chữ, khuôn nói]`.
+ *
+ * THỨ TỰ HY SINH (mục nào về 0 trước), và vì sao:
+ *   1. `nhịp` — từ I7 §A, nhịp ĐÃ được gửi riêng xuống `scene_director`, nên
+ *      H3 mất nó thì thông tin vẫn còn đường tới khâu chọn bố cục;
+ *   2. `khuôn chữ` — caption chỉ 3-8 từ, sai lệch ít hậu quả hơn lời đọc;
+ *   3. `khuôn nói` — đây là thứ quyết định kịch bản có giống giọng nguồn
+ *      không, giữ tới sát cuối;
+ *   4. `vai trò` — KHÔNG BAO GIỜ về 0. Mất nó là mô hình không biết đoạn
+ *      này làm gì, và kịch bản hỏng chứ không chỉ kém.
+ */
+const NGAN_SACH_BEAT = [
+  [300, 200, 200, 200],
+  [220, 120, 150, 180],
+  [150, 0, 100, 150],
+  [100, 0, 0, 100],
+  [60, 0, 0, 0],
+  [40, 0, 0, 0],
+]
 
 /** Trần số đoạn của một kịch bản brand — khớp `maxItems` của `beats` trong
  * `flowBlueprintOutputSchema()`: kịch bản có đúng số đoạn của Blueprint nên
@@ -1588,6 +1650,7 @@ module.exports = {
   brandScriptOutputSchema, parseBrandScriptResult, SO_DOAN_KICH_BAN_TOI_DA,
   // mini-spec I3 — chỉ đạo hình ảnh theo từ điển.
   sceneDirectorOutputSchema, parseSceneDirectorResult, vonTuChoLoiNhac,
-  TRAN_LY_DO, TRAN_LOI_NHAC, NGAN_SACH_DOAN_CHI_DAO, dungDongDoanChiDao, TRAN_LOI_NHAC, NGAN_SACH_DOAN_CHI_DAO,
+  TRAN_LY_DO, TRAN_LOI_NHAC, TRAN_LOI_NHAC_KICH_BAN,
+  NGAN_SACH_DOAN_CHI_DAO, dungDongDoanChiDao, NGAN_SACH_BEAT,
   tranDoDaiBeat, catCung,
 }

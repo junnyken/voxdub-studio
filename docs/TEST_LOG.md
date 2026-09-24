@@ -19859,3 +19859,86 @@ trần tăng giá 15%. Chưa có nó thì chỉ chứng minh được *thông ti
 **chưa** chứng minh *bố cục tốt lên*. Hai việc khác nhau, và spec đòi cả hai.
 
 §B (đồng nhất bối cảnh) chưa bắt đầu.
+
+---
+
+## I7 §8 — hai khuôn trừu tượng của nguồn vào tay người viết kịch bản (24/09)
+
+### 1. Khe hở
+
+`overlay_pattern_abstract_vi` + `spoken_pattern_abstract_vi` là hai trong bốn
+mô tả H2 **bắt buộc** sinh (`required` trong schema ⇒ tốn token mỗi lượt).
+Chúng được lưu, trả qua API — và grep toàn hệ thống ra **đúng một chỗ dùng
+mỗi trường: bước lưu**. App desktop: 0 tham chiếu.
+
+Chỗ vứt: `dungInput()` của `routes/brand-scripts.js` lọc beat xuống 4 trường.
+**Cùng hình dạng lỗi với H6** ngay trên nó — ở đó vứt `startS/endS` nên kịch
+bản dài **gấp 5 lần** nguồn; ở đây vứt CÁCH DIỄN ĐẠT nên kịch bản đúng cấu
+trúc mà không giống giọng nguồn.
+
+### 2. Thứ tự hy sinh — quyết định, có lý do
+
+`NGAN_SACH_BEAT` nay 4 chiều `[vai trò, nhịp, khuôn chữ, khuôn nói]`:
+
+1. **nhịp** đi trước — từ §A nhịp ĐÃ gửi riêng xuống `scene_director`, nên H3
+   mất nó thì thông tin vẫn còn đường tới khâu chọn bố cục;
+2. **khuôn chữ** — caption 3-8 từ, sai lệch ít hậu quả hơn lời đọc;
+3. **khuôn nói** — thứ quyết định kịch bản có giống giọng nguồn không;
+4. **vai trò** — KHÔNG BAO GIỜ về 0.
+
+### 3. Trần lời nhắc: 6.000 → 20.000, chọn từ số đo
+
+Độ dài THẬT của mô tả H2 (70–160 ký tự), đo ở bậc rộng nhất:
+
+| số đoạn | dài lời nhắc |
+|---|---|
+| 20 | 9.029 |
+| 30 | 13.300 |
+| 40 | **17.570** |
+
+20.000 phủ hết cỡ lớn nhất schema cho phép mà giữ đủ bốn chiều. Ca cực đoan
+(mọi mô tả kịch trần 300 ký tự) cần ~40.400 — đó là lúc thang ngân sách cứu.
+
+**Tách trần của hai tác vụ.** `TRAN_LOI_NHAC` dùng chung cho cả
+`scene_director`, nên nới cho H3 đã **vô tình nới cả I3** và tăng tiền của nó
+mà không ai yêu cầu. Một **test có sẵn bắt được ngay lượt đầu** (nó canh rằng
+ở 40 đoạn bậc ngân sách của `scene_director` PHẢI kích hoạt). Nay H3 có
+`TRAN_LOI_NHAC_KICH_BAN` riêng.
+
+### 4. Ba lỗi của chính tôi, phép tiêm lôi ra
+
+**(a) Đường route → lời nhắc KHÔNG có test nào.** Mọi test §8 ban đầu gọi
+thẳng `buildUser` với beat tự chế. Bỏ hai khuôn ở `dungInput` của route mà cả
+bộ vẫn xanh — đúng lớp "hai đầu không gặp nhau". Đã thêm test đi từ
+FlowBlueprint qua route tới tận lời nhắc.
+
+**(b) Hai phép tiêm đầu tiên nhắm vào BẬC NGÂN SÁCH CHẾT.** Ở 40 đoạn thang
+dừng ở bậc 3; bậc 4/5/6 không bao giờ chạy. Tiêm vào đó trông y hệt "test
+yếu". Đã in ra bậc thật sự dùng rồi tiêm lại.
+
+**(c) Test canh "vai trò không bao giờ mất" soi NHÃN, không soi NỘI DUNG.**
+Ngân sách 0 vẫn in được `vai trò: ` rỗng. Đã sửa cả test (soi nội dung) lẫn
+mã (`nfv &&` để không in nhãn rỗng).
+
+### 5. Dọn theo đường đi
+
+- `module.exports` khai **trùng** `TRAN_LOI_NHAC` và `NGAN_SACH_DOAN_CHI_DAO`
+  hai lần trong cùng object literal — dấu của một lần nối thêm không đọc.
+- Docstring của trần 12.000 gắn **nhầm** vào `TRAN_LOI_NHAC = 6000` sau lượt
+  tách hằng số; và một docstring mồ côi của `NGAN_SACH_BEAT` 2 chiều còn sót.
+- Chốt `maxInput <= 8000` trong `assist-prompts.test.js` nay buộc vào
+  `TRAN_LOI_NHAC_KICH_BAN` thay vì gõ cứng — chốt vẫn bắt được con số bịa,
+  mà không đỏ oan mỗi lần ngân sách đổi vì lý do chính đáng.
+- `maxInput` rà cả `src/`: **khai mà KHÔNG nơi nào thi hành**. Nó là tài liệu,
+  không phải cổng. Ghi lại để bản sau đừng tưởng nó chặn gì.
+
+### 6. Test
+
+`control_server`: **831 pass, 1 skip** (+13 cho §8). Chứng minh đỏ bằng 5 phép
+tiêm nhắm đúng bậc đang dùng.
+
+### 7. Còn treo
+
+Cổng đo A/B của §6 **chưa chạy** — §A và §8 nay là **hai** thay đổi chất
+lượng chồng lên nhau. Đo chung thì không biết cái nào có tác dụng; spec đã
+cảnh báo đúng chuyện này. Cần ba cấu hình: gốc · +§A · +§A+§8.

@@ -24,7 +24,13 @@ test('mỗi tác vụ khai đủ trần và khoá giá', () => {
   for (const ten of assist.TASK_NAMES) {
     const t = assist.getTask(ten)
     assert.ok(t.costKey.startsWith('credit.cost.assist.'), `${ten}: thiếu khoá giá`)
-    assert.ok(t.maxInput > 0 && t.maxInput <= 8000, `${ten}: trần đầu vào vô lý`)
+    // Cận trên buộc vào hằng số THẬT chứ không gõ một con số: I7 §8 nâng
+    // trần của `brand_script_rewrite` lên 20.000 (có số đo), và một chốt gõ
+    // cứng 8.000 sẽ đỏ mỗi lần ngân sách đổi vì lý do chính đáng. Chốt vẫn
+    // còn tác dụng — nó bắt tác vụ khai trần lớn hơn mọi lời nhắc ta THẬT SỰ
+    // dựng được, tức một con số bịa.
+    assert.ok(t.maxInput > 0 && t.maxInput <= assist.TRAN_LOI_NHAC_KICH_BAN,
+      `${ten}: trần đầu vào vô lý (${t.maxInput})`)
     // `maxResults` chỉ có nghĩa cho khuôn CHUNG {results:[{value,reason}]}.
     // Tác vụ khuôn riêng (mini-spec H2, vd viral_flow_blueprint) không đọc
     // trường này ở đâu cả — đặt số vào đây chỉ để "cho qua" test là dữ liệu

@@ -965,6 +965,16 @@ function dungInput(blueprint, brand, vietLai) {
       // thật của chủ dự án: nguồn 34 giây, kịch bản đọc hết 170 giây — gấp
       // 5 lần, tức đúng cái NHỊP mà cả H2 tốn 64 Vox để học đã bị vứt đi.
       giay: Math.max(0, Number(b.endS || 0) - Number(b.startS || 0)),
+      // I7 §8 — hai khuôn trừu tượng H2 đã tốn token để trích. Trước đây
+      // hàm này lọc bỏ chúng, nên chúng được sinh BẮT BUỘC, lưu vào CSDL,
+      // trả qua API rồi KHÔNG ai đọc (grep toàn hệ thống: đúng một chỗ dùng
+      // mỗi trường, là bước lưu).
+      //
+      // Cùng hình dạng lỗi với H6 ngay phía trên, chỉ khác chỗ: ở đó vứt
+      // THỜI LƯỢNG nên kịch bản dài gấp 5 lần nguồn; ở đây vứt CÁCH DIỄN
+      // ĐẠT nên kịch bản đúng cấu trúc mà không giống giọng nguồn.
+      khuonChu: b.overlayPatternAbstractVi || '',
+      khuonNoi: b.spokenPatternAbstractVi || '',
     })),
     brand: {
       tenBrand: brand.tenBrand,

@@ -975,3 +975,165 @@ test('I7: lời nhắc DẠY mô hình dùng con số đó, không chỉ đưa s
   assert.match(sys, /KHÔNG kèm thời lượng/,
     'không dặn gì cho đoạn thiếu thời lượng — mô hình sẽ tự suy từ độ dài câu')
 })
+
+// =========================================================================
+// MINI-SPEC I7 §8 — hai khuôn trừu tượng của nguồn vào tay người viết kịch bản
+// =========================================================================
+//
+// `overlay_pattern_abstract_vi` và `spoken_pattern_abstract_vi` là hai trong
+// bốn mô tả H2 BẮT BUỘC sinh (required trong schema, tức tốn token mỗi lượt).
+// Chúng được lưu vào CSDL, trả qua API — và grep toàn hệ thống trước I7 ra
+// ĐÚNG MỘT chỗ dùng mỗi trường: bước lưu. Không ai đọc.
+//
+// Cùng hình dạng lỗi với H6: ở đó `dungInput` của route lọc bỏ `startS/endS`
+// nên mô hình không biết nguồn dài bao nhiêu và viết dài gấp 5 lần. Ở đây
+// lọc bỏ CÁCH DIỄN ĐẠT nên kịch bản đúng cấu trúc mà không giống giọng nguồn.
+
+const specH3 = () => require('../src/prompts/assist').getTask('brand_script_rewrite')
+
+const BRAND_MAU = {
+  tenBrand: 'Mắt Bão',
+  moTaSanPham: 'Dịch vụ tên miền và hosting cho doanh nghiệp nhỏ',
+  doiTuongKhach: 'Chủ shop online mới mở',
+  toneGiong: 'Thẳng thắn, không màu mè',
+  usp: 'Hỗ trợ người thật 24/7',
+  rangBuocKhongDuocNoi: ['rẻ nhất'],
+}
+
+const beatMau = (them = {}) => ({
+  beatType: 'hook', giay: 3.5,
+  narrativeFunctionVi: 'Mở đầu bằng câu cảnh báo ngắn rồi hứa lợi ích cụ thể',
+  pacingNoteVi: 'Cắt nhanh, mỗi câu một ý, chữ hiện cùng trọng âm',
+  khuonChu: 'Chữ to hiện từng cụm 2-3 từ, đổi theo trọng âm câu nói',
+  khuonNoi: 'Câu hỏi ngắn rồi ngắt một nhịp, sau đó trả lời bằng câu khẳng định',
+  ...them,
+})
+
+test('I7§8: hai khuôn nguồn ĐI TỚI được lời nhắc viết kịch bản', async () => {
+  const u = specH3().buildUser({ brand: BRAND_MAU, beats: [beatMau()] })
+  assert.match(u, /khuôn chữ nguồn:/, 'khuôn chữ vẫn bị vứt')
+  assert.match(u, /khuôn nói nguồn:/, 'khuôn nói vẫn bị vứt')
+  assert.match(u, /Câu hỏi ngắn rồi ngắt/, 'nội dung khuôn nói không tới nơi')
+})
+
+test('I7§8: lời nhắc DẠY dùng khuôn, và CẤM dựng lại câu chữ nguồn', async () => {
+  const sys = specH3().system
+  assert.match(sys, /khuôn nói nguồn/, 'không giải thích hai trường mới')
+  assert.match(sys, /TRỪU TƯỢNG/, 'không nói rõ đây là mô tả trừu tượng')
+  assert.match(sys, /học cách nói, không mượn lời nói/,
+    'thiếu câu chặn — mô hình có thể coi đây là gợi ý để dựng lại lời nguồn')
+})
+
+test('I7§8: THỨ TỰ HY SINH đúng như đã chốt — nhịp đi trước, vai trò không mất',
+  async () => {
+    // Phải ép thang ngân sách KÍCH HOẠT thật, nếu không test chỉ chứng minh
+    // "trần đủ rộng" chứ không chứng minh thứ tự hy sinh. Dùng trường hợp xấu
+    // nhất schema cho phép: 40 đoạn, mọi mô tả kịch trần 300 ký tự
+    // (`maxlength` của `FlowBlueprint.beats.*`). Ca đó cần ~40.400 ký tự ở
+    // bậc rộng nhất, tức chắc chắn vượt trần 20.000.
+    const beats = Array.from({ length: 40 }, () => beatMau({
+      narrativeFunctionVi: `Mở đầu bằng câu cảnh báo ${'n'.repeat(280)}`,
+      pacingNoteVi: 'p'.repeat(300),
+      khuonChu: 'c'.repeat(300),
+      khuonNoi: 'k'.repeat(300),
+    }))
+    const u = specH3().buildUser({ brand: BRAND_MAU, beats })
+    const dong = u.split('\n').filter((l) => /^\d+\. \[/.test(l))
+
+    assert.equal(dong.length, 40, 'mất đoạn')
+    // Soi NỘI DUNG chứ không soi nhãn: ngân sách 0 vẫn in được `vai trò: `
+    // rỗng, nên kiểm nhãn là xanh giả. Phép tiêm lỗi lôi ra chỗ này.
+    assert.ok(u.includes('vai trò: Mở đầu bằng câu cảnh báo'),
+      'vai trò bị hy sinh — không bao giờ được phép')
+    assert.doesNotMatch(u, /vai trò:\s*(\||$)/m, 'in nhãn vai trò RỖNG')
+    assert.ok(u.includes('khuôn nói nguồn:'),
+      'khuôn nói phải sống lâu hơn nhịp và khuôn chữ')
+    assert.ok(!u.includes('nhịp:'), 'nhịp phải bị hy sinh TRƯỚC ở cỡ này')
+  })
+
+test('I7§8: kịch bản vừa và ngắn giữ ĐỦ bốn chiều', async () => {
+  for (const n of [5, 10, 20, 30]) {
+    const u = specH3().buildUser({
+      brand: BRAND_MAU, beats: Array.from({ length: n }, () => beatMau()) })
+    for (const t of ['vai trò:', 'nhịp:', 'khuôn chữ nguồn:', 'khuôn nói nguồn:']) {
+      assert.ok(u.includes(t), `${n} đoạn: mất "${t}"`)
+    }
+    assert.equal((u.match(/^\d+\. \[/gm) || []).length, n, `${n} đoạn: mất đoạn`)
+  }
+})
+
+test('I7§8: beat KHÔNG có khuôn thì bỏ hẳn dòng, không in nhãn rỗng', async () => {
+  const u = specH3().buildUser({
+    brand: BRAND_MAU, beats: [beatMau({ khuonChu: '', khuonNoi: '' })] })
+  assert.doesNotMatch(u, /khuôn chữ nguồn:\s*\|/, 'in nhãn rỗng')
+  assert.doesNotMatch(u, /khuôn nói nguồn:\s*$/m, 'in nhãn rỗng')
+  assert.match(u, /vai trò:/, 'mất cả phần còn lại')
+})
+
+test('I7§8: trần lời nhắc đủ rộng để 30 đoạn giữ được mọi chiều', async () => {
+  const beats = Array.from({ length: 30 }, () => beatMau())
+  const u = specH3().buildUser({ brand: BRAND_MAU, beats })
+  assert.ok(u.length <= assistPromptsTran(),
+    `vượt trần: ${u.length} > ${assistPromptsTran()}`)
+  assert.ok(u.includes('khuôn nói nguồn:'),
+    'trần quá chật — hai khuôn mới chỉ có tác dụng cho kịch bản ngắn')
+})
+
+function assistPromptsTran() {
+  return require('../src/prompts/assist').TRAN_LOI_NHAC_KICH_BAN
+}
+
+test('I7§8: hai khuôn đi từ BLUEPRINT qua route tới tận lời nhắc', async () => {
+  // Phép tiêm lỗi lôi ra: mọi test §8 phía trên gọi thẳng `buildUser` với
+  // beat tự chế, nên đường route -> lời nhắc KHÔNG có gì canh. Bỏ hai khuôn
+  // ở `dungInput` của route mà cả bộ vẫn xanh — đúng lớp "hai đầu không gặp
+  // nhau" mà dự án này dính nhiều lần.
+  const { device, token } = await thietBiMoi(300)
+  const brand = await BrandProfile.create({
+    ownerDeviceId: device._id, tenBrand: 'Mắt Bão',
+    moTaSanPham: 'Dịch vụ tên miền và hosting cho doanh nghiệp nhỏ',
+    doiTuongKhach: 'Chủ shop online mới mở', toneGiong: 'Thẳng thắn',
+    usp: 'Hỗ trợ người thật 24/7', rangBuocKhongDuocNoi: ['rẻ nhất'],
+  })
+  const bp = await FlowBlueprint.create({
+    ownerDeviceId: device._id, sourceType: 'url',
+    sourceReference: 'https://example.com/v', status: 'ready',
+    beats: [0, 1].map((i) => ({
+      startS: i * 4, endS: i * 4 + 4, beatType: ['hook', 'cta'][i],
+      narrativeFunctionVi: 'vai trò mẫu',
+      pacingNoteVi: 'Cắt nhanh, mỗi câu một ý',
+      overlayPatternAbstractVi: 'CHU-HIEN-TUNG-CUM-NGAN-THEO-TRONG-AM',
+      spokenPatternAbstractVi: 'CAU-HOI-NGAN-ROI-NGAT-MOT-NHIP',
+    })),
+    evidenceFingerprint: dauVanTay.taoDauVanTay(['Một câu nguồn mẫu đủ dài']),
+  })
+
+  let vaoThat = null
+  mock.method(gateway, 'assist', async (arg) => {
+    vaoThat = arg.input
+    return {
+      beats: [
+        { beatType: 'hook', voiceoverTextVi: 'Tên miền của bạn sắp hết hạn mà không ai nhắc', captionSuggestionVi: 'Sắp hết hạn', visualBriefVi: 'Cận cảnh màn hình' },
+        { beatType: 'cta', voiceoverTextVi: 'Gọi một cuộc là có người thật nghe máy ngay', captionSuggestionVi: 'Gọi ngay', visualBriefVi: 'Bàn làm việc' },
+      ],
+    }
+  })
+
+  const res = await goi('POST', '/v1/brand-scripts/', token, {
+    jobId: maViec(),
+    flowBlueprintId: String(bp._id),
+    brandProfileId: String(brand._id),
+  })
+
+  assert.ok([200, 201].includes(res.statusCode), res.body)
+  assert.ok(vaoThat, 'không bắt được đầu vào gửi cho mô hình')
+  assert.equal(vaoThat.beats[0].khuonChu, 'CHU-HIEN-TUNG-CUM-NGAN-THEO-TRONG-AM',
+    'route vẫn vứt khuôn chữ của Blueprint')
+  assert.equal(vaoThat.beats[0].khuonNoi, 'CAU-HOI-NGAN-ROI-NGAT-MOT-NHIP',
+    'route vẫn vứt khuôn nói của Blueprint')
+
+  // Và nó phải tới được LỜI NHẮC THẬT, không chỉ nằm trong object đầu vào.
+  const u = specH3().buildUser(vaoThat)
+  assert.match(u, /CAU-HOI-NGAN-ROI-NGAT-MOT-NHIP/,
+    'có trong đầu vào nhưng không vào được lời nhắc')
+})
