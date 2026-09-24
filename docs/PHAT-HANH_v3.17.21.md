@@ -72,6 +72,51 @@ số trong ảnh"* — mà cái nhãn ngay cạnh vẫn ghi *"chưa chứng minh
 ảnh"*. Máy chủ đã ghi nhận đúng; chỉ là danh sách không tự đọc lại. Nay đọc
 lại sau mỗi lượt thử.
 
+## 6. Kịch bản: trợ lý được cho biết nhiều hơn
+
+Ba thay đổi ở khâu viết kịch bản và chọn bố cục. **Phần lớn nằm ở máy chủ và
+đã chạy từ 24/09** — bản `.exe` này chỉ đổi một chỗ nhỏ (mục 6.4).
+
+**6.1 — Chọn bố cục theo NHỊP.** Trước đây bước chỉ đạo hình ảnh không biết
+đoạn dài bao nhiêu, nên nó chọn chuyển cảnh như nhau cho đoạn 2 giây lẫn đoạn
+8 giây — mà một cú chuyển mềm 0,3 giây ăn 15% của đoạn ngắn và gần như không
+đáng kể ở đoạn dài. Nay nó biết thời lượng và nhịp của từng đoạn.
+
+**6.2 — Trợ lý học được CÁCH NÓI của video tham khảo.** Bước phân tích cấu
+trúc vốn đã trích bốn thứ cho mỗi đoạn, nhưng bước viết kịch bản chỉ nhận
+được hai. Hai thứ bị bỏ chính là *khuôn chữ trên hình* và *khuôn câu nói* —
+tức cách video gốc **truyền đạt**, không phải nội dung của nó. Nay cả bốn đều
+tới nơi.
+
+**6.3 — Một SÂN KHẤU dùng chung.** Trước đây mỗi đoạn tả hình độc lập, nên
+đoạn 1 có thể là gian bếp và đoạn 5 là bàn làm việc, không gì chặn. Nay kịch
+bản chốt sẵn một bối cảnh, một hướng sáng và một **quy ước khung người**
+(ví dụ *"chỉ thấy bàn tay, không bao giờ thấy mặt"*) rồi mọi đoạn bám theo.
+
+Hồ sơ Brand đặt được sân khấu riêng — đặt một lần, mọi kịch bản của thương
+hiệu đó dùng lại. Đó là thứ làm nhiều video của cùng một thương hiệu nhìn như
+một bộ.
+
+> Quy ước khung người là quy ước **khung hình**, không phải mô tả người. Luật
+> không tả khuôn mặt / ngoại hình / tuổi / tóc / trang phục **không đổi một
+> chữ**.
+
+**6.4 — Hộp thoại «Chỉ đạo hình ảnh» hiện thời lượng mỗi đoạn.** Đây là phần
+duy nhất của mục 6 nằm trong bản `.exe`. Khi bạn tự sửa chuyển cảnh của một
+đoạn, bạn cần biết đoạn ấy dài 2 giây hay 8 giây — trước đây bạn chọn mù đúng
+như mô hình.
+
+### Nói cho đúng mức: cái gì đã chứng minh, cái gì chưa
+
+**Đã chứng minh:** thông tin tới được nơi cần tới, và không làm hỏng thứ đang
+chạy — kịch bản 40 đoạn vẫn đủ đoạn, ngân sách từ vẫn giữ, bộ chặn sao chép
+vẫn nguyên.
+
+**CHƯA chứng minh:** kịch bản có **hay hơn** không. Phép đo so sánh trước/sau
+(nhiều thương hiệu, nhiều video, chấm mù) **chưa chạy**. Ba mục trên cho mô
+hình nhiều dữ kiện hơn để làm đúng — chúng chưa phải bằng chứng rằng nó đã
+làm đúng hơn. Hai chuyện khác nhau, và bản ghi chú này không gộp lại.
+
 ---
 
 ## Cập nhật thế nào
