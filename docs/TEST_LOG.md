@@ -20356,3 +20356,95 @@ hỏng**, im lặng ở đây là bằng chứng nó đang nối được — ch
 đăng nhập, Vox, «Viết kịch bản», «Chỉ đạo hình ảnh». **Lồng tiếng chạy trên
 máy vẫn bình thường** — `docs/PHAT-HANH_v3.17.22.md` nói rõ cả hai vế, và đặt
 v3.17.22 là bản **bắt buộc cập nhật** chứ không phải tuỳ chọn.
+
+## E9 §5 — đo để chốt trần số khung (28/09/2026)
+
+Spec E9 cấm gõ đại con số. Đây là số đo, và nó chốt được trần cùng một thay
+đổi bắt buộc đi kèm.
+
+### Rào chắn 1 chốt cứng cận dưới
+
+Sản phẩm cam kết độ phủ đầy đủ cho video **≤ 90 giây**
+(`GIAY_KHUYEN_NGHI_TOI_DA`). Số khung tự nhiên ở đúng mép đó:
+
+| video | khung tự nhiên |
+|---|---|
+| 60s | 151 |
+| **90s** | **211** ← mép cam kết |
+| 180s | 391 |
+| 300s | 631 |
+| 600s | 1.231 |
+
+⇒ **trần phải ≥ 211**, nếu không là cắt vào vùng đã hứa. Trần 200 vi phạm.
+
+### Mất gì — đo trên video mẫu có mốc BIẾT TRƯỚC
+
+Dựng video 180s bằng `ffmpeg drawtext` với **11 sự kiện chữ** dài 0,4s → 8s,
+đặt ở đầu/giữa/cuối. Ground truth biết trước nên đo được chính xác cái mất:
+
+| trần | số khung | bắt được |
+|---|---|---|
+| hiện tại (không trần) | 391 | 11/11 |
+| 400 | 398 | 11/11 — **không cắn** ở 180s |
+| 250 | 248 | 9/11 |
+| 211 | 209 | 10/11 |
+
+**Thứ mất chỉ là caption CHỚP ngắn hơn một bước lấy mẫu** — hai sự kiện 0,4s.
+Mọi caption từ **1 giây trở lên đều sống**.
+
+> **Đừng đọc 211 (10/11) là tốt hơn 250 (9/11).** Sự kiện 0,4s với bước
+> 0,86s thì bắt được hay không phụ thuộc **pha**, là may rủi. Chênh lệch đó
+> là nhiễu, không phải tính chất. Ghi lại vì đúng loại số dễ bị dùng để biện
+> minh cho một con số đã chọn sẵn.
+
+Trần 400 **không cắn** ở 180s (tự nhiên đã 391) — nó chỉ bắt đầu cắt từ ~190s,
+tức gần như không giải quyết được gì.
+
+### BẪY khớp nối — đã chứng minh, và nặng
+
+`KHOANG_CACH_TOI_DA_DE_GOP_GIAY = 1.0` được chọn = gấp đôi bước thưa nhất
+(0,5s). Thưa đoạn giữa mà giữ nguyên nó:
+
+| bước lấy mẫu | một dòng chữ đứng yên 10 giây → mấy mẩu |
+|---|---|
+| 0,50s | **1** |
+| 0,86s | **1** |
+| 1,00s | **1** |
+| 1,47s | **7 mẩu rời** |
+| 2,00s | **6 mẩu rời** |
+| 2,99s | **4 mẩu rời** |
+
+Ngưỡng vỡ: bước > 1,0s. Với trần 250 thì bước giữa = `(D-10)/197`, nên **vỡ
+khi video dài hơn 207 giây**.
+
+Vỡ nghĩa là số mẩu **TĂNG**, đụng trần 400 ở đầu ra sớm hơn, rồi
+`gioi_han_bang_chung` lại vứt bớt — **đọc ít khung hơn mà bằng chứng tệ hơn**.
+Nên §4B không phải tuỳ chọn: khoảng cách gộp **phải** đi theo bước thật.
+
+### Giá mỗi khung
+
+Đo tại workspace: trích khung **217 ms**, OCR **0,75 giây/khung**. Nhưng đây
+là khung 640×360 chỉ một dòng chữ — **cận dưới, không đại diện**. Chú thích
+trong `flow_blueprint.py` ghi 2–3 giây (ảnh thưa chữ) và 13–14 giây (ảnh đặc
+chữ), đo trên máy thật với video thật. Dùng con số nào cũng phải nói rõ nó
+đo ở đâu.
+
+### Chốt
+
+**`SO_KHUNG_TOI_DA = 250`**, kèm khoảng cách gộp đi theo bước thật.
+
+| video | trước | sau | giảm |
+|---|---|---|---|
+| ≤ 90s | — | **không đổi một mốc nào** | 0% |
+| 120s | 271 | 250 | 7,7% |
+| 180s | 391 | 250 | 36,1% |
+| 300s | 631 | 250 | 60,4% |
+| 600s | 1.231 | 250 | 79,7% |
+
+### CHƯA đo được
+
+§5 còn đòi so **số đoạn và vai trò của blueprint** giữa hai bản. Phần đó cần
+gọi mô hình trên máy chủ (tốn Vox của chủ dự án) nên **chưa chạy**. Thứ đã đo
+là **bằng chứng mô hình nhìn thấy**, và khác biệt duy nhất là hai caption
+chớp 0,4s trên 11 sự kiện. Rủi ro đổi blueprint là thấp, nhưng **thấp không
+phải là đã đo** — chưa được ghi là đạt tiêu chí 5.

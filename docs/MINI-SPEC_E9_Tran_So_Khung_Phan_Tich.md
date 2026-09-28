@@ -2,7 +2,7 @@
 
 - **Họ:** E — chi phí & độ ổn định của đường phân tích
 - **Tác giả:** Claude (viết từ đo mã thật, 28/09/2026)
-- **Trạng thái:** CHƯA bắt đầu — spec chờ duyệt
+- **Trạng thái:** §5 ĐÃ ĐO 28/09 → chốt `SO_KHUNG_TOI_DA = 250`; §4 chờ duyệt
 
 ---
 
@@ -113,7 +113,8 @@ Thêm `SO_KHUNG_TOI_DA`. Hai đầu giữ nguyên 0,2s (52 khung cố định). 
 còn lại chia đều cho đoạn giữa; video càng dài thì bước giữa càng thưa, nhưng
 tổng luôn ≤ trần.
 
-**Chốt con số bằng ĐO, không gõ đại** — xem §5.
+**Đã chốt bằng đo (xem `docs/TEST_LOG.md` mục E9 §5): `SO_KHUNG_TOI_DA = 250`.**
+Cận dưới 211 do rào chắn 1; 250 cho biên. Trần 400 gần như không cắn.
 
 ### B. Khoảng cách gộp đi theo bước giữa
 
