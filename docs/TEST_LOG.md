@@ -20287,3 +20287,72 @@ chạy một lượt pytest một lúc.
 
 Tiêu chí 6 (bấm thật trên Windows: đặt sân khấu cho **Mắt Bão**, sinh kịch bản,
 xác nhận sân khấu xuất hiện trong bản chỉ đạo) — cần máy Windows của chủ dự án.
+
+## Máy chủ đổi tên miền — và hai thứ đi theo nó (28/09/2026)
+
+Không do repo gây ra: Vibe Host chuyển `voxdub-app` sang tên miền khác.
+
+| | trước | sau |
+|---|---|---|
+| `voxdub-app` | `voxdub-app.cmc-1.vibenode.matbao.ai` | **`voxdub-app.vibe1.tinhgon.xyz`** |
+| `voxdub-dub-worker` | `voxdub-dub-worker.cmc-1.vibenode.matbao.ai` | **chưa đổi**, vẫn sống |
+
+Tên miền cũ của app nay trả trang *"Địa chỉ này chưa phục vụ nội dung"* của
+Vibe Host — Traefik không có router khớp. Trông **y hệt** "chưa deploy bao
+giờ", nên rất dễ chẩn nhầm sang phía sản phẩm.
+
+### (a) Suýt phát hành một bản không ai kết nối được
+
+`release.yml` đặt `VOXDUB_API_URL` cho `scripts/build_exe.py`, tức **địa chỉ
+được nhúng cứng vào `.exe`**. Dòng đó vẫn là tên miền cũ. Cắt tag lúc chưa
+sửa = mọi người tải về một app không gọi được máy chủ, và `.exe` đã tải thì
+**không thu hồi được**.
+
+Tìm ra vì trước khi cắt tag có kiểm "máy chủ đang chạy có nhận `sanKhau`
+không" — câu hỏi về I8, nhưng chính nó làm lộ ra `/health` trả HTML.
+
+`git grep` ra **9 chỗ** trỏ `voxdub-app` ở tên miền chết (`release.yml`,
+`test.yml`, `deploy_vays.sh`, `kiem_deploy_song.py`, `trien_khai_vibehost.py`,
+`backup-pull.{sh,ps1}`) và **3 chỗ** trỏ worker — worker **đo được là còn
+sống**, nên giữ nguyên.
+
+> **Bài học quét:** quét theo **tên dịch vụ đầy đủ**
+> (`voxdub-app.cmc-1…`), KHÔNG quét phần chung `cmc-1.vibenode.matbao.ai`.
+> Thay hàng loạt theo phần chung sẽ phá luôn worker đang chạy tốt.
+
+### (b) Lồng tiếng trên máy chủ đã NGỪNG HẲN 8 tiếng mà không ai biết
+
+`CONTROL_SERVER_URL` của worker cũng trỏ tên miền chết:
+
+```
+[dub_worker] bắt đầu poll https://voxdub-app.cmc-1.vibenode.matbao.ai mỗi 3.0s
+2026-09-28T07:08:35Z /internal/dub-jobs/claim trả 502: Bad Gateway
+2026-09-28T07:13:06Z Vẫn mất kết nối tới control_server: 8 lần trong 270s
+2026-09-28T07:21:06Z Vẫn mất kết nối tới control_server: 16 lần trong 751s
+```
+
+**Suốt thời gian đó `/health` của worker vẫn trả `{"ok": true}`, `status:
+online`, `state: running`.** Vì `/health` chỉ tự khai về chính nó — nó không
+gọi control_server, nên mọi phụ thuộc chết mà nó vẫn 200. Một dịch vụ "xanh"
+và một dịch vụ "làm được việc" là hai chuyện khác nhau.
+
+Với dịch vụ chỉ tiêu thụ (worker, cron, consumer), `/health` gần như vô dụng
+làm cổng. Tín hiệu đúng là **log chạy** — nó in thẳng địa chỉ đang gọi.
+
+Vá bằng `set_env CONTROL_SERVER_URL` + redeploy. Đo lại sau khi lên:
+
+```
+2026-09-28T07:28:30Z [dub_worker] worker_id=ef0b672897c2:1
+    bắt đầu poll https://voxdub-app.vibe1.tinhgon.xyz mỗi 3.0s
+```
+
+Không dòng lỗi nào sau mốc đó. Vì worker poll mỗi 3 giây và **luôn in ra khi
+hỏng**, im lặng ở đây là bằng chứng nó đang nối được — chứ không phải suy
+đoán từ việc "không thấy gì".
+
+### Hệ quả cho người dùng
+
+`v3.17.21` họ đang cầm nhúng tên miền chết ⇒ phần SaaS hỏng từ sáng 28/09:
+đăng nhập, Vox, «Viết kịch bản», «Chỉ đạo hình ảnh». **Lồng tiếng chạy trên
+máy vẫn bình thường** — `docs/PHAT-HANH_v3.17.22.md` nói rõ cả hai vế, và đặt
+v3.17.22 là bản **bắt buộc cập nhật** chứ không phải tuỳ chọn.
