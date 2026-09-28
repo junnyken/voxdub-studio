@@ -20448,3 +20448,82 @@ gọi mô hình trên máy chủ (tốn Vox của chủ dự án) nên **chưa c
 là **bằng chứng mô hình nhìn thấy**, và khác biệt duy nhất là hai caption
 chớp 0,4s trên 11 sự kiện. Rủi ro đổi blueprint là thấp, nhưng **thấp không
 phải là đã đo** — chưa được ghi là đạt tiêu chí 5.
+
+## E9 §5 (tiếp) — so blueprint THẬT, và một khẳng định quá tay của tôi
+
+Chạy tiếp phần §5 còn thiếu: gọi mô hình thật, so **số đoạn và vai trò**.
+
+**Đường đo không đụng ví chủ dự án:** gọi thẳng nhà cung cấp bằng
+`ASSIST_EVAL_*` (`control_server/.env`), dùng đúng `getTask('viral_flow_blueprint')`
+— `system`, `buildUser`, `outputSchema` của chính sản phẩm. Không đăng ký
+thiết bị (đăng ký sẽ **đúc Vox dùng thử** và để lại một máy rác — mã có hẳn
+cơ chế chống farm trial), không trừ Vox của người dùng.
+
+Video mẫu: 240 giây dựng bằng `drawtext`, **13 sự kiện chữ** xếp thành một
+mạch quảng cáo thật (hook → vấn đề → giải pháp → bằng chứng → cao trào → CTA),
+kèm 2 caption **chớp 0,4s**. ASR để rỗng ở cả ba cấu hình, nên khác biệt duy
+nhất là cách lấy mẫu OCR.
+
+### Chi phí đo được
+
+| | mốc | khung qua OCR | thời gian | quan sát |
+|---|---|---|---|---|
+| A — hiện tại | 511 | 27 (bỏ trùng **484**) | **220,4s** | 13 |
+| trần 250 | 248 | 23 (bỏ trùng 225) | **113,7s** | 11 |
+
+Nhanh **1,94 lần**, gần đúng tỉ lệ số mốc (511→248).
+
+**Chi phí KHÔNG nằm ở OCR như tôi tưởng.** Bỏ khung trùng (I7) đã ăn 95% công
+OCR trên video này; phần còn lại là **trích khung + lấy vân tay, chạy đủ 511
+lần**. Tức trần cắt đúng khâu đang chiếm phần lớn. Nhưng video mẫu **tĩnh bất
+thường** nên bỏ trùng hiệu quả tối đa — video thật có chuyển động sẽ bỏ được
+ít hơn và OCR nặng hơn. Con số 95% không mang sang được.
+
+### Blueprint — xương sống KHÔNG đổi
+
+| vị trí | A (không trần) | B (trần, gộp 1,0s) | C (trần, gộp 2,34s) |
+|---|---|---|---|
+| 1 | hook | hook | hook |
+| 2 | problem_context | problem_context | problem_context |
+| 3 | tension | tension | tension |
+| 4 | proof | proof | proof |
+| 5 | demonstration | demonstration | demonstration |
+| 6 | proof | payoff | proof |
+| 7 | **twist** | cta | cta |
+| 8 | cta | — | — |
+
+Năm đoạn đầu **khớp tuyệt đối** ở cả ba, và cả ba đều kết bằng `cta`.
+
+Đoạn thừa của A truy ra được: `[92–140s] proof — "Đưa thêm uy tín bằng khối
+thông tin khuyến mãi"`. Nó sinh ra **chỉ vì** caption chớp **0,4 giây**
+"KHUYEN MAI" ở giây 92. Một tia chữ 0,4s được nâng thành một đoạn kể chuyện
+dài 48 giây.
+
+⇒ Trần **không làm hỏng** cấu trúc. Nó bỏ đi một đoạn *dựng trên một tia
+chữ* — nhìn từ mục đích "đọc nhịp kể chuyện" thì đó là bỏ nhiễu, không phải
+mất thông tin.
+
+### Tôi đã NÓI QUÁ về cái bẫy gộp
+
+Ở lượt đo trước tôi viết: thưa đoạn giữa mà giữ `KHOANG_CACH_TOI_DA_DE_GOP_GIAY
+= 1.0` thì một dòng chữ 10 giây tách thành **7 mẩu rời**. Số đó đúng **trong
+mô phỏng cô lập** — nhưng mô phỏng ấy nạp 21 quan sát giống hệt nhau, còn
+đường chạy thật thì **bỏ khung trùng ĐÃ loại chúng trước khi tới bước gộp**.
+
+Đo trên đường thật: cả ba cấu hình đều có **số mẩu = số quan sát thô**
+(13→13, 11→11) — **bước gộp không gộp được gì, ở cả ba**. Sau khi I7 có bỏ
+khung trùng, `gop_quan_sat_lien_tiep` gần như không còn việc, nên khoảng gộp
+ảnh hưởng ít hơn nhiều so với tôi khẳng định.
+
+Khác biệt B↔C chỉ là **một nhãn** (`payoff` vs `proof`) — nằm trong dao động
+giữa các lượt gọi, không phải tác động đo được của khoảng gộp.
+
+**Sửa lại kết luận:** §4B (khoảng gộp đi theo bước) hạ từ *bắt buộc* xuống
+*nên làm cho đúng ý nghĩa hằng số*. Nó chỉ còn cắn khi OCR đọc lệch vài ký tự
+giữa các khung, khiến bỏ-khung-trùng giữ lại mà gộp không nối được.
+
+### Giới hạn của phép đo này
+
+Một video, một lượt gọi mỗi cấu hình. Nhãn đoạn 6 đã cho thấy **có** dao động
+giữa các lượt. Kết luận vững là phần **xương sống 5 đoạn đầu + cta**; phần
+nhãn đoạn giữa thì không.

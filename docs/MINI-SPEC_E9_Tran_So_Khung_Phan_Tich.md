@@ -2,7 +2,7 @@
 
 - **Họ:** E — chi phí & độ ổn định của đường phân tích
 - **Tác giả:** Claude (viết từ đo mã thật, 28/09/2026)
-- **Trạng thái:** §5 ĐÃ ĐO 28/09 → chốt `SO_KHUNG_TOI_DA = 250`; §4 chờ duyệt
+- **Trạng thái:** §5 XONG 28/09 (gồm so blueprint thật) → chốt `SO_KHUNG_TOI_DA = 250`; §4 chờ duyệt
 
 ---
 
@@ -98,8 +98,15 @@ làm xấu** bằng chứng cho video ngắn (nơi sản phẩm cam kết độ 
 2. **Giữ dày ở 5 giây đầu và 5 giây cuối.** Hook và kêu gọi hành động nằm ở
    đó; thưa hai đầu là hỏng đúng thứ tính năng này sinh ra để đọc.
 3. **Rải đều, KHÔNG cắt đuôi** — theo đúng `gioi_han_bang_chung` đã làm.
-4. **Đổi bước lấy mẫu thì phải đổi `KHOANG_CACH_TOI_DA_DE_GOP_GIAY` theo**
-   (§0e). Giữ đúng quan hệ "gấp đôi bước thưa nhất" đã ghi trong chú thích.
+4. **Đổi bước lấy mẫu thì nên đổi `KHOANG_CACH_TOI_DA_DE_GOP_GIAY` theo**
+   (§0e), để hằng số giữ đúng ý nghĩa đã ghi trong chú thích.
+
+   > **Hạ từ «bắt buộc» xuống «nên» sau khi đo 28/09.** Tôi từng khẳng định
+   > bỏ qua việc này làm một dòng chữ 10 giây tách thành 7 mẩu. Số đó đúng
+   > trong mô phỏng cô lập nhưng **sai trên đường chạy thật**: bỏ-khung-trùng
+   > (I7) đã loại các khung giống nhau TRƯỚC bước gộp, nên cả ba cấu hình đo
+   > được đều có số mẩu = số quan sát thô — **bước gộp không gộp được gì**.
+   > Xem `docs/TEST_LOG.md` mục «E9 §5 (tiếp)».
 5. **`samplingPolicyUsed` phải nói ra mật độ THẬT.** Mô hình dùng chuỗi đó để
    biết tin phần OCR đến đâu. Thưa đi mà vẫn khai như cũ là để mô hình tin
    quá mức vào bằng chứng mỏng — tệ hơn cả việc thưa.
@@ -160,6 +167,11 @@ lấy con số đẹp.
 5. Có **bằng chứng đo** ở §5 trong `docs/TEST_LOG.md`, kèm con số đã chọn và
    lý do.
 6. `pytest` xanh, gồm phép tiêm lỗi chứng minh trần thật sự cắn.
+
+**Tiêu chí 5 ĐÃ ĐẠT** (28/09): xương sống blueprint giống nhau ở cả ba cấu
+hình — 5 đoạn đầu khớp tuyệt đối, cả ba kết bằng `cta`. Đoạn thừa duy nhất
+của bản không-trần dựng trên một caption **chớp 0,4 giây**, tức trần bỏ nhiễu
+chứ không mất thông tin.
 
 ## 7. Ngoài phạm vi
 
