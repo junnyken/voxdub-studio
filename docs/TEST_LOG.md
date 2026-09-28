@@ -20527,3 +20527,88 @@ giữa các khung, khiến bỏ-khung-trùng giữ lại mà gộp không nối 
 Một video, một lượt gọi mỗi cấu hình. Nhãn đoạn 6 đã cho thấy **có** dao động
 giữa các lượt. Kết luận vững là phần **xương sống 5 đoạn đầu + cta**; phần
 nhãn đoạn giữa thì không.
+
+## E9 §5 (lần 3) — chạy lặp, và kết luận trước của tôi KHÔNG đứng vững
+
+Chủ dự án hỏi có gỡ được ba giới hạn đã nêu không. Gỡ được hai, và việc gỡ
+làm **lật một kết luận tôi đã viết**.
+
+### Đối chứng nằm sẵn trong thí nghiệm
+
+`B` và `C` khác nhau ở khoảng gộp, nhưng cả hai đều ra **11 mẩu từ 11 quan
+sát thô** — tức bước gộp không đổi gì, và mô hình nhận **đúng một đầu vào**.
+Nên B↔C là phép đo **dao động thuần của mô hình**, không phải tác động của
+cấu hình. Tôi không cố ý dựng đối chứng này; nó lộ ra khi chạy lặp.
+
+Chạy 5 lượt mỗi cấu hình (`temperature: 0`):
+
+| | số đoạn qua 5 lượt |
+|---|---|
+| A — 13 mẩu, không trần | 7, 7, 7, 7, 7 |
+| B — 11 mẩu | 10, 8, 8, 7, 8 |
+| C — 11 mẩu, **cùng đầu vào với B** | 8, 8, 8, 8, 7 |
+
+**B+C gộp = 10 lượt trên MỘT đầu vào duy nhất, cho ra từ 7 đến 10 đoạn.**
+
+### Kết luận trước của tôi SAI
+
+Ở lượt đo trước (một lượt gọi mỗi cấu hình) tôi viết:
+
+> *"Đoạn thừa của A truy ra được… sinh ra chỉ vì caption chớp 0,4 giây…
+> Trần bỏ nhiễu, không mất thông tin."*
+
+Chạy lặp cho thấy **A ra 7 đoạn ở cả 5 lượt** — đoạn `twist` thứ 8 mà tôi
+đem ra giải thích là **một lượt dao động**, không phải hiệu ứng hệ thống.
+Tôi đã lấy một mẫu n=1 rồi dựng cả một câu chuyện nhân quả quanh nó.
+
+**Kết luận đúng:** với video mẫu này, **không phân biệt được** đầu ra của bản
+có trần với bản không trần — biên độ dao động giữa các lượt **cùng một đầu
+vào** (7→10 đoạn) lớn ngang hoặc hơn khác biệt giữa các cấu hình.
+
+### Cái gì thật sự ổn định
+
+Qua **15 lượt** của cả ba cấu hình, luôn đúng:
+
+- vị trí 1 = `hook`
+- vị trí 2 = `problem_context`
+- vị trí 3 = `tension`
+- **mọi lượt đều kết bằng `cta`**
+
+Đó là phần kết luận được. Số đoạn và nhãn đoạn giữa thì không.
+
+### Tiêu chí 5 phải sửa lại
+
+Spec đòi *"blueprint vẫn ra cùng số đoạn và cùng vai trò"*. Tiêu chí ấy
+**không thể đạt được với bất kỳ thay đổi nào**, kể cả thay đổi rỗng — vì
+chính mô hình không tất định. Phải đổi thành: *khung xương (`hook` →
+`problem_context` → `tension` → … → `cta`) giữ nguyên*, và đo trên **nhiều
+lượt** chứ không một lượt.
+
+### Giới hạn "fixture không đại diện" — gỡ bằng CẬN, không bằng fixture
+
+Tỉ lệ bỏ khung trùng phụ thuộc video, nên mọi con số đo trên fixture đều
+không mang sang được. Thay vì đoán, nêu **cận**:
+
+| video | mốc trước | mốc sau | giảm |
+|---|---|---|---|
+| 90s | 211 | 211 | **0%** (vùng cam kết) |
+| 120s | 271 | 250 | 7,7% |
+| 180s | 391 | 250 | 36,1% |
+| 240s | 511 | 250 | 51,1% |
+| 300s | 631 | 250 | 60,4% |
+| 600s | 1.231 | 250 | 79,7% |
+
+Trích khung + lấy vân tay chạy **đúng số mốc**, nên mức giảm đó là **chắc
+chắn, với mọi video**. OCR chỉ chạy trên khung đã đổi, nên phần trăm trên là
+mức giảm **tối đa** của OCR — đạt được ở ca **tệ nhất** (video động liên
+tục, bỏ trùng ≈ 0%), tức đúng ca đang chậm nhất. Không cần biết tỉ lệ bỏ
+trùng của video thật nữa.
+
+### Còn lại một giới hạn chưa gỡ
+
+Vẫn chỉ **một video**, và là video dựng sẵn. Thử tải video thật để đối chiếu:
+YouTube trả **403 Forbidden** từ workspace (khớp với việc dự án Vidgrab phải
+phụ thuộc proxy). Tôi cũng thử dựng fixture **có chuyển động** để tỉ lệ bỏ
+trùng thực tế hơn — dựng hai lần đều **thất bại**: vân tay tính trên ảnh xám
+64×64 nên khối 90px trong khung 854px co lại còn ~7px, dịch vài pixel không
+đủ vượt ngưỡng; đo ra lệch `0.0`. Ghi lại để bản sau đừng thử lại cùng cách.

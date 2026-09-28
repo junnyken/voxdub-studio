@@ -153,10 +153,14 @@ Rồi so **thứ thật sự quan trọng**, không phải số khung:
 - số mẩu `ocrEvidence` sau khi gộp (trần 400 có bị đụng không)
 - thời gian chạy
 
-Trần đúng là giá trị **nhỏ nhất mà blueprint vẫn ra cùng số đoạn và cùng vai
-trò**. Nếu mọi giá trị thử đều đổi kết quả thì kết luận là *"không cắt được"*
-— và đó cũng là một câu trả lời hợp lệ, phải ghi lại chứ không được lờ đi để
-lấy con số đẹp.
+> **Sửa 28/09 sau khi đo lặp.** Tiêu chí "cùng số đoạn và cùng vai trò"
+> **không đạt được với bất kỳ thay đổi nào**, kể cả thay đổi rỗng: chạy 10
+> lượt trên **một đầu vào duy nhất** cho ra từ **7 đến 10 đoạn**. Mô hình
+> không tất định, nên so một lượt với một lượt là đo nhiễu.
+>
+> Tiêu chí đúng: **khung xương giữ nguyên** — `hook` → `problem_context` →
+> `tension` → … → `cta`, ba vị trí đầu và đoạn kết. Qua 15 lượt của cả ba
+> cấu hình, phần đó luôn đúng. Và phải đo **nhiều lượt**, không một lượt.
 
 ## 6. Tiêu chí thành công
 
@@ -168,10 +172,15 @@ lấy con số đẹp.
    lý do.
 6. `pytest` xanh, gồm phép tiêm lỗi chứng minh trần thật sự cắn.
 
-**Tiêu chí 5 ĐÃ ĐẠT** (28/09): xương sống blueprint giống nhau ở cả ba cấu
-hình — 5 đoạn đầu khớp tuyệt đối, cả ba kết bằng `cta`. Đoạn thừa duy nhất
-của bản không-trần dựng trên một caption **chớp 0,4 giây**, tức trần bỏ nhiễu
-chứ không mất thông tin.
+**Tiêu chí 5 ĐÃ ĐẠT** (28/09, sau khi chạy lặp 15 lượt): khung xương giữ
+nguyên ở mọi lượt của mọi cấu hình — `hook` → `problem_context` → `tension`
+→ … → `cta`.
+
+> Bản ghi đầu của tôi nói trần "bỏ một đoạn nhiễu dựng trên caption chớp
+> 0,4 giây". **Sai** — chạy lặp cho thấy đoạn đó là một lượt dao động, không
+> phải hiệu ứng hệ thống. Khác biệt giữa có trần và không trần **không phân
+> biệt được** với dao động của chính mô hình. Xem `docs/TEST_LOG.md` mục
+> «E9 §5 (lần 3)».
 
 ## 7. Ngoài phạm vi
 
