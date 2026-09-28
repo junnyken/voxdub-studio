@@ -231,7 +231,13 @@ class BrandScriptPage(BasePage):
         root.addWidget(self.status)
 
         self.beats_table = DataTable(
-            [Column("Đoạn", width=140),
+            # Để Qt TỰ ĐO thay vì chốt 140px: bề rộng cần phụ thuộc PHÔNG của
+            # máy đang chạy. Đo trên Linux (phông hẹp) thì «Kêu gọi hành động»
+            # chỉ 112px nên 140px thừa sức; nhưng chủ dự án chụp màn hình
+            # Windows 28/09 thấy nó cụt thành «Kêu gọi hành độ». Một con số
+            # cứng không thể đúng cho mọi phông — `ResizeToContents` đo chữ
+            # thật lúc vẽ nên đúng ở cả hai.
+            [Column("Đoạn"),
              Column("Lời đọc", stretch=True),
              Column("Chữ trên hình", width=170),
              Column("Cần quay gì", stretch=True),
