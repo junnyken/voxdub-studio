@@ -322,7 +322,7 @@ jobs:
         run: |
           python3 scripts/trien_khai_vibehost.py \
             --du-an cmsx1rb7d016w0i5fo0cj2r8c --ten voxdub-app \
-            --suc-khoe https://voxdub-app.cmc-1.vibenode.matbao.ai/health \
+            --suc-khoe https://voxdub-app.vibe1.tinhgon.xyz/health \
             --nhanh-deploy deploy/vays-control-server \
             --sha-nhanh ${{ needs.sinh-nhanh-deploy.outputs.sha_app }} \
             --sha-nguon ${{ github.sha }}
@@ -444,5 +444,5 @@ jobs:
           fi
           python3 scripts/kiem_prod_theo_main.py \
             --sha-main ${{ github.sha }} \
-            --app https://voxdub-app.cmc-1.vibenode.matbao.ai/health \
+            --app https://voxdub-app.vibe1.tinhgon.xyz/health \
             --worker https://voxdub-dub-worker.cmc-1.vibenode.matbao.ai/health

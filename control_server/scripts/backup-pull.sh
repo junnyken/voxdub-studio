@@ -12,7 +12,7 @@
 #   0 3 * * * VOXDUB_ADMIN_TOKEN=... /đường/dẫn/backup-pull.sh ~/voxdub-backups 14
 set -euo pipefail
 
-BASE_URL="${VOXDUB_BASE_URL:-https://voxdub-app.cmc-1.vibenode.matbao.ai}"
+BASE_URL="${VOXDUB_BASE_URL:-https://voxdub-app.vibe1.tinhgon.xyz}"
 DEST_DIR="${1:-./backups}"
 KEEP="${2:-14}"
 

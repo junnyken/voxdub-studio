@@ -19,7 +19,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $BaseUrl = if ($env:VOXDUB_BASE_URL) { $env:VOXDUB_BASE_URL }
-           else { "https://voxdub-app.cmc-1.vibenode.matbao.ai" }
+           else { "https://voxdub-app.vibe1.tinhgon.xyz" }
 
 if (-not $env:VOXDUB_ADMIN_TOKEN) {
     Write-Error "Thiếu VOXDUB_ADMIN_TOKEN (biến môi trường ADMIN_TOKEN của máy chủ)."

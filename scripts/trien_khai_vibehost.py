@@ -17,7 +17,7 @@ lỗi mà C54 vừa dọn: CI xanh, prod chết, không ai biết. Nên nó làm
 Dùng:
     VIBEHOST_TOKEN=... python3 scripts/trien_khai_vibehost.py \
         --du-an cmsx1rb7d016w0i5fo0cj2r8c --ten voxdub-app \
-        --suc-khoe https://voxdub-app.cmc-1.vibenode.matbao.ai/health
+        --suc-khoe https://voxdub-app.vibe1.tinhgon.xyz/health
 
 Mã thoát khác 0 = deploy KHÔNG thành công (đừng coi là đã lên).
 """

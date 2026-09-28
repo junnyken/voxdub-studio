@@ -10,15 +10,21 @@
 > **§8 Những nhầm lẫn thường gặp** liệt kê các tiền đề sai mà những bản đề
 > xuất trước đã mắc phải — đọc trước khi viết đề xuất.
 >
-> Cập nhật: 2026-09-23 · phiên bản trong mã `3.17.21` — **chưa cắt tag, chưa
-> dựng `.exe`**; bản người dùng Windows đang cầm vẫn là `3.17.20`, đừng coi mã
+> Cập nhật: 2026-09-28 · phiên bản trong mã `3.17.22` — **chưa cắt tag, chưa
+> dựng `.exe`**; bản người dùng Windows đang cầm là `3.17.21`, đừng coi mã
 > trên `main` là thứ họ đang chạy (ghi chú phát hành:
-> `docs/PHAT-HANH_v3.17.21.md`). Máy chủ `voxdub-app` mang **lược đồ mới**
-> (`suaTay`, `visualPreset`) và một **cửa API mới** (`PUT
-> /v1/brand-scripts/:id/visual-direction`) — phải deploy máy chủ TRƯỚC khi
-> phát hành `.exe`, vì app mới gọi cửa đó. **Đo thật 23/09**: 3.225 test
-> Python (0 hỏng, 4 bỏ qua) · 803 test Node (1 bỏ qua) · 76 test React —
-> cả ba chạy lại trong cùng ngày.
+> `docs/PHAT-HANH_v3.17.22.md`). Máy chủ đã mang sẵn phần I8 cần
+> (`sanKhau` có từ I7 §B) và **đã deploy** — prod chạy `e4327d6`, nên bản
+> `.exe` 3.17.22 gọi được ngay.
+>
+> ⚠️ **Máy chủ đã ĐỔI TÊN MIỀN** (28/09): `voxdub-app.cmc-1.vibenode.matbao.ai`
+> → `voxdub-app.vibe1.tinhgon.xyz`. Tên miền cũ nay trả trang "chưa phục vụ
+> nội dung" của Vibe Host. Địa chỉ này được **nhúng vào `.exe` lúc build**
+> (`release.yml`), nên mọi bản dựng trước 28/09 trỏ vào chỗ đã chết. Worker
+> `voxdub-dub-worker` thì **chưa** đổi, vẫn ở `cmc-1.vibenode.matbao.ai`.
+>
+> **Đo thật 28/09**: 3.251 test Python (0 hỏng, 4 bỏ qua) · 852 test Node
+> (1 bỏ qua) · 79 test React — cả ba chạy lại trong cùng ngày.
 
 ---
 

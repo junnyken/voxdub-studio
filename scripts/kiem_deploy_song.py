@@ -13,7 +13,7 @@ Chỉ thử cửa mới thì 404 dễ bị hiểu nhầm là "route đăng ký s
 đối chứng. Script này tự làm việc đó.
 
 Dùng:
-    python3 scripts/kiem_deploy_song.py https://voxdub-app.cmc-1.vibenode.matbao.ai
+    python3 scripts/kiem_deploy_song.py https://voxdub-app.vibe1.tinhgon.xyz
 """
 from __future__ import annotations
 

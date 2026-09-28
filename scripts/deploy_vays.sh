@@ -54,7 +54,7 @@ if [ -n "${VIBEHOST_TOKEN:-}" ]; then
   if [ "$MUC_TIEU" = "all" ] || [ "$MUC_TIEU" = "app" ]; then
     python3 scripts/trien_khai_vibehost.py \
       --du-an cmsx1rb7d016w0i5fo0cj2r8c --ten voxdub-app \
-      --suc-khoe https://voxdub-app.cmc-1.vibenode.matbao.ai/health
+      --suc-khoe https://voxdub-app.vibe1.tinhgon.xyz/health
   fi
   if [ "$MUC_TIEU" = "all" ] || [ "$MUC_TIEU" = "worker" ]; then
     python3 scripts/trien_khai_vibehost.py \
@@ -65,5 +65,5 @@ else
   echo "Xong phần mã — nhưng CHƯA lên prod: thiếu VIBEHOST_TOKEN."
   echo "Đặt biến đó rồi chạy lại để tự deploy + tự kiểm, hoặc bấm tay trên VAYS."
   echo "Kiểm sau khi deploy tay:"
-  echo "    python3 scripts/kiem_deploy_song.py https://voxdub-app.cmc-1.vibenode.matbao.ai"
+  echo "    python3 scripts/kiem_deploy_song.py https://voxdub-app.vibe1.tinhgon.xyz"
 fi
