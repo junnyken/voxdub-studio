@@ -255,3 +255,63 @@ test('PUT vẫn sửa được đúng những trường cho phép', async () => 
   assert.equal(r.json().tenBrand, 'Tên mới')
   assert.equal(r.json().usp, 'Giao trong ngày')
 })
+
+// ------------------------------------ I8 — sân khấu thương hiệu (§B2-b) ----
+//
+// Máy chủ đã có đủ `sanKhau` từ I7 §B, nhưng chưa từng có đường nhập nên
+// chưa test nào đi qua nó. Bốn phép dưới đây canh đúng những chỗ hỏng IM
+// LẶNG: giá trị bốc hơi mà vẫn trả 2xx.
+
+const SAN_KHAU_MAU = {
+  boiCanh: 'bàn làm việc gỗ sáng, tường trắng',
+  daoCuAnhSang: 'đèn dịu từ trái, laptop mở',
+  quyUocKhungNguoi: 'nửa người, chính diện, ngang tầm mắt',
+}
+
+test('I8: đặt sân khấu rồi ĐỌC LẠI phải ra đúng ba giá trị', async () => {
+  const a = await thietBiMoi('Máy A')
+  const tao = await goi('POST', '/v1/brand-profiles/', a.token,
+    { ...HO_SO_MAU, sanKhau: SAN_KHAU_MAU })
+  assert.equal(tao.statusCode, 201)
+
+  // Không dừng ở mã trả về của lượt GHI: ajv có thể đã xoá trường mà vẫn
+  // 2xx. Chỉ lượt ĐỌC LẠI mới chứng minh giá trị nằm trong CSDL.
+  const doc = (await goi('GET', '/v1/brand-profiles/', a.token)).json()
+    .data.find((h) => h.id === tao.json().id)
+  assert.deepEqual(doc.sanKhau, SAN_KHAU_MAU)
+})
+
+test('I8: PUT KHÔNG gửi sanKhau thì sân khấu cũ CÒN NGUYÊN', async () => {
+  // Đây là thứ giữ cho bản client cũ (trước I8) không âm thầm xoá dữ liệu
+  // của bản mới.
+  const a = await thietBiMoi('Máy A')
+  const created = (await goi('POST', '/v1/brand-profiles/', a.token,
+    { ...HO_SO_MAU, sanKhau: SAN_KHAU_MAU })).json()
+
+  const res = await goi('PUT', `/v1/brand-profiles/${created.id}`, a.token,
+    { ...HO_SO_MAU, tenBrand: 'Tên mới' })
+  assert.equal(res.statusCode, 200)
+  assert.deepEqual(res.json().sanKhau, SAN_KHAU_MAU)
+})
+
+test('I8: gửi cụm sanKhau RỖNG thì xoá được (khác với vắng mặt)', async () => {
+  const a = await thietBiMoi('Máy A')
+  const created = (await goi('POST', '/v1/brand-profiles/', a.token,
+    { ...HO_SO_MAU, sanKhau: SAN_KHAU_MAU })).json()
+
+  const res = await goi('PUT', `/v1/brand-profiles/${created.id}`, a.token,
+    { ...HO_SO_MAU, sanKhau: { boiCanh: '', daoCuAnhSang: '', quyUocKhungNguoi: '' } })
+  assert.equal(res.json().sanKhau.boiCanh, '')
+})
+
+test('I8 BẰNG CHỨNG: gõ SAI tên trường con -> ajv XOÁ IM LẶNG, vẫn 201', async () => {
+  // Phép tiêm chứng minh cái bẫy mà `TRUONG_SAN_KHAU` bên client tồn tại để
+  // chặn. Nếu một ngày `additionalProperties: false` bị gỡ thì test này đỏ,
+  // và đó là tín hiệu đúng: lúc đó trường lạ sẽ đi thẳng vào body.
+  const a = await thietBiMoi('Máy A')
+  const res = await goi('POST', '/v1/brand-profiles/', a.token,
+    { ...HO_SO_MAU, sanKhau: { boicanh: 'sai hoa thường' } })
+
+  assert.equal(res.statusCode, 201, 'máy chủ KHÔNG báo lỗi — đó mới là cái bẫy')
+  assert.equal(res.json().sanKhau.boiCanh, '', 'giá trị đã bốc hơi')
+})

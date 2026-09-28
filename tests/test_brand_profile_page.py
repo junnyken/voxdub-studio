@@ -154,3 +154,58 @@ def test_app_co_muc_ho_so_brand_va_noi_dung_trang():
     assert "BrandProfilePage" in nguon
     assert app_mod.ROW_BRAND_PROFILE in app_mod._PAGE_BY_ROW, (
         "hàng mới phải có mặt trong PAGES thì mới hiện lên thanh bên")
+
+
+# ------------------------------------------------ I8 — sân khấu thương hiệu --
+
+def test_form_luon_tra_san_khau_du_de_trong():
+    """Có mặt-với-chuỗi-rỗng KHÁC vắng mặt: vắng mặt là tín hiệu «đừng đụng
+    vào sân khấu cũ» mà `saas_client` dành cho caller khác, không phải cho
+    form này — form thì người dùng đã nhìn thấy ba ô."""
+    dialog = bpp.BrandProfileFormDialog()
+    dialog.ten_brand.setText("Tên")
+    assert dialog.fields()["san_khau"] == {
+        "boiCanh": "", "daoCuAnhSang": "", "quyUocKhungNguoi": ""}
+
+
+def test_form_tra_dung_ba_ten_truong_may_chu_nhan():
+    from autodub.saas_client import TRUONG_SAN_KHAU
+
+    dialog = bpp.BrandProfileFormDialog()
+    dialog.sk_boi_canh.setPlainText("bàn gỗ sáng")
+    dialog.sk_dao_cu.setPlainText("đèn dịu từ trái")
+    dialog.sk_khung_nguoi.setPlainText("nửa người")
+    sk = dialog.fields()["san_khau"]
+    assert tuple(sk) == TRUONG_SAN_KHAU, (
+        "tên trường lệch danh sách máy chủ nhận ⇒ ajv xoá im lặng, "
+        "máy chủ vẫn trả 2xx và giá trị biến mất")
+    assert sk["boiCanh"] == "bàn gỗ sáng"
+    assert sk["daoCuAnhSang"] == "đèn dịu từ trái"
+    assert sk["quyUocKhungNguoi"] == "nửa người"
+
+
+def test_form_nap_san_khau_cu_khi_SUA_ho_so():
+    dialog = bpp.BrandProfileFormDialog(profile={
+        **HO_SO,
+        "sanKhau": {"boiCanh": "quán cũ", "daoCuAnhSang": "đèn vàng",
+                    "quyUocKhungNguoi": "toàn thân"},
+    })
+    assert dialog.sk_boi_canh.toPlainText() == "quán cũ"
+    assert dialog.fields()["san_khau"]["daoCuAnhSang"] == "đèn vàng"
+
+
+def test_ho_so_cu_KHONG_co_san_khau_van_mo_form_duoc():
+    """Hồ sơ tạo trước I8 không có khoá `sanKhau` — mở form phải ra ô rỗng,
+    không nổ `KeyError`."""
+    dialog = bpp.BrandProfileFormDialog(profile=HO_SO)
+    assert dialog.sk_boi_canh.toPlainText() == ""
+
+
+def test_go_qua_tran_thi_o_nhap_TU_CAT():
+    """Cắt tại ô nhập, không để máy chủ từ chối CẢ biểu mẫu."""
+    from autodub.saas_client import TRAN_SAN_KHAU
+
+    dialog = bpp.BrandProfileFormDialog()
+    dialog.sk_boi_canh.setPlainText("a" * (TRAN_SAN_KHAU + 200))
+    assert len(dialog.sk_boi_canh.toPlainText()) == TRAN_SAN_KHAU
+    assert len(dialog.fields()["san_khau"]["boiCanh"]) == TRAN_SAN_KHAU

@@ -25,6 +25,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from PySide6.QtGui import QTextCursor
+
+# I8 — lấy trần TỪ `saas_client`, không gõ lại số: trần đó phải khớp
+# `maxlength` của `models/BrandProfile.js`. Hai nơi gõ tay hai số là kiểu lệch
+# âm thầm mà `assist.js` đã phải dựng hẳn một phép kiểm để chặn.
+from autodub.saas_client import TRAN_SAN_KHAU
 from autodub_gui import icons, tokens
 from autodub_gui.log_text import error_line
 from autodub_gui.pages import BasePage
@@ -36,6 +42,31 @@ from autodub_gui.widgets import LogPanel
 from autodub_gui.workers import BrandProfileWorker
 
 _ACTION_ICON = 28
+
+
+def _chan_do_dai(o: QPlainTextEdit, tran: int) -> None:
+    """Cắt cứng ô nhập ở `tran` ký tự, như `QLineEdit.setMaxLength`.
+
+    `QPlainTextEdit` không có `setMaxLength`, nên phải tự cắt. Cắt Ở ĐÂY chứ
+    không để máy chủ từ chối: máy chủ trả 400 cho CẢ biểu mẫu, tức người dùng
+    gõ xong năm ô rồi mất hết chỉ vì một ô dài.
+
+    `blockSignals` để `setPlainText` không gọi lại chính hàm này (đệ quy vô
+    hạn), rồi đưa con trỏ về cuối — không có bước đó thì con trỏ nhảy về đầu ô
+    mỗi lần chạm trần và người dùng gõ tiếp thành chèn ngược vào đầu câu.
+    """
+    def cat() -> None:
+        chu = o.toPlainText()
+        if len(chu) <= tran:
+            return
+        o.blockSignals(True)
+        o.setPlainText(chu[:tran])
+        o.blockSignals(False)
+        con_tro = o.textCursor()
+        con_tro.movePosition(QTextCursor.End)
+        o.setTextCursor(con_tro)
+
+    o.textChanged.connect(cat)
 
 
 class BrandProfileFormDialog(QDialog):
@@ -72,6 +103,29 @@ class BrandProfileFormDialog(QDialog):
                            p.get("toneGiong", ""))
         self.usp = truong("Điểm bán hàng độc nhất (USP)", p.get("usp", ""), cao=50)
 
+        # I8 — sân khấu quen của thương hiệu (đóng khoảng trống I7 §B2-b).
+        #
+        # Khác NẾP CHỈ ĐẠO (I6) vốn chỉ là GỢI Ý: sân khấu là thứ lời nhắc bảo
+        # mô hình "DÙNG LẠI, đừng chốt sân khấu mới", vì đổi bối cảnh giữa các
+        # video của cùng một brand phá đúng cái đồng nhất đang xây. Nhãn phải
+        # nói ra điều đó, không thì người dùng tưởng là một preset nữa.
+        #
+        # Vẫn TUỲ CHỌN: bỏ trống thì `dongSanKhauBrand()` trả chuỗi rỗng và
+        # lời nhắc y như trước I8.
+        sk = p.get("sanKhau") or {}
+        root.addWidget(QLabel(
+            "Sân khấu của thương hiệu — dùng lại cho MỌI video của brand này "
+            "(để trống nếu chưa chốt):"))
+        self.sk_boi_canh = truong(
+            "· Bối cảnh (nơi quay quen thuộc)", sk.get("boiCanh", ""), cao=50)
+        self.sk_dao_cu = truong(
+            "· Đạo cụ + ánh sáng", sk.get("daoCuAnhSang", ""), cao=50)
+        self.sk_khung_nguoi = truong(
+            "· Khung người (quy ước đóng khung nhân vật)",
+            sk.get("quyUocKhungNguoi", ""), cao=50)
+        for o in (self.sk_boi_canh, self.sk_dao_cu, self.sk_khung_nguoi):
+            _chan_do_dai(o, TRAN_SAN_KHAU)
+
         root.addWidget(QLabel(
             "Ràng buộc KHÔNG được nói — mỗi dòng một điều "
             "(vd: không hứa công dụng y tế, không dùng từ \"tốt nhất/số một\"):"))
@@ -100,7 +154,12 @@ class BrandProfileFormDialog(QDialog):
         """Giá trị đã nhập, đúng khuôn tham số của `saas_client`.
         `rang_buoc_khong_duoc_noi` LUÔN có mặt (mảng, có thể rỗng) — Constraint
         2 của H1: người dùng đã đi qua ô này (thấy trên form), không lặng lẽ
-        thiếu."""
+        thiếu.
+
+        `san_khau` (I8) cũng LUÔN có mặt, cùng lý do: người dùng đã thấy ba ô
+        trên form. Có mặt-với-chuỗi-rỗng khác hẳn vắng mặt — vắng mặt là tín
+        hiệu "đừng đụng vào sân khấu cũ" mà `saas_client` dành cho caller
+        khác, không phải cho form này."""
         dong = [d.strip() for d in self.rang_buoc.toPlainText().splitlines()]
         return {
             "ten_brand": self.ten_brand.text().strip(),
@@ -109,6 +168,11 @@ class BrandProfileFormDialog(QDialog):
             "tone_giong": self.tone.text().strip(),
             "usp": self.usp.toPlainText().strip(),
             "rang_buoc_khong_duoc_noi": [d for d in dong if d],
+            "san_khau": {
+                "boiCanh": self.sk_boi_canh.toPlainText().strip(),
+                "daoCuAnhSang": self.sk_dao_cu.toPlainText().strip(),
+                "quyUocKhungNguoi": self.sk_khung_nguoi.toPlainText().strip(),
+            },
         }
 
 

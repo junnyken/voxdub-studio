@@ -121,6 +121,35 @@ def new_job_id() -> str:
     return str(uuid.uuid4())
 
 
+#: I8 — ĐÚNG ba tên trường con mà máy chủ nhận cho sân khấu thương hiệu.
+#:
+#: Ghim thành hằng vì `bodySchema` của `routes/brand-profiles.js` đặt
+#: `additionalProperties: false` cho CẢ cụm `sanKhau`, mà fastify cấu hình ajv
+#: với `removeAdditional: true`. Gõ sai một tên (vd `boicanh`) thì ajv XOÁ nó
+#: trước khi handler chạy: máy chủ trả 2xx, giao diện báo đã lưu, giá trị biến
+#: mất. Không có lỗi nào để bắt — nên chỗ duy nhất chặn được là ở đây.
+TRUONG_SAN_KHAU = ("boiCanh", "daoCuAnhSang", "quyUocKhungNguoi")
+
+#: Trần mỗi trường, khớp `maxlength` của `models/BrandProfile.js` và
+#: `maxLength` của `bodySchema`. Vượt trần là máy chủ từ chối CẢ biểu mẫu.
+TRAN_SAN_KHAU = 300
+
+
+def _payload_san_khau(san_khau: dict | None) -> dict:
+    """Phần `sanKhau` để trộn vào body, hoặc `{}` khi không truyền gì.
+
+    `None` ⇒ `{}` (KHÔNG gửi khoá) là điều cố ý: `PUT` của máy chủ chỉ chép
+    trường CÓ MẶT trong body, nên vắng mặt = giữ nguyên giá trị cũ. Gửi một
+    cụm rỗng thay vì vắng mặt sẽ XOÁ TRẮNG sân khấu đã đặt.
+    """
+    if san_khau is None:
+        return {}
+    cum = {}
+    for ten in TRUONG_SAN_KHAU:
+        cum[ten] = str(san_khau.get(ten) or "").strip()[:TRAN_SAN_KHAU]
+    return {"sanKhau": cum}
+
+
 def _la_thanh_cong(ma: int) -> bool:
     """Mọi mã 2xx đều là THÀNH CÔNG, không riêng 200.
 
@@ -899,17 +928,21 @@ class SaasClient:
         self, ten_brand: str, *, mo_ta_san_pham: str = "",
         doi_tuong_khach: str = "", tone_giong: str = "", usp: str = "",
         rang_buoc_khong_duoc_noi: list[str] | None = None,
+        san_khau: dict | None = None,
         timeout: float = 20.0,
     ) -> dict:
         """Tạo hồ sơ brand mới. ``rang_buoc_khong_duoc_noi`` BẮT BUỘC có mặt
         (mảng, có thể rỗng) — Constraint 2 của H1: người dùng phải đi qua
-        bước hỏi ràng buộc trước khi lưu, không được lặng lẽ bỏ qua."""
+        bước hỏi ràng buộc trước khi lưu, không được lặng lẽ bỏ qua.
+
+        ``san_khau`` (I8) là TUỲ CHỌN — xem :func:`_payload_san_khau`."""
         payload = {
             "tenBrand": ten_brand, "moTaSanPham": mo_ta_san_pham,
             "doiTuongKhach": doi_tuong_khach, "toneGiong": tone_giong,
             "usp": usp,
             "rangBuocKhongDuocNoi": list(rang_buoc_khong_duoc_noi or []),
         }
+        payload.update(_payload_san_khau(san_khau))
         return self._request("POST", "/v1/brand-profiles/", timeout=timeout,
                              json_body=payload)
 
@@ -917,18 +950,24 @@ class SaasClient:
         self, profile_id: str, *, ten_brand: str, mo_ta_san_pham: str = "",
         doi_tuong_khach: str = "", tone_giong: str = "", usp: str = "",
         rang_buoc_khong_duoc_noi: list[str] | None = None,
+        san_khau: dict | None = None,
         timeout: float = 20.0,
     ) -> dict:
         """Sửa một hồ sơ brand của chính máy này. `404 KHONG_THAY_HO_SO` nếu
         hồ sơ không tồn tại hoặc không thuộc máy này — hai ca đó máy chủ cố
         ý trả về giống hệt nhau, không tiết lộ hồ sơ của máy khác có tồn tại
-        hay không."""
+        hay không.
+
+        ``san_khau=None`` KHÔNG gửi khoá ``sanKhau`` lên — máy chủ chỉ chép
+        trường CÓ MẶT trong body, nên sân khấu đã đặt vẫn còn nguyên. Đó là
+        thứ giữ cho bản client cũ (trước I8) không xoá mất sân khấu."""
         payload = {
             "tenBrand": ten_brand, "moTaSanPham": mo_ta_san_pham,
             "doiTuongKhach": doi_tuong_khach, "toneGiong": tone_giong,
             "usp": usp,
             "rangBuocKhongDuocNoi": list(rang_buoc_khong_duoc_noi or []),
         }
+        payload.update(_payload_san_khau(san_khau))
         return self._request("PUT", f"/v1/brand-profiles/{profile_id}",
                              timeout=timeout, json_body=payload)
 

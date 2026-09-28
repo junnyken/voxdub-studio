@@ -20214,3 +20214,76 @@ Gỡ 7 biến cấp tạm cho worker (4 biến màu + `VIENEU_MAX_WORKERS`,
 `set_env` bắt buộc `value` tối thiểu 1 ký tự nên đến "để trống" cũng không
 được. Phải xoá tay trên giao diện. `VIENEU_MAX_WORKERS` đang bị **ghim**, tức
 container được cấp thêm RAM/CPU về sau vẫn sẽ chạy 1 tiến trình.
+
+## I8 — Đường nhập sân khấu thương hiệu (28/09/2026)
+
+Đóng khoảng trống I7 §B2-b. Lời nhắc bảo mô hình *"SÂN KHẤU của thương hiệu —
+DÙNG LẠI, đừng chốt sân khấu mới"*, nhưng **không brand nào có sân khấu**, vì
+**không có chỗ nào để nhập**.
+
+### Hỏng IM LẶNG
+
+`dongSanKhauBrand()` (`assist.js:951`) trả `''` khi cụm rỗng ⇒ **cả khối biến
+mất khỏi lời nhắc**. Không lỗi, không cảnh báo, không log. Từ ngoài nhìn vào,
+§B trông như đã chạy.
+
+### Audit: máy chủ đã đủ, khoảng trống nằm TRỌN ở client
+
+Đo từng tầng trước khi sửa: model (3 trường ×300), `bodySchema` (khai đủ,
+`maxLength: 300`), `TRUONG_CHO_PHEP` (có `sanKhau`), `PUT` (chép theo
+`hasOwnProperty`), lời nhắc (tiêu thụ đúng) — **không sửa gì ở
+`control_server`**. Thiếu ba chỗ phía client: ô nhập trên form, `fields()`
+không trả, và `saas_client` không nhận/không gửi.
+
+### Bẫy ajv xoá im lặng — đã chứng minh là THẬT
+
+`bodySchema` đặt `additionalProperties: false` cho **cả cụm** `sanKhau`, mà
+fastify chạy ajv với `removeAdditional: true`. Gõ sai một tên trường con thì
+ajv **xoá trước khi handler chạy**: máy chủ trả **201**, giao diện báo đã lưu,
+giá trị bốc hơi.
+
+Không suy — đã dựng hẳn một test chứng minh:
+
+```js
+test('I8 BẰNG CHỨNG: gõ SAI tên trường con -> ajv XOÁ IM LẶNG, vẫn 201', ...)
+  assert.equal(res.statusCode, 201, 'máy chủ KHÔNG báo lỗi — đó mới là cái bẫy')
+  assert.equal(res.json().sanKhau.boiCanh, '', 'giá trị đã bốc hơi')
+```
+
+Vì cái bẫy đó, ba tên trường được ghim thành hằng `TRUONG_SAN_KHAU` trong
+`saas_client.py`, và test canh `tuple(sk) == TRUONG_SAN_KHAU` — chứ không chỉ
+so từng giá trị.
+
+### Vắng mặt ≠ rỗng
+
+`san_khau=None` **không gửi khoá** `sanKhau`; `PUT` của máy chủ chỉ chép
+trường CÓ MẶT nên sân khấu cũ còn nguyên. Đó là thứ giữ cho bản client **cũ**
+(trước I8) không âm thầm xoá dữ liệu của bản mới. Gửi cụm rỗng thì xoá được —
+hai ca khác nhau, mỗi ca một test.
+
+### Không gõ lại số 300
+
+`brand_profile_page.py` **nhập** `TRAN_SAN_KHAU` từ `saas_client`, không gõ
+lại. Hai nơi hai số là kiểu lệch âm thầm mà `assist.js:1052` đã phải dựng hẳn
+một phép kiểm để chặn.
+
+### Test
+
+pytest **3.251 passed**, 4 skipped (3.241 → 3.251 = 10 test I8) ·
+control_server **852 pass**, 1 skip (trong đó 4 test I8 mới ở
+`brand-profiles-route.test.js`: ghi-rồi-đọc-lại, PUT thiếu trường không xoá,
+cụm rỗng xoá được, và bằng chứng ajv) · website **79 passed**.
+
+Tiêu chí "sân khấu có tới lời nhắc không" **đã có sẵn** test cả hai chiều ở
+`chi-dao-hinh-anh.test.js:1222` và `:1234` — không thêm trùng.
+
+**Một lỗi của tôi trên đường đi:** lượt pytest đầu tiên **sập** (fatal error),
+và tôi suýt tin mã thoát `0` — nhưng `0` đó là của `tail` trong đường ống, không
+phải của pytest. Chạy lại không qua ống, một mình (không song song với
+`npm test`) thì sạch. Cùng bài học cũ: đo mã thoát giữa chuỗi lệnh, và chỉ
+chạy một lượt pytest một lúc.
+
+### Chưa làm được
+
+Tiêu chí 6 (bấm thật trên Windows: đặt sân khấu cho **Mắt Bão**, sinh kịch bản,
+xác nhận sân khấu xuất hiện trong bản chỉ đạo) — cần máy Windows của chủ dự án.
