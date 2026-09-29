@@ -36,15 +36,49 @@ GIAY_MOI_KHUNG_DAU_CUOI = 0.2
 #: ~1,23 giây/khung OCR trên CPU, dày cho cả video dài là chi phí thật).
 GIAY_MOI_KHUNG_GIUA = 0.5
 
+#: E9 — TRẦN số khung một lượt phân tích được phép trích.
+#:
+#: Không có trần thì số khung tỉ lệ thẳng với độ dài video: 10 phút = 1.231
+#: khung. Mà trích khung + lấy vân tay chạy ĐÚNG số mốc, nên đó là chi phí
+#: tuyến tính không chặn trên — chủ dự án gặp thật: một lượt chạy 562 giây
+#: vẫn chưa xong.
+#:
+#: Vì sao đúng 250, chốt bằng đo (xem `docs/TEST_LOG.md` mục E9 §5):
+#:
+#:   · CẬN DƯỚI là 211 — số khung tự nhiên của video 90 giây, tức mép
+#:     `GIAY_KHUYEN_NGHI_TOI_DA` mà H2-MVP cam kết ĐỘ PHỦ ĐẦY ĐỦ. Trần thấp
+#:     hơn là cắt vào vùng đã hứa. 250 cho biên trên cận đó.
+#:   · Trần 400 gần như KHÔNG cắn (video 180s tự nhiên đã 391 khung).
+#:
+#: Không chốt bằng "blueprint ra giống nhau": đo 15 lượt cho thấy CÙNG MỘT
+#: đầu vào ra từ 7 đến 10 đoạn, nên phép so ấy đo nhiễu chứ không đo trần.
+SO_KHUNG_TOI_DA = 250
+
 
 def moc_lay_mau_thich_ung(dai_giay: float) -> list[float]:
     """Mốc thời gian (giây) cần trích khung hình cho OCR — Scope A #4 của H2.
 
-    0-5 giây đầu và 5 giây cuối: mỗi 0,2 giây. Đoạn giữa: mỗi 0,5 giây. Video
-    ngắn hơn 10 giây (hai đầu chồng nhau): lấy mẫu dày cho TOÀN BỘ video.
+    0-5 giây đầu và 5 giây cuối: mỗi 0,2 giây. Đoạn giữa: mỗi 0,5 giây, THƯA
+    DẦN khi cần để tổng không vượt `SO_KHUNG_TOI_DA` (E9). Video ngắn hơn 10
+    giây (hai đầu chồng nhau): lấy mẫu dày cho TOÀN BỘ video.
     """
+    return _moc_va_buoc_giua(dai_giay)[0]
+
+
+def buoc_giua_thuc_te(dai_giay: float) -> float:
+    """Bước lấy mẫu THẬT SỰ dùng ở đoạn giữa, sau khi trần đã cắn (E9).
+
+    Cần tách ra vì hai chỗ khác phải biết con số này chứ không được đoán:
+    `ta_chinh_sach_lay_mau` (nói thật với mô hình về mật độ) và
+    `khoang_gop_theo_buoc` (giữ đúng quan hệ "gấp đôi bước thưa nhất").
+    """
+    return _moc_va_buoc_giua(dai_giay)[1]
+
+
+def _moc_va_buoc_giua(dai_giay: float) -> tuple[list[float], float]:
+    """Trả `(mốc, bước giữa thật)`. Bước giữa = 0 khi không có đoạn giữa."""
     if dai_giay <= 0:
-        return []
+        return [], 0.0
 
     def rai_deu(dau: float, cuoi: float, buoc: float) -> list[float]:
         if cuoi <= dau or buoc <= 0:
@@ -54,23 +88,46 @@ def moc_lay_mau_thich_ung(dai_giay: float) -> list[float]:
 
     giua_con_lai = dai_giay - 2 * KHOANG_DAU_CUOI_GIAY
     if giua_con_lai <= 0:
-        moc = rai_deu(0.0, dai_giay, GIAY_MOI_KHUNG_DAU_CUOI)
-    else:
-        moc = (
-            rai_deu(0.0, KHOANG_DAU_CUOI_GIAY, GIAY_MOI_KHUNG_DAU_CUOI)
-            + rai_deu(KHOANG_DAU_CUOI_GIAY, dai_giay - KHOANG_DAU_CUOI_GIAY,
-                     GIAY_MOI_KHUNG_GIUA)
-            + rai_deu(dai_giay - KHOANG_DAU_CUOI_GIAY, dai_giay, GIAY_MOI_KHUNG_DAU_CUOI)
-        )
-    return sorted(set(moc))
+        return sorted(set(rai_deu(0.0, dai_giay, GIAY_MOI_KHUNG_DAU_CUOI))), 0.0
+
+    # Hai đầu KHÔNG bị trần đụng tới (rào chắn 2 của E9): hook nằm ở đầu và
+    # lời kêu gọi hành động nằm ở cuối — thưa hai chỗ đó là hỏng đúng thứ
+    # tính năng này sinh ra để đọc.
+    dau = rai_deu(0.0, KHOANG_DAU_CUOI_GIAY, GIAY_MOI_KHUNG_DAU_CUOI)
+    cuoi = rai_deu(dai_giay - KHOANG_DAU_CUOI_GIAY, dai_giay,
+                   GIAY_MOI_KHUNG_DAU_CUOI)
+    ngoai = set(dau) | set(cuoi)
+
+    buoc = GIAY_MOI_KHUNG_GIUA
+    giua = rai_deu(KHOANG_DAU_CUOI_GIAY, dai_giay - KHOANG_DAU_CUOI_GIAY, buoc)
+    ngan_sach = SO_KHUNG_TOI_DA - len(ngoai)
+    if ngan_sach >= 2 and len(giua) > ngan_sach:
+        # RẢI ĐỀU trên cả đoạn giữa, KHÔNG cắt đuôi — cùng nguyên tắc
+        # `gioi_han_bang_chung` đã theo. Cắt đuôi là mất sạch phần sau của
+        # video, nơi có cao trào.
+        buoc = giua_con_lai / (ngan_sach - 1)
+        giua = [round(KHOANG_DAU_CUOI_GIAY + i * buoc, 2)
+                for i in range(ngan_sach)]
+    return sorted(ngoai | set(giua)), buoc
 
 
 def ta_chinh_sach_lay_mau(dai_giay: float) -> str:
     """Mô tả mật độ lấy mẫu đã dùng — lưu vào `samplingPolicyUsed`, và cũng
     là bằng chứng cho mô hình biết độ tin cậy của phần OCR ở đoạn giữa."""
+    moc, buoc = _moc_va_buoc_giua(dai_giay)
+    buoc_noi = buoc if buoc else GIAY_MOI_KHUNG_GIUA
     co_ban = (f"0-{KHOANG_DAU_CUOI_GIAY:.0f}s mỗi {GIAY_MOI_KHUNG_DAU_CUOI}s, "
-             f"giữa mỗi {GIAY_MOI_KHUNG_GIUA}s, "
+             f"giữa mỗi {buoc_noi:.2f}s, "
              f"{KHOANG_DAU_CUOI_GIAY:.0f}s cuối mỗi {GIAY_MOI_KHUNG_DAU_CUOI}s")
+    # E9 §4C — khai MẬT ĐỘ THẬT, không khai mật độ mong muốn.
+    #
+    # Mô hình dùng chuỗi này để biết tin phần OCR tới đâu. Thưa đi vì trần mà
+    # vẫn khai "giữa mỗi 0,5s" là để nó tin quá mức vào bằng chứng mỏng — tệ
+    # hơn cả việc thưa, vì lúc đó nó im lặng suy diễn từ chỗ không có dữ liệu.
+    if buoc > GIAY_MOI_KHUNG_GIUA + 1e-9:
+        co_ban += (f" — ĐÃ THƯA đoạn giữa do trần {SO_KHUNG_TOI_DA} khung "
+                   f"({len(moc)} khung cho {dai_giay:.0f}s; caption ngắn hơn "
+                   f"{buoc:.2f}s ở đoạn giữa có thể không được lấy mẫu)")
     if dai_giay > GIAY_KHUYEN_NGHI_TOI_DA:
         return (f"{co_ban} (video {dai_giay:.0f}s, dài hơn mức H2-MVP cam kết "
                 f"độ phủ đầy đủ {GIAY_KHUYEN_NGHI_TOI_DA:.0f}s — đoạn giữa có "
@@ -83,6 +140,26 @@ def ta_chinh_sach_lay_mau(dai_giay: float) -> str:
 #: gấp đôi bước lấy mẫu thưa nhất (0,5s) + biên an toàn cho việc OCR đôi khi
 #: bỏ lỡ đúng 1 khung liên tiếp.
 KHOANG_CACH_TOI_DA_DE_GOP_GIAY = 1.0
+
+
+def khoang_gop_theo_buoc(dai_giay: float) -> float:
+    """Khoảng cách gộp cho video này — E9 §4B.
+
+    Giữ đúng quan hệ đã ghi ở `KHOANG_CACH_TOI_DA_DE_GOP_GIAY`: **gấp đôi
+    bước lấy mẫu thưa nhất**. Khi trần E9 cắn, bước giữa thưa hơn 0,5s, nên
+    một hằng số 1,0 không còn mang đúng nghĩa của chính nó.
+
+    Không bao giờ trả NHỎ HƠN hằng cũ: video ngắn phải giữ nguyên hành vi.
+
+    > **Cân nhắc cho đúng mức.** Ban đầu tôi cho đây là thay đổi BẮT BUỘC, đo
+    > trong mô phỏng cô lập thấy giữ 1,0s làm một dòng chữ 10 giây tách thành
+    > 7 mẩu. Đo trên đường chạy THẬT thì không tái hiện được: bỏ-khung-trùng
+    > (I7) đã loại các khung giống nhau TRƯỚC bước gộp, nên cả ba cấu hình đo
+    > được đều có số mẩu = số quan sát thô. Hàm này giữ lại vì nó làm hằng số
+    > đúng với định nghĩa của nó, không vì một mối nguy đã đo được.
+    """
+    buoc = buoc_giua_thuc_te(dai_giay)
+    return max(KHOANG_CACH_TOI_DA_DE_GOP_GIAY, 2.0 * buoc)
 
 
 #: Trần số mẩu bằng chứng gửi lên máy chủ, KHỚP `maxItems` của
@@ -127,7 +204,8 @@ def gioi_han_bang_chung(muc: list[dict], *, ten: str,
     return giu, ghi_chu
 
 
-def gop_quan_sat_lien_tiep(quan_sat: list[dict]) -> list[dict]:
+def gop_quan_sat_lien_tiep(quan_sat: list[dict], *,
+                           khoang_gop: float | None = None) -> list[dict]:
     """Gộp các quan sát OCR GIỐNG HỆT NHAU, xuất hiện GẦN NHAU về thời gian
     (không quá `KHOANG_CACH_TOI_DA_DE_GOP_GIAY`), thành một dòng — Scope A
     của H2: "có thể gộp các observation giống nhau liên tiếp NẾU VÀ CHỈ NẾU
@@ -148,6 +226,11 @@ def gop_quan_sat_lien_tiep(quan_sat: list[dict]) -> list[dict]:
     if not quan_sat:
         return []
 
+    # E9 §4B — mặc định GIỮ NGUYÊN hằng cũ, nên mọi lời gọi sẵn có không
+    # đổi hành vi. Chỉ đường phân tích truyền bước thật vào.
+    nguong = (KHOANG_CACH_TOI_DA_DE_GOP_GIAY if khoang_gop is None
+              else max(KHOANG_CACH_TOI_DA_DE_GOP_GIAY, float(khoang_gop)))
+
     def moc(o: dict) -> tuple[float, float]:
         if "start_s" in o and "end_s" in o:
             return float(o["start_s"]), float(o["end_s"])
@@ -161,7 +244,7 @@ def gop_quan_sat_lien_tiep(quan_sat: list[dict]) -> list[dict]:
         text = str(o.get("text", ""))
         status = str(o.get("status", ""))
         lien_tuc = (ra and ra[-1]["text"] == text and ra[-1]["status"] == status
-                   and dau - ra[-1]["end_s"] <= KHOANG_CACH_TOI_DA_DE_GOP_GIAY)
+                   and dau - ra[-1]["end_s"] <= nguong)
         if lien_tuc:
             ra[-1]["end_s"] = max(ra[-1]["end_s"], cuoi)
             continue
@@ -346,7 +429,8 @@ def trich_bang_chung(
                     tho = [{"text": q.text, "status": q.status,
                            "timestamp_s": q.timestamp_s}
                           for q in ket.quan_sat]
-                    ocr_evidence = gop_quan_sat_lien_tiep(tho)
+                    ocr_evidence = gop_quan_sat_lien_tiep(
+                        tho, khoang_gop=khoang_gop_theo_buoc(dai_giay))
                 except ChuaCaiOcr as e:
                     logger.info("Chưa cài OCR — Flow Blueprint chạy tiếp không "
                                "có bằng chứng chữ trên hình (%s)", e)

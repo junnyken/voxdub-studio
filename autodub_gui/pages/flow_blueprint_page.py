@@ -25,6 +25,10 @@ from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget,
 )
 
+# E9 — lấy TỪ NGUỒN, không gõ lại số. Hai hằng này là hợp đồng của đường
+# phân tích; chép giá trị sang đây là mở đường cho giao diện hứa một đằng mà
+# máy chạy một nẻo.
+from autodub.flow_blueprint import GIAY_KHUYEN_NGHI_TOI_DA, SO_KHUNG_TOI_DA
 from autodub_gui import icons, tokens
 from autodub_gui.log_text import error_line
 from autodub_gui.pages import BasePage
@@ -193,6 +197,25 @@ class FlowBlueprintPage(BasePage):
         cost_hint.setObjectName("hint")
         cost_hint.setWordWrap(True)
         card.body.addWidget(cost_hint)
+
+        # E9 §4D — nói TRƯỚC về thời gian, không chỉ về tiền.
+        #
+        # Vox thì dòng trên đã nói. Thứ chủ dự án vấp 28/09 là THỜI GIAN: một
+        # lượt chạy 562 giây vẫn chưa xong, và không có chỗ nào báo trước rằng
+        # video dài thì lâu.
+        #
+        # KHÔNG hứa con số giây ở đây, vì trang này mới có đường liên kết —
+        # độ dài chỉ biết sau khi tải xong. Hứa theo giây là hứa sai đại
+        # lượng, đúng bài học của dòng Vox ngay trên.
+        thoi_gian_hint = QLabel(
+            f"Nên dùng video dưới {int(GIAY_KHUYEN_NGHI_TOI_DA)} giây. Video "
+            f"dài hơn vẫn chạy được, nhưng chỉ đọc tối đa "
+            f"{SO_KHUNG_TOI_DA} khung hình rải đều — đoạn giữa thưa dần, nên "
+            "caption chớp nhanh ở giữa có thể bị bỏ sót. Nhịp kể chuyện nằm ở "
+            "cấu trúc, không ở độ dài.")
+        thoi_gian_hint.setObjectName("hint")
+        thoi_gian_hint.setWordWrap(True)
+        card.body.addWidget(thoi_gian_hint)
 
         root.addWidget(card)
 

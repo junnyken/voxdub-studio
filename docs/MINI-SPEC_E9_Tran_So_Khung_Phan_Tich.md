@@ -2,7 +2,7 @@
 
 - **Họ:** E — chi phí & độ ổn định của đường phân tích
 - **Tác giả:** Claude (viết từ đo mã thật, 28/09/2026)
-- **Trạng thái:** §5 XONG 28/09 (gồm so blueprint thật) → chốt `SO_KHUNG_TOI_DA = 250`; §4 chờ duyệt
+- **Trạng thái:** XONG 29/09/2026 — §5 đo chốt `SO_KHUNG_TOI_DA = 250`, §4A-D đã code
 
 ---
 

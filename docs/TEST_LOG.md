@@ -20612,3 +20612,69 @@ phụ thuộc proxy). Tôi cũng thử dựng fixture **có chuyển động** �
 trùng thực tế hơn — dựng hai lần đều **thất bại**: vân tay tính trên ảnh xám
 64×64 nên khối 90px trong khung 854px co lại còn ~7px, dịch vài pixel không
 đủ vượt ngưỡng; đo ra lệch `0.0`. Ghi lại để bản sau đừng thử lại cùng cách.
+
+## E9 §4 — code trần số khung (29/09/2026)
+
+Làm sau khi §5 đã chốt `SO_KHUNG_TOI_DA = 250` bằng đo.
+
+### A. Trần, thưa dần ở ĐOẠN GIỮA
+
+Tách `_moc_va_buoc_giua()` trả `(mốc, bước giữa thật)` — cần tách vì hai chỗ
+khác phải **biết** bước thật chứ không được đoán: `ta_chinh_sach_lay_mau`
+(§4C) và `khoang_gop_theo_buoc` (§4B).
+
+| video | mốc | bước giữa | khoảng gộp |
+|---|---|---|---|
+| ≤ 90s | **y hệt trước** | 0,50s | 1,00s |
+| 120s | 248 | 0,56s | 1,12s |
+| 300s | 248 | 1,47s | 2,94s |
+| 600s | 248 | 2,99s | 5,99s |
+| 900s | 248 | 4,52s | 9,04s |
+
+### Bốn rào chắn — kiểm bằng đo, không bằng đọc
+
+1. **Vùng cam kết không đổi.** 11 độ dài từ 0,5s đến 90s, so **TỪNG MỐC** với
+   thuật toán cũ chép nguyên văn — giống hệt. So từng mốc chứ không so số
+   lượng: cùng số mốc mà lệch vị trí thì bằng chứng vẫn đổi, và phép so theo
+   số lượng sẽ không thấy.
+2. **Hai đầu vẫn dày.** Ở 300s/600s/900s, 26 mốc mỗi đầu, bước đúng 0,2s.
+3. **Không cắt đuôi.** Mốc cuối vẫn chạm đúng giây cuối video; bước giữa đều
+   nhau trong phạm vi 0,05s.
+4. **Không đụng trần 400 đầu ra** — `SO_BANG_CHUNG_TOI_DA` giữ nguyên.
+
+### B. Khoảng gộp đi theo bước thật
+
+`gop_quan_sat_lien_tiep(..., khoang_gop=None)` — **mặc định giữ nguyên hằng
+cũ**, nên mọi lời gọi sẵn có không đổi hành vi. Chỉ đường phân tích truyền
+bước thật vào. Không bao giờ trả nhỏ hơn 1,0s.
+
+Giữ lại dù §5 cho thấy mối nguy tôi từng nêu **không tái hiện được trên
+đường chạy thật** — lý do là làm hằng số đúng với định nghĩa của chính nó,
+và chú thích trong mã nói thẳng điều đó thay vì để người sau tưởng nó chặn
+một lỗi đã đo được.
+
+### C + D. Nói thật, và nói TRƯỚC
+
+`samplingPolicyUsed` nay khai mật độ **thật**: khi trần cắn thì thêm
+*"ĐÃ THƯA đoạn giữa do trần 250 khung (248 khung cho 600s; caption ngắn hơn
+2.99s ở đoạn giữa có thể không được lấy mẫu)"*. Thưa mà vẫn khai "giữa mỗi
+0,5s" là để mô hình tin quá mức vào bằng chứng mỏng — nó sẽ im lặng suy diễn
+từ chỗ không có dữ liệu.
+
+Trang «Phân tích cấu trúc» thêm một dòng nói trước về **thời gian**, không
+chỉ về tiền. Dòng đó **nhập hằng số từ `autodub.flow_blueprint`**, không gõ
+lại số — kiểm bằng cách dựng trang headless rồi so chuỗi với hằng.
+
+**Cố ý KHÔNG hứa số giây ở đó:** trang mới có đường liên kết, độ dài chỉ biết
+sau khi tải xong. Hứa theo giây là hứa sai đại lượng — đúng bài học của dòng
+giá Vox ngay trên nó (bản cũ hứa "video ~60 giây tốn ~32 Vox", lượt chạy thật
+tốn 88 Vox vì video kín caption).
+
+### Test
+
+`tests/test_e9_tran_so_khung.py` — **34 test**. pytest toàn bộ **3.285
+passed**, 4 skipped (3.251 → 3.285), mã thoát thật 0.
+
+**Chứng minh đỏ:** đặt `SO_KHUNG_TOI_DA = 999999` (tức bỏ trần) → **2 test
+ĐỎ**, khôi phục → 34 xanh. Không có bước này thì không biết bộ test đang đo
+trần hay đang đo trùng hợp.
